@@ -1,0 +1,39 @@
+{
+  "name": "@cafe/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "prisma:seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@cafe/contracts": "workspace:*",
+    "@fastify/cors": "^11",
+    "@fastify/helmet": "^13",
+    "@fastify/sensible": "^6",
+    "@fastify/swagger": "^9",
+    "@fastify/swagger-ui": "^5",
+    "@prisma/adapter-pg": "^6.19.3",
+    "@prisma/client": "^6.19.3",
+    "dotenv": "^17",
+    "fastify": "^5",
+    "fastify-plugin": "^5",
+    "pg": "^8",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@types/pg": "^8",
+    "prisma": "^6.19.3"
+  }
+}
