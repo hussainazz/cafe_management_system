@@ -4,7 +4,6 @@ This file tracks only the active `Left:` items copied from `docs/planning/backen
 
 ## Stage 0 - Scope And Domain Baseline
 
-- Create the initial ERD.
 - Define the API inventory.
 - List database constraints explicitly.
 - Document request/response conventions, error envelope, pagination, idempotency, and concurrency behavior.

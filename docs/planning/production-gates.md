@@ -35,13 +35,13 @@ Operating rules:
 
 ## Testing And Quality Strategy
 
-| Level        | Purpose                                         | Examples                                                                                                              |
-| ------------ | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Unit         | Fast tests for pure rules and state transitions | Toman arithmetic, option validation, discount allocation, allowed state transitions, permission predicates            |
-| Integration  | Real PostgreSQL constraints and transactions    | Order creation, payment, logical deletion, idempotency, stale-version conflict, rollback                              |
-| API contract | Request/response and authorization behavior     | OpenAPI schema, error envelope, Manager-only routes, forbidden actions                                                |
-| Browser E2E  | Small complete journeys                         | Staff login, POS order, barista queue, payment, delete/clear table, receipt, manager price change, public menu browse |
-| Operational  | Release and recovery behavior                   | Migration, health checks, restart recovery, backup restore, printer output, smoke tests                               |
+| Level        | Purpose                                         | Examples                                                                                                                                     |
+| ------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit         | Fast tests for pure rules and state transitions | Toman arithmetic, option validation, discount allocation, allowed state transitions, permission predicates                                   |
+| Integration  | Real PostgreSQL constraints and transactions    | Order creation, payment, logical deletion, idempotency, stale-version conflict, rollback                                                     |
+| API contract | Request/response and authorization behavior     | OpenAPI schema, error envelope, Manager-only routes, forbidden actions                                                                       |
+| Browser E2E  | Small complete journeys                         | Staff login, POS order, Staff preparation queue, split-tender payment, delete/clear table, receipt, Manager price change, public menu browse |
+| Operational  | Release and recovery behavior                   | Migration, health checks, restart recovery, backup restore, printer output, smoke tests                                                      |
 
 Definition of done for a feature:
 
@@ -73,7 +73,7 @@ Definition of done for a feature:
 | Tax/service charge    | None. Catalog prices are final.                                                                                                                     |
 | Business day/timezone | Store UTC; display/report in `Asia/Tehran`; define late-night business-day cut-off before reports are built.                                        |
 | Customer submission   | Not in v1. QR menu is browse-only.                                                                                                                  |
-| Roles                 | Manager and Staff only; waiter and barista are Staff.                                                                                               |
+| Roles                 | Manager and Staff only; POS and preparation work use Staff.                                                                                         |
 | Deployment            | One Iranian VPS, self-hosted stack, one writable PostgreSQL database.                                                                               |
 | Receipt integration   | Browser print for v1.                                                                                                                               |
 | Table cleanup         | `DELETED` is logical deletion with an audit record; no deletion reason is required, including for paid orders. It never physically removes records. |

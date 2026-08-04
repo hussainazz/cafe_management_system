@@ -12,7 +12,7 @@ Staff must be able to print receipts in v1, but direct printer control, silent E
 
 Use print-friendly browser receipt pages for v1 receipts.
 
-Receipts must include item snapshots, Toman totals, payment summary, receipt number, and `Asia/Tehran` display time.
+Receipts must include item snapshots, Toman totals, payment summary, order number, and `Asia/Tehran` display time.
 
 ## Consequences
 

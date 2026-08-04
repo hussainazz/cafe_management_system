@@ -12,7 +12,7 @@ This document owns product scope, business rules, architecture boundaries, and f
 
 ## Executive Summary
 
-The project is an integrated café operations platform with four task-focused surfaces: a public digital menu, a staff POS, a manager administration area, and a barista preparation queue. They share one backend, one PostgreSQL database, and one set of business rules.
+The project is an integrated café operations platform with four task-focused surfaces: a public digital menu, a Staff POS, a Manager administration area, and a Staff preparation queue. They share one backend, one PostgreSQL database, and one set of business rules.
 
 The v1 system is intentionally simple: staff create every order; customers can browse the QR menu but cannot send an order. This lets the first production release concentrate on reliable POS operation, correct prices and payments, and a clean audit trail before customer self-ordering is introduced.
 
@@ -26,7 +26,7 @@ Product goals:
 
 v1 success criteria:
 
-- A Staff user can create a table or takeaway order, send it to the barista queue, record cash or card-terminal payment, print a receipt, and logically delete an order when required.
+- A Staff user can create a table or takeaway order, send it to the Staff preparation queue, record one or more cash or card-terminal payments, print a receipt, and logically delete an order when required.
 - A customer can scan a QR code and browse the current menu on a phone. They cannot create, submit, pay for, or track an order in v1.
 - A product-price change never changes the price on a historical order or receipt.
 - A retry cannot create duplicate orders or duplicate payment records.
@@ -35,18 +35,19 @@ v1 success criteria:
 
 ## Product Boundaries
 
-| Area           | Baseline decision                                                                                                             |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                            |
-| Roles          | Only Manager and Staff exist. Staff covers both waiters and baristas.                                                         |
-| Customers      | Customers are anonymous menu viewers in v1. There are no customer accounts, guest-order sessions, or self-ordering endpoints. |
-| Currency       | Every amount is an integer count of **Toman**. Floating-point values and Rial conversion are forbidden.                       |
-| Time           | Store timestamps in UTC. Display timestamps and calculate business-day reports in `Asia/Tehran`.                              |
-| Ordering       | Every v1 order is created by a logged-in Staff user through POS.                                                              |
-| Payments       | Staff record cash and card-terminal payments manually. There is no online payment or terminal integration.                    |
-| Prices         | Each catalog price is already the finished price. There are no taxes or service charges.                                      |
-| Receipts       | v1 uses a print-friendly browser receipt. Silent ESC/POS printing and printer control are separate integrations.              |
-| Deployment     | One Iranian VPS hosts one authoritative application/database stack. There is no dual writable cloud/local setup.              |
+| Area           | Baseline decision                                                                                                                              |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                             |
+| Roles          | Only Manager and Staff exist. Staff performs both POS and preparation work.                                                                    |
+| Customers      | Customers are anonymous menu viewers in v1. There are no customer accounts, guest-order sessions, or self-ordering endpoints.                  |
+| Currency       | Every amount is an integer count of **Toman**. Floating-point values and Rial conversion are forbidden.                                        |
+| Time           | Store timestamps in UTC. Display timestamps and calculate business-day reports in `Asia/Tehran`.                                               |
+| Ordering       | Every v1 order is created by a logged-in Staff user through POS.                                                                               |
+| Payments       | Staff manually record one or more cash or card-terminal payments. Split tender is allowed; there is no online payment or terminal integration. |
+| Prices         | Each catalog price is already the finished price. There are no taxes or service charges.                                                       |
+| Preparation    | One bar prepares every v1 order. There is no kitchen or product-to-station routing.                                                            |
+| Receipts       | v1 uses a print-friendly browser receipt. Silent ESC/POS printing and printer control are separate integrations.                               |
+| Deployment     | One Iranian VPS hosts one authoritative application/database stack. There is no dual writable cloud/local setup.                               |
 
 User-facing surfaces:
 
@@ -54,7 +55,7 @@ User-facing surfaces:
 | ----------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Digital Menu      | Customer     | Browse the menu, categories, item details, options, availability, and final Toman prices. No cart submission or order tracking.            |
 | POS               | Staff        | Create and edit table or takeaway orders, assign tables where applicable, register payment, logically delete an order, and print receipts. |
-| Preparation Queue | Barista      | See pending items/orders in preparation order. v1 does not need a separate preparation-state machine.                                      |
+| Preparation Queue | Staff        | See pending items/orders in preparation order. v1 does not need a separate preparation-state machine.                                      |
 | Administration    | Manager      | Manage catalog, Staff accounts, settings, reports, and audit history.                                                                      |
 
 Explicit non-goals for v1:
@@ -62,7 +63,7 @@ Explicit non-goals for v1:
 - Customer self-ordering, customer carts submitted to the café, table-order QR security, guest order tracking, customer accounts, loyalty, wallets, coupons, and marketing automation.
 - Inventory, recipes, ingredient deduction, waste, suppliers, and purchase orders.
 - Reservations, multi-branch management, multi-tenancy, franchise reporting, and third-party delivery synchronization.
-- Online payments, direct card-terminal control, automatic refunds, accounting integrations, and split payments.
+- Online payments, direct card-terminal control, automatic refunds, and accounting integrations.
 - Tax, VAT, service-charge, or item-level tax calculation.
 - Full offline synchronization, a café-local authoritative server, or conflict resolution between two writable databases.
 - Native mobile apps, advanced forecasting, automatic printer routing, and a CDN requirement.
@@ -71,14 +72,14 @@ Scope rule: a future feature may influence a clean module boundary, but it must 
 
 ## Actors, Permissions, And Workflows
 
-There are no separate Cashier, Waiter, Barista, Administrator, or Preparation Staff roles in v1. A person’s real-world job title does not determine application permissions: waiters and baristas both sign in as **Staff**.
+There are no application roles beyond Manager and Staff in v1. A person’s real-world job title does not determine application permissions; POS and preparation work both use the **Staff** role.
 
 | Capability                                                                  | Staff | Manager |
 | --------------------------------------------------------------------------- | :---: | :-----: |
 | Sign in and use POS                                                         |  Yes  |   Yes   |
 | Create, edit, and submit pending orders                                     |  Yes  |   Yes   |
 | Assign or move a table on an open order                                     |  Yes  |   Yes   |
-| View the barista preparation queue                                          |  Yes  |   Yes   |
+| View the Staff preparation queue                                            |  Yes  |   Yes   |
 | Record a cash or card-terminal payment                                      |  Yes  |   Yes   |
 | Delete an order, including an already-paid order, without a required reason |  Yes  |   Yes   |
 | Print/reprint receipts                                                      |  Yes  |   Yes   |
@@ -94,18 +95,18 @@ v1 staff-created order flow:
 1. A Staff user selects the order type: table or takeaway.
 2. They add products, options, quantities, and notes in POS.
 3. The server validates availability and calculates all totals from current catalog data.
-4. The server creates the order with state `PENDING`, snapshots the item names and finished Toman prices, and adds it to the barista queue.
-5. The barista prepares the order. This physical work does not change the v1 order state.
-6. When the customer pays, Staff records cash or card-terminal payment. The order becomes `PAID`.
+4. The server creates the order with state `PENDING`, snapshots the item names and finished Toman prices, and adds it to the Staff preparation queue.
+5. Staff prepares the order. This physical work does not change the v1 order state.
+6. When the customer pays, Staff records one or more cash or card-terminal payments. The order becomes `PAID` when the recorded payment total reaches its final total.
 7. If the order must be removed from the active table/POS list, Staff chooses `DELETED`. This is a logical deletion; historical financial and audit records remain preserved. No deletion reason is required.
 
 v1 order states:
 
-| State     | Meaning                                                                                                           | Allowed next action                                                                                               |
-| --------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `PENDING` | Staff has registered the order. It is visible to the barista queue and has not been recorded as paid.             | Record payment → `PAID`; delete → `DELETED`; permitted content/table edit remains possible.                       |
-| `PAID`    | Staff has recorded the payment as cash or card terminal.                                                          | Delete → `DELETED` when the order should be removed from the active table/POS view; retain payment/audit history. |
-| `DELETED` | The order was removed from active work, with or without payment. It is never physically erased from the database. | No normal transition. A correction is an audited action, not a silent rewrite.                                    |
+| State     | Meaning                                                                                                           | Allowed next action                                                                                                                                            |
+| --------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PENDING` | Staff has registered the order. It is visible to the Staff preparation queue and is not fully paid.               | Record one or more payments; transition to `PAID` when their total reaches the final total; delete → `DELETED`; permitted content/table edit remains possible. |
+| `PAID`    | Staff has recorded one or more cash or card-terminal payments whose total reaches the final order total.          | Delete → `DELETED` when the order should be removed from the active table/POS view; retain payment/audit history.                                              |
+| `DELETED` | The order was removed from active work, with or without payment. It is never physically erased from the database. | No normal transition. A correction is an audited action, not a silent rewrite.                                                                                 |
 
 `DELETED` does not mean database deletion. A paid order must remain reportable and reconcilable; every deleted order must retain an audit record showing who deleted it and when. A deletion reason is optional and is not required for a paid order.
 
@@ -120,25 +121,25 @@ Corrections and exceptional flows:
 
 ## MVP V1 Definition
 
-| Capability             | Required v1 behavior                                                                                                                           |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Foundation             | Environment validation, database migrations, seed/bootstrap flow, structured errors, request IDs, logging, health/readiness endpoints.         |
-| Authentication         | Staff login, secure sessions, logout, account deactivation, and Manager/Staff authorization.                                                   |
-| Catalog                | Categories, products, options, images, display order, final Toman price, active state, temporary availability, and barista station assignment. |
-| POS order entry        | Table/takeaway orders; quantities, options, notes, server totals, controlled edits, logical deletion, and order history.                       |
-| Table operations       | Assign, transfer, view active orders, and clear table orders through the defined paid/delete flow. No split/merge.                             |
-| Preparation            | A lightweight barista queue showing pending work, with real-time refresh or polling. No separate preparation status is required.               |
-| Customer menu          | Mobile-first QR menu for browse/search/filter, availability, item options, and final Toman price. No checkout or order submission.             |
-| Payments               | Manual cash and card-terminal records; total-paid calculation; payment reference where useful; audit trail. No online payments.                |
-| Discounts              | One permissioned order-level fixed or percentage discount with reason. There are no taxes or service charges.                                  |
-| Receipts               | Print-friendly HTML receipt containing item snapshots, Toman totals, payment summary, receipt number, and `Asia/Tehran` display time.          |
-| Reports                | Daily/weekly/monthly sales, orders, average value, payment mix, item/category sales, discounts, deleted orders, and hourly sales.              |
-| Administration         | Catalog, availability, Staff accounts, settings, reports, and audit log.                                                                       |
-| Quality and operations | Critical tests, OpenAPI documentation, Docker deployment, HTTPS, backups, restore test, monitoring, and release rollback/forward-fix.          |
+| Capability             | Required v1 behavior                                                                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Foundation             | Environment validation, database migrations, seed/bootstrap flow, structured errors, request IDs, logging, health/readiness endpoints.                                        |
+| Authentication         | Staff login, secure sessions, logout, account deactivation, and Manager/Staff authorization.                                                                                  |
+| Catalog                | Categories, products, options, images, display order, final Toman price, active state, and temporary availability.                                                            |
+| POS order entry        | Table/takeaway orders; quantities, options, notes, server totals, controlled edits, logical deletion, and order history.                                                      |
+| Table operations       | Assign, transfer, view active orders, and clear table orders through the defined paid/delete flow. No order or table split/merge.                                             |
+| Preparation            | A lightweight Staff preparation queue showing pending work, with real-time refresh or polling. No separate preparation status is required.                                    |
+| Customer menu          | Mobile-first QR menu for browse/search/filter, availability, item options, and final Toman price. No checkout or order submission.                                            |
+| Payments               | One or more manual cash and card-terminal records per order, including split tender; total-paid calculation; payment reference where useful; audit trail. No online payments. |
+| Discounts              | One permissioned order-level fixed or percentage discount with reason. There are no taxes or service charges.                                                                 |
+| Receipts               | Print-friendly HTML receipt containing item snapshots, Toman totals, payment summary, order number, and `Asia/Tehran` display time.                                           |
+| Reports                | Daily/weekly/monthly sales, orders, average value, payment mix, item/category sales, discounts, deleted orders, and hourly sales.                                             |
+| Administration         | Catalog, availability, Staff accounts, settings, reports, and audit log.                                                                                                      |
+| Quality and operations | Critical tests, OpenAPI documentation, Docker deployment, HTTPS, backups, restore test, monitoring, and release rollback/forward-fix.                                         |
 
 Pilot acceptance scenarios:
 
-- Create a normal takeaway order, see it in the barista queue, record a cash payment, and print a receipt.
+- Create a normal takeaway order, see it in the Staff preparation queue, record a cash payment, and print a receipt.
 - Create and transfer a table order, record a card-terminal payment, then choose to clear that table’s orders.
 - Delete an unpaid order and a paid order; verify that neither is physically removed and both have an actor and timestamp in audit history. Verify that Staff can delete the paid order without providing a reason.
 - Change a product price and confirm that an earlier receipt remains unchanged.
@@ -149,16 +150,16 @@ Pilot acceptance scenarios:
 
 ## Domain Model And Business Rules
 
-| Module      | Owns                                                                                                  |
-| ----------- | ----------------------------------------------------------------------------------------------------- |
-| Identity    | Users, credentials, sessions, Manager/Staff role, permissions, authentication events.                 |
-| Catalog     | Categories, products, images, option groups/options, availability, display order, barista assignment. |
-| Ordering    | Orders, order items, price snapshots, notes, channel, state transitions, idempotency.                 |
-| Tables      | Physical tables and assignment/clearing of active orders.                                             |
-| Preparation | Barista queue projections for pending order items.                                                    |
-| Payments    | Manual payment entries, correction/reversal policy, receipt numbering, balance calculation.           |
-| Reporting   | Read-oriented sales queries and exports based on committed data.                                      |
-| Operations  | Café settings, audit logs, system health, and operational metadata.                                   |
+| Module      | Owns                                                                                          |
+| ----------- | --------------------------------------------------------------------------------------------- |
+| Identity    | Users, credentials, sessions, Manager/Staff role, permissions, authentication events.         |
+| Catalog     | Categories, products, images, option groups/options, availability, and display order.         |
+| Ordering    | Orders, order items, price snapshots, notes, channel, state transitions, idempotency.         |
+| Tables      | Physical tables and assignment/clearing of active orders.                                     |
+| Preparation | Staff preparation queue projections for pending order items.                                  |
+| Payments    | Manual payment entries, correction/reversal policy, order numbering, and balance calculation. |
+| Reporting   | Read-oriented sales queries and exports based on committed data.                              |
+| Operations  | Café settings, audit logs, system health, and operational metadata.                           |
 
 Money, pricing, and tax rules:
 
@@ -171,10 +172,10 @@ Money, pricing, and tax rules:
 
 Payment, deletion, integrity, and audit rules:
 
-- An order and a payment are separate records. v1 supports cash and card-terminal payment methods only.
-- A payment record contains an idempotency key, amount in Toman, method, actor, timestamp, and an optional terminal/reference number.
+- An order and a payment are separate records. v1 supports one or more cash and card-terminal payment records per order, so split tender is allowed.
+- A payment record contains an idempotency key, full or partial amount in Toman, method, actor, timestamp, and an optional terminal/reference number.
 - Posted payment records are not edited or physically deleted. A mistake is handled through a permissioned reversal/correction with a reason, and this action is audited.
-- Recording a payment, recalculating the balance, updating the order to `PAID`, and writing the audit entry occur in one transaction.
+- Recording each payment, recalculating the balance, conditionally updating the order to `PAID` when the payment total reaches the final total, and writing the audit entry occur in one transaction.
 - Marking an order `DELETED` preserves the order, its items, any payment records, and audit history. Reports can include or exclude deleted orders explicitly; they must never disappear accidentally.
 - Database constraints enforce positive quantities, non-negative prices/discounts, valid states, unique identifiers, foreign keys, and required price snapshots.
 - Every multi-record order or payment operation runs in a PostgreSQL transaction.
@@ -190,7 +191,7 @@ Payment, deletion, integrity, and audit rules:
 The system begins as a modular monolith. It keeps feature boundaries and strong transactions without microservice deployment overhead.
 
 ```text
-Digital Menu | Staff POS | Manager Admin | Barista Queue
+Digital Menu | Staff POS | Manager Admin | Staff Preparation Queue
                          ↓
             Next.js web application (separate routes)
                          ↓
@@ -215,7 +216,7 @@ Recommended monorepo shape:
 ```text
 apps/
   api/          # Fastify modular monolith
-  web/          # Next.js menu, POS, barista queue, manager admin
+  web/          # Next.js menu, POS, Staff preparation queue, manager admin
 packages/
   contracts/    # Zod DTO schemas and API types
   config/       # shared lint, TypeScript, test configuration
@@ -237,7 +238,7 @@ Frontend and operational UX:
 - Use Zustand only for small transient state such as an unsaved POS draft. Persisted business truth remains on the server.
 - The digital menu is mobile-first, browse-only, and displays final Toman prices and current availability.
 - The POS shows connection state, stale-data conflicts, pending/paid/deleted state, payment totals, and the actor responsible for privileged actions.
-- The barista queue is a focused list of pending work and does not expose payment details.
+- The Staff preparation queue is a focused list of pending work and does not expose payment details.
 - Browser printing is the v1 receipt boundary. Validate the actual café printer and paper size before pilot.
 
 Authentication, authorization, and security:
@@ -267,7 +268,7 @@ Reporting and audit:
 | Validation/contracts | Zod plus generated OpenAPI                             | Runtime validation at boundaries; ORM types remain internal.                           |
 | Database             | PostgreSQL                                             | Authoritative transactions, constraints, reporting, and concurrency control.           |
 | Database toolkit     | Prisma                                                 | Migrations and normal data access; repositories; parameterized raw SQL when justified. |
-| Frontend             | React, Next.js, Tailwind CSS                           | One web deployment with separate menu, POS, barista, and manager routes.               |
+| Frontend             | React, Next.js, Tailwind CSS                           | One web deployment with separate menu, POS, Staff preparation, and Manager routes.     |
 | Client data          | TanStack Query, React Hook Form, Zod, optional Zustand | Server state is not duplicated in a global client store.                               |
 | Testing              | Vitest plus browser E2E tooling                        | Real PostgreSQL integration tests and a small critical browser suite.                  |
 | Storage              | Self-hosted image storage                              | Product images only; PostgreSQL stores metadata and references.                        |

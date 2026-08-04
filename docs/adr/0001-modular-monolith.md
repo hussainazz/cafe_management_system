@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The v1 product serves one cafe and one branch with four user-facing surfaces: digital menu, Staff POS, Manager administration, and barista preparation queue. These surfaces share one backend, one PostgreSQL database, and one set of business rules.
+The v1 product serves one cafe and one branch with four user-facing surfaces: digital menu, Staff POS, Manager administration, and Staff preparation queue. These surfaces share one backend, one PostgreSQL database, and one set of business rules.
 
 The system must prioritize correct order, payment, price, audit, and table behavior before adding operational complexity.
 

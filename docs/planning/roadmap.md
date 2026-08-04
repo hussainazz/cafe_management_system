@@ -21,27 +21,27 @@ No roadmap stage is complete yet.
 
 Current implementation status as of 4 August 2026:
 
-- **Stage 0 — Scope and domain baseline:** partially complete. `scope.md` defines the main v1 scope, non-goals, roles, order states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions. Remaining exit-gate evidence still needed: ERD, API inventory, explicit database constraint list, request/response conventions, and a prioritized backend backlog with acceptance criteria.
+- **Stage 0 — Scope and domain baseline:** partially complete. `scope.md` defines the main v1 scope, non-goals, roles, order states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, and the initial ERD is documented. Remaining exit-gate evidence still needed: API inventory, explicit database constraint list, request/response conventions, and a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** in progress. Implemented so far: pnpm monorepo workspace, strict shared TypeScript config, Prettier/ESLint setup, Fastify API skeleton, environment validation, request IDs, basic logging, CORS/Helmet/Sensible registration, Swagger/OpenAPI plugin registration, PostgreSQL Docker Compose service, Prisma schema/client setup, liveness/readiness routes, graceful shutdown, and API health integration tests.
 - **Stage 1 verification:** `pnpm typecheck` passes, and `pnpm --filter @cafe/api test` passes against the current local PostgreSQL connection. `pnpm lint` errors are ignored by project rule in `AGENTS.md`.
 - **Stage 1 remaining work:** create the initial database tables, add the initial Prisma migration, create the seed/bootstrap flow for the first Manager, define a separate test database workflow, finish structured error envelopes, decide how OpenAPI schemas are generated from validated request/response schemas, and prove the fresh-environment Stage 1 exit gate.
 
 ## Stage Overview
 
-| Stage | Area                                  | Required outcome                                                                                                                                     |
-| ----- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | Scope and domain baseline             | Approved use cases, business rules, state tables, ERD, API inventory, ADRs, and prioritized backlog                                                  |
-| 1     | Database and backend foundation       | Database tables, migrations, seed/bootstrap, test database workflow, runnable Fastify service, health checks, and test infrastructure                |
-| 2     | POS backend                           | Staff auth, catalog/table data needed by POS, Staff-created orders, payments, receipts, deletion, audit, and barista queue API                       |
-| 3     | QR-menu backend                       | Public browse-only menu API for categories, products, options, availability, images, and final Toman prices                                         |
-| 4     | Staff POS frontend                    | POS, table operations, barista queue, payment entry, deletion flow, receipt printing, and reconnect/conflict states                                  |
-| 5     | QR-menu frontend                      | Mobile-first browse-only public menu with categories, search/filtering, options, availability, images, and final Toman prices                       |
-| 6     | Manager and reporting backend         | Manager catalog/user/settings APIs, sales reports, audit queries, indexes, and bounded exports                                                       |
-| 7     | Manager frontend                      | Catalog management, Staff accounts, settings, reports, and audit-history interfaces                                                                  |
-| 8     | Full-system hardening                 | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, and API/frontend stabilization                         |
-| 9     | Deployment preparation                | Production Compose/Caddy-or-Nginx baseline, backup/restore procedures, monitoring, log rotation, release procedure, and manual fallback runbook      |
-| 10    | VPS deployment and pilot              | Iranian VPS deployment, HTTPS, production secrets, restore drill, CDN need check after measurement, and limited live pilot                          |
-| Later | Customer ordering                     | Customer cart, table selection, Staff confirmation, preparation handoff, and protected public order submission                                       |
+| Stage | Area                            | Required outcome                                                                                                                                      |
+| ----- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | Scope and domain baseline       | Approved use cases, business rules, state tables, ERD, API inventory, ADRs, and prioritized backlog                                                   |
+| 1     | Database and backend foundation | Database tables, migrations, seed/bootstrap, test database workflow, runnable Fastify service, health checks, and test infrastructure                 |
+| 2     | POS backend                     | Staff auth, catalog/table data needed by POS, Staff-created orders, split-tender payments, receipts, deletion, audit, and Staff preparation queue API |
+| 3     | QR-menu backend                 | Public browse-only menu API for categories, products, options, availability, images, and final Toman prices                                           |
+| 4     | Staff POS frontend              | POS, table operations, Staff preparation queue, payment entry, deletion flow, receipt printing, and reconnect/conflict states                         |
+| 5     | QR-menu frontend                | Mobile-first browse-only public menu with categories, search/filtering, options, availability, images, and final Toman prices                         |
+| 6     | Manager and reporting backend   | Manager catalog/user/settings APIs, sales reports, audit queries, indexes, and bounded exports                                                        |
+| 7     | Manager frontend                | Catalog management, Staff accounts, settings, reports, and audit-history interfaces                                                                   |
+| 8     | Full-system hardening           | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, and API/frontend stabilization                           |
+| 9     | Deployment preparation          | Production Compose/Caddy-or-Nginx baseline, backup/restore procedures, monitoring, log rotation, release procedure, and manual fallback runbook       |
+| 10    | VPS deployment and pilot        | Iranian VPS deployment, HTTPS, production secrets, restore drill, CDN need check after measurement, and limited live pilot                            |
+| Later | Customer ordering               | Customer cart, table selection, Staff confirmation, preparation handoff, and protected public order submission                                        |
 
 ## Stages
 
@@ -81,10 +81,10 @@ Exit gate:
 - Calculate all prices and totals on the server and persist immutable item/option snapshots in integer Toman.
 - Implement controlled edits to `PENDING` orders, table assignment/transfer, and order history.
 - Implement logical deletion with actor and timestamp; a reason is optional, including for paid-order deletion. Never physically delete an order.
-- Implement manual cash and card-terminal payment records.
-- Make payment registration idempotent and transactional with the `PAID` transition and audit entry.
-- Provide receipt-ready API data with stable receipt numbers and `Asia/Tehran` display timestamps.
-- Provide barista queue reads with polling-compatible APIs.
+- Implement one or more manual cash and card-terminal payment records per order, including split tender.
+- Make each payment registration idempotent and transactional; transition to `PAID` with the audit entry when the recorded payment total reaches the order total.
+- Provide receipt-ready API data with stable order numbers and `Asia/Tehran` display timestamps.
+- Provide Staff preparation queue reads with polling-compatible APIs.
 - Test permissions, duplicate retries, stale edits, invalid transitions, unavailable products, historical price stability, payment reconciliation, and transaction rollback.
 
 Exit gate:
@@ -107,7 +107,7 @@ Exit gate:
 - Create the Next.js application shell, route groups, layouts, shared UI primitives, environment configuration, and typed API client needed by Staff routes.
 - Build order channel selection, product/options entry, notes, totals, and controlled pending-order edits.
 - Build table assignment/transfer, active-table view, payment entry, deletion/clear flow, and receipt printing.
-- Build the barista queue with order number, items, quantities, notes, table/channel, and creation time.
+- Build the Staff preparation queue with order number, items, quantities, notes, table/channel, and creation time.
 - Handle idempotent retry results, stale-version conflicts, API failures, connection state, and reconnect refetch.
 - Validate touch targets, keyboard operation, actual café devices, and the real receipt printer/paper size.
 
@@ -152,7 +152,7 @@ Exit gate:
 
 ### Stage 8 — Full-System Hardening
 
-- Run the critical browser E2E suite across public menu, POS, barista, payment, deletion, receipt, Manager, and reporting journeys.
+- Run the critical browser E2E suite across public menu, POS, Staff preparation, payment, deletion, receipt, Manager, and reporting journeys.
 - Complete integration/contract test coverage for authorization, idempotency, concurrency, payments, reports, and public-response safety.
 - Run the security review for cookies/tokens, CSRF, rate limits, uploads, secrets, input limits, and safe logs.
 - Rehearse migrations on both a fresh database and a restored production-like database.

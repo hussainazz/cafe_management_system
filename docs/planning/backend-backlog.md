@@ -18,10 +18,10 @@ Done:
 
 - v1 scope, explicit non-goals, roles, order states, money/time/deployment rules, domain modules, architecture direction, production gates, and the database-first/POS-first roadmap are documented.
 - ADR files for modular monolith, PostgreSQL/Prisma, Toman integers, UTC storage with `Asia/Tehran` reporting, Iranian VPS, browser printing, and browse-only QR menu are documented.
+- Initial ERD is documented.
 
 Left:
 
-- Create the initial ERD.
 - Define the API inventory.
 - List database constraints explicitly.
 - Document request/response conventions, error envelope, pagination, idempotency, and concurrency behavior.
@@ -73,10 +73,10 @@ Exit gate:
 - Implement controlled edits to `PENDING` orders, table assignment/transfer, and order history.
 - Implement logical deletion with actor and timestamp; a reason is optional, including for paid-order deletion. Never physically delete an order.
 - Add order-version concurrency protection and creation idempotency.
-- Implement manual cash and card-terminal payment records.
-- Make payment registration idempotent and transactional with the `PAID` transition and audit entry.
-- Provide receipt-ready API data with stable receipt numbers and `Asia/Tehran` display timestamps.
-- Provide barista queue reads with polling-compatible APIs.
+- Implement one or more manual cash and card-terminal payment records per order, including split tender.
+- Make each payment registration idempotent and transactional; transition to `PAID` with the audit entry when the recorded payment total reaches the order total.
+- Provide receipt-ready API data with stable order numbers and `Asia/Tehran` display timestamps.
+- Provide Staff preparation queue reads with polling-compatible APIs.
 - Test permissions, duplicate retries, stale edits, invalid transitions, unavailable products, historical price stability, payment reconciliation, and transaction rollback.
 
 Exit gate:
