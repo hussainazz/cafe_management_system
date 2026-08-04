@@ -19,9 +19,9 @@ Manager/admin and reporting work must not block the POS and QR-menu path unless 
 
 No roadmap stage is complete yet.
 
-Current implementation status as of 2 August 2026:
+Current implementation status as of 4 August 2026:
 
-- **Stage 0 — Scope and domain baseline:** partially complete. `scope.md` defines the main v1 scope, non-goals, roles, order states, business rules, architecture direction, and production gates. Remaining exit-gate evidence still needed: ADR files, ERD, API inventory, explicit database constraint list, request/response conventions, and a prioritized backend backlog with acceptance criteria.
+- **Stage 0 — Scope and domain baseline:** partially complete. `scope.md` defines the main v1 scope, non-goals, roles, order states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions. Remaining exit-gate evidence still needed: ERD, API inventory, explicit database constraint list, request/response conventions, and a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** in progress. Implemented so far: pnpm monorepo workspace, strict shared TypeScript config, Prettier/ESLint setup, Fastify API skeleton, environment validation, request IDs, basic logging, CORS/Helmet/Sensible registration, Swagger/OpenAPI plugin registration, PostgreSQL Docker Compose service, Prisma schema/client setup, liveness/readiness routes, graceful shutdown, and API health integration tests.
 - **Stage 1 verification:** `pnpm typecheck` passes, and `pnpm --filter @cafe/api test` passes against the current local PostgreSQL connection. `pnpm lint` errors are ignored by project rule in `AGENTS.md`.
 - **Stage 1 remaining work:** create the initial database tables, add the initial Prisma migration, create the seed/bootstrap flow for the first Manager, define a separate test database workflow, finish structured error envelopes, decide how OpenAPI schemas are generated from validated request/response schemas, and prove the fresh-environment Stage 1 exit gate.

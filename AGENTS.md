@@ -9,8 +9,8 @@
 # In progress Stages:
 
 - Stage 0 — Scope and domain baseline
-  - Done: `docs/planning/scope.md` and `docs/planning/roadmap.md` define the v1 scope, explicit non-goals, roles, order states, money/time/deployment rules, domain modules, architecture direction, production gates, and database-first/POS-first roadmap.
-  - Left: write ADR files, create the ERD, define the API inventory, list the database constraints explicitly, document request/response conventions, and convert the roadmap into a prioritized backend backlog with acceptance criteria.
+  - Done: `docs/planning/scope.md` and `docs/planning/roadmap.md` define the v1 scope, explicit non-goals, roles, order states, money/time/deployment rules, domain modules, architecture direction, production gates, and database-first/POS-first roadmap. ADR files document the fixed major decisions.
+  - Left: create the ERD, define the API inventory, list the database constraints explicitly, document request/response conventions, and convert the roadmap into a prioritized backend backlog with acceptance criteria.
 
 - Stage 1 — Database and backend foundation
   - Done: pnpm monorepo workspace, shared strict TypeScript config, Prettier/ESLint setup, Fastify API skeleton, environment validation, request IDs, basic logging, CORS/Helmet/Sensible registration, Swagger/OpenAPI plugin registration, PostgreSQL Docker Compose service, Prisma schema/client setup, liveness/readiness routes, graceful shutdown, and API health integration tests.

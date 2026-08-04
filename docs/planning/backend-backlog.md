@@ -17,10 +17,10 @@ Current verification:
 Done:
 
 - v1 scope, explicit non-goals, roles, order states, money/time/deployment rules, domain modules, architecture direction, production gates, and the database-first/POS-first roadmap are documented.
+- ADR files for modular monolith, PostgreSQL/Prisma, Toman integers, UTC storage with `Asia/Tehran` reporting, Iranian VPS, browser printing, and browse-only QR menu are documented.
 
 Left:
 
-- Write ADR files for modular monolith, PostgreSQL/Prisma, Toman integers, UTC storage with `Asia/Tehran` reporting, Iranian VPS, browser printing, and browse-only QR menu.
 - Create the initial ERD.
 - Define the API inventory.
 - List database constraints explicitly.
