@@ -3,6 +3,7 @@
 - Given tasks should stay inside the framework of the planning docs unless changing the overview is essential. If a planning change is essential, do not implement that change without permission; update the relevant planning doc first, then make the codebase change.
 - After completing each roadmap stage, briefly write the progress status here. Even if a stage is not completely done, write what is done and what is left in `In progress Stages`.
 - Never ignore, delete, untrack, or accept a merge/rebase conflict resolution that removes `docs/`, `docs/planning/`, or any tracked planning document. Do not add `/docs` or `docs/` to `.gitignore`. After any pull, rebase, merge, or conflict resolution, verify the planning docs still exist before continuing.
+- Keep `docs/current-left.md` as the active completion checklist for the current backend phase. It must contain only the relevant `Left:` items from `docs/planning/backend-backlog.md`. When the user says to make the commits, treat that as the point where completed items may be removed from `docs/current-left.md`; remove only the completed item text and never delete the file itself.
 - ignore the pnpm lint errors.
 
 # In progress Stages:
