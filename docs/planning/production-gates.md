@@ -31,16 +31,16 @@ Operating rules:
 - Automated backups have documented retention and are stored separately from the primary VPS. Complete a clean restore drill before pilot and after material schema changes.
 - Each release runs reviewed migrations, records the deployed version, and has a rollback or forward-fix plan that does not require downloading an international dependency.
 - Log rotation and alerts cover readiness, database connectivity, disk space, backup failure, and repeated server errors.
-- Maintain an operator runbook for deployment, startup/shutdown, backup/restore, user recovery, receipt setup, and manual order fallback.
+- Maintain an operator runbook for deployment, startup/shutdown, backup/restore, user recovery, bar-ticket and customer-receipt setup, and manual order fallback.
 
 ## Testing And Quality Strategy
 
 | Level        | Purpose                                         | Examples                                                                                                                                     |
 | ------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit         | Fast tests for pure rules and state transitions | Toman arithmetic, option validation, discount allocation, allowed state transitions, permission predicates                                   |
-| Integration  | Real PostgreSQL constraints and transactions    | Order creation, payment, logical deletion, idempotency, stale-version conflict, rollback                                                     |
+| Unit         | Fast tests for pure rules and state transitions | Toman arithmetic, option validation, discount allocation, settlement allocation, payment-status transitions, permission predicates          |
+| Integration  | Real PostgreSQL constraints and transactions    | Order creation, selected-item settlement, mixed tender, card transfer, reversal, logical deletion, idempotency, stale-version conflict, rollback |
 | API contract | Request/response and authorization behavior     | OpenAPI schema, error envelope, Manager-only routes, forbidden actions                                                                       |
-| Browser E2E  | Small complete journeys                         | Staff login, POS order, Staff preparation queue, split-tender payment, delete/clear table, receipt, Manager price change, public menu browse |
+| Browser E2E  | Small complete journeys                         | Staff login, POS order and concise bar-ticket print, selected-item mixed-tender/card-transfer settlement, delete/clear table, detailed customer whole-order/settlement receipt, Manager price change, public menu browse |
 | Operational  | Release and recovery behavior                   | Migration, health checks, restart recovery, backup restore, printer output, smoke tests                                                      |
 
 Definition of done for a feature:
@@ -57,12 +57,12 @@ Definition of done for a feature:
 
 | Gate                 | Required evidence                                                                                                                               |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Business correctness | Critical pending/paid/deleted, payment, table, receipt, and price-snapshot scenarios pass with known Toman totals.                              |
+| Business correctness | Critical open/deleted, unpaid/partially-paid/paid, settlement allocation, table, concise bar-ticket, detailed customer-receipt, and price-snapshot scenarios pass with known Toman totals. |
 | Security             | HTTPS, secure session controls, CSRF controls, rate limits, Manager/Staff authorization review, secret handling, safe logging, dependency scan. |
 | Data safety          | Migration test, automated backup, successful clean restore, retention policy, disk monitoring.                                                  |
 | Reliability          | Restart recovery, readiness checks, stale-client conflicts, idempotent retries, and café-internet-loss/manual-fallback behavior tested.         |
 | Operations           | Versioned release, rollback/forward-fix procedure, log access, alerts, Manager recovery, operator runbook.                                      |
-| Hardware and UX      | Actual POS device, browser, network, receipt printer, paper size, touch targets, and busy-hour workflow tested.                                 |
+| Hardware and UX      | Actual POS device, browser, network, receipt printer, paper size, both bar-ticket/customer-receipt layouts, touch targets, and busy-hour workflow tested. |
 | Pilot                | A limited live shift runs with the fallback procedure; issues are recorded and no unreconciled financial difference remains.                    |
 
 ## Decisions Fixed Before Implementation
@@ -71,9 +71,9 @@ Definition of done for a feature:
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Money unit            | Integer Toman for storage and display.                                                                                                              |
 | Tax/service charge    | None. Catalog prices are final.                                                                                                                     |
-| Business day/timezone | Store UTC; display/report in `Asia/Tehran`; define late-night business-day cut-off before reports are built.                                        |
+| Business day/timezone | Store UTC; display/report using `Asia/Tehran` calendar boundaries. The cafe is always open, so v1 has no configurable business-day cut-off.          |
 | Customer submission   | Not in v1. QR menu is browse-only.                                                                                                                  |
-| Roles                 | Manager and Staff only; POS and preparation work use Staff.                                                                                         |
+| Roles                 | Manager and Staff only; POS uses Staff.                                                                                                             |
 | Deployment            | One Iranian VPS, self-hosted stack, one writable PostgreSQL database.                                                                               |
 | Receipt integration   | Browser print for v1.                                                                                                                               |
 | Table cleanup         | `DELETED` is logical deletion with an audit record; no deletion reason is required, including for paid orders. It never physically removes records. |
