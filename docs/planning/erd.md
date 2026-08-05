@@ -61,10 +61,9 @@ erDiagram
 
     ProductImage {
         uuid id PK
-        uuid productId FK
+        uuid productId FK "unique"
         string storageKey
         string altText
-        integer displayOrder
     }
 
     OptionGroup {
@@ -105,6 +104,7 @@ erDiagram
         uuid createdById FK
         enum channel
         enum state
+        enum paymentStatus
         integer version
         enum discountKind
         integer discountValue
@@ -143,23 +143,36 @@ erDiagram
         integer quantity
     }
 
-    Payment {
+    PaymentSettlement {
         uuid id PK
         uuid orderId FK
         uuid recordedById FK
         string idempotencyKey
-        enum method
-        integer amount
-        string terminalReference
+        integer totalAmount
         datetime recordedAt
     }
 
-    PaymentCorrection {
+    SettlementAllocation {
         uuid id PK
-        uuid paymentId FK
-        uuid recordedById FK
-        enum kind
+        uuid settlementId FK
+        uuid orderItemId FK
+        integer quantity
         integer amount
+    }
+
+    Payment {
+        uuid id PK
+        uuid settlementId FK
+        enum method
+        integer amount
+        string reference
+        datetime recordedAt
+    }
+
+    SettlementReversal {
+        uuid id PK
+        uuid settlementId FK
+        uuid recordedById FK
         string reason
         datetime recordedAt
     }
@@ -192,14 +205,13 @@ erDiagram
     CafeSettings {
         uuid id PK
         uuid updatedById FK
-        string businessDayCutoff
         datetime updatedAt
     }
 
     User ||--o{ RefreshSession : owns
     User ||--o{ AuthEvent : produces
     Category ||--o{ Product : groups
-    Product ||--o{ ProductImage : has
+    Product ||--o| ProductImage : has
     Product ||--o{ ProductOptionGroup : enables
     OptionGroup ||--o{ ProductOptionGroup : applies_to
     OptionGroup ||--o{ Option : contains
@@ -209,10 +221,13 @@ erDiagram
     Product ||--o{ OrderItem : referenced_by
     OrderItem ||--o{ OrderItemOption : snapshots
     Option ||--o{ OrderItemOption : referenced_by
-    Order ||--o{ Payment : receives
-    User ||--o{ Payment : records
-    Payment ||--o{ PaymentCorrection : corrected_by
-    User ||--o{ PaymentCorrection : records
+    Order ||--o{ PaymentSettlement : has
+    User ||--o{ PaymentSettlement : records
+    PaymentSettlement ||--|{ SettlementAllocation : allocates
+    OrderItem ||--o{ SettlementAllocation : settled_by
+    PaymentSettlement ||--|{ Payment : contains
+    PaymentSettlement ||--o| SettlementReversal : reversed_by
+    User ||--o{ SettlementReversal : records
     User ||--o{ IdempotencyRecord : submits
     User ||--o{ AuditLog : acts_in
     User ||--o{ CafeSettings : updates
@@ -228,7 +243,7 @@ represents one line on one customer order.
 | Diagram notation | Meaning                                                                                                                                                                                                                |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id PK`          | **Primary key**. A stable identifier for one row. UUIDs let the application create identifiers safely without relying on a visible sequential number.                                                                  |
-| `...Id FK`       | **Foreign key**. A stored link to another table's `id`, such as `Payment.orderId` linking a payment to the order it paid for. The exact referential rules are intentionally deferred to the database-constraints task. |
+| `...Id FK`       | **Foreign key**. A stored link to another table's `id`, such as `PaymentSettlement.orderId` linking a settlement to the order it settles. The exact referential rules are intentionally deferred to the database-constraints task. |
 | `enum`           | A value chosen from a small, controlled set. Examples are the two user roles and the three order states. This prevents spelling variants from becoming data.                                                           |
 | `boolean`        | A true/false value, usually for whether something can currently be used or shown.                                                                                                                                      |
 | `datetime`       | A time stored in UTC. The application converts it to `Asia/Tehran` only when displaying it or calculating report boundaries.                                                                                           |
@@ -276,7 +291,7 @@ specified in the next Stage 0 task rather than implied only by the diagram.
 | `requestId`  | Correlation identifier shared with the API request logs, so an operator can investigate one request safely. |
 | `occurredAt` | When the event happened.                                                                                    |
 
-### Catalog And Preparation
+### Catalog
 
 #### Category
 
@@ -306,10 +321,9 @@ specified in the next Stage 0 task rather than implied only by the diagram.
 | Field          | Explanation                                                                                                                        |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `id`           | Internal identity of one image record.                                                                                             |
-| `productId`    | Link to the product the image illustrates.                                                                                         |
+| `productId`    | Unique link to the product the image illustrates. A v1 product can have at most one current image.                                  |
 | `storageKey`   | The safe identifier or path used to find the file in self-hosted image storage. The database stores metadata, not the image bytes. |
 | `altText`      | Text alternative for accessibility and a useful fallback when an image cannot load.                                                |
-| `displayOrder` | The order of images for a product that has more than one.                                                                          |
 
 #### OptionGroup And ProductOptionGroup
 
@@ -352,24 +366,25 @@ specified in the next Stage 0 task rather than implied only by the diagram.
 | Field            | Explanation                                                                                                                                                                     |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`             | Internal identity of the order. APIs and related records use this rather than the visible order number.                                                                         |
-| `orderNumber`    | Stable, human-readable number used by the POS, Staff preparation queue, and printed receipt. Browser printing does not need a separate printed identifier or printer-job table. |
+| `orderNumber`    | Stable, human-readable number used by the POS, bar ticket, and customer receipt. Browser printing does not need a separate printed identifier or printer-job table.                 |
 | `tableId`        | Optional link to the assigned table. It is empty for a takeaway order.                                                                                                          |
 | `createdById`    | Link to the logged-in Staff or Manager who created the order.                                                                                                                   |
 | `channel`        | Controlled order origin: `TABLE` or `TAKEAWAY` in v1.                                                                                                                           |
-| `state`          | Current lifecycle state: `PENDING`, `PAID`, or `DELETED`. It is business state, not a physical database deletion flag.                                                          |
-| `version`        | A revision number that increments on an accepted edit. The POS supplies the version it last saw, allowing the server to reject a stale edit rather than overwrite newer work.   |
+| `state`          | Current lifecycle state: `OPEN` or `DELETED`. It is distinct from payment status and is not a physical database deletion flag.                                                  |
+| `paymentStatus`  | Current payment state: `UNPAID`, `PARTIALLY_PAID`, or `PAID`, derived from active settlement allocations and persisted for POS reads.                                           |
+| `version`        | A revision number that increments on an accepted edit or settlement change. The POS supplies the version it last saw, allowing the server to reject stale writes.              |
 | `discountKind`   | Whether the one permitted order-level discount is fixed Toman or a percentage. It is empty when no discount is applied.                                                         |
 | `discountValue`  | The value originally entered for the discount: either a Toman amount or a percentage, depending on `discountKind`.                                                              |
 | `discountAmount` | The final calculated Toman value deducted from the order. Storing it avoids changing history if calculation rules later change.                                                 |
 | `discountReason` | Optionally The required business explanation for a discount.                                                                                                                    |
 | `subtotalAmount` | Sum of order-item totals before the order-level discount, in Toman.                                                                                                             |
 | `totalAmount`    | Final amount due after the discount, in Toman. There are no tax or service-charge additions in v1.                                                                              |
-| `paidAmount`     | Total committed amount across one or more payment records, after applicable corrections, in Toman. It supports split tender, quick reads, and report calculations.              |
-| `balanceAmount`  | Amount still due after payment, in Toman. It is derived by the server, not trusted from the POS.                                                                                |
+| `paidAmount`     | Total across active settlements, in Toman. It supports selected-item settlement, split tender, quick reads, and report calculations.                                           |
+| `balanceAmount`  | Amount still due after active settlements, in Toman. It is derived by the server, not trusted from the POS.                                                                    |
 | `deletedById`    | Link to the user who logically deleted the order. It is empty until deletion.                                                                                                   |
-| `deletedAt`      | When logical deletion happened. The row, its items, and its payments remain stored.                                                                                             |
+| `deletedAt`      | When logical deletion happened. The row, its items, settlements, tenders, and reversals remain stored.                                                                         |
 | `deletionReason` | Optional explanation provided on deletion. The scope explicitly does not require one.                                                                                           |
-| `createdAt`      | When the order was first committed and became visible to the preparation queue.                                                                                                 |
+| `createdAt`      | When the order was first committed.                                                                                                                                               |
 | `updatedAt`      | When an allowed order field was last changed.                                                                                                                                   |
 
 #### OrderItem
@@ -379,13 +394,13 @@ specified in the next Stage 0 task rather than implied only by the diagram.
 | `id`                  | Internal identity of one line on an order.                                                                 |
 | `orderId`             | Link to the order containing this line.                                                                    |
 | `productId`           | Link to the product selected at the time of sale, retained for traceability.                               |
-| `productNameSnapshot` | Product name copied into the order at sale time. A later product rename must not rewrite an old receipt.   |
+| `productNameSnapshot` | Product name copied into the order at sale time. A later product rename must not rewrite an old bar ticket or customer receipt. |
 | `basePriceSnapshot`   | Product base price copied at sale time in integer Toman. A later price change must not alter history.      |
 | `quantity`            | Number of units of this configured product line.                                                           |
-| `note`                | Optional staff instruction, such as a preparation note. It is not a catalog definition.                    |
+| `note`                | Optional staff instruction for the order. It is not a catalog definition.                                   |
 | `discountAmount`      | Portion of the order-level discount allocated to this line for correct historical totals and item reports. |
 | `lineTotalAmount`     | Final total for this line, including quantity, selected options, and allocated discount.                   |
-| `displayOrder`        | The order in which the line was entered and should appear on the POS, queue, and receipt.                  |
+| `displayOrder`        | The order in which the line was entered and should appear on the POS, bar ticket, and customer receipt.     |
 
 #### OrderItemOption
 
@@ -394,36 +409,53 @@ specified in the next Stage 0 task rather than implied only by the diagram.
 | `id`                 | Internal identity of one selected option on an order line.                                                         |
 | `orderItemId`        | Link to the order item receiving this option.                                                                      |
 | `optionId`           | Link to the catalog option selected at sale time, retained for traceability.                                       |
-| `optionNameSnapshot` | Option name copied at sale time so catalog renames do not alter old receipts.                                      |
+| `optionNameSnapshot` | Option name copied at sale time so catalog renames do not alter old bar tickets or customer receipts.                         |
 | `priceSnapshot`      | Extra option price copied at sale time in integer Toman.                                                           |
 | `quantity`           | Number of times this option applies to the parent line, allowing a future-safe representation of repeated add-ons. |
 
 ### Payments, Reliability, And Audit
 
+#### PaymentSettlement
+
+| Field            | Explanation                                                                                                                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`             | Internal identity of one payer checkout. It does not identify or create a customer account.                                                         |
+| `orderId`        | Link to the order containing the item quantities being settled.                                                                                      |
+| `recordedById`   | Link to the Staff or Manager who recorded the settlement.                                                                                             |
+| `idempotencyKey` | Client-provided retry key for the whole settlement command. Retrying it returns the original result without creating duplicate tenders or allocations. |
+| `totalAmount`    | Server-calculated Toman total of the allocated item quantities. It equals the sum of this settlement's tenders.                                       |
+| `recordedAt`     | When the settlement was committed.                                                                                                                    |
+
+#### SettlementAllocation
+
+| Field          | Explanation                                                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | Internal identity of one selected order-item quantity in a settlement.                                                                                       |
+| `settlementId` | Link to the payer checkout that settles the quantity.                                                                                                        |
+| `orderItemId`  | Link to the immutable order-item snapshot being settled.                                                                                                    |
+| `quantity`     | Positive selected quantity from the order item. Active allocations across settlements cannot exceed the order-item quantity.                               |
+| `amount`       | Server-calculated Toman amount for this selected quantity, including deterministic discount allocation. It is retained for historical reconciliation.       |
+
 #### Payment
 
-| Field               | Explanation                                                                                                                                  |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                | Internal identity of a posted payment record.                                                                                                |
-| `orderId`           | Link to the order being paid. An order can have one or more payment records, allowing split tender while retaining reconcilable history.     |
-| `recordedById`      | Link to the Staff or Manager who recorded the cash or card-terminal payment.                                                                 |
-| `idempotencyKey`    | Client-provided retry key. Retrying the same payment request with this key returns the original result instead of creating a second payment. |
-| `method`            | Controlled payment method: cash or card terminal in v1.                                                                                      |
-| `amount`            | Full or partial amount recorded in integer Toman. Multiple payment rows may sum to the order total.                                          |
-| `terminalReference` | Optional reference from the physical card terminal, useful for reconciliation. It is not an online-payment integration.                      |
-| `recordedAt`        | When payment was committed.                                                                                                                  |
+| Field          | Explanation                                                                                                                                    |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | Internal identity of one posted tender record.                                                                                                 |
+| `settlementId` | Link to the settlement this tender contributes to. A settlement can contain multiple tenders for split payment.                               |
+| `method`       | Controlled method: `CASH`, `CARD_TERMINAL`, or `CARD_TRANSFER`.                                                                               |
+| `amount`       | Positive Toman amount of this tender. Tenders in a settlement sum exactly to its `totalAmount`.                                               |
+| `reference`    | Required reconciliation reference for `CARD_TRANSFER`; optional terminal reference for `CARD_TERMINAL`; empty for cash.                        |
+| `recordedAt`   | When the tender was committed.                                                                                                                  |
 
-#### PaymentCorrection
+#### SettlementReversal
 
-| Field          | Explanation                                                                                |
-| -------------- | ------------------------------------------------------------------------------------------ |
-| `id`           | Internal identity of a correction record.                                                  |
-| `paymentId`    | Link to the posted payment being corrected or reversed. The original payment is preserved. |
-| `recordedById` | Link to the Manager who performed the permissioned correction.                             |
-| `kind`         | Controlled correction type, such as a reversal or another approved correction.             |
-| `amount`       | The correction amount in integer Toman, retained separately from the original payment.     |
-| `reason`       | Required explanation for the correction, supporting audit and reconciliation.              |
-| `recordedAt`   | When the correction was committed.                                                         |
+| Field          | Explanation                                                                                               |
+| -------------- | --------------------------------------------------------------------------------------------------------- |
+| `id`           | Internal identity of one full-settlement reversal.                                                        |
+| `settlementId` | Link to the posted settlement being reversed. One settlement can be reversed at most once.                |
+| `recordedById` | Link to the Manager who performed the reversal.                                                           |
+| `reason`       | Required explanation for the reversal, supporting audit and reconciliation.                               |
+| `recordedAt`   | When the reversal was committed.                                                                           |
 
 #### IdempotencyRecord
 
@@ -431,7 +463,7 @@ specified in the next Stage 0 task rather than implied only by the diagram.
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `id`                 | Internal identity of the retry-protection record.                                                                               |
 | `actorId`            | Link to the authenticated user or session owner that submitted the operation. A key is therefore not reusable by another actor. |
-| `operation`          | The protected business action, such as creating an order or recording a payment.                                                |
+| `operation`          | The protected business action, such as creating an order or recording a settlement.                                             |
 | `key`                | Opaque client-generated retry key sent with the original request and any retry.                                                 |
 | `requestFingerprint` | Safe digest of the important request content. It detects reuse of the same key for a different operation payload.               |
 | `responseStatus`     | HTTP status returned for the original successful or handled result, so a retry can receive the same outcome.                    |
@@ -446,7 +478,7 @@ specified in the next Stage 0 task rather than implied only by the diagram.
 | `id`             | Internal identity of one audit entry.                                                                                                                           |
 | `actorId`        | Link to the user who performed the action, when there is one.                                                                                                   |
 | `requestId`      | Correlation identifier shared with API logs and related writes from the same request.                                                                           |
-| `operation`      | Business action that occurred, such as order deletion, payment recording, or catalog change.                                                                    |
+| `operation`      | Business action that occurred, such as order deletion, settlement recording, or catalog change.                                                                  |
 | `entityType`     | Name of the affected kind of record, such as `Order` or `Product`.                                                                                              |
 | `entityId`       | Identifier of the specific affected record. Together with `entityType`, this makes the log generic without forcing every business table to store audit columns. |
 | `beforeSnapshot` | Safe, limited representation of relevant values before the action. It deliberately excludes passwords, tokens, cookies, and unnecessary personal data.          |
@@ -460,7 +492,6 @@ specified in the next Stage 0 task rather than implied only by the diagram.
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `id`                | Internal identity of the one-cafe settings record. It still has an identifier so it can be updated and audited consistently. |
 | `updatedById`       | Link to the Manager who last changed the settings.                                                                           |
-| `businessDayCutoff` | Local `Asia/Tehran` time that defines when a reporting business day begins or ends, rather than assuming midnight.           |
 | `updatedAt`         | When the settings were most recently changed.                                                                                |
 
 ## Relationship Notes
@@ -468,20 +499,20 @@ specified in the next Stage 0 task rather than implied only by the diagram.
 | Area          | Model decision                                                                                                                                                                                                    |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity      | A `User` has zero or more revocable `RefreshSession` and `AuthEvent` records. Roles remain limited to `MANAGER` and `STAFF`.                                                                                      |
-| Catalog       | A `Category` groups products. Every v1 product goes to the single bar; it can have many images and many option groups through `ProductOptionGroup`.                                                               |
+| Catalog       | A `Category` groups products. Every v1 product goes to the single bar; it can have zero or one image and many option groups through `ProductOptionGroup`.                                                         |
 | Tables        | A table order references one `CafeTable`; a takeaway order has no table. A table can have many historical orders.                                                                                                 |
 | Order history | `OrderItem` and `OrderItemOption` retain product and option names and prices as snapshots. Catalog references support traceability, but historical display and totals use the snapshots.                          |
-| Payments      | Payments are separate from orders. An order can use one or more cash or card-terminal payments. A correction refers to the posted payment it corrects; posted records are retained rather than edited or removed. |
-| Idempotency   | `IdempotencyRecord` stores the actor, operation, key, request fingerprint, and replayable result for order creation and payment registration. It is not a customer-facing concept.                                |
+| Payments      | An order has payer settlements. Each settlement allocates selected item quantities and contains one or more cash, card-terminal, or card-to-card transfer tenders. A Manager reversal applies to the whole settlement; posted records are retained rather than edited or removed. |
+| Receipts      | A concise bar ticket is derived from `Order`, `CafeTable`, `OrderItem`, and `OrderItemOption`; it contains only the order number, local display time, table/takeaway context, quantities, item/option snapshots, and notes. A detailed customer receipt is derived from the same snapshots and, where applicable, `PaymentSettlement`, `SettlementAllocation`, and `Payment` data. Neither variant requires a persisted receipt or printer-job entity in v1. |
+| Idempotency   | `IdempotencyRecord` stores the actor, operation, key, request fingerprint, and replayable result for order creation and settlement recording. It is not a customer-facing concept.                             |
 | Audit         | `AuditLog` is a generic immutable activity record. `entityType` and `entityId` identify the affected record without coupling every domain table to a separate audit foreign key.                                  |
-| Operations    | `CafeSettings` is the single-cafe settings record. It includes the business-day cut-off used with `Asia/Tehran` report boundaries.                                                                                |
+| Operations    | `CafeSettings` is the single-cafe settings record. Reports use `Asia/Tehran` calendar boundaries directly; v1 has no configurable business-day cutoff because the cafe is always open.                         |
 
 ## Lifecycle And Scope Boundaries
 
-- `Order` is created by a logged-in user, starts as `PENDING`, and can transition to `PAID` or `DELETED`. `DELETED` is logical deletion, so the order, items, payments, and audit trail remain available.
-- The preparation queue is a read projection of `PENDING` orders and their items. It has no table or status machine in v1.
+- `Order` is created by a logged-in user with state `OPEN` and payment status `UNPAID`. Active settlement allocations determine `UNPAID`, `PARTIALLY_PAID`, or `PAID`; only the lifecycle state transitions to `DELETED`. `DELETED` is logical deletion, so the order, items, settlements, tenders, reversals, and audit trail remain available.
 - Products, categories, options, users, and tables are archived or deactivated when historical records reference them. Historical records are never rebuilt from current catalog data.
-- A receipt is browser-rendered from the order, immutable item snapshots, and payment data. The stable `orderNumber` is printed on the receipt; no separate printer-job table is required in v1.
+- A bar ticket is browser-rendered from the order and immutable item snapshots. It prints only the order number, `Asia/Tehran` display time, table/takeaway context, item quantities, selected options, and notes; it excludes prices, discounts, totals, and payment data. A customer receipt is a detailed financial printout: a whole-order version uses the order, snapshots, and active settlement data, while a settlement version shows that payer checkout's selected quantities and tenders. The stable `orderNumber` is printed on every variant; no separate receipt or printer-job table is required in v1.
 - There are no entities for customer accounts, carts, customer order submission, inventory, recipes, reservations, multi-branch ownership, kitchen or product-to-station routing, online payments, taxes, or service charges.
 
 ## Implementation Boundary
