@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The cafe operates with Toman prices. v1 has no tax, VAT, service charge, Rial conversion, or online payment. An order may use split tender across manually recorded cash and card-terminal payments.
+The cafe operates with Toman prices. v1 has no tax, VAT, service charge, Rial conversion, or online payment. A payer settlement may use split tender across manually recorded cash, card-terminal, and card-to-card transfer payments.
 
 Order totals, discounts, payments, receipts, reports, and historical price snapshots must be exact and reproducible.
 
