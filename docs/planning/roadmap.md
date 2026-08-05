@@ -21,27 +21,27 @@ No roadmap stage is complete yet.
 
 Current implementation status as of 5 August 2026:
 
-- **Stage 0 — Scope and domain baseline:** partially complete. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including the settlement model; the initial ERD is documented; and `api-inventory.md` maps the approved v1 HTTP and realtime contract surface. Remaining exit-gate evidence still needed: explicit database constraint list, request/response conventions, and a prioritized backend backlog with acceptance criteria.
+- **Stage 0 — Scope and domain baseline:** partially complete. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including the settlement model; the initial ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; and `database-constraints.md` explicitly lists the planned database constraints. Remaining exit-gate evidence still needed: request/response conventions and a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** in progress. Implemented so far: pnpm monorepo workspace, strict shared TypeScript config, Prettier/ESLint setup, Fastify API skeleton, environment validation, request IDs, basic logging, CORS/Helmet/Sensible registration, Swagger/OpenAPI plugin registration, PostgreSQL Docker Compose service, Prisma schema/client setup, liveness/readiness routes, graceful shutdown, and API health integration tests.
 - **Stage 1 verification:** `pnpm typecheck` passes, and `pnpm --filter @cafe/api test` passes against the current local PostgreSQL connection. `pnpm lint` errors are ignored by project rule in `AGENTS.md`.
 - **Stage 1 remaining work:** create the initial database tables, add the initial Prisma migration, create the seed/bootstrap flow for the first Manager, define a separate test database workflow, finish structured error envelopes, decide how OpenAPI schemas are generated from validated request/response schemas, and prove the fresh-environment Stage 1 exit gate.
 
 ## Stage Overview
 
-| Stage | Area                            | Required outcome                                                                                                                                      |
-| ----- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | Scope and domain baseline       | Approved use cases, business rules, state tables, ERD, API inventory, ADRs, and prioritized backlog                                                   |
-| 1     | Database and backend foundation | Database tables, migrations, seed/bootstrap, test database workflow, runnable Fastify service, health checks, and test infrastructure                 |
-| 2     | POS backend                     | Staff auth, catalog/table data needed by POS, Staff-created orders, split-tender payments, receipts, deletion, and audit                                 |
-| 3     | QR-menu backend                 | Public browse-only menu API for categories, products, options, availability, images, and final Toman prices                                           |
-| 4     | Staff POS frontend              | POS, table operations, payment entry, deletion flow, receipt printing, and reconnect/conflict states                                                 |
-| 5     | QR-menu frontend                | Mobile-first browse-only public menu with categories, search/filtering, options, availability, images, and final Toman prices                         |
-| 6     | Manager and reporting backend   | Manager catalog/user/settings APIs, sales reports, audit queries, indexes, and bounded exports                                                        |
-| 7     | Manager frontend                | Catalog management, Staff accounts, settings, reports, and audit-history interfaces                                                                   |
-| 8     | Full-system hardening           | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, and API/frontend stabilization                           |
-| 9     | Deployment preparation          | Production Compose/Caddy-or-Nginx baseline, backup/restore procedures, monitoring, log rotation, release procedure, and manual fallback runbook       |
-| 10    | VPS deployment and pilot        | Iranian VPS deployment, HTTPS, production secrets, restore drill, CDN need check after measurement, and limited live pilot                            |
-| Later | Customer ordering               | Customer cart, table selection, Staff confirmation, and protected public order submission                                                             |
+| Stage | Area                            | Required outcome                                                                                                                                |
+| ----- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | Scope and domain baseline       | Approved use cases, business rules, state tables, ERD, API inventory, ADRs, and prioritized backlog                                             |
+| 1     | Database and backend foundation | Database tables, migrations, seed/bootstrap, test database workflow, runnable Fastify service, health checks, and test infrastructure           |
+| 2     | POS backend                     | Staff auth, catalog/table timing data needed by POS, Staff-created orders, split-tender payments, receipts, deletion, and audit                 |
+| 3     | QR-menu backend                 | Public browse-only menu API for categories, products, options, availability, images, preparation-deadline minutes, and final Toman prices       |
+| 4     | Staff POS frontend              | POS, table operations, payment entry, deletion flow, receipt printing, and reconnect/conflict states                                            |
+| 5     | QR-menu frontend                | Mobile-first browse-only public menu with categories, search/filtering, options, availability, images, and final Toman prices                   |
+| 6     | Manager and reporting backend   | Manager catalog/user/settings APIs, sales reports, audit queries, indexes, and bounded exports                                                  |
+| 7     | Manager frontend                | Catalog management, Staff accounts, settings, reports, and audit-history interfaces                                                             |
+| 8     | Full-system hardening           | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, and API/frontend stabilization                     |
+| 9     | Deployment preparation          | Production Compose/Caddy-or-Nginx baseline, backup/restore procedures, monitoring, log rotation, release procedure, and manual fallback runbook |
+| 10    | VPS deployment and pilot        | Iranian VPS deployment, HTTPS, production secrets, restore drill, CDN need check after measurement, and limited live pilot                      |
+| Later | Customer ordering               | Customer cart, table selection, Staff confirmation, and protected public order submission                                                       |
 
 ## Stages
 
@@ -76,15 +76,15 @@ Exit gate:
 
 - Implement login, logout, access/refresh session rotation, revocation, and account deactivation. The first Manager is created by the Stage 1 operations-only bootstrap command.
 - Enforce the two application roles, Manager and Staff, inside routes and service methods.
-- Implement the catalog, product option, availability, image metadata, and physical-table reads required for POS order entry.
+- Implement the catalog, product option, availability, image metadata, product preparation-deadline, physical-table seating-limit, and active table ETA reads required for POS order entry.
 - Implement table and takeaway order creation by Staff.
-- Calculate all prices and totals on the server and persist immutable item/option snapshots in integer Toman.
+- Calculate all prices, totals, estimated preparation minutes, and table release estimates on the server and persist immutable item/option/timing snapshots.
 - Implement controlled edits to `OPEN`, `UNPAID` orders, table assignment/transfer, and order history; reject edits after the first settlement.
 - Implement logical deletion with actor and timestamp; a reason is optional at every payment status. Never physically delete an order.
 - Implement per-payer settlements that allocate selected order-item quantities and contain one or more cash, card-terminal, or card-to-card transfer tenders.
 - Make each settlement recording idempotent and transactional; update the order's `UNPAID`/`PARTIALLY_PAID`/`PAID` status and audit entry from active allocations.
-- Provide bar-ticket and customer-receipt-ready API data with stable order numbers and `Asia/Tehran` display timestamps. The bar ticket is limited to preparation information; customer receipts contain the financial detail.
-- Test permissions, duplicate retries, stale edits, invalid transitions, unavailable products, historical price stability, selected-item allocation, mixed tender, card-transfer references, settlement reversal, payment reconciliation, and transaction rollback.
+- Provide bar-ticket and customer-receipt-ready API data with stable order numbers, timing snapshots, and `Asia/Tehran` display timestamps. The bar ticket is limited to preparation information; customer receipts contain the financial detail.
+- Test permissions, duplicate retries, stale edits, invalid transitions, unavailable products, historical price/timing stability, selected-item allocation, mixed tender, card-transfer references, settlement reversal, payment reconciliation, and transaction rollback.
 
 Exit gate:
 
@@ -92,7 +92,7 @@ Exit gate:
 
 ### Stage 3 — QR-Menu Backend
 
-- Implement public read-only category, product, option, availability, image metadata, and final Toman price endpoints for the QR menu.
+- Implement public read-only category, product, option, availability, image metadata, product preparation-deadline, and final Toman price endpoints for the QR menu.
 - Ensure QR-menu endpoints expose no cart submission, order creation, payment, tracking, table authority, or Staff-only metadata.
 - Add response schemas and OpenAPI coverage for the public menu API.
 - Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.
@@ -105,7 +105,7 @@ Exit gate:
 
 - Create the Next.js application shell, route groups, layouts, shared UI primitives, environment configuration, and typed API client needed by Staff routes.
 - Build order channel selection, product/options entry, notes, totals, and controlled `UNPAID` order edits.
-- Build table assignment/transfer, active-table view, selected-item settlement with mixed tenders, payment-status display, deletion/clear flow, concise bar-ticket printing, and detailed customer-receipt printing for whole orders and settlements.
+- Build table assignment/transfer, active-table view with estimated release timing, selected-item settlement with mixed tenders, payment-status display, deletion/clear flow, concise bar-ticket printing, and detailed customer-receipt printing for whole orders and settlements.
 - Handle idempotent retry results, stale-version conflicts, API failures, connection state, and reconnect refetch.
 - Validate touch targets, keyboard operation, actual café devices, and the real receipt printer/paper size.
 
@@ -115,7 +115,7 @@ Exit gate:
 
 ### Stage 5 — QR-Menu Frontend
 
-- Build the mobile-first public menu with categories, search/filtering, options, availability, final Toman prices, optimized images, and no checkout.
+- Build the mobile-first public menu with categories, search/filtering, options, availability, preparation-deadline minutes, final Toman prices, optimized images, and no checkout.
 - Ensure the public UI exposes no cart checkout, customer order submission, payment, or tracking states.
 - Measure the public menu on representative low-end phones and slow domestic connections.
 
@@ -139,7 +139,7 @@ Exit gate:
 
 ### Stage 7 — Manager Frontend
 
-- Build category, product, option, image, price, availability, and display-order management.
+- Build category, product, option, image, price, product preparation-deadline, table seating-limit, availability, and display-order management.
 - Build Staff account creation, deactivation, and session-management interfaces.
 - Build settings, sales reports, deleted-order views, settlement-reversal views, and audit-history search.
 - Add confirmation, permission, validation, loading, error, and empty states for every Manager action.
