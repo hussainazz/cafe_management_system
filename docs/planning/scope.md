@@ -35,26 +35,26 @@ v1 success criteria:
 
 ## Product Boundaries
 
-| Area           | Baseline decision                                                                                                                              |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                             |
-| Roles          | Only Manager and Staff exist. Staff performs POS work.                                                                                        |
-| Customers      | Customers are anonymous menu viewers in v1. There are no customer accounts, guest-order sessions, or self-ordering endpoints.                  |
-| Currency       | Every amount is an integer count of **Toman**. Floating-point values and Rial conversion are forbidden.                                        |
-| Time           | Store timestamps in UTC. Display timestamps and calculate calendar-day reports in `Asia/Tehran`.                                               |
-| Ordering       | Every v1 order is created by a logged-in Staff user through POS.                                                                               |
+| Area           | Baseline decision                                                                                                                                                                                                                      |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                                                                                                                     |
+| Roles          | Only Manager and Staff exist. Staff performs POS work.                                                                                                                                                                                 |
+| Customers      | Customers are anonymous menu viewers in v1. There are no customer accounts, guest-order sessions, or self-ordering endpoints.                                                                                                          |
+| Currency       | Every amount is an integer count of **Toman**. Floating-point values and Rial conversion are forbidden.                                                                                                                                |
+| Time           | Store timestamps in UTC. Display timestamps and calculate calendar-day reports in `Asia/Tehran`.                                                                                                                                       |
+| Ordering       | Every v1 order is created by a logged-in Staff user through POS.                                                                                                                                                                       |
 | Payments       | Staff record one or more cash, card-terminal, or card-to-card transfer tenders per settlement. A settlement can cover selected order-item quantities, and split tender is allowed. There is no online payment or terminal integration. |
-| Prices         | Each catalog price is already the finished price. There are no taxes or service charges.                                                       |
-| Receipts       | v1 uses print-friendly browser bar tickets and customer receipts. Silent ESC/POS printing and printer control are separate integrations.     |
-| Deployment     | One Iranian VPS hosts one authoritative application/database stack. There is no dual writable cloud/local setup.                               |
+| Prices         | Each catalog price is already the finished price. There are no taxes or service charges.                                                                                                                                               |
+| Receipts       | v1 uses print-friendly browser bar tickets and customer receipts. Silent ESC/POS printing and printer control are separate integrations.                                                                                               |
+| Deployment     | One Iranian VPS hosts one authoritative application/database stack. There is no dual writable cloud/local setup.                                                                                                                       |
 
 User-facing surfaces:
 
-| Surface           | Primary user | v1 purpose                                                                                                                                 |
-| ----------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Digital Menu      | Customer     | Browse the menu, categories, item details, options, availability, and final Toman prices. No cart submission or order tracking.            |
-| POS               | Staff        | Create and edit table or takeaway orders, assign tables where applicable, register payment, logically delete an order, and print receipts. |
-| Administration    | Manager      | Manage catalog, Staff accounts, settings, reports, and audit history.                                                                      |
+| Surface        | Primary user | v1 purpose                                                                                                                                 |
+| -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Digital Menu   | Customer     | Browse the menu, categories, item details, options, availability, and final Toman prices. No cart submission or order tracking.            |
+| POS            | Staff        | Create and edit table or takeaway orders, assign tables where applicable, register payment, logically delete an order, and print receipts. |
+| Administration | Manager      | Manage catalog, Staff accounts, settings, reports, and audit history.                                                                      |
 
 Explicit non-goals for v1:
 
@@ -99,16 +99,16 @@ v1 staff-created order flow:
 
 v1 order states:
 
-| State     | Meaning                                                                                                              | Allowed next action                                                                                                    |
-| --------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `OPEN`    | Staff has registered the order. Its payment status may be `UNPAID`, `PARTIALLY_PAID`, or `PAID`.                    | Settle selected unallocated item quantities; delete → `DELETED`; content/table edits are allowed only while `UNPAID`. |
+| State     | Meaning                                                                                                              | Allowed next action                                                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `OPEN`    | Staff has registered the order. Its payment status may be `UNPAID`, `PARTIALLY_PAID`, or `PAID`.                     | Settle selected unallocated item quantities; delete → `DELETED`; content/table edits are allowed only while `UNPAID`. |
 | `DELETED` | The order was removed from active work, with or without settlement. It is never physically erased from the database. | No normal transition. A settlement reversal is an audited Manager action, not a silent rewrite.                       |
 
 v1 payment statuses:
 
-| Payment status   | Meaning                                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------ |
-| `UNPAID`         | No active settlement has allocated any order-item quantity.                                                  |
+| Payment status   | Meaning                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `UNPAID`         | No active settlement has allocated any order-item quantity.                                                 |
 | `PARTIALLY_PAID` | One or more item quantities are allocated to active settlements, but one or more remain unsettled.          |
 | `PAID`           | Active settlements allocate every order-item quantity and their total equals the final order total exactly. |
 
@@ -125,20 +125,20 @@ Corrections and exceptional flows:
 
 ## MVP V1 Definition
 
-| Capability             | Required v1 behavior                                                                                                                                                          |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Foundation             | Environment validation, database migrations, seed/bootstrap flow, structured errors, request IDs, logging, health/readiness endpoints.                                        |
-| Authentication         | Staff login, secure sessions, logout, account deactivation, and Manager/Staff authorization.                                                                                  |
-| Catalog                | Categories, products, options, images, display order, final Toman price, active state, and temporary availability.                                                            |
-| POS order entry        | Table/takeaway orders; quantities, options, notes, server totals, controlled edits before settlement, logical deletion, and order history.                                    |
-| Table operations       | Assign, transfer, view active orders, and clear table orders through the defined settlement/delete flow. No order or table split/merge.                                     |
-| Customer menu          | Mobile-first QR menu for browse/search/filter, availability, item options, and final Toman price. No checkout or order submission.                                            |
-| Payments               | Per-payer settlements for selected item quantities, each with one or more manual cash, card-terminal, or card-to-card transfer tenders; split tender, item allocation, total-paid calculation, transfer references, and audit trail. No online payments. |
-| Discounts              | One permissioned order-level fixed or percentage discount with reason. There are no taxes or service charges.                                                                 |
+| Capability             | Required v1 behavior                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Foundation             | Environment validation, database migrations, seed/bootstrap flow, structured errors, request IDs, logging, health/readiness endpoints.                                                                                                                                                                                                                                                                                          |
+| Authentication         | Staff login, secure sessions, logout, account deactivation, and Manager/Staff authorization.                                                                                                                                                                                                                                                                                                                                    |
+| Catalog                | Categories, products, options, images, display order, final Toman price, active state, temporary availability, and product preparation-deadline minutes.                                                                                                                                                                                                                                                                        |
+| POS order entry        | Table/takeaway orders; quantities, options, notes, server totals, controlled edits before settlement, logical deletion, and order history.                                                                                                                                                                                                                                                                                      |
+| Table operations       | Assign, transfer, view active orders with estimated table release time, and clear table orders through the defined settlement/delete flow. No order or table split/merge.                                                                                                                                                                                                                                                       |
+| Customer menu          | Mobile-first QR menu for browse/search/filter, availability, item options, preparation-deadline minutes, and final Toman price. No checkout or order submission.                                                                                                                                                                                                                                                                |
+| Payments               | Per-payer settlements for selected item quantities, each with one or more manual cash, card-terminal, or card-to-card transfer tenders; split tender, item allocation, total-paid calculation, transfer references, and audit trail. No online payments.                                                                                                                                                                        |
+| Discounts              | One permissioned order-level fixed or percentage discount with reason. There are no taxes or service charges.                                                                                                                                                                                                                                                                                                                   |
 | Receipts               | Print-friendly HTML has two variants: a concise bar ticket with the order number, local time, table/takeaway context, item quantities, selected options, and notes; and a detailed customer receipt (whole-order or payer-settlement) with item snapshots, Toman totals, tender summary where applicable, order number, and `Asia/Tehran` display time. The bar ticket excludes prices, discounts, totals, and payment details. |
-| Reports                | Daily/weekly/monthly sales, orders, average value, payment mix, item/category sales, discounts, deleted orders, and hourly sales.                                             |
-| Administration         | Catalog, availability, Staff accounts, settings, reports, and audit log.                                                                                                      |
-| Quality and operations | Critical tests, OpenAPI documentation, Docker deployment, HTTPS, backups, restore test, monitoring, and release rollback/forward-fix.                                         |
+| Reports                | Daily/weekly/monthly sales, orders, average value, payment mix, item/category sales, discounts, deleted orders, and hourly sales.                                                                                                                                                                                                                                                                                               |
+| Administration         | Catalog, product preparation deadlines, table seating limits, availability, Staff accounts, settings, reports, and audit log.                                                                                                                                                                                                                                                                                                   |
+| Quality and operations | Critical tests, OpenAPI documentation, Docker deployment, HTTPS, backups, restore test, monitoring, and release rollback/forward-fix.                                                                                                                                                                                                                                                                                           |
 
 Pilot acceptance scenarios:
 
@@ -154,22 +154,23 @@ Pilot acceptance scenarios:
 
 ## Domain Model And Business Rules
 
-| Module      | Owns                                                                                          |
-| ----------- | --------------------------------------------------------------------------------------------- |
-| Identity    | Users, credentials, sessions, Manager/Staff role, permissions, authentication events.         |
-| Catalog     | Categories, products, images, option groups/options, availability, and display order.         |
-| Ordering    | Orders, order items, price snapshots, notes, channel, lifecycle state, payment status, and idempotency. |
-| Tables      | Physical tables and assignment/clearing of active orders.                                     |
-| Payments    | Settlements, tender entries, item-quantity allocations, settlement reversal policy, order numbering, and balance calculation. |
-| Reporting   | Read-oriented sales queries and exports based on committed data.                              |
-| Operations  | Café settings, audit logs, system health, and operational metadata.                           |
+| Module     | Owns                                                                                                                          |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Identity   | Users, credentials, sessions, Manager/Staff role, permissions, authentication events.                                         |
+| Catalog    | Categories, products, images, option groups/options, availability, preparation deadlines, and display order.                  |
+| Ordering   | Orders, order items, price/preparation snapshots, notes, channel, lifecycle state, payment status, and idempotency.           |
+| Tables     | Physical tables, seating limits, active table estimates, and assignment/clearing of active orders.                            |
+| Payments   | Settlements, tender entries, item-quantity allocations, settlement reversal policy, order numbering, and balance calculation. |
+| Reporting  | Read-oriented sales queries and exports based on committed data.                                                              |
+| Operations | Café settings, audit logs, system health, and operational metadata.                                                           |
 
 Money, pricing, and tax rules:
 
 - The database stores money as signed-safe integer Toman values. It never stores Rial or floating-point money.
 - Product and option prices are final customer prices. No tax, VAT, service charge, or tax calculation exists in v1.
 - The backend is the only authority for unit price, option price, discount, line total, grand total, settlement total, paid total, and balance.
-- Each order item stores a snapshot of product name, base price, selected options and their prices, quantity, discount allocation, and final line total.
+- Each order item stores a snapshot of product name, base price, product preparation-deadline minutes, selected options and their prices, quantity, discount allocation, and final line total.
+- Each product has a Manager-configurable preparation deadline in minutes. Order items snapshot this value so old bar tickets and table estimates do not change after catalog edits.
 - Historical orders never recalculate from the current catalog. Referenced products are archived, not hard-deleted.
 - Rounding and discount allocation rules are tested pure functions before UI work begins.
 
@@ -194,6 +195,13 @@ Payment, deletion, integrity, and audit rules:
 - Audit entries record actor, request ID, operation, entity, safe before/after fields, timestamp, and any provided reason. They exclude passwords, tokens, cookies, and unnecessary personal data.
 - A bar ticket is an operational order view: it includes only the order number, `Asia/Tehran` display time, table/takeaway context, item quantities, item and option snapshots, and item notes needed for preparation. It excludes all prices, discounts, totals, payment/settlement details, and audit or staff identity data.
 - A customer receipt is a detailed financial view. A whole-order customer receipt shows the order's item snapshots and current active-settlement summary; a payer-settlement customer receipt additionally scopes items and tenders to that settlement. Both retain the established Toman totals, tender summary where applicable, order number, and `Asia/Tehran` display time.
+
+Table timing rules:
+
+- Each physical table has a configurable seating-limit minutes value. The initial default is 45 minutes, stored in configuration/data rather than embedded in POS UI code.
+- When a table order is created, the order snapshots the effective seating limit for that table. A later settings or table-limit change does not silently rewrite the estimate for an existing order.
+- An order's estimated preparation minutes are the maximum preparation-deadline snapshot across its order items. This keeps v1 independent of kitchen capacity or station scheduling, which are outside scope.
+- A table order's estimated release time is `order.createdAt + tableSeatingLimitSnapshotMinutes + estimatedPreparationMinutes`. The POS table interface can use this server-derived value to show expected table availability.
 
 ## Application Architecture
 
@@ -276,7 +284,7 @@ Reporting and audit:
 | Validation/contracts | Zod plus generated OpenAPI                             | Runtime validation at boundaries; ORM types remain internal.                           |
 | Database             | PostgreSQL                                             | Authoritative transactions, constraints, reporting, and concurrency control.           |
 | Database toolkit     | Prisma                                                 | Migrations and normal data access; repositories; parameterized raw SQL when justified. |
-| Frontend             | React, Next.js, Tailwind CSS                           | One web deployment with separate menu, POS, and Manager routes.                         |
+| Frontend             | React, Next.js, Tailwind CSS                           | One web deployment with separate menu, POS, and Manager routes.                        |
 | Client data          | TanStack Query, React Hook Form, Zod, optional Zustand | Server state is not duplicated in a global client store.                               |
 | Testing              | Vitest plus browser E2E tooling                        | Real PostgreSQL integration tests and a small critical browser suite.                  |
 | Storage              | Self-hosted image storage                              | Product images only; PostgreSQL stores metadata and references.                        |
