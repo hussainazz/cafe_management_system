@@ -35,13 +35,13 @@ Operating rules:
 
 ## Testing And Quality Strategy
 
-| Level        | Purpose                                         | Examples                                                                                                                                     |
-| ------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit         | Fast tests for pure rules and state transitions | Toman arithmetic, option validation, discount allocation, settlement allocation, payment-status transitions, permission predicates          |
-| Integration  | Real PostgreSQL constraints and transactions    | Order creation, selected-item settlement, mixed tender, card transfer, reversal, logical deletion, idempotency, stale-version conflict, rollback |
-| API contract | Request/response and authorization behavior     | OpenAPI schema, error envelope, Manager-only routes, forbidden actions                                                                       |
+| Level        | Purpose                                         | Examples                                                                                                                                                                                                                 |
+| ------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unit         | Fast tests for pure rules and state transitions | Toman arithmetic, option validation, discount allocation, settlement allocation, payment-status transitions, permission predicates                                                                                       |
+| Integration  | Real PostgreSQL constraints and transactions    | Order creation, selected-item settlement, mixed tender, card transfer, reversal, logical deletion, idempotency, stale-version conflict, rollback                                                                         |
+| API contract | Request/response and authorization behavior     | OpenAPI schema, error envelope, Manager-only routes, forbidden actions                                                                                                                                                   |
 | Browser E2E  | Small complete journeys                         | Staff login, POS order and concise bar-ticket print, selected-item mixed-tender/card-transfer settlement, delete/clear table, detailed customer whole-order/settlement receipt, Manager price change, public menu browse |
-| Operational  | Release and recovery behavior                   | Migration, health checks, restart recovery, backup restore, printer output, smoke tests                                                      |
+| Operational  | Release and recovery behavior                   | Migration, health checks, restart recovery, backup restore, printer output, smoke tests                                                                                                                                  |
 
 Definition of done for a feature:
 
@@ -55,15 +55,15 @@ Definition of done for a feature:
 
 ## Production Readiness Gates
 
-| Gate                 | Required evidence                                                                                                                               |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Business correctness | Critical open/deleted, unpaid/partially-paid/paid, settlement allocation, table, concise bar-ticket, detailed customer-receipt, and price-snapshot scenarios pass with known Toman totals. |
-| Security             | HTTPS, secure session controls, CSRF controls, rate limits, Manager/Staff authorization review, secret handling, safe logging, dependency scan. |
-| Data safety          | Migration test, automated backup, successful clean restore, retention policy, disk monitoring.                                                  |
-| Reliability          | Restart recovery, readiness checks, stale-client conflicts, idempotent retries, and café-internet-loss/manual-fallback behavior tested.         |
-| Operations           | Versioned release, rollback/forward-fix procedure, log access, alerts, Manager recovery, operator runbook.                                      |
-| Hardware and UX      | Actual POS device, browser, network, receipt printer, paper size, both bar-ticket/customer-receipt layouts, touch targets, and busy-hour workflow tested. |
-| Pilot                | A limited live shift runs with the fallback procedure; issues are recorded and no unreconciled financial difference remains.                    |
+| Gate                 | Required evidence                                                                                                                                                                                        |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Business correctness | Critical open/deleted, unpaid/partially-paid/paid, settlement allocation, table timing, concise bar-ticket, detailed customer-receipt, and price/timing-snapshot scenarios pass with known Toman totals. |
+| Security             | HTTPS, secure session controls, CSRF controls, rate limits, Manager/Staff authorization review, secret handling, safe logging, dependency scan.                                                          |
+| Data safety          | Migration test, automated backup, successful clean restore, retention policy, disk monitoring.                                                                                                           |
+| Reliability          | Restart recovery, readiness checks, stale-client conflicts, idempotent retries, and café-internet-loss/manual-fallback behavior tested.                                                                  |
+| Operations           | Versioned release, rollback/forward-fix procedure, log access, alerts, Manager recovery, operator runbook.                                                                                               |
+| Hardware and UX      | Actual POS device, browser, network, receipt printer, paper size, both bar-ticket/customer-receipt layouts, touch targets, and busy-hour workflow tested.                                                |
+| Pilot                | A limited live shift runs with the fallback procedure; issues are recorded and no unreconciled financial difference remains.                                                                             |
 
 ## Decisions Fixed Before Implementation
 
@@ -71,7 +71,7 @@ Definition of done for a feature:
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Money unit            | Integer Toman for storage and display.                                                                                                              |
 | Tax/service charge    | None. Catalog prices are final.                                                                                                                     |
-| Business day/timezone | Store UTC; display/report using `Asia/Tehran` calendar boundaries. The cafe is always open, so v1 has no configurable business-day cut-off.          |
+| Business day/timezone | Store UTC; display/report using `Asia/Tehran` calendar boundaries. The cafe is always open, so v1 has no configurable business-day cut-off.         |
 | Customer submission   | Not in v1. QR menu is browse-only.                                                                                                                  |
 | Roles                 | Manager and Staff only; POS uses Staff.                                                                                                             |
 | Deployment            | One Iranian VPS, self-hosted stack, one writable PostgreSQL database.                                                                               |
