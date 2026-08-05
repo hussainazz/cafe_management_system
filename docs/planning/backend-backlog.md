@@ -20,10 +20,10 @@ Done:
 - ADR files for modular monolith, PostgreSQL/Prisma, Toman integers, UTC storage with `Asia/Tehran` reporting, Iranian VPS, browser printing, browse-only QR menu, and settlement allocation are documented.
 - Initial ERD is documented.
 - API inventory is documented in `api-inventory.md`, including operational, identity, POS, public-menu, Manager, reporting, and planned realtime boundaries.
+- Database constraints are explicitly documented in `database-constraints.md`, including keys, foreign keys, checks, indexes, and transactional invariants.
 
 Left:
 
-- List database constraints explicitly.
 - Document request/response conventions, error envelope, pagination, idempotency, and concurrency behavior.
 - Convert the approved scope into a prioritized backend backlog with acceptance criteria.
 
@@ -67,16 +67,16 @@ Exit gate:
 
 - Implement login, logout, access/refresh session rotation, revocation, and account deactivation. The first Manager is created by the Stage 1 operations-only bootstrap command.
 - Enforce the two application roles, Manager and Staff, inside routes and service methods.
-- Implement the catalog, product option, availability, image metadata, and physical-table reads required for POS order entry.
+- Implement the catalog, product option, availability, image metadata, product preparation-deadline, physical-table seating-limit, and active table ETA reads required for POS order entry.
 - Implement table and takeaway order creation by Staff.
-- Calculate all prices and totals on the server and persist immutable item/option snapshots in integer Toman.
+- Calculate all prices, totals, estimated preparation minutes, and table release estimates on the server and persist immutable item/option/timing snapshots.
 - Implement controlled edits to `OPEN`, `UNPAID` orders, table assignment/transfer, and order history; reject edits after the first settlement.
 - Implement logical deletion with actor and timestamp; a reason is optional at every payment status. Never physically delete an order.
 - Add order-version concurrency protection and creation idempotency.
 - Implement per-payer settlements that allocate selected order-item quantities and contain one or more cash, card-terminal, or card-to-card transfer tenders.
 - Make each settlement recording idempotent and transactional; update the order's `UNPAID`/`PARTIALLY_PAID`/`PAID` status and audit entry from active allocations.
-- Provide concise bar-ticket and detailed customer-receipt API data with stable order numbers and `Asia/Tehran` display timestamps. Bar-ticket data must exclude prices, discounts, totals, and payment information; customer receipts retain the financial detail for whole orders and settlements.
-- Test permissions, duplicate retries, stale edits, invalid transitions, unavailable products, historical price stability, selected-item allocation, mixed tender, card-transfer references, settlement reversal, payment reconciliation, and transaction rollback.
+- Provide concise bar-ticket and detailed customer-receipt API data with stable order numbers, timing snapshots, and `Asia/Tehran` display timestamps. Bar-ticket data must exclude prices, discounts, totals, and payment information; customer receipts retain the financial detail for whole orders and settlements.
+- Test permissions, duplicate retries, stale edits, invalid transitions, unavailable products, historical price/timing stability, selected-item allocation, mixed tender, card-transfer references, settlement reversal, payment reconciliation, and transaction rollback.
 
 Exit gate:
 
@@ -84,7 +84,7 @@ Exit gate:
 
 ## Stage 3 Backlog — QR-Menu Backend
 
-- Implement public read-only category, product, option, availability, image metadata, and final Toman price endpoints for the QR menu.
+- Implement public read-only category, product, option, availability, image metadata, product preparation-deadline, and final Toman price endpoints for the QR menu.
 - Ensure QR-menu endpoints expose no cart submission, order creation, payment, tracking, table authority, or Staff-only metadata.
 - Add response schemas and OpenAPI coverage for the public menu API.
 - Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.
@@ -95,7 +95,7 @@ Exit gate:
 
 ## Stage 6 Backlog — Manager And Reporting Backend
 
-- Implement complete Manager-only catalog, product option, image, price, availability, display-order, Staff account, and settings APIs.
+- Implement complete Manager-only catalog, product option, image, price, product preparation-deadline, table seating-limit, availability, display-order, Staff account, and settings APIs.
 - Implement bounded daily, weekly, and monthly sales reports.
 - Add payment-method, channel, hour, product, category, discount, settlement-reversal, and deleted-order breakdowns.
 - Apply `Asia/Tehran` calendar boundaries consistently. The cafe is always open, so v1 has no configurable business-day cut-off.
