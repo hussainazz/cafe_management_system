@@ -4,7 +4,6 @@ This file tracks only the active `Left:` items copied from `docs/planning/backen
 
 ## Stage 0 - Scope And Domain Baseline
 
-- List database constraints explicitly.
 - Document request/response conventions, error envelope, pagination, idempotency, and concurrency behavior.
 - Convert the approved scope into a prioritized backend backlog with acceptance criteria.
 
