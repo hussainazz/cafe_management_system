@@ -13,6 +13,33 @@ enum UserRole {
   STAFF
 }
 
+enum OrderChannel {
+  TABLE
+  TAKEAWAY
+}
+
+enum OrderState {
+  OPEN
+  DELETED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+}
+
+enum DiscountKind {
+  FIXED
+  PERCENTAGE
+}
+
+enum PaymentMethod {
+  CASH
+  CARD_TERMINAL
+  CARD_TRANSFER
+}
+
 model User {
   id           String   @id @default(uuid())
   passwordHash String
@@ -21,5 +48,326 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  refreshSessions     RefreshSession[]
+  authEvents          AuthEvent[]
+  createdOrders       Order[]              @relation("OrderCreatedBy")
+  deletedOrders       Order[]              @relation("OrderDeletedBy")
+  paymentSettlements  PaymentSettlement[]
+  settlementReversals SettlementReversal[]
+  idempotencyRecords  IdempotencyRecord[]
+  auditLogs           AuditLog[]
+  cafeSettingsUpdates CafeSettings[]
+
   @@map("users")
+}
+
+model RefreshSession {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("refresh_sessions")
+}
+
+model AuthEvent {
+  id         String   @id @default(uuid())
+  userId     String?
+  eventType  String
+  requestId  String
+  occurredAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([occurredAt])
+  @@map("auth_events")
+}
+
+model Category {
+  id           String    @id @default(uuid())
+  name         String
+  displayOrder Int
+  isActive     Boolean   @default(true)
+  archivedAt   DateTime?
+
+  products Product[]
+
+  @@index([isActive, displayOrder])
+  @@map("categories")
+}
+
+model Product {
+  id                         String    @id @default(uuid())
+  categoryId                 String
+  name                       String
+  priceAmount                Int
+  preparationDeadlineMinutes Int
+  displayOrder               Int
+  isActive                   Boolean   @default(true)
+  isAvailable                Boolean   @default(true)
+  archivedAt                 DateTime?
+
+  category            Category             @relation(fields: [categoryId], references: [id])
+  image               ProductImage?
+  productOptionGroups ProductOptionGroup[]
+  orderItems          OrderItem[]
+
+  @@index([categoryId, isActive, isAvailable, displayOrder])
+  @@map("products")
+}
+
+model ProductImage {
+  id         String @id @default(uuid())
+  productId  String @unique
+  storageKey String
+  altText    String
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("product_images")
+}
+
+model OptionGroup {
+  id       String  @id @default(uuid())
+  name     String
+  isActive Boolean @default(true)
+
+  productOptionGroups ProductOptionGroup[]
+  options             Option[]
+
+  @@map("option_groups")
+}
+
+model ProductOptionGroup {
+  productId     String
+  optionGroupId String
+  displayOrder  Int
+
+  product     Product     @relation(fields: [productId], references: [id])
+  optionGroup OptionGroup @relation(fields: [optionGroupId], references: [id])
+
+  @@id([productId, optionGroupId])
+  @@map("product_option_groups")
+}
+
+model Option {
+  id            String    @id @default(uuid())
+  optionGroupId String
+  name          String
+  priceAmount   Int
+  isActive      Boolean   @default(true)
+  isAvailable   Boolean   @default(true)
+  displayOrder  Int
+  archivedAt    DateTime?
+
+  optionGroup      OptionGroup       @relation(fields: [optionGroupId], references: [id])
+  orderItemOptions OrderItemOption[]
+
+  @@index([optionGroupId, isActive, isAvailable, displayOrder])
+  @@map("options")
+}
+
+model CafeTable {
+  id                  String    @id @default(uuid())
+  name                String
+  seatingLimitMinutes Int       @default(45)
+  displayOrder        Int
+  isActive            Boolean   @default(true)
+  archivedAt          DateTime?
+
+  orders Order[]
+
+  @@index([isActive, displayOrder])
+  @@map("cafe_tables")
+}
+
+model Order {
+  id                               String        @id @default(uuid())
+  orderNumber                      String        @unique
+  tableId                          String?
+  createdById                      String
+  channel                          OrderChannel
+  state                            OrderState    @default(OPEN)
+  paymentStatus                    PaymentStatus @default(UNPAID)
+  version                          Int           @default(1)
+  discountKind                     DiscountKind?
+  discountValue                    Int?
+  discountAmount                   Int           @default(0)
+  discountReason                   String?
+  subtotalAmount                   Int
+  totalAmount                      Int
+  paidAmount                       Int           @default(0)
+  balanceAmount                    Int
+  estimatedPreparationMinutes      Int           @default(0)
+  tableSeatingLimitSnapshotMinutes Int?
+  estimatedTableReleaseAt          DateTime?
+  deletedById                      String?
+  deletedAt                        DateTime?
+  deletionReason                   String?
+  createdAt                        DateTime      @default(now())
+  updatedAt                        DateTime      @updatedAt
+
+  table              CafeTable?          @relation(fields: [tableId], references: [id])
+  createdBy          User                @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  deletedBy          User?               @relation("OrderDeletedBy", fields: [deletedById], references: [id])
+  items              OrderItem[]
+  paymentSettlements PaymentSettlement[]
+
+  @@index([tableId, state])
+  @@index([state, paymentStatus])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                                 String  @id @default(uuid())
+  orderId                            String
+  productId                          String
+  productNameSnapshot                String
+  basePriceSnapshot                  Int
+  preparationDeadlineSnapshotMinutes Int
+  quantity                           Int
+  note                               String?
+  discountAmount                     Int     @default(0)
+  lineTotalAmount                    Int
+  displayOrder                       Int
+
+  order                 Order                  @relation(fields: [orderId], references: [id])
+  product               Product                @relation(fields: [productId], references: [id])
+  options               OrderItemOption[]
+  settlementAllocations SettlementAllocation[]
+
+  @@index([orderId, displayOrder])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model OrderItemOption {
+  id                 String @id @default(uuid())
+  orderItemId        String
+  optionId           String
+  optionNameSnapshot String
+  priceSnapshot      Int
+  quantity           Int
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+  option    Option    @relation(fields: [optionId], references: [id])
+
+  @@index([orderItemId])
+  @@map("order_item_options")
+}
+
+model PaymentSettlement {
+  id             String   @id @default(uuid())
+  orderId        String
+  recordedById   String
+  idempotencyKey String
+  totalAmount    Int
+  recordedAt     DateTime @default(now())
+
+  order       Order                  @relation(fields: [orderId], references: [id])
+  recordedBy  User                   @relation(fields: [recordedById], references: [id])
+  allocations SettlementAllocation[]
+  payments    Payment[]
+  reversal    SettlementReversal?
+
+  @@unique([orderId, idempotencyKey])
+  @@index([recordedById])
+  @@map("payment_settlements")
+}
+
+model SettlementAllocation {
+  id           String @id @default(uuid())
+  settlementId String
+  orderItemId  String
+  quantity     Int
+  amount       Int
+
+  settlement PaymentSettlement @relation(fields: [settlementId], references: [id])
+  orderItem  OrderItem         @relation(fields: [orderItemId], references: [id])
+
+  @@index([orderItemId])
+  @@map("settlement_allocations")
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  settlementId String
+  method       PaymentMethod
+  amount       Int
+  reference    String?
+  recordedAt   DateTime      @default(now())
+
+  settlement PaymentSettlement @relation(fields: [settlementId], references: [id])
+
+  @@index([settlementId])
+  @@map("payments")
+}
+
+model SettlementReversal {
+  id           String   @id @default(uuid())
+  settlementId String   @unique
+  recordedById String
+  reason       String
+  recordedAt   DateTime @default(now())
+
+  settlement PaymentSettlement @relation(fields: [settlementId], references: [id])
+  recordedBy User              @relation(fields: [recordedById], references: [id])
+
+  @@index([recordedById])
+  @@map("settlement_reversals")
+}
+
+model IdempotencyRecord {
+  id                 String   @id @default(uuid())
+  actorId            String
+  operation          String
+  key                String
+  requestFingerprint String
+  responseStatus     Int
+  resultSnapshot     Json
+  expiresAt          DateTime
+  createdAt          DateTime @default(now())
+
+  actor User @relation(fields: [actorId], references: [id])
+
+  @@unique([actorId, operation, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  actorId        String?
+  requestId      String
+  operation      String
+  entityType     String
+  entityId       String
+  beforeSnapshot Json?
+  afterSnapshot  Json?
+  reason         String?
+  occurredAt     DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([occurredAt])
+  @@map("audit_logs")
+}
+
+model CafeSettings {
+  id                              String   @id @default(uuid())
+  defaultTableSeatingLimitMinutes Int      @default(45)
+  updatedById                     String?
+  updatedAt                       DateTime @updatedAt
+
+  updatedBy User? @relation(fields: [updatedById], references: [id])
+
+  @@map("cafe_settings")
 }
