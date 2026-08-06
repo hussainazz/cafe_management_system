@@ -293,8 +293,8 @@ history by default.
 - Optional: `reference`.
 - Checks:
   - `amount > 0`.
-  - `method = 'CARD_TRANSFER'` requires `reference IS NOT NULL AND reference <> ''`.
-  - `method = 'CARD_TERMINAL'` allows `reference` to be null or a non-empty string.
+  - `method = 'CARD_TRANSFER'` allows `reference` to be null or a non-empty string.
+  - `method = 'CARD_TERMINAL'` requires `reference IS NULL`.
   - `method = 'CASH'` requires `reference IS NULL`.
 - Indexes:
   - `settlementId`.
