@@ -170,8 +170,9 @@ When the supplied version is stale, the API returns `409` `STALE_VERSION` with
 the current version in safe error details; it does not silently overwrite newer
 data. Reads and successful write responses include the latest version so the
 client can retry from current state. A domain state rule that forbids the
-operation, such as editing order contents after the first settlement, returns
-`409` `INVALID_STATE` even when the version matches.
+operation, such as reducing an item quantity below the quantity already
+allocated to settlements, returns `409` `INVALID_STATE` even when the version
+matches.
 
 Order creation has no prior version and relies on its required idempotency key.
 Settlement recording requires both an idempotency key and `expectedVersion`.
