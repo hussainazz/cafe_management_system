@@ -41,5 +41,9 @@ Keep order lifecycle and payment status separate:
 - Detailed customer receipts can be printed for the full order or an individual settlement. The concise bar ticket is an order-preparation printout and never includes settlement or payment information.
 - Database constraints and transaction tests must enforce allocation quantity,
   tender-total, idempotency, reversal, and payment-status invariants.
-- Partial post-settlement order edits are intentionally excluded. Additional
-  items require a new order, which avoids rewriting financial history.
+- Partial post-settlement order edits are allowed for real-life table
+  continuation: Staff may add new items, increase quantities, or adjust
+  unsettled quantities while the order remains `OPEN`.
+- Settled item quantities, posted allocations, tenders, and payer receipt
+  history are immutable. Order-level discounts are not changed after the first
+  settlement because they affect allocation math.
