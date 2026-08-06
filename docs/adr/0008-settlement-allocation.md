@@ -24,8 +24,10 @@ Keep order lifecycle and payment status separate:
 - A `PaymentSettlement` represents one payer checkout and allocates selected
   order-item quantities.
 - Each settlement contains one or more `Payment` tenders using `CASH`,
-  `CARD_TERMINAL`, or `CARD_TRANSFER`. A card-to-card transfer requires a
-  reconciliation reference.
+  `CARD_TERMINAL`, or `CARD_TRANSFER`. Card-terminal entry is manual on the
+  physical terminal and is not synchronized with the application, so
+  card-terminal tenders store no reconciliation reference. Card-to-card
+  transfer references are optional.
 - The API records a settlement atomically and idempotently. The server
   calculates allocations and settlement totals from order snapshots.
 - Once a settlement exists, order contents, discounts, and table assignment
