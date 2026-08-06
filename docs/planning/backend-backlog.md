@@ -21,10 +21,10 @@ Done:
 - Initial ERD is documented.
 - API inventory is documented in `api-inventory.md`, including operational, identity, POS, public-menu, Manager, reporting, and planned realtime boundaries.
 - Database constraints are explicitly documented in `database-constraints.md`, including keys, foreign keys, checks, indexes, and transactional invariants.
+- Request/response conventions are documented in `request-response-conventions.md`, including error envelopes, pagination, idempotency, and concurrency behavior.
 
 Left:
 
-- Document request/response conventions, error envelope, pagination, idempotency, and concurrency behavior.
 - Convert the approved scope into a prioritized backend backlog with acceptance criteria.
 
 Exit gate:
