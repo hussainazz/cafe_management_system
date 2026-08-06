@@ -76,7 +76,7 @@ Exit gate:
 - Implement per-payer settlements that allocate selected order-item quantities and contain one or more cash, card-terminal, or card-to-card transfer tenders.
 - Make each settlement recording idempotent and transactional; update the order's `UNPAID`/`PARTIALLY_PAID`/`PAID` status and audit entry from active allocations.
 - Provide concise bar-ticket and detailed customer-receipt API data with stable order numbers, timing snapshots, and `Asia/Tehran` display timestamps. Bar-ticket data must exclude prices, discounts, totals, and payment information; customer receipts retain the financial detail for whole orders and settlements.
-- Test permissions, duplicate retries, stale edits, invalid transitions, unavailable products, historical price/timing stability, selected-item allocation, mixed tender, card-transfer references, settlement reversal, payment reconciliation, and transaction rollback.
+- Test permissions, duplicate retries, stale edits, invalid transitions, unavailable products, historical price/timing stability, selected-item allocation, mixed tender, optional card-transfer references, settlement reversal, payment reconciliation, and transaction rollback.
 
 Exit gate:
 
