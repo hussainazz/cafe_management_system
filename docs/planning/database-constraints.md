@@ -364,8 +364,14 @@ they span multiple rows.
   `OrderItem.preparationDeadlineSnapshotMinutes` across its current items.
 - A table order's `estimatedTableReleaseAt` equals `createdAt +
 tableSeatingLimitSnapshotMinutes + estimatedPreparationMinutes`.
-- Order content, discount, and table assignment updates are accepted only while
-  `state = 'OPEN'` and `paymentStatus = 'UNPAID'`.
+- Order content and table assignment updates are accepted only while
+  `state = 'OPEN'`.
+- After the first settlement, order edits may add items, increase quantities, or
+  adjust only quantities that are not allocated to active settlements. They must
+  never reduce an order item's quantity below its active allocated quantity or
+  rewrite posted settlement allocations, tenders, or settlement receipts.
+- Order-level discount changes are accepted only before the first settlement
+  because they affect settlement allocation math.
 - Stale order updates are rejected through a compare-and-swap check on
   `Order.version`.
 - Creating an order with an idempotency key inserts or replays one
