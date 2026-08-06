@@ -67,8 +67,10 @@ totals, balance, state transitions, and snapshots.
 `record-settlement` accepts selected order-item quantities plus one or more
 tenders. The server calculates allocation and settlement amounts, rather than
 accepting a client total. A settlement may contain `CASH`, `CARD_TERMINAL`, and
-`CARD_TRANSFER` tenders; card-to-card transfers require a reference. The
-operation requires an idempotency key and the current order version.
+`CARD_TRANSFER` tenders. Card-terminal tenders store no reconciliation
+reference because terminal entry is manual and not synchronized with the
+application. Card-to-card transfer references are optional. The operation
+requires an idempotency key and the current order version.
 
 | Method  | Path                                                        | Access | Stage | Purpose                                                                                                                                                                                                                                                                                               |
 | ------- | ----------------------------------------------------------- | ------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
