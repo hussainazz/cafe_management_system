@@ -10,9 +10,9 @@ the API and OpenAPI is generated from them.
 
 All application endpoints use the `/api/v1` prefix. The operational health
 endpoints are the only current implementation; every other entry is planned
-for the delivery stage shown below. Request/response envelopes, pagination,
-idempotency-header format, and conflict/error details are intentionally owned
-by the remaining Stage 0 request/response-conventions task.
+for the delivery stage shown below. Shared request/response envelopes,
+pagination, idempotency-header format, and conflict/error details are defined
+in `request-response-conventions.md`.
 
 Legend:
 
