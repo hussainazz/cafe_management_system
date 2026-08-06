@@ -17,11 +17,11 @@ Manager/admin and reporting work must not block the POS and QR-menu path unless 
 
 ## Current Stage Status
 
-No roadmap stage is complete yet.
+Stage 0 is complete. No implementation stage is complete yet.
 
-Current implementation status as of 5 August 2026:
+Current implementation status as of 6 August 2026:
 
-- **Stage 0 — Scope and domain baseline:** partially complete. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including the settlement model; the initial ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; `database-constraints.md` explicitly lists the planned database constraints; and `request-response-conventions.md` defines shared application envelopes, errors, pagination, idempotency, and concurrency. Remaining exit-gate evidence still needed: a prioritized backend backlog with acceptance criteria.
+- **Stage 0 — Scope and domain baseline:** complete. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including the settlement model; the initial ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; `database-constraints.md` explicitly lists the planned database constraints; `request-response-conventions.md` defines shared application envelopes, errors, pagination, idempotency, and concurrency; and `backend-backlog.md` converts the approved scope into a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** in progress. Implemented so far: pnpm monorepo workspace, strict shared TypeScript config, Prettier/ESLint setup, Fastify API skeleton, environment validation, request IDs, basic logging, CORS/Helmet/Sensible registration, Swagger/OpenAPI plugin registration, PostgreSQL Docker Compose service, Prisma schema/client setup, liveness/readiness routes, graceful shutdown, and API health integration tests.
 - **Stage 1 verification:** `pnpm typecheck` passes, and `pnpm --filter @cafe/api test` passes against the current local PostgreSQL connection. `pnpm lint` errors are ignored by project rule in `AGENTS.md`.
 - **Stage 1 remaining work:** create the initial database tables, add the initial Prisma migration, create the seed/bootstrap flow for the first Manager, define a separate test database workflow, finish structured error envelopes, decide how OpenAPI schemas are generated from validated request/response schemas, and prove the fresh-environment Stage 1 exit gate.
@@ -79,7 +79,7 @@ Exit gate:
 - Implement the catalog, product option, availability, image metadata, product preparation-deadline, physical-table seating-limit, and active table ETA reads required for POS order entry.
 - Implement table and takeaway order creation by Staff.
 - Calculate all prices, totals, estimated preparation minutes, and table release estimates on the server and persist immutable item/option/timing snapshots.
-- Implement controlled edits to `OPEN`, `UNPAID` orders, table assignment/transfer, and order history; reject edits after the first settlement.
+- Implement controlled edits to `OPEN` orders, table assignment/transfer, and order history; after the first settlement, allow only additive/unsettled-quantity edits and reject rewrites to settled quantities, posted allocations, tenders, or settlement receipts.
 - Implement logical deletion with actor and timestamp; a reason is optional at every payment status. Never physically delete an order.
 - Implement per-payer settlements that allocate selected order-item quantities and contain one or more cash, card-terminal, or card-to-card transfer tenders.
 - Make each settlement recording idempotent and transactional; update the order's `UNPAID`/`PARTIALLY_PAID`/`PAID` status and audit entry from active allocations.
@@ -104,7 +104,7 @@ Exit gate:
 ### Stage 4 — Staff POS Frontend
 
 - Create the Next.js application shell, route groups, layouts, shared UI primitives, environment configuration, and typed API client needed by Staff routes.
-- Build order channel selection, product/options entry, notes, totals, and controlled `UNPAID` order edits.
+- Build order channel selection, product/options entry, notes, totals, and controlled `OPEN` order edits, including adding items after partial payment without rewriting settled quantities.
 - Build table assignment/transfer, active-table view with estimated release timing, selected-item settlement with mixed tenders, payment-status display, deletion/clear flow, concise bar-ticket printing, and detailed customer-receipt printing for whole orders and settlements.
 - Handle idempotent retry results, stale-version conflicts, API failures, connection state, and reconnect refetch.
 - Validate touch targets, keyboard operation, actual café devices, and the real receipt printer/paper size.
