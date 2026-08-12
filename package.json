@@ -14,6 +14,8 @@
     "db:migrate": "pnpm --filter @cafe/api prisma:migrate",
     "db:studio": "pnpm --filter @cafe/api prisma:studio",
     "db:seed": "pnpm --filter @cafe/api prisma:seed",
+    "db:bootstrap-manager": "pnpm --filter @cafe/api bootstrap:manager",
+    "test:api": "pnpm --filter @cafe/api test",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"
