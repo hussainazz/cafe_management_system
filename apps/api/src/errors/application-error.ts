@@ -1,0 +1,40 @@
+export const ErrorCodes = {
+  BAD_REQUEST: "BAD_REQUEST",
+  VALIDATION_ERROR: "VALIDATION_ERROR",
+  AUTHENTICATION_REQUIRED: "AUTHENTICATION_REQUIRED",
+  SESSION_EXPIRED: "SESSION_EXPIRED",
+  FORBIDDEN: "FORBIDDEN",
+  NOT_FOUND: "NOT_FOUND",
+  CONFLICT: "CONFLICT",
+  STALE_VERSION: "STALE_VERSION",
+  INVALID_STATE: "INVALID_STATE",
+  IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
+  IDEMPOTENCY_IN_PROGRESS: "IDEMPOTENCY_IN_PROGRESS",
+  BUSINESS_RULE_VIOLATION: "BUSINESS_RULE_VIOLATION",
+  UNAVAILABLE_PRODUCT: "UNAVAILABLE_PRODUCT",
+  SETTLEMENT_ALLOCATION_CONFLICT: "SETTLEMENT_ALLOCATION_CONFLICT",
+  PAYMENT_RECONCILIATION_FAILED: "PAYMENT_RECONCILIATION_FAILED",
+  RATE_LIMITED: "RATE_LIMITED",
+  INTERNAL_ERROR: "INTERNAL_ERROR",
+  SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
+} as const;
+
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
+
+export type ErrorDetail = {
+  path: string;
+  code: string;
+  message: string;
+};
+
+export class ApplicationError extends Error {
+  constructor(
+    readonly statusCode: number,
+    readonly code: ErrorCode,
+    message: string,
+    readonly details?: ErrorDetail[],
+  ) {
+    super(message);
+    this.name = "ApplicationError";
+  }
+}
