@@ -21,6 +21,7 @@ Done:
 - Liveness and readiness routes.
 - Graceful shutdown.
 - API health integration tests.
+- Structured error envelopes with safe validation details and request IDs.
 
 Verified:
 
@@ -29,7 +30,6 @@ Verified:
 
 Left:
 
-- Finish structured error envelopes.
 - Decide how OpenAPI schemas are generated from validated request/response schemas.
 - Prove the fresh-environment Stage 1 exit gate.
 
