@@ -29,10 +29,6 @@ Verified:
 
 Left:
 
-- Create the initial database tables.
-- Add the initial Prisma migration.
-- Create the seed/bootstrap flow for the first Manager.
-- Define a separate test database workflow.
 - Finish structured error envelopes.
 - Decide how OpenAPI schemas are generated from validated request/response schemas.
 - Prove the fresh-environment Stage 1 exit gate.
