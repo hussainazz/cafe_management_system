@@ -5,6 +5,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import Fastify from "fastify";
 import { env } from "./config/env.js";
+import { isValidRequestId, registerErrorHandling } from "./errors/error-handler.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
 import { databasePlugin } from "./plugins/database.js";
 
@@ -16,9 +17,11 @@ export function buildApp() {
     genReqId(request) {
       const requestId = request.headers["x-request-id"];
 
-      return typeof requestId === "string" ? requestId : crypto.randomUUID();
+      return isValidRequestId(requestId) ? requestId : crypto.randomUUID();
     },
   });
+
+  registerErrorHandling(app);
 
   app.register(helmet);
 
