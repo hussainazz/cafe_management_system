@@ -39,6 +39,14 @@ responses, and attached to application logs and audit records.
 
 ### Authentication And Caching
 
+- Staff and Manager accounts authenticate with their unique lowercase username
+  and password. Login and refresh establish an HTTP-only, `SameSite=Strict`
+  access-session cookie and a path-scoped refresh-session cookie. The cookies,
+  passwords, and refresh tokens never appear in JSON responses or logs.
+- Access sessions are signed, short-lived claims; refresh sessions are random,
+  opaque values stored only as one-way hashes and rotated on every refresh.
+  Logout revokes the current refresh session and logout-all revokes every active
+  refresh session owned by the user.
 - Public QR-menu reads are anonymous and read-only. All other application
   routes require an authenticated Staff or Manager session unless the API
   inventory says otherwise.
