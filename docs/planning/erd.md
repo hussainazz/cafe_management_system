@@ -16,6 +16,7 @@ indexes for this model.
 erDiagram
     User {
         uuid id PK
+        string username UK
         string passwordHash
         enum role
         boolean isActive
@@ -271,6 +272,7 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 | Field          | Explanation                                                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `id`           | Internal identity of a Manager or Staff user. Other records use it to record who performed an action.                     |
+| `username`     | A unique, lowercase Staff or Manager sign-in name. It is an operational identifier, not a customer account or profile.      |
 | `passwordHash` | A one-way password hash, never the password itself. It is needed to verify sign-in securely.                              |
 | `role`         | The user's controlled permission level: `MANAGER` or `STAFF`. Application authorization checks this server-side.          |
 | `isActive`     | Whether this account may currently sign in and act. Deactivation preserves history instead of deleting a referenced user. |
