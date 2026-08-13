@@ -5,10 +5,32 @@ export const DEFAULT_TABLE_SEATING_LIMIT_MINUTES = 45;
 export const HealthResponseSchema = z.object({
   status: z.literal("ok"),
   service: z.string(),
-  timestamp: z.string(),
+  timestamp: z.iso.datetime(),
 });
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+
+export const ReadinessResponseSchema = HealthResponseSchema.extend({
+  database: z.literal("connected"),
+});
+
+export type ReadinessResponse = z.infer<typeof ReadinessResponseSchema>;
+
+export const ReadinessUnavailableResponseSchema = z.object({
+  status: z.literal("error"),
+  service: z.string(),
+  database: z.literal("unavailable"),
+  timestamp: z.iso.datetime(),
+});
+
+export type ReadinessUnavailableResponse = z.infer<typeof ReadinessUnavailableResponseSchema>;
+
+export const RequestIdHeaderSchema = z.object({
+  "x-request-id": z
+    .string()
+    .regex(/^[A-Za-z0-9._:-]{8,128}$/)
+    .optional(),
+});
 
 export const ProductPreparationDeadlineMinutesSchema = z.number().int().min(1);
 
