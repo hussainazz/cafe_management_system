@@ -18,7 +18,7 @@ development data.
 
 2. Copy `apps/api/.env.example` to `apps/api/.env`. Set `DATABASE_URL` to an
    empty PostgreSQL database and set distinct values for
-   `BOOTSTRAP_MANAGER_PASSWORD`, `ACCESS_TOKEN_SECRET`, and
+   `BOOTSTRAP_MANAGER_USERNAME`, `BOOTSTRAP_MANAGER_PASSWORD`, `ACCESS_TOKEN_SECRET`, and
    `REFRESH_TOKEN_SECRET`. Both token secrets must be at least 32 characters.
 
 3. Start PostgreSQL:
@@ -27,7 +27,8 @@ development data.
    pnpm docker:up
    ```
 
-4. Apply migrations and create the one-time initial Manager:
+4. Apply migrations and create the one-time initial Manager. The bootstrap username
+   must be lowercase and unique:
 
    ```sh
    pnpm --filter @cafe/api prisma:deploy
