@@ -7,6 +7,7 @@ import Fastify from "fastify";
 import { env } from "./config/env.js";
 import { isValidRequestId, registerErrorHandling } from "./errors/error-handler.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
+import { authRoutes } from "./modules/auth/auth.routes.js";
 import { databasePlugin } from "./plugins/database.js";
 
 export function buildApp() {
@@ -50,6 +51,7 @@ export function buildApp() {
   app.register(
     async (api) => {
       api.register(healthRoutes);
+      api.register(authRoutes);
     },
     {
       prefix: "/api/v1",
