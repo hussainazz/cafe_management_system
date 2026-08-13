@@ -81,11 +81,14 @@ history by default.
 ### `users`
 
 - Primary key: `id`.
-- Required: `passwordHash`, `role`, `isActive`, `createdAt`, `updatedAt`.
+- Required: `username`, `passwordHash`, `role`, `isActive`, `createdAt`, `updatedAt`.
 - Checks:
+  - `username` is lowercase, 3–64 characters, and contains only ASCII letters,
+    digits, `.`, `_`, or `-`.
   - `passwordHash` is not an empty string.
   - `role` is one of `MANAGER` or `STAFF`.
 - Indexes:
+  - Unique `username` for sign-in lookup.
   - Add role/active indexes only when measured Manager-user queries need them.
 
 ### `refresh_sessions`
