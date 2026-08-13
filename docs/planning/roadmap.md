@@ -23,7 +23,7 @@ Current implementation status as of 13 August 2026:
 
 - **Stage 0 — Scope and domain baseline:** complete. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including the settlement model; the initial ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; `database-constraints.md` explicitly lists the planned database constraints; `request-response-conventions.md` defines shared application envelopes, errors, pagination, idempotency, and concurrency; and `backend-backlog.md` converts the approved scope into a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** complete. The database schema and reviewed migrations, first-Manager bootstrap, isolated test-database workflow, structured error envelope, Zod-derived OpenAPI contract, Docker Compose PostgreSQL baseline, liveness/readiness routes, and graceful shutdown are implemented. The fresh-environment rehearsal on 13 August 2026 applied both migrations to a new database, created exactly one Manager, rejected a repeat bootstrap, returned healthy liveness/readiness responses, and passed typecheck and the API test suite.
-- **Stage 2 — POS backend:** in progress. Authentication and POS-domain work remain next in the database-first/POS-first sequence.
+- **Stage 2 — POS backend:** in progress. Username authentication, signed access sessions, refresh rotation, logout revocation, account-deactivation revocation, and safe auth-event recording are complete; POS-domain work remains next in the database-first/POS-first sequence.
 
 ## Stage Overview
 
