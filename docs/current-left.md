@@ -22,6 +22,7 @@ Done:
 - Graceful shutdown.
 - API health integration tests.
 - Structured error envelopes with safe validation details and request IDs.
+- Zod DTO schemas generate the current API OpenAPI contract.
 
 Verified:
 
@@ -30,7 +31,6 @@ Verified:
 
 Left:
 
-- Decide how OpenAPI schemas are generated from validated request/response schemas.
 - Prove the fresh-environment Stage 1 exit gate.
 
 ## Completed Stages
