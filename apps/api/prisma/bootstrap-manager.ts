@@ -5,6 +5,16 @@ import { hashPassword, validateBootstrapPassword } from "../src/auth/password.js
 
 const bootstrapLockId = 741203001n;
 
+function validateBootstrapUsername(username: string | undefined): string {
+  if (!username || !/^[a-z0-9._-]{3,64}$/.test(username)) {
+    throw new Error(
+      "BOOTSTRAP_MANAGER_USERNAME must be 3-64 lowercase letters, digits, periods, underscores, or hyphens",
+    );
+  }
+
+  return username;
+}
+
 async function bootstrapManager(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
 
@@ -13,6 +23,7 @@ async function bootstrapManager(): Promise<void> {
   }
 
   const password = validateBootstrapPassword(process.env.BOOTSTRAP_MANAGER_PASSWORD);
+  const username = validateBootstrapUsername(process.env.BOOTSTRAP_MANAGER_USERNAME);
   const passwordHash = await hashPassword(password);
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: databaseUrl }),
@@ -32,6 +43,7 @@ async function bootstrapManager(): Promise<void> {
 
       await transaction.user.create({
         data: {
+          username,
           passwordHash,
           role: UserRole.MANAGER,
         },
