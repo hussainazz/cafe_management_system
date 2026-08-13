@@ -4,15 +4,17 @@ This document tracks backend work extracted from the roadmap. Product and busine
 
 ## Current Backend Status
 
-Stage 0 is complete. Stage 1 is in progress. No implementation stage is fully
-complete yet. Backend work follows this priority: database/tables first, POS
-backend second, QR-menu backend third.
+Stages 0 and 1 are complete. Stage 2 is in progress. Backend work follows this
+priority: database/tables first, POS backend second, QR-menu backend third.
 
 Current verification:
 
 - `pnpm typecheck` passes.
 - `pnpm --filter @cafe/api test` passes against the current local PostgreSQL connection.
 - `pnpm lint` errors are ignored by project rule in `AGENTS.md`.
+- The 13 August 2026 fresh-environment rehearsal applied both migrations to a
+  new database, created exactly one Manager, rejected a repeat bootstrap, and
+  returned healthy liveness/readiness responses.
 
 ## Stage 0 Backlog — Scope And Domain Baseline
 
@@ -366,16 +368,12 @@ Done:
 - Liveness and readiness routes.
 - Graceful shutdown.
 - API health integration tests.
-
-Left:
-
-- Create the initial database tables.
-- Add the initial Prisma migration.
-- Create the seed/bootstrap flow for the first Manager.
-- Define a separate test database workflow.
-- Finish structured error envelopes.
-- Decide how OpenAPI schemas are generated from validated request/response schemas.
-- Prove the fresh-environment Stage 1 exit gate.
+- Initial database tables and reviewed Prisma migrations.
+- First-Manager bootstrap flow.
+- Isolated test-database workflow and documentation.
+- Structured error envelopes with safe validation details and request IDs.
+- Zod DTO schema generation for the current API OpenAPI contract.
+- Fresh-environment exit-gate rehearsal.
 
 Exit gate:
 
