@@ -12,6 +12,10 @@ Current verification:
 - `pnpm typecheck` passes.
 - `pnpm --filter @cafe/api test` passes against the current local PostgreSQL connection.
 - `pnpm lint` errors are ignored by project rule in `AGENTS.md`.
+- Stage 2 authentication is implemented and verified: unique Staff/Manager
+  usernames, signed access sessions, rotating hashed refresh sessions,
+  logout/logout-all revocation, account-deactivation revocation, and safe auth
+  event records.
 - The 13 August 2026 fresh-environment rehearsal applied both migrations to a
   new database, created exactly one Manager, rejected a repeat bootstrap, and
   returned healthy liveness/readiness responses.
