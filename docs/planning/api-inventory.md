@@ -35,7 +35,7 @@ Legend:
 
 | Method | Path                      | Access   | Stage | Purpose                                                                               |
 | ------ | ------------------------- | -------- | ----- | ------------------------------------------------------------------------------------- |
-| `POST` | `/api/v1/auth/login`      | Public   | 2     | Authenticate an active Staff or Manager account and establish an application session. |
+| `POST` | `/api/v1/auth/login`      | Public   | 2     | Authenticate an active Staff or Manager username/password pair and establish an application session. |
 | `POST` | `/api/v1/auth/refresh`    | Internal | 2     | Rotate a valid refresh session and issue the next access session.                     |
 | `POST` | `/api/v1/auth/logout`     | Staff    | 2     | Revoke the current refresh session.                                                   |
 | `GET`  | `/api/v1/auth/me`         | Staff    | 2     | Return the current authenticated user and role.                                       |
