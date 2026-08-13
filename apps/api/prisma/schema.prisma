@@ -42,6 +42,7 @@ enum PaymentMethod {
 
 model User {
   id           String   @id @default(uuid())
+  username     String   @unique
   passwordHash String
   role         UserRole
   isActive     Boolean  @default(true)
