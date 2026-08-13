@@ -6,9 +6,12 @@ This file is the active completion checklist and current stage status for the ba
 
 ### Stage 2 - POS Backend
 
+Done:
+
+- Staff and Manager username authentication, signed access sessions, rotating hashed refresh sessions, logout/logout-all revocation, account-deactivation revocation, and safe authentication-event recording.
+
 Left:
 
-- Implement Staff and Manager authentication.
 - Enforce role authorization in routes and service methods.
 - Implement POS catalog and table reads.
 - Implement Staff order creation.
