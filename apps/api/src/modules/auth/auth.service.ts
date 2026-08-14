@@ -1,9 +1,4 @@
-import {
-  Prisma,
-  type PrismaClient,
-  type User,
-  type UserRole,
-} from "../../../generated/prisma/client.js";
+import { Prisma, type PrismaClient, type User } from "../../../generated/prisma/client.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import { verifyPassword } from "../../auth/password.js";
 import {
@@ -13,6 +8,7 @@ import {
   refreshSessionExpiry,
   type AccessSession,
 } from "../../auth/session.js";
+import { requireManager } from "./permissions.js";
 
 export type AuthenticatedUser = Pick<User, "id" | "username" | "role">;
 
@@ -183,9 +179,12 @@ export async function logoutAll(
 
 export async function deactivateAccount(
   prisma: PrismaClient,
+  actor: AuthenticatedUser,
   userId: string,
   requestId: string,
 ): Promise<void> {
+  requireManager(actor);
+
   await prisma.$transaction(async (transaction) => {
     await transaction.user.update({ where: { id: userId }, data: { isActive: false } });
     await transaction.refreshSession.updateMany({
@@ -194,8 +193,4 @@ export async function deactivateAccount(
     });
     await authEvent(transaction, "ACCOUNT_DEACTIVATED", requestId, userId);
   });
-}
-
-export function isStaffOrManager(role: UserRole): boolean {
-  return role === "STAFF" || role === "MANAGER";
 }
