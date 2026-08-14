@@ -16,6 +16,10 @@ Current verification:
   usernames, signed access sessions, rotating hashed refresh sessions,
   logout/logout-all revocation, account-deactivation revocation, and safe auth
   event records.
+- Stage 2 authorization is implemented and verified: Staff routes allow Staff
+  and Manager users, Manager-only guards return `403 FORBIDDEN` to Staff users,
+  missing sessions return `401 AUTHENTICATION_REQUIRED`, and a Manager-only
+  account-deactivation service check prevents route-bypass authorization.
 - The 13 August 2026 fresh-environment rehearsal applied both migrations to a
   new database, created exactly one Manager, rejected a repeat bootstrap, and
   returned healthy liveness/readiness responses.
