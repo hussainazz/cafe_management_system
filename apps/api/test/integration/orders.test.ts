@@ -338,3 +338,77 @@ describe("logical order deletion", () => {
     expect(retry.json().error.code).toBe("INVALID_STATE");
   });
 });
+
+describe("settlement recording", () => {
+  it("records selected quantities with mixed tenders, is retry-safe, and updates payment status", async () => {
+    const cookies = await userSession(UserRole.STAFF, "settlement.staff");
+    const { product: first } = await sellableProduct();
+    const { product: second } = await sellableProduct();
+    const created = await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: first.id, quantity: 1, options: [] }, { productId: second.id, quantity: 1, options: [] }] }, "settlement-order-create-1");
+    const order = created.json().data;
+    const firstPayload = { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] };
+    const firstSettlement = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "settlement-record-0001" }, payload: firstPayload });
+    expect(firstSettlement.statusCode).toBe(201);
+    expect(firstSettlement.json().data).toMatchObject({ paymentStatus: "PARTIALLY_PAID", paidAmount: 50_000, balanceAmount: 50_000, version: 2, settlements: [{ totalAmount: 50_000, allocations: [{ orderItemId: order.items[0].id, quantity: 1, amount: 50_000 }] }] });
+    const replay = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "settlement-record-0001" }, payload: firstPayload });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.headers["idempotency-replayed"]).toBe("true");
+    expect(await app.prisma.paymentSettlement.count()).toBe(1);
+
+    const secondSettlement = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "settlement-record-0002" }, payload: { expectedVersion: 2, allocations: [{ orderItemId: order.items[1].id, quantity: 1 }], payments: [{ method: "CASH", amount: 20_000 }, { method: "CARD_TRANSFER", amount: 30_000, reference: "TRX-123" }] } });
+    expect(secondSettlement.statusCode).toBe(201);
+    expect(secondSettlement.json().data).toMatchObject({ paymentStatus: "PAID", paidAmount: 100_000, balanceAmount: 0, version: 3 });
+    expect(await app.prisma.payment.count()).toBe(3);
+    expect(await app.prisma.auditLog.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(2);
+
+    const { product: addedProduct } = await sellableProduct();
+    const added = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: 3, addItems: [{ productId: addedProduct.id, quantity: 1, options: [] }] } });
+    expect(added.statusCode).toBe(200);
+    expect(added.json().data).toMatchObject({ paymentStatus: "PARTIALLY_PAID", paidAmount: 100_000, balanceAmount: 50_000, version: 4 });
+  });
+
+  it("rejects over-allocation and tender mismatches without partial writes", async () => {
+    const cookies = await userSession(UserRole.STAFF, "settlement.reject.staff");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] }, "settlement-reject-create-1");
+    const order = created.json().data;
+    const mismatch = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "settlement-reject-0001" }, payload: { expectedVersion: 1, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 49_999 }] } });
+    expect(mismatch.statusCode).toBe(422);
+    expect(mismatch.json().error.code).toBe("PAYMENT_RECONCILIATION_FAILED");
+    expect(await app.prisma.paymentSettlement.count()).toBe(0);
+    const over = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "settlement-reject-0002" }, payload: { expectedVersion: 1, allocations: [{ orderItemId: order.items[0].id, quantity: 2 }], payments: [{ method: "CASH", amount: 100_000 }] } });
+    expect(over.statusCode).toBe(409);
+    expect(over.json().error.code).toBe("SETTLEMENT_ALLOCATION_CONFLICT");
+    expect(await app.prisma.paymentSettlement.count()).toBe(0);
+  });
+});
+
+describe("settlement reversal and print data", () => {
+  it("lets only a Manager reverse a settlement and returns safe print data", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "print.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "print.manager");
+    const { product, option } = await sellableProduct();
+    const created = await createOrderRequest(staffCookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, note: "No foam", options: [{ optionId: option.id, quantity: 1 }] }] }, "print-order-create-1");
+    const order = created.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "print-settlement-001" }, payload: { expectedVersion: 1, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CARD_TRANSFER", amount: 55_000, reference: "REF-55" }] } });
+    expect(settled.statusCode).toBe(201);
+    const settlementId = settled.json().data.settlements[0].id;
+    const bar = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/bar-ticket`, cookies: staffCookies });
+    expect(bar.statusCode).toBe(200);
+    expect(bar.json().data).toMatchObject({ orderNumber: order.orderNumber, context: "Takeaway", items: [{ productName: "Latte", note: "No foam" }] });
+    expect(JSON.stringify(bar.json().data)).not.toContain("price");
+    const receipt = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/receipt`, cookies: staffCookies });
+    expect(receipt.statusCode).toBe(200);
+    expect(receipt.json().data).toMatchObject({ totalAmount: 55_000, payments: [{ method: "CARD_TRANSFER", amount: 55_000 }] });
+    const forbidden = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: staffCookies, payload: { expectedVersion: 2, reason: "Wrong tender" } });
+    expect(forbidden.statusCode).toBe(403);
+    const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: 2, reason: "Wrong tender" } });
+    expect(reversed.statusCode).toBe(200);
+    expect(reversed.json().data).toMatchObject({ paymentStatus: "UNPAID", paidAmount: 0, balanceAmount: 55_000, version: 3, settlements: [{ reversedAt: expect.any(String) }] });
+    expect(await app.prisma.settlementReversal.count()).toBe(1);
+    expect(await app.prisma.payment.count()).toBe(1);
+    const payerReceipt = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/settlements/${settlementId}/receipt`, cookies: staffCookies });
+    expect(payerReceipt.statusCode).toBe(200);
+    expect(payerReceipt.json().data).toMatchObject({ settlementId, totalAmount: 55_000 });
+  });
+});
