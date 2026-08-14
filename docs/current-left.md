@@ -14,10 +14,10 @@ Done:
 - Staff table/takeaway order creation with server-calculated Toman totals and timing, immutable product/option snapshots, active-table validation, atomic audit/idempotency records, and retry-safe results.
 - Order list/detail reads and controlled `OPEN`-order edits, including optimistic version checks, table transfers, catalog-backed additions, restricted post-settlement edits, and audit records.
 - Manager-configured product sale discounts plus reasoned Staff/Manager item and order discounts, all server-calculated and snapshotted for historical orders.
+- Staff/Manager logical order deletion with optimistic version checks, optional reason, retained financial/history rows, actor/timestamp, and audit record.
 
 Left:
 
-- Implement logical order deletion.
 - Implement settlement recording.
 - Implement Manager-only settlement reversal.
 - Implement receipt and bar-ticket API data.
