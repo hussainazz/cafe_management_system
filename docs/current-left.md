@@ -9,10 +9,10 @@ This file is the active completion checklist and current stage status for the ba
 Done:
 
 - Staff and Manager username authentication, signed access sessions, rotating hashed refresh sessions, logout/logout-all revocation, account-deactivation revocation, and safe authentication-event recording.
+- Shared Staff/Manager route guards and service-level Manager checks, with tested `401 AUTHENTICATION_REQUIRED` and `403 FORBIDDEN` responses.
 
 Left:
 
-- Enforce role authorization in routes and service methods.
 - Implement POS catalog and table reads.
 - Implement Staff order creation.
 - Implement order reads and controlled edits.
