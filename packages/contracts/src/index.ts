@@ -66,6 +66,75 @@ export const TableSeatingLimitMinutesSchema = z
   .min(1)
   .default(DEFAULT_TABLE_SEATING_LIMIT_MINUTES);
 
+export const TableIdPathSchema = z.object({
+  tableId: z.uuid(),
+});
+
+export const ProductImageSchema = z.object({
+  storageKey: z.string(),
+  altText: z.string(),
+});
+
+export const PosCatalogOptionSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  priceAmount: z.number().int().nonnegative(),
+  isAvailable: z.boolean(),
+});
+
+export const PosCatalogOptionGroupSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  options: z.array(PosCatalogOptionSchema),
+});
+
+export const PosCatalogProductSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  priceAmount: z.number().int().nonnegative(),
+  preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema,
+  isAvailable: z.boolean(),
+  image: ProductImageSchema.nullable(),
+  optionGroups: z.array(PosCatalogOptionGroupSchema),
+});
+
+export const PosCatalogCategorySchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  products: z.array(PosCatalogProductSchema),
+});
+
+export const PosCatalogResponseSchema = z.object({
+  data: z.object({ categories: z.array(PosCatalogCategorySchema) }),
+  meta: z.object({ requestId: z.string() }),
+});
+
+export const ActiveTableOrderSchema = z.object({
+  id: z.uuid(),
+  orderNumber: z.string(),
+  paymentStatus: z.enum(["UNPAID", "PARTIALLY_PAID", "PAID"]),
+  estimatedPreparationMinutes: z.number().int().nonnegative(),
+  estimatedTableReleaseAt: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+});
+
+export const PosTableSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  seatingLimitMinutes: TableSeatingLimitMinutesSchema,
+  activeOrders: z.array(ActiveTableOrderSchema),
+});
+
+export const PosTablesResponseSchema = z.object({
+  data: z.object({ tables: z.array(PosTableSchema) }),
+  meta: z.object({ requestId: z.string() }),
+});
+
+export const PosTableResponseSchema = z.object({
+  data: PosTableSchema,
+  meta: z.object({ requestId: z.string() }),
+});
+
 export type TableEtaInput = {
   seatedAt: Date;
   seatingLimitMinutes: number;
