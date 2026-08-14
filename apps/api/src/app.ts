@@ -10,6 +10,8 @@ import { healthRoutes } from "./modules/health/health.routes.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { posRoutes } from "./modules/pos/pos.routes.js";
 import { tablesRoutes } from "./modules/tables/tables.routes.js";
+import { ordersRoutes } from "./modules/orders/orders.routes.js";
+import { catalogRoutes } from "./modules/catalog/catalog.routes.js";
 import { databasePlugin } from "./plugins/database.js";
 
 export function buildApp() {
@@ -56,6 +58,8 @@ export function buildApp() {
       api.register(authRoutes);
       api.register(posRoutes);
       api.register(tablesRoutes);
+      api.register(ordersRoutes);
+      api.register(catalogRoutes);
     },
     {
       prefix: "/api/v1",
