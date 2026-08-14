@@ -261,6 +261,8 @@ export const CreateOrderResponseSchema = z.object({
 });
 
 export const OrderIdPathSchema = z.object({ orderId: z.uuid() });
+export const SettlementIdPathSchema = z.object({ orderId: z.uuid(), settlementId: z.uuid() });
+export const SettlementPathSchema = z.object({ settlementId: z.uuid() });
 
 export const OrderStateSchema = z.enum(["OPEN", "DELETED"]);
 export const PaymentStatusSchema = z.enum(["UNPAID", "PARTIALLY_PAID", "PAID"]);
@@ -409,6 +411,46 @@ export const DeleteOrderRequestSchema = z
   .strict();
 
 export type DeleteOrderRequest = z.infer<typeof DeleteOrderRequestSchema>;
+
+export const SettlementAllocationInputSchema = z
+  .object({ orderItemId: z.uuid(), quantity: z.number().int().positive() })
+  .strict();
+
+export const SettlementPaymentInputSchema = z.discriminatedUnion("method", [
+  z.object({ method: z.literal("CASH"), amount: z.number().int().positive() }).strict(),
+  z.object({ method: z.literal("CARD_TERMINAL"), amount: z.number().int().positive() }).strict(),
+  z.object({ method: z.literal("CARD_TRANSFER"), amount: z.number().int().positive(), reference: z.string().trim().min(1).max(128).optional() }).strict(),
+]);
+
+export const RecordSettlementRequestSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+    allocations: z.array(SettlementAllocationInputSchema).min(1).max(100),
+    payments: z.array(SettlementPaymentInputSchema).min(1).max(10),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    const itemIds = new Set<string>();
+    input.allocations.forEach((allocation, index) => {
+      if (itemIds.has(allocation.orderItemId)) {
+        context.addIssue({ code: "custom", path: ["allocations", index, "orderItemId"], message: "Each order item can be allocated only once per settlement." });
+      }
+      itemIds.add(allocation.orderItemId);
+    });
+  });
+
+export type RecordSettlementRequest = z.infer<typeof RecordSettlementRequestSchema>;
+
+export const RecordSettlementResponseSchema = OrderDetailResponseSchema;
+
+export const ReverseSettlementRequestSchema = z.object({ expectedVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(500) }).strict();
+export type ReverseSettlementRequest = z.infer<typeof ReverseSettlementRequestSchema>;
+export const ReverseSettlementResponseSchema = OrderDetailResponseSchema;
+
+const ReceiptItemSchema = z.object({ productName: z.string(), quantity: z.number().int().positive(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), lineTotalAmount: z.number().int().nonnegative() });
+export const BarTicketResponseSchema = z.object({ data: z.object({ orderNumber: z.string(), displayTime: z.string(), context: z.string(), estimatedPreparationMinutes: z.number().int().nonnegative(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
+export const OrderReceiptResponseSchema = z.object({ data: z.object({ orderNumber: z.string(), displayTime: z.string(), items: z.array(ReceiptItemSchema), subtotalAmount: z.number().int().nonnegative(), discountAmount: z.number().int().nonnegative(), totalAmount: z.number().int().nonnegative(), paidAmount: z.number().int().nonnegative(), balanceAmount: z.number().int().nonnegative(), payments: z.array(z.object({ method: z.enum(["CASH", "CARD_TERMINAL", "CARD_TRANSFER"]), amount: z.number().int().positive(), reference: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
+export const SettlementReceiptResponseSchema = z.object({ data: z.object({ orderNumber: z.string(), displayTime: z.string(), settlementId: z.uuid(), totalAmount: z.number().int().nonnegative(), payments: z.array(z.object({ method: z.enum(["CASH", "CARD_TERMINAL", "CARD_TRANSFER"]), amount: z.number().int().positive(), reference: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
 
 export const ProductSaleDiscountRequestSchema = z
   .object({ saleDiscount: DiscountInputSchema })
