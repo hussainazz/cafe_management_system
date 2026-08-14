@@ -3,6 +3,7 @@ import {
   AuthRequestHeadersSchema,
   CreateOrderRequestSchema,
   CreateOrderResponseSchema,
+  DeleteOrderRequestSchema,
   ErrorResponseSchema,
   IdempotencyRequestHeadersSchema,
   OrderDetailResponseSchema,
@@ -12,13 +13,14 @@ import {
   TransferOrderTableRequestSchema,
   UpdateOrderRequestSchema,
   type CreateOrderRequest,
+  type DeleteOrderRequest,
   type OrderListQuery,
   type TransferOrderTableRequest,
   type UpdateOrderRequest,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { requireStaff } from "../auth/authorization.js";
-import { createOrder, listOrders, readOrder, transferOrderTable, updateOrder } from "./orders.service.js";
+import { createOrder, deleteOrder, listOrders, readOrder, transferOrderTable, updateOrder } from "./orders.service.js";
 
 export const ordersRoutes: FastifyPluginAsync = async (app) => {
   const headers = zodToJsonSchema(AuthRequestHeadersSchema);
@@ -28,6 +30,7 @@ export const ordersRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { orderId: string } }>("/orders/:orderId", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Read an order", headers, params: orderParams, response: { 200: zodToJsonSchema(OrderDetailResponseSchema), ...errors } } }, async (request) => ({ data: await readOrder(app.prisma, request.authenticatedUser!, request.params.orderId), meta: { requestId: request.id } }));
   app.patch<{ Params: { orderId: string }; Body: UpdateOrderRequest }>("/orders/:orderId", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Edit an open order", headers, params: orderParams, body: zodToJsonSchema(UpdateOrderRequestSchema), response: { 200: zodToJsonSchema(OrderDetailResponseSchema), ...errors } } }, async (request) => ({ data: await updateOrder(app.prisma, request.authenticatedUser!, request.params.orderId, request.body, request.id), meta: { requestId: request.id } }));
   app.post<{ Params: { orderId: string }; Body: TransferOrderTableRequest }>("/orders/:orderId/transfer-table", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Transfer an open table order", headers, params: orderParams, body: zodToJsonSchema(TransferOrderTableRequestSchema), response: { 200: zodToJsonSchema(OrderDetailResponseSchema), ...errors } } }, async (request) => ({ data: await transferOrderTable(app.prisma, request.authenticatedUser!, request.params.orderId, request.body, request.id), meta: { requestId: request.id } }));
+  app.post<{ Params: { orderId: string }; Body: DeleteOrderRequest }>("/orders/:orderId/delete", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Logically delete an open order", headers, params: orderParams, body: zodToJsonSchema(DeleteOrderRequestSchema), response: { 200: zodToJsonSchema(OrderDetailResponseSchema), ...errors } } }, async (request) => ({ data: await deleteOrder(app.prisma, request.authenticatedUser!, request.params.orderId, request.body, request.id), meta: { requestId: request.id } }));
   app.post<{ Body: CreateOrderRequest }>(
     "/orders",
     {
