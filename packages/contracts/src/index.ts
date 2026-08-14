@@ -401,6 +401,15 @@ export const TransferOrderTableRequestSchema = z
 
 export type TransferOrderTableRequest = z.infer<typeof TransferOrderTableRequestSchema>;
 
+export const DeleteOrderRequestSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+
+export type DeleteOrderRequest = z.infer<typeof DeleteOrderRequestSchema>;
+
 export const ProductSaleDiscountRequestSchema = z
   .object({ saleDiscount: DiscountInputSchema })
   .strict();
