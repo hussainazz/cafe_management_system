@@ -302,3 +302,39 @@ describe("order reads, edits, and discounts", () => {
     expect(current.note).toBeNull();
   });
 });
+
+describe("logical order deletion", () => {
+  it("lets Staff logically delete an open order, preserves history, and removes it from active views", async () => {
+    const cookies = await userSession(UserRole.STAFF, "delete.staff");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(
+      cookies,
+      { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] },
+      "delete-order-create-0001",
+    );
+    const order = created.json().data;
+
+    const deleted = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/delete`,
+      cookies,
+      payload: { expectedVersion: order.version },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json().data).toMatchObject({ id: order.id, state: "DELETED", version: 2 });
+
+    const stored = await app.prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { items: true } });
+    expect(stored).toMatchObject({ state: "DELETED", deletedById: expect.any(String), deletionReason: null, version: 2 });
+    expect(stored.deletedAt).not.toBeNull();
+    expect(stored.items).toHaveLength(1);
+    expect(await app.prisma.auditLog.count({ where: { entityId: order.id, operation: "DELETE_ORDER" } })).toBe(1);
+
+    const active = await app.inject({ method: "GET", url: "/api/v1/orders?state=OPEN", cookies });
+    expect(active.json().data.orders).toHaveLength(0);
+    const history = await app.inject({ method: "GET", url: "/api/v1/orders?state=DELETED", cookies });
+    expect(history.json().data.orders).toHaveLength(1);
+    const retry = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/delete`, cookies, payload: { expectedVersion: 2, reason: "Duplicate request" } });
+    expect(retry.statusCode).toBe(409);
+    expect(retry.json().error.code).toBe("INVALID_STATE");
+  });
+});
