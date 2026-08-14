@@ -9,6 +9,7 @@ import {
 import {
   calculateTableEta,
   type CreateOrderRequest,
+  type DeleteOrderRequest,
   type OrderListQuery,
   type TransferOrderTableRequest,
   type UpdateOrderRequest,
@@ -704,6 +705,46 @@ export async function transferOrderTable(prisma: PrismaClient, actor: Authentica
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { tableId: table.id, tableSeatingLimitSnapshotMinutes: table.seatingLimitMinutes, estimatedTableReleaseAt: timing.estimatedReleaseAt, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "TRANSFER_ORDER_TABLE", entityType: "ORDER", entityId: orderId, afterSnapshot: { tableId: table.id, version: input.expectedVersion + 1 } } });
+    return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
+  });
+}
+
+export async function deleteOrder(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  orderId: string,
+  input: DeleteOrderRequest,
+  requestId: string,
+) {
+  requireRole(actor, ["STAFF", "MANAGER"]);
+  return prisma.$transaction(async (transaction) => {
+    const order = await transaction.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+    if (order.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be deleted.");
+    if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+
+    const deletedAt = new Date();
+    const updated = await transaction.order.updateMany({
+      where: { id: orderId, state: OrderState.OPEN, version: input.expectedVersion },
+      data: {
+        state: OrderState.DELETED,
+        deletedById: actor.id,
+        deletedAt,
+        deletionReason: input.reason ?? null,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    await transaction.auditLog.create({
+      data: {
+        actorId: actor.id,
+        requestId,
+        operation: "DELETE_ORDER",
+        entityType: "ORDER",
+        entityId: orderId,
+        afterSnapshot: { state: OrderState.DELETED, deletedAt: deletedAt.toISOString(), version: input.expectedVersion + 1 },
+      },
+    });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
 }
