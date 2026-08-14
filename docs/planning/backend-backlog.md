@@ -20,6 +20,9 @@ Current verification:
   and Manager users, Manager-only guards return `403 FORBIDDEN` to Staff users,
   missing sessions return `401 AUTHENTICATION_REQUIRED`, and a Manager-only
   account-deactivation service check prevents route-bypass authorization.
+- Product sale discounts are Manager-only catalog configuration. Staff and
+  Managers may apply reasoned item-level or order-level discounts to open
+  orders; every applied discount is snapshotted and audited.
 - The 13 August 2026 fresh-environment rehearsal applied both migrations to a
   new database, created exactly one Manager, rejected a repeat bootstrap, and
   returned healthy liveness/readiness responses.
