@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   OrderChannel,
   DiscountKind,
+  PaymentStatus,
   OrderState,
   Prisma,
   type PrismaClient,
@@ -10,6 +11,8 @@ import {
   calculateTableEta,
   type CreateOrderRequest,
   type DeleteOrderRequest,
+  type RecordSettlementRequest,
+  type ReverseSettlementRequest,
   type OrderListQuery,
   type TransferOrderTableRequest,
   type UpdateOrderRequest,
@@ -20,6 +23,7 @@ import type { AuthenticatedUser } from "../auth/auth.service.js";
 import { requireRole } from "../auth/permissions.js";
 
 const CREATE_ORDER_OPERATION = "CREATE_ORDER";
+const RECORD_SETTLEMENT_OPERATION = "RECORD_SETTLEMENT";
 const IDEMPOTENCY_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
 type ProductForOrder = {
@@ -107,7 +111,7 @@ function stableJson(value: unknown): string {
     .join(",")}}`;
 }
 
-function requestFingerprint(input: CreateOrderRequest): string {
+function requestFingerprint(input: unknown): string {
   return createHash("sha256").update(stableJson(input)).digest("hex");
 }
 
@@ -139,18 +143,19 @@ function catalogSaleDiscount(product: ProductForOrder): DiscountInput {
   return { kind: product.saleDiscountKind, value: product.saleDiscountValue };
 }
 
-function resultFromSnapshot(snapshot: Prisma.JsonValue): CreatedOrder {
-  return snapshot as unknown as CreatedOrder;
+function resultFromSnapshot<T>(snapshot: Prisma.JsonValue): T {
+  return snapshot as unknown as T;
 }
 
-async function existingIdempotencyResult(
+async function existingIdempotencyResult<T>(
   prisma: PrismaClient,
   actorId: string,
   key: string,
   fingerprint: string,
-): Promise<CreatedOrder | undefined> {
+  operation: string,
+): Promise<T | undefined> {
   const record = await prisma.idempotencyRecord.findUnique({
-    where: { actorId_operation_key: { actorId, operation: CREATE_ORDER_OPERATION, key } },
+    where: { actorId_operation_key: { actorId, operation, key } },
   });
 
   if (!record) {
@@ -163,7 +168,7 @@ async function existingIdempotencyResult(
       "This idempotency key was already used for a different request.",
     );
   }
-  return resultFromSnapshot(record.resultSnapshot);
+  return resultFromSnapshot<T>(record.resultSnapshot);
 }
 
 function toCreatedOrder(order: {
@@ -235,7 +240,7 @@ export async function createOrder(
   requireRole(actor, ["STAFF", "MANAGER"]);
 
   const fingerprint = requestFingerprint(input);
-  const previous = await existingIdempotencyResult(prisma, actor.id, idempotencyKey, fingerprint);
+  const previous = await existingIdempotencyResult<CreatedOrder>(prisma, actor.id, idempotencyKey, fingerprint, CREATE_ORDER_OPERATION);
   if (previous) {
     return { order: previous, replayed: true };
   }
@@ -439,7 +444,7 @@ export async function createOrder(
     return { order, replayed: false };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const replay = await existingIdempotencyResult(prisma, actor.id, idempotencyKey, fingerprint);
+      const replay = await existingIdempotencyResult<CreatedOrder>(prisma, actor.id, idempotencyKey, fingerprint, CREATE_ORDER_OPERATION);
       if (replay) {
         return { order: replay, replayed: true };
       }
@@ -685,7 +690,10 @@ export async function updateOrder(
     const orderDiscountAmount = input.orderDiscount === undefined ? order.discountAmount : input.orderDiscount === null ? 0 : calculatedDiscount(subtotalAmount, input.orderDiscount);
     if (orderDiscountAmount > subtotalAmount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The existing order discount exceeds the updated order amount.");
     const estimatedPreparationMinutes = Math.max(...items.map((item) => item.preparationDeadlineSnapshotMinutes));
-    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount: subtotalAmount - orderDiscountAmount, balanceAmount: subtotalAmount - orderDiscountAmount - order.paidAmount, estimatedPreparationMinutes, version: { increment: 1 } } });
+    const totalAmount = subtotalAmount - orderDiscountAmount;
+    const balanceAmount = totalAmount - order.paidAmount;
+    const paymentStatus = order.paidAmount === 0 ? PaymentStatus.UNPAID : balanceAmount === 0 ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
+    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, estimatedPreparationMinutes, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, afterSnapshot: { version: input.expectedVersion + 1 } } });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
@@ -747,4 +755,201 @@ export async function deleteOrder(
     });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
+}
+
+function allocationAmountForQuantity(input: {
+  finalLineAmount: number;
+  itemQuantity: number;
+  alreadyAllocatedQuantity: number;
+  quantity: number;
+}): number {
+  const allocatedThrough = Math.floor((input.finalLineAmount * input.alreadyAllocatedQuantity) / input.itemQuantity);
+  const allocatedAfter = Math.floor((input.finalLineAmount * (input.alreadyAllocatedQuantity + input.quantity)) / input.itemQuantity);
+  return allocatedAfter - allocatedThrough;
+}
+
+export async function recordSettlement(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  orderId: string,
+  input: RecordSettlementRequest,
+  idempotencyKey: string,
+  requestId: string,
+) {
+  requireRole(actor, ["STAFF", "MANAGER"]);
+  const fingerprint = requestFingerprint({ orderId, ...input });
+  const previous = await existingIdempotencyResult<ReturnType<typeof orderDetailDto>>(
+    prisma,
+    actor.id,
+    idempotencyKey,
+    fingerprint,
+    RECORD_SETTLEMENT_OPERATION,
+  );
+  if (previous) return { order: previous, replayed: true };
+
+  try {
+    const order = await prisma.$transaction(async (transaction) => {
+      const current = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
+      if (!current) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+      if (current.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be settled.");
+      if (current.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+
+      const activeAllocatedQuantity = new Map<string, number>();
+      current.paymentSettlements
+        .filter((settlement) => !settlement.reversal)
+        .forEach((settlement) => settlement.allocations.forEach((allocation) => {
+          activeAllocatedQuantity.set(
+            allocation.orderItemId,
+            (activeAllocatedQuantity.get(allocation.orderItemId) ?? 0) + allocation.quantity,
+          );
+        }));
+
+      const finalLineAmount = new Map<string, number>();
+      let runningSubtotal = 0;
+      for (const item of current.items) {
+        const orderDiscountBefore = Math.floor((current.discountAmount * runningSubtotal) / current.subtotalAmount);
+        runningSubtotal += item.lineTotalAmount;
+        const orderDiscountAfter = Math.floor((current.discountAmount * runningSubtotal) / current.subtotalAmount);
+        finalLineAmount.set(item.id, item.lineTotalAmount - (orderDiscountAfter - orderDiscountBefore));
+      }
+
+      const allocations = input.allocations.map((requested) => {
+        const item = current.items.find((candidate) => candidate.id === requested.orderItemId);
+        if (!item) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An allocated item does not belong to this order.");
+        const alreadyAllocated = activeAllocatedQuantity.get(item.id) ?? 0;
+        if (alreadyAllocated + requested.quantity > item.quantity) {
+          throw new ApplicationError(409, ErrorCodes.SETTLEMENT_ALLOCATION_CONFLICT, "The selected item quantity has already been settled.");
+        }
+        const amount = allocationAmountForQuantity({
+          finalLineAmount: finalLineAmount.get(item.id)!,
+          itemQuantity: item.quantity,
+          alreadyAllocatedQuantity: alreadyAllocated,
+          quantity: requested.quantity,
+        });
+        if (amount <= 0) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The selected quantity has no payable amount.");
+        return { orderItemId: item.id, quantity: requested.quantity, amount };
+      });
+      const totalAmount = allocations.reduce((total, allocation) => total + allocation.amount, 0);
+      const tenderAmount = input.payments.reduce((total, payment) => total + payment.amount, 0);
+      if (tenderAmount !== totalAmount) {
+        throw new ApplicationError(422, ErrorCodes.PAYMENT_RECONCILIATION_FAILED, "Tender amounts must equal the selected item total.");
+      }
+
+      const recordedAt = new Date();
+      const settlement = await transaction.paymentSettlement.create({
+        data: {
+          orderId,
+          recordedById: actor.id,
+          idempotencyKey,
+          totalAmount,
+          recordedAt,
+          allocations: { create: allocations },
+          payments: { create: input.payments.map((payment) => ({
+            method: payment.method,
+            amount: payment.amount,
+            reference: payment.method === "CARD_TRANSFER" ? payment.reference ?? null : null,
+          })) },
+        },
+      });
+      const paidAmount = current.paidAmount + totalAmount;
+      const balanceAmount = current.totalAmount - paidAmount;
+      const paymentStatus = balanceAmount === 0 ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
+      const updated = await transaction.order.updateMany({
+        where: { id: orderId, state: OrderState.OPEN, version: input.expectedVersion },
+        data: { paidAmount, balanceAmount, paymentStatus, version: { increment: 1 } },
+      });
+      if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+      const result = orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
+      await transaction.auditLog.create({
+        data: {
+          actorId: actor.id,
+          requestId,
+          operation: RECORD_SETTLEMENT_OPERATION,
+          entityType: "PAYMENT_SETTLEMENT",
+          entityId: settlement.id,
+          afterSnapshot: { orderId, totalAmount, paymentStatus, version: result.version },
+        },
+      });
+      await transaction.idempotencyRecord.create({
+        data: {
+          actorId: actor.id,
+          operation: RECORD_SETTLEMENT_OPERATION,
+          key: idempotencyKey,
+          requestFingerprint: fingerprint,
+          responseStatus: 201,
+          resultSnapshot: result,
+          expiresAt: new Date(recordedAt.getTime() + IDEMPOTENCY_RETENTION_MS),
+        },
+      });
+      return result;
+    });
+    return { order, replayed: false };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const replay = await existingIdempotencyResult<ReturnType<typeof orderDetailDto>>(
+        prisma,
+        actor.id,
+        idempotencyKey,
+        fingerprint,
+        RECORD_SETTLEMENT_OPERATION,
+      );
+      if (replay) return { order: replay, replayed: true };
+    }
+    throw error;
+  }
+}
+
+export async function reverseSettlement(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string, input: ReverseSettlementRequest, requestId: string) {
+  requireRole(actor, ["MANAGER"]);
+  return prisma.$transaction(async (transaction) => {
+    const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
+    if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+    if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    const settlement = order.paymentSettlements.find((candidate) => candidate.id === settlementId);
+    if (!settlement) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested settlement was not found.");
+    if (settlement.reversal) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The settlement has already been reversed.");
+    await transaction.settlementReversal.create({ data: { settlementId, recordedById: actor.id, reason: input.reason } });
+    const paidAmount = order.paidAmount - settlement.totalAmount;
+    const balanceAmount = order.totalAmount - paidAmount;
+    const paymentStatus = paidAmount === 0 ? PaymentStatus.UNPAID : PaymentStatus.PARTIALLY_PAID;
+    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion }, data: { paidAmount, balanceAmount, paymentStatus, version: { increment: 1 } } });
+    if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "REVERSE_SETTLEMENT", entityType: "PAYMENT_SETTLEMENT", entityId: settlementId, reason: input.reason, afterSnapshot: { orderId, paidAmount, balanceAmount, version: input.expectedVersion + 1 } } });
+    return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
+  });
+}
+
+export async function reverseSettlementById(prisma: PrismaClient, actor: AuthenticatedUser, settlementId: string, input: ReverseSettlementRequest, requestId: string) {
+  const settlement = await prisma.paymentSettlement.findUnique({ where: { id: settlementId }, select: { orderId: true } });
+  if (!settlement) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested settlement was not found.");
+  return reverseSettlement(prisma, actor, settlement.orderId, settlementId, input, requestId);
+}
+
+function tehranDisplayTime(value: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", dateStyle: "medium", timeStyle: "short" }).format(value);
+}
+
+const receiptInclude = { table: { select: { name: true } }, items: { orderBy: { displayOrder: "asc" }, include: { options: { orderBy: { id: "asc" } } } }, paymentSettlements: { orderBy: { recordedAt: "asc" }, include: { reversal: true, payments: true } } } as const satisfies Prisma.OrderInclude;
+
+export async function barTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
+  requireRole(actor, ["STAFF", "MANAGER"]);
+  const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
+  if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+  return { orderNumber: order.orderNumber, displayTime: tehranDisplayTime(order.createdAt), context: order.channel === OrderChannel.TABLE ? `Table ${order.table!.name}` : "Takeaway", estimatedPreparationMinutes: order.estimatedPreparationMinutes, items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note })) };
+}
+
+export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
+  requireRole(actor, ["STAFF", "MANAGER"]);
+  const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
+  if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+  return { orderNumber: order.orderNumber, displayTime: tehranDisplayTime(order.createdAt), items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), lineTotalAmount: item.lineTotalAmount })), subtotalAmount: order.subtotalAmount, discountAmount: order.discountAmount, totalAmount: order.totalAmount, paidAmount: order.paidAmount, balanceAmount: order.balanceAmount, payments: order.paymentSettlements.filter((settlement) => !settlement.reversal).flatMap((settlement) => settlement.payments.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.reference })) ) };
+}
+
+export async function settlementReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string) {
+  requireRole(actor, ["STAFF", "MANAGER"]);
+  const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
+  if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+  const settlement = order.paymentSettlements.find((candidate) => candidate.id === settlementId);
+  if (!settlement) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested settlement was not found.");
+  return { orderNumber: order.orderNumber, displayTime: tehranDisplayTime(settlement.recordedAt), settlementId: settlement.id, totalAmount: settlement.totalAmount, payments: settlement.payments.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.reference })) };
 }
