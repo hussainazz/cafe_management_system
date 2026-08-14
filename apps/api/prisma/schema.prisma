@@ -108,6 +108,8 @@ model Product {
   categoryId                 String
   name                       String
   priceAmount                Int
+  saleDiscountKind           DiscountKind?
+  saleDiscountValue          Int?
   preparationDeadlineMinutes Int
   displayOrder               Int
   isActive                   Boolean   @default(true)
@@ -235,7 +237,10 @@ model OrderItem {
   preparationDeadlineSnapshotMinutes Int
   quantity                           Int
   note                               String?
+  discountKind                       DiscountKind?
+  discountValue                      Int?
   discountAmount                     Int     @default(0)
+  discountReason                     String?
   lineTotalAmount                    Int
   displayOrder                       Int
 
