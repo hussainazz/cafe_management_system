@@ -4,6 +4,10 @@ This file is the active completion checklist and current stage status for the ba
 
 ## In Progress Stages
 
+None.
+
+## Completed Stages
+
 ### Stage 2 - POS Backend
 
 Done:
@@ -18,12 +22,13 @@ Done:
 - Per-payer selected-item settlement recording with mixed manual tenders, reconciliation, idempotency, version checks, payment-status updates, and audit records.
 - Manager-only full settlement reversal with a required reason, immutable posted rows, recalculated payment status, version increment, and audit record.
 - Print-ready bar-ticket, whole-order receipt, and payer-settlement receipt API data using immutable order snapshots and `Asia/Tehran` display time.
+- Real-PostgreSQL POS backend integration coverage for permissions, idempotent retries, stale and invalid transitions, partial/paid order additions, settled-item immutability, unavailable products, historical snapshots, selected allocations, mixed tenders, optional card-transfer references, reversal, reconciliation, and transaction rollback.
 
-Left:
+Verified:
 
-- Add POS backend integration coverage.
-
-## Completed Stages
+- `pnpm typecheck` passes.
+- `pnpm --filter @cafe/api test` passes: 9 files and 39 tests.
+- The Stage 2 exit gate is covered through authenticated API calls against real PostgreSQL without a frontend dependency.
 
 ### Stage 0 - Scope And Domain Baseline
 
