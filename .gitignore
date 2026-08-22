@@ -5,6 +5,8 @@ node_modules/
 dist/
 coverage/
 apps/api/generated/
+.next/
+*.tsbuildinfo
 
 # Environment variables
 .env
