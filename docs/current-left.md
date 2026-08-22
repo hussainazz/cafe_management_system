@@ -4,9 +4,35 @@ This file is the active completion checklist and current stage status for the ba
 
 ## In Progress Stages
 
-None.
+- None. Stage 5 (Staff POS frontend) is next in the revised roadmap.
 
 ## Completed Stages
+
+### Stage 4 - QR-Menu Frontend
+
+Done:
+
+- The roadmap order was revised for the deadline, and a Next.js App Router frontend shell now consumes the typed anonymous menu API with server-rendered initial data.
+- The Persian RTL, mobile-first menu includes category navigation, live search, availability filtering, product cards, product details/options, preparation time, final Toman prices, and explicit browse-only messaging with no checkout, order, payment, or tracking capability.
+- Loading, empty, error, missing-image, responsive, and reduced-motion states are implemented.
+- Frontend typecheck, 3 focused tests, and production build pass; representative browser rendering was verified at 390×844 and 1440×1000 against the local API and imported Run Cafe catalog.
+- The original dark-and-amber frontend direction was reconstructed on `feat/qr-menu-frontend-v1` with a frontend adapter for the current public API; the current backend was retained unchanged.
+- Current product availability and preparation-deadline minutes are visible to customers, using the public API as the single source of truth.
+- The visual direction was refreshed around Run Cafe's warm, dark, intimate specialty-coffee identity with restrained amber lighting, wood tones, and low-distraction browsing.
+
+Left:
+
+- None.
+
+### Stage 3 - QR-Menu Backend
+
+Done:
+
+- Public, schema-validated browse-only category, product-detail, search, and category-filter endpoints; they expose active catalog data, final Toman prices, images, options, preparation-deadline minutes, and availability without sessions or public write capabilities.
+- Public menu safety, visibility, search/filter, final-price, and anonymous-access integration tests (`public-menu.test.ts`, 2 tests).
+- A non-destructive Run Cafe menu snapshot importer covering the public site's categories and products as observed on 21 August 2026; it stores Toman integer prices and leaves existing records unchanged.
+
+- The captured Run Cafe catalog was imported into the configured development database after the existing migrations were applied. The importer remains available as `pnpm db:seed:run-cafe-menu` and only creates missing records.
 
 ### Stage 2 - POS Backend
 
