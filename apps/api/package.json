@@ -19,6 +19,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/bootstrap-manager.ts",
+    "seed:run-cafe-menu": "tsx prisma/seed-run-cafe-menu.ts",
     "bootstrap:manager": "tsx prisma/bootstrap-manager.ts"
   },
   "dependencies": {
