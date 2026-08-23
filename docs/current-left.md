@@ -30,9 +30,9 @@ Done:
 
 - Public, schema-validated browse-only category, product-detail, search, and category-filter endpoints; they expose active catalog data, final Toman prices, images, options, preparation-deadline minutes, and availability without sessions or public write capabilities.
 - Public menu safety, visibility, search/filter, final-price, and anonymous-access integration tests (`public-menu.test.ts`, 2 tests).
-- A non-destructive Run Cafe menu snapshot importer covering the public site's categories and products as observed on 21 August 2026; it stores Toman integer prices and leaves existing records unchanged.
+- An idempotent Run Cafe catalog synchronizer covering the exact requested category/product names and ordering as supplied on 23 August 2026; it preserves existing prices, uses Toman integer defaults for new products, and archives catalog entries outside the authoritative list.
 
-- The captured Run Cafe catalog was imported into the configured development database after the existing migrations were applied. The importer remains available as `pnpm db:seed:run-cafe-menu` and only creates missing records.
+- The Run Cafe catalog was synchronized into the configured development database after the existing migrations were applied. The synchronizer remains available as `pnpm db:seed:run-cafe-menu` and safely updates display order/visibility while retaining archived and historically referenced records.
 
 ### Stage 2 - POS Backend
 
