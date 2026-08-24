@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cafe POS Order Settlement Dataflow</title>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --paper: #f5f5f5;
+        --ink: #2d3142;
+        --muted: #4f5d75;
+        --soft: #7a8399;
+        --rule: rgba(45, 49, 66, 0.12);
+        --accent: #eb6c36;
+        --link: #2e5aa8;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: "Geist", system-ui, sans-serif;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 40px 24px 32px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--soft);
+        font-family: "Geist Mono", ui-monospace, monospace;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Instrument Serif", Georgia, serif;
+        font-size: 40px;
+        font-weight: 400;
+        line-height: 1.05;
+      }
+
+      .subtitle {
+        max-width: 760px;
+        margin: 12px 0 28px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      .canvas {
+        overflow-x: auto;
+        padding-bottom: 8px;
+      }
+
+      svg {
+        display: block;
+        min-width: 840px;
+        width: 100%;
+        height: auto;
+      }
+
+      .lane-label, .step-label, .step-number, .role-chip, .legend-label {
+        font-family: "Geist Mono", ui-monospace, monospace;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .lane-label { fill: var(--muted); font-size: 8px; }
+      .step-label { fill: var(--muted); font-size: 8px; }
+      .step-number { fill: var(--ink); font-size: 8px; }
+      .role-chip { font-size: 6px; }
+      .node-title { fill: var(--ink); font-family: "Geist", system-ui, sans-serif; font-size: 9px; font-weight: 600; }
+      .node-sub, .node-tool { font-family: "Geist Mono", ui-monospace, monospace; font-size: 6.5px; }
+      .node-sub { fill: var(--muted); }
+      .node-tool { fill: var(--soft); }
+      .arrow-label, .legend-text { fill: var(--soft); font-family: "Geist Mono", ui-monospace, monospace; font-size: 8px; letter-spacing: 0.06em; }
+      .legend-label { fill: var(--muted); font-size: 8px; }
+      .chip-text { fill: #ffffff; font-family: "Geist Mono", ui-monospace, monospace; font-size: 5px; font-weight: 700; }
+
+      .notes {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 20px;
+        margin-top: 24px;
+      }
+
+      .note-card {
+        background: #ffffff;
+        border: 1px solid var(--rule);
+        border-radius: 6px;
+        padding: 20px;
+      }
+
+      .note-card h2 {
+        margin: 0 0 8px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .note-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      footer {
+        margin-top: 28px;
+        padding-top: 12px;
+        border-top: 1px solid var(--rule);
+        color: var(--soft);
+        font-family: "Geist Mono", ui-monospace, monospace;
+        font-size: 11px;
+      }
+
+      @media (max-width: 760px) {
+        main { padding: 28px 16px; }
+        h1 { font-size: 32px; }
+        .notes { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">DATA FLOW</p>
+      <h1>Staff POS Order To Settlement</h1>
+      <p class="subtitle">The POS backend flow keeps price calculation, idempotency, settlement allocation, payment-status derivation, and audit writes inside the Fastify service and PostgreSQL transaction boundary.</p>
+
+      <div class="canvas">
+        <svg role="img" aria-labelledby="pos-flow-title pos-flow-desc" viewBox="0 0 840 476" xmlns="http://www.w3.org/2000/svg">
+          <title id="pos-flow-title">Staff POS order to settlement dataflow</title>
+          <desc id="pos-flow-desc">Four lanes show staff actions, API services, PostgreSQL transactions, and printed or reporting outputs across authentication, catalog reads, order creation, controlled edits, settlement, and receipt/audit outputs.</desc>
+          <defs>
+            <pattern id="flow-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+              <circle cx="11" cy="11" r="0.8" fill="rgba(45,49,66,0.10)" />
+            </pattern>
+            <marker id="arr-muted" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill="#4f5d75" />
+            </marker>
+            <marker id="arr-accent" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill="#eb6c36" />
+            </marker>
+            <marker id="arr-link" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill="#2e5aa8" />
+            </marker>
+          </defs>
+
+          <rect width="840" height="476" fill="#f5f5f5" />
+          <rect width="840" height="476" fill="url(#flow-dots)" opacity="0.45" />
+          <rect x="0" y="36" width="840" height="80" fill="rgba(45,49,66,0.018)" />
+          <rect x="0" y="196" width="840" height="80" fill="rgba(45,49,66,0.018)" />
+          <line x1="140" y1="36" x2="140" y2="356" stroke="rgba(45,49,66,0.12)" stroke-width="0.8" />
+          <line x1="0" y1="36" x2="840" y2="36" stroke="rgba(45,49,66,0.12)" stroke-width="0.8" />
+          <line x1="0" y1="116" x2="840" y2="116" stroke="rgba(45,49,66,0.12)" stroke-width="0.8" />
+          <line x1="0" y1="196" x2="840" y2="196" stroke="rgba(45,49,66,0.12)" stroke-width="0.8" />
+          <line x1="0" y1="276" x2="840" y2="276" stroke="rgba(45,49,66,0.12)" stroke-width="0.8" />
+          <line x1="0" y1="356" x2="840" y2="356" stroke="rgba(45,49,66,0.12)" stroke-width="0.8" />
+
+          <g text-anchor="middle">
+            <rect x="180" y="6" width="32" height="16" rx="8" fill="rgba(45,49,66,0.12)" />
+            <text class="step-number" x="196" y="17">01</text>
+            <text class="step-label" x="196" y="29">AUTH</text>
+            <rect x="292" y="6" width="32" height="16" rx="8" fill="rgba(45,49,66,0.12)" />
+            <text class="step-number" x="308" y="17">02</text>
+            <text class="step-label" x="308" y="29">CATALOG</text>
+            <rect x="404" y="6" width="32" height="16" rx="8" fill="rgba(45,49,66,0.12)" />
+            <text class="step-number" x="420" y="17">03</text>
+            <text class="step-label" x="420" y="29">CREATE</text>
+            <rect x="516" y="6" width="32" height="16" rx="8" fill="rgba(45,49,66,0.12)" />
+            <text class="step-number" x="532" y="17">04</text>
+            <text class="step-label" x="532" y="29">EDIT</text>
+            <rect x="628" y="6" width="32" height="16" rx="8" fill="rgba(235,108,54,0.20)" />
+            <text class="step-number" x="644" y="17" fill="#eb6c36">05</text>
+            <text class="step-label" x="644" y="29" fill="#eb6c36">SETTLE</text>
+            <rect x="740" y="6" width="32" height="16" rx="8" fill="rgba(45,49,66,0.12)" />
+            <text class="step-number" x="756" y="17">06</text>
+            <text class="step-label" x="756" y="29">OUTPUT</text>
+          </g>
+
+          <g text-anchor="middle">
+            <text class="lane-label" x="70" y="72">STAFF</text>
+            <text class="lane-label" x="70" y="84">POS</text>
+            <text class="lane-label" x="70" y="152">FASTIFY</text>
+            <text class="lane-label" x="70" y="164">SERVICE</text>
+            <text class="lane-label" x="70" y="232">POSTGRES</text>
+            <text class="lane-label" x="70" y="244">TX</text>
+            <text class="lane-label" x="70" y="312">OUTPUTS</text>
+            <text class="lane-label" x="70" y="324">READS</text>
+          </g>
+
+          <g fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arr-muted)">
+            <line x1="246" y1="76" x2="258" y2="76" />
+            <line x1="358" y1="156" x2="370" y2="156" />
+            <line x1="470" y1="156" x2="482" y2="156" />
+            <line x1="582" y1="156" x2="594" y2="156" />
+            <path d="M470 236 H588 Q596 236 596 228 V188 Q596 180 604 180" />
+          </g>
+          <g fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arr-muted)">
+            <path d="M196 108 V124" />
+            <path d="M308 188 V204" />
+            <path d="M420 188 V204" />
+            <path d="M532 188 V204" />
+          </g>
+          <g fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arr-accent)">
+            <path d="M644 188 V204" />
+          </g>
+          <g fill="none" stroke="#2e5aa8" stroke-width="1" marker-end="url(#arr-link)">
+            <path d="M694 236 H748 Q756 236 756 244 V284" />
+          </g>
+
+          <rect x="608" y="192" width="72" height="12" rx="2" fill="#f5f5f5" />
+          <text class="arrow-label" x="644" y="200" text-anchor="middle" fill="#eb6c36">ALLOCATE</text>
+
+          <g>
+            <rect x="146" y="44" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)" />
+            <rect x="150" y="48" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)" />
+            <text class="role-chip" x="159" y="56" text-anchor="middle" fill="#2d3142">POS</text>
+            <text class="node-title" x="196" y="67" text-anchor="middle">Sign In</text>
+            <text class="node-sub" x="196" y="79" text-anchor="middle">username · password</text>
+            <text class="node-tool" x="196" y="91" text-anchor="middle">session cookies</text>
+            <rect x="226" y="98" width="16" height="8" rx="3" fill="#5e7a9b" />
+            <text class="chip-text" x="234" y="104" text-anchor="middle">DB</text>
+          </g>
+
+          <g>
+            <rect x="258" y="44" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)" />
+            <rect x="262" y="48" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)" />
+            <text class="role-chip" x="271" y="56" text-anchor="middle" fill="#2d3142">POS</text>
+            <text class="node-title" x="308" y="67" text-anchor="middle">Choose Items</text>
+            <text class="node-sub" x="308" y="79" text-anchor="middle">products · options</text>
+            <text class="node-tool" x="308" y="91" text-anchor="middle">table/takeaway</text>
+            <rect x="262" y="98" width="16" height="8" rx="3" fill="#5e7a9b" />
+            <text class="chip-text" x="270" y="104" text-anchor="middle">DB</text>
+            <rect x="338" y="98" width="16" height="8" rx="3" fill="#6e6479" />
+            <text class="chip-text" x="346" y="104" text-anchor="middle">WB</text>
+          </g>
+
+          <g>
+            <rect x="146" y="124" width="100" height="64" rx="6" fill="rgba(184,84,80,0.06)" stroke="rgba(184,84,80,0.35)" />
+            <rect x="150" y="128" width="18" height="10" rx="3" fill="rgba(184,84,80,0.18)" />
+            <text class="role-chip" x="159" y="136" text-anchor="middle" fill="#b85450">API</text>
+            <text class="node-title" x="196" y="147" text-anchor="middle" fill="#b85450">Authorize</text>
+            <text class="node-sub" x="196" y="159" text-anchor="middle">Staff or Manager</text>
+            <text class="node-tool" x="196" y="171" text-anchor="middle">route + service guard</text>
+            <rect x="150" y="178" width="16" height="8" rx="3" fill="#5e7a9b" />
+            <text class="chip-text" x="158" y="184" text-anchor="middle">DB</text>
+          </g>
+
+          <g>
+            <rect x="258" y="124" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)" />
+            <rect x="262" y="128" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)" />
+            <text class="role-chip" x="271" y="136" text-anchor="middle" fill="#2d3142">API</text>
+            <text class="node-title" x="308" y="147" text-anchor="middle">Read Catalog</text>
+            <text class="node-sub" x="308" y="159" text-anchor="middle">availability · ETA</text>
+            <text class="node-tool" x="308" y="171" text-anchor="middle">catalog · tables</text>
+            <rect x="262" y="178" width="16" height="8" rx="3" fill="#5e7a9b" />
+            <text class="chip-text" x="270" y="184" text-anchor="middle">DB</text>
+            <rect x="338" y="178" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="346" y="184" text-anchor="middle">TB</text>
+          </g>
+
+          <g>
+            <rect x="370" y="124" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)" />
+            <rect x="374" y="128" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)" />
+            <text class="role-chip" x="383" y="136" text-anchor="middle" fill="#2d3142">API</text>
+            <text class="node-title" x="420" y="147" text-anchor="middle">Calculate Order</text>
+            <text class="node-sub" x="420" y="159" text-anchor="middle">prices · snapshots</text>
+            <text class="node-tool" x="420" y="171" text-anchor="middle">idempotent create</text>
+            <rect x="374" y="178" width="16" height="8" rx="3" fill="#6e6479" />
+            <text class="chip-text" x="382" y="184" text-anchor="middle">WB</text>
+            <rect x="450" y="178" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="458" y="184" text-anchor="middle">TB</text>
+          </g>
+
+          <g>
+            <rect x="482" y="124" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)" />
+            <rect x="486" y="128" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)" />
+            <text class="role-chip" x="495" y="136" text-anchor="middle" fill="#2d3142">API</text>
+            <text class="node-title" x="532" y="147" text-anchor="middle">Guard Edits</text>
+            <text class="node-sub" x="532" y="159" text-anchor="middle">expectedVersion</text>
+            <text class="node-tool" x="532" y="171" text-anchor="middle">settled immutable</text>
+            <rect x="486" y="178" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="494" y="184" text-anchor="middle">TB</text>
+            <rect x="562" y="178" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="570" y="184" text-anchor="middle">TB</text>
+          </g>
+
+          <g>
+            <rect x="594" y="124" width="100" height="64" rx="6" fill="rgba(235,108,54,0.07)" stroke="#eb6c36" stroke-width="1.2" />
+            <rect x="598" y="128" width="18" height="10" rx="3" fill="rgba(235,108,54,0.20)" />
+            <text class="role-chip" x="607" y="136" text-anchor="middle" fill="#eb6c36">API</text>
+            <text class="node-title" x="644" y="147" text-anchor="middle">Record Settlement</text>
+            <text class="node-sub" x="644" y="159" text-anchor="middle">allocations · tenders</text>
+            <text class="node-tool" x="644" y="171" text-anchor="middle">payment status</text>
+            <rect x="598" y="178" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="606" y="184" text-anchor="middle">TB</text>
+            <rect x="674" y="178" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="682" y="184" text-anchor="middle">TB</text>
+          </g>
+
+          <g>
+            <rect x="370" y="204" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)" />
+            <rect x="374" y="208" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)" />
+            <text class="role-chip" x="383" y="216" text-anchor="middle" fill="#2d3142">DB</text>
+            <text class="node-title" x="420" y="227" text-anchor="middle">Persist Order</text>
+            <text class="node-sub" x="420" y="239" text-anchor="middle">order · items</text>
+            <text class="node-tool" x="420" y="251" text-anchor="middle">audit · idempotency</text>
+            <rect x="374" y="258" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="382" y="264" text-anchor="middle">TB</text>
+            <rect x="450" y="258" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="458" y="264" text-anchor="middle">TB</text>
+          </g>
+
+          <g>
+            <rect x="594" y="204" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)" />
+            <rect x="598" y="208" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)" />
+            <text class="role-chip" x="607" y="216" text-anchor="middle" fill="#2d3142">DB</text>
+            <text class="node-title" x="644" y="227" text-anchor="middle">Commit Payment</text>
+            <text class="node-sub" x="644" y="239" text-anchor="middle">settlement rows</text>
+            <text class="node-tool" x="644" y="251" text-anchor="middle">version increment</text>
+            <rect x="598" y="258" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="606" y="264" text-anchor="middle">TB</text>
+            <rect x="674" y="258" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="682" y="264" text-anchor="middle">TB</text>
+          </g>
+
+          <g>
+            <rect x="706" y="284" width="100" height="64" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)" />
+            <rect x="710" y="288" width="18" height="10" rx="3" fill="rgba(45,49,66,0.12)" />
+            <text class="role-chip" x="719" y="296" text-anchor="middle" fill="#2d3142">OUT</text>
+            <text class="node-title" x="756" y="307" text-anchor="middle">Receipts &amp; Reads</text>
+            <text class="node-sub" x="756" y="319" text-anchor="middle">bar · customer</text>
+            <text class="node-tool" x="756" y="331" text-anchor="middle">reports-ready data</text>
+            <rect x="710" y="338" width="16" height="8" rx="3" fill="#b8915a" />
+            <text class="chip-text" x="718" y="344" text-anchor="middle">TB</text>
+            <rect x="786" y="338" width="16" height="8" rx="3" fill="#9c6b50" />
+            <text class="chip-text" x="794" y="344" text-anchor="middle">FL</text>
+          </g>
+
+          <text class="legend-label" x="144" y="372">STEPS</text>
+          <rect x="204" y="362" width="24" height="12" rx="6" fill="rgba(45,49,66,0.12)" />
+          <text class="legend-text" x="236" y="372">AUTH · CATALOG · CREATE · EDIT · OUTPUT</text>
+          <rect x="500" y="362" width="24" height="12" rx="6" fill="rgba(235,108,54,0.20)" />
+          <text class="legend-text" x="532" y="372" fill="#eb6c36">SETTLE focal</text>
+
+          <text class="legend-label" x="144" y="393">DATA TYPE</text>
+          <rect x="224" y="384" width="16" height="8" rx="3" fill="#6e6479" /><text class="chip-text" x="232" y="390" text-anchor="middle">WB</text>
+          <text class="legend-text" x="248" y="393">web request</text>
+          <rect x="332" y="384" width="16" height="8" rx="3" fill="#5e7a9b" /><text class="chip-text" x="340" y="390" text-anchor="middle">DB</text>
+          <text class="legend-text" x="356" y="393">stored data</text>
+          <rect x="440" y="384" width="16" height="8" rx="3" fill="#b8915a" /><text class="chip-text" x="448" y="390" text-anchor="middle">TB</text>
+          <text class="legend-text" x="464" y="393">transaction rows</text>
+          <rect x="596" y="384" width="16" height="8" rx="3" fill="#9c6b50" /><text class="chip-text" x="604" y="390" text-anchor="middle">FL</text>
+          <text class="legend-text" x="620" y="393">print/export</text>
+
+          <text class="legend-label" x="144" y="416">CONCERN</text>
+          <rect x="224" y="407" width="18" height="10" rx="3" fill="rgba(184,84,80,0.12)" stroke="#b85450" />
+          <text class="legend-text" x="252" y="416">identity / authorization</text>
+          <rect x="424" y="407" width="18" height="10" rx="3" fill="rgba(235,108,54,0.10)" stroke="#eb6c36" />
+          <text class="legend-text" x="452" y="416">focal settlement boundary</text>
+
+          <text class="legend-label" x="144" y="444">FLOW</text>
+          <line x1="204" y1="440" x2="244" y2="440" stroke="#4f5d75" marker-end="url(#arr-muted)" />
+          <text class="legend-text" x="256" y="444">request / handoff</text>
+          <line x1="384" y1="440" x2="424" y2="440" stroke="#4f5d75" stroke-dasharray="4 3" marker-end="url(#arr-muted)" />
+          <text class="legend-text" x="436" y="444">guarded database read/write</text>
+          <line x1="620" y1="440" x2="660" y2="440" stroke="#2e5aa8" marker-end="url(#arr-link)" />
+          <text class="legend-text" x="672" y="444">read output</text>
+        </svg>
+      </div>
+
+      <section class="notes">
+        <div class="note-card">
+          <h2>Authoritative Calculation</h2>
+          <p>The POS sends product selections, quantities, tender inputs, and expected versions. The API calculates prices, discounts, timing, settlement totals, paid amount, balance, and payment status.</p>
+        </div>
+        <div class="note-card">
+          <h2>Transaction Boundary</h2>
+          <p>Order creation and settlement recording commit business rows, idempotency records, version increments, and audit entries atomically before any receipt-ready read is served.</p>
+        </div>
+      </section>
+
+      <footer>Sources: docs/planning/scope.md, docs/current-left.md, apps/api/prisma/schema.prisma. Generated 2026-08-18 with diagram-design default profile.</footer>
+    </main>
+  </body>
+</html>

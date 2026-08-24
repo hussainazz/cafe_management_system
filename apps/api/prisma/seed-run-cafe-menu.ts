@@ -25,6 +25,161 @@ const menu = `
 افزودنی|اب معدنی:30,نوشابه:100,سودا لیمویی:100,Vitamin C:85,هایپ:180,سیروپ:45,شات شیر:35,عسل:45,اسکپ بستنی:85,دلستر لیوانی:90,ابجو بدون الکل با دورچین:190
 `.trim();
 
+type OptionConfiguration = {
+  name: string;
+  totalPriceAmount: number;
+};
+
+type ProductConfiguration = {
+  categoryName: string;
+  productName: string;
+  basePriceAmount: number;
+  isAvailable: boolean;
+  optionGroup: { name: string; options: OptionConfiguration[] } | null;
+};
+
+function configureProduct(
+  categoryName: string,
+  productName: string,
+  basePrice: number,
+  optionGroup: { name: string; options: Array<[name: string, totalPrice: number]> } | null = null,
+  isAvailable = true,
+): ProductConfiguration {
+  return {
+    categoryName,
+    productName,
+    basePriceAmount: basePrice * 1_000,
+    isAvailable,
+    optionGroup: optionGroup
+      ? {
+        name: optionGroup.name,
+        options: optionGroup.options.map(([name, totalPrice]) => ({
+          name,
+          totalPriceAmount: totalPrice * 1_000,
+        })),
+      }
+      : null,
+  };
+}
+
+function coffeeBlend(
+  categoryName: string,
+  productName: string,
+  robustaPrice: number,
+  blendPrice: number,
+  arabicaPrice: number,
+) {
+  return configureProduct(categoryName, productName, robustaPrice, {
+    name: "لاین قهوه",
+    options: [
+      ["۸۰/۲۰ روبوستا", robustaPrice],
+      ["۵۰/۵۰", blendPrice],
+      ["۱۰۰٪ عربیکا", arabicaPrice],
+    ],
+  });
+}
+
+const productConfigurations: ProductConfiguration[] = [
+  coffeeBlend("بار گرم قهوه", "اسپرسو سینگل", 165, 185, 225),
+  coffeeBlend("بار گرم قهوه", "اسپرسو دبل", 185, 205, 245),
+  coffeeBlend("بار گرم قهوه", "آمریکانو سینگل", 175, 195, 235),
+  coffeeBlend("بار گرم قهوه", "آمریکانو دبل", 195, 215, 255),
+  coffeeBlend("بار گرم قهوه", "اسپرسو ماکیاتو", 195, 215, 255),
+  coffeeBlend("بار گرم قهوه", "کورتادو", 225, 235, 265),
+  coffeeBlend("بار گرم قهوه", "کاپوچینو", 245, 255, 295),
+  coffeeBlend("بار گرم قهوه", "لاته", 245, 255, 295),
+  coffeeBlend("بار گرم قهوه", "کارامل ماکیاتو", 285, 295, 335),
+  coffeeBlend("بار گرم قهوه", "موکا", 285, 295, 335),
+  configureProduct("بار گرم قهوه", "ترک", 185),
+  configureProduct("بار گرم قهوه", "نسکافه", 255),
+  configureProduct("بار گرم قهوه", "وایت اسپرسو", 295),
+  configureProduct("بار گرم قهوه", "یونانی", 255),
+
+  coffeeBlend("بار سرد قهوه", "آیس اسپرسو سینگل", 165, 185, 225),
+  coffeeBlend("بار سرد قهوه", "آیس اسپرسو دبل", 185, 205, 245),
+  coffeeBlend("بار سرد قهوه", "آیس آمریکانو سینگل", 175, 195, 235),
+  coffeeBlend("بار سرد قهوه", "آیس آمریکانو دبل", 195, 215, 255),
+  coffeeBlend("بار سرد قهوه", "آیس لاته", 245, 255, 295),
+  coffeeBlend("بار سرد قهوه", "آیس کارامل ماکیاتو", 285, 295, 335),
+  coffeeBlend("بار سرد قهوه", "آیس موکا", 285, 295, 335),
+  configureProduct("بار سرد قهوه", "آفوگاتو", 255, {
+    name: "مقدار قهوه",
+    options: [["سینگل", 255], ["دبل", 275]],
+  }),
+  configureProduct("بار سرد قهوه", "آیس اورنج", 285, {
+    name: "مقدار قهوه",
+    options: [["سینگل", 285], ["دبل", 295]],
+  }),
+  configureProduct("بار سرد قهوه", "تونیک اسپرسو", 285, {
+    name: "مقدار قهوه",
+    options: [["سینگل", 285], ["دبل", 295]],
+  }),
+  configureProduct("بار سرد قهوه", "کوک اسپرسو", 285, {
+    name: "مقدار قهوه",
+    options: [["سینگل", 285], ["دبل", 295]],
+  }),
+  configureProduct("بار سرد قهوه", "دالگونیا", 255),
+  configureProduct("بار سرد قهوه", "آیس چاکلت فندق", 295),
+  configureProduct("بار سرد قهوه", "شیر کاکائو سرد", 215),
+
+  ...["V 60", "Aeropress", "Siphone", "فرانسه"].map((productName) => configureProduct("قهوه دمی", productName, 345, {
+    name: "دو کاپ",
+    options: [["۱ کاپ", 345], ["۲ کاپ", 405]],
+  })),
+
+  configureProduct("نوشیدنی گرم", "هات چاکلت", 295),
+  configureProduct("نوشیدنی گرم", "وایت چاکلت", 295),
+  configureProduct("نوشیدنی گرم", "پینک چاکلت", 295),
+
+  ...["ماچا لته", "آیس ماچا لته"].map((productName) => configureProduct("ماچا بار", productName, 255, {
+    name: "سیروپ",
+    options: [["ساده", 255], ["عسل", 295], ["وانیل", 295], ["نارگیل", 295], ["سیروپ انتخابی", 295]],
+  })),
+
+  configureProduct("شیک", "قهوه", 375, {
+    name: "طعم",
+    options: [["قهوه شکلات", 375], ["قهوه وانیل", 375]],
+  }),
+  configureProduct("شیک", "اسپرسو گردویی", 375),
+  configureProduct("شیک", "نسکافه", 375),
+  configureProduct("شیک", "فراپاچینو", 355, {
+    name: "سیروپ",
+    options: [["کارامل", 355], ["شکلات", 355], ["وانیل", 355]],
+  }),
+
+  configureProduct("دسر", "کوکی کره ای", 20, {
+    name: "طعم",
+    options: [["شکلات", 20], ["زعفران", 20]],
+  }),
+  configureProduct("دسر", "کروسان نوتلا توت فرنگی", 230),
+  configureProduct("دسر", "کروسان ویژه", 280),
+  configureProduct("دسر", "سیمیت پنیر گردو", 160),
+  configureProduct("دسر", "تیرامیسو", 320),
+  configureProduct("دسر", "مینی تیرامیسو", 135, null, false),
+
+  configureProduct("تست بار", "کره بادوم زمینی", 185, {
+    name: "طعم",
+    options: [["ساده", 185], ["کره بادوم زمینی و موز", 215]],
+  }),
+  configureProduct("تست بار", "شکلات", 185, {
+    name: "طعم",
+    options: [["ساده", 185], ["شکلات و موز", 215]],
+  }),
+  configureProduct("تست بار", "پنیر گردو", 175),
+
+  configureProduct("افزودنی", "اسکپ بستنی", 85, {
+    name: "طعم",
+    options: [["وانیل", 85], ["شکلات", 85]],
+  }),
+  configureProduct("افزودنی", "دلستر لیوانی", 90),
+  configureProduct("افزودنی", "ابجو بدون الکل با دورچین", 190),
+  configureProduct("افزودنی", "سیروپ", 45, {
+    name: "طعم",
+    options: [["کارامل", 45], ["فندق", 45], ["وانیل", 45], ["نارگیل", 45], ["دارچین", 45], ["شکلات", 45], ["آیریش", 45], ["رز", 45], ["اسطوخودوس", 45]],
+  }),
+  configureProduct("افزودنی", "شات شیر", 35),
+];
+
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
@@ -54,10 +209,17 @@ async function main() {
   if (new Set(catalog.map((category) => category.name)).size !== catalog.length) {
     throw new Error("Duplicate category in menu catalog");
   }
+  const configuredProductKeys = productConfigurations.map(
+    ({ categoryName, productName }) => `${categoryName}|${productName}`,
+  );
+  if (new Set(configuredProductKeys).size !== configuredProductKeys.length) {
+    throw new Error("Duplicate product option/price configuration");
+  }
 
   const synchronizedAt = new Date();
   const result = await prisma.$transaction(async (tx) => {
     const categoryIds: string[] = [];
+    const productIdsByCatalogKey = new Map<string, string>();
     let createdCategories = 0;
     let createdProducts = 0;
     let archivedCategories = 0;
@@ -103,6 +265,7 @@ async function main() {
           data: { displayOrder: productOrder + 1, isActive: true, archivedAt: null },
         });
         desiredProductIds.push(product.id);
+        productIdsByCatalogKey.set(`${desiredCategory.name}|${desiredProduct.name}`, product.id);
 
         const duplicateProductIds = matchingProducts.slice(1).map(({ id }) => id);
         if (duplicateProductIds.length > 0) {
@@ -139,6 +302,103 @@ async function main() {
       }
     }
 
+    for (const configuration of productConfigurations) {
+      const productKey = `${configuration.categoryName}|${configuration.productName}`;
+      const productId = productIdsByCatalogKey.get(productKey);
+      if (!productId) throw new Error(`Configured product is missing from catalog: ${productKey}`);
+
+      await tx.product.update({
+        where: { id: productId },
+        data: {
+          priceAmount: configuration.basePriceAmount,
+          saleDiscountKind: null,
+          saleDiscountValue: null,
+          isAvailable: configuration.isAvailable,
+        },
+      });
+
+      const linkedGroups = configuration.optionGroup
+        ? await tx.productOptionGroup.findMany({
+          where: { productId, optionGroup: { name: configuration.optionGroup.name } },
+          orderBy: { displayOrder: "asc" },
+          include: {
+            optionGroup: {
+              include: { _count: { select: { productOptionGroups: true } } },
+            },
+          },
+        })
+        : [];
+      const reusableGroup = linkedGroups.find(
+        ({ optionGroup }) => optionGroup._count.productOptionGroups === 1,
+      )?.optionGroup;
+
+      await tx.productOptionGroup.deleteMany({ where: { productId } });
+      if (!configuration.optionGroup) continue;
+
+      const optionGroup = reusableGroup
+        ?? await tx.optionGroup.create({ data: { name: configuration.optionGroup.name } });
+      await tx.optionGroup.update({
+        where: { id: optionGroup.id },
+        data: { name: configuration.optionGroup.name, isActive: true },
+      });
+
+      const desiredOptionIds: string[] = [];
+      for (const [optionOrder, desiredOption] of configuration.optionGroup.options.entries()) {
+        const optionPriceAmount = desiredOption.totalPriceAmount - configuration.basePriceAmount;
+        if (optionPriceAmount < 0) {
+          throw new Error(`Option total is below base price: ${productKey}|${desiredOption.name}`);
+        }
+
+        const matchingOptions = await tx.option.findMany({
+          where: {
+            optionGroupId: optionGroup.id,
+            name: desiredOption.name,
+            archivedAt: null,
+          },
+          orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+        });
+        const option = matchingOptions[0]
+          ?? await tx.option.create({
+            data: {
+              optionGroupId: optionGroup.id,
+              name: desiredOption.name,
+              priceAmount: optionPriceAmount,
+              displayOrder: optionOrder + 1,
+            },
+          });
+        await tx.option.update({
+          where: { id: option.id },
+          data: {
+            priceAmount: optionPriceAmount,
+            displayOrder: optionOrder + 1,
+            isActive: true,
+            isAvailable: true,
+          },
+        });
+        desiredOptionIds.push(option.id);
+
+        const duplicateOptionIds = matchingOptions.slice(1).map(({ id }) => id);
+        if (duplicateOptionIds.length > 0) {
+          await tx.option.updateMany({
+            where: { id: { in: duplicateOptionIds } },
+            data: { isActive: false, isAvailable: false, archivedAt: synchronizedAt },
+          });
+        }
+      }
+
+      await tx.option.updateMany({
+        where: {
+          optionGroupId: optionGroup.id,
+          archivedAt: null,
+          id: { notIn: desiredOptionIds },
+        },
+        data: { isActive: false, isAvailable: false, archivedAt: synchronizedAt },
+      });
+      await tx.productOptionGroup.create({
+        data: { productId, optionGroupId: optionGroup.id, displayOrder: 1 },
+      });
+    }
+
     const categoriesToArchive = await tx.category.findMany({
       where: { archivedAt: null, id: { notIn: categoryIds } },
       select: { id: true },
@@ -160,6 +420,7 @@ async function main() {
     return {
       categories: catalog.length,
       products: catalog.reduce((count, category) => count + category.products.length, 0),
+      configuredProducts: productConfigurations.length,
       createdCategories,
       createdProducts,
       archivedCategories,

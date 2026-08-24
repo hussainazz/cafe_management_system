@@ -31,15 +31,6 @@ export function CloseIcon(props: IconProps) {
   );
 }
 
-export function ClockIcon(props: IconProps) {
-  return (
-    <svg {...defaults} {...props}>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 7.8v4.8l3.2 2" />
-    </svg>
-  );
-}
-
 export function ChevronIcon(props: IconProps) {
   return (
     <svg {...defaults} {...props}>

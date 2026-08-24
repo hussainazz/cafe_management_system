@@ -23,7 +23,6 @@ export type MenuProduct = {
   basePriceAmount: number;
   finalPriceAmount: number;
   saleDiscount: SaleDiscount | null;
-  preparationDeadlineMinutes: number;
   isAvailable: boolean;
   image: { storageKey: string; altText: string } | null;
   optionGroups: MenuOptionGroup[];

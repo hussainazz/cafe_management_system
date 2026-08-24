@@ -6,8 +6,8 @@ import {
   categoryTone,
   filterMenu,
   formatToman,
+  localProductPictureUrl,
   localizedName,
-  menuProductCount,
   productImageUrl,
   secondaryName,
   type Language,
@@ -15,7 +15,6 @@ import {
 import {
   CakeIcon,
   ChevronIcon,
-  ClockIcon,
   CloseIcon,
   CoffeeIcon,
   DishIcon,
@@ -24,7 +23,6 @@ import {
   RefreshIcon,
   SearchIcon,
   SparkIcon,
-  TeaIcon,
 } from "./icons";
 
 type MenuExperienceProps = {
@@ -35,21 +33,12 @@ type MenuExperienceProps = {
 const copy = {
   fa: {
     menu: "منو",
-    welcome: "به کافه ران خوش آمدید",
-    heroTitle: "آرام، گرم، بی‌عجله.",
-    heroBody: "قهوه تخصصی، خوراک تازه و چند ساعت خوب برای گفت‌وگو.",
-    open: "هر روز، همیشه باز",
-    fresh: "آماده‌سازی تازه",
-    items: "آیتم در منو",
+    heroTitle: "Run Cafe",
     search: "دنبال چی می‌گردی؟",
     searchHint: "مثلاً لاته، برگر یا براونی",
-    all: "همه",
-    onlyAvailable: "فقط موجودها",
     categories: "دسته‌بندی‌ها",
     results: "نتیجه",
     toman: "تومان",
-    minutes: "دقیقه",
-    prep: "زمان آماده‌سازی",
     unavailable: "فعلاً ناموجود",
     discount: "تخفیف",
     options: "انتخاب‌های این آیتم",
@@ -61,26 +50,16 @@ const copy = {
     errorBody: "ارتباط با منو برقرار نشد. چند لحظه دیگر دوباره امتحان کن.",
     retry: "تلاش دوباره",
     close: "بستن",
-    browseOnly: "این منو برای مشاهده است؛ سفارش شما با همراهی باریستا ثبت می‌شود.",
     footer: "قهوه خوب، نور گرم، گفت‌وگوی طولانی.",
   },
   en: {
     menu: "Menu",
-    welcome: "Welcome to Run Café",
-    heroTitle: "Warm. Intimate. Unhurried.",
-    heroBody: "Specialty coffee, freshly made food, and room for a good conversation.",
-    open: "Open every day",
-    fresh: "Made to order",
-    items: "items on the menu",
+    heroTitle: "Run Cafe",
     search: "What are you in the mood for?",
     searchHint: "Try latte, burger or brownie",
-    all: "All",
-    onlyAvailable: "Available only",
     categories: "Categories",
     results: "results",
     toman: "Toman",
-    minutes: "min",
-    prep: "Preparation time",
     unavailable: "Unavailable for now",
     discount: "off",
     options: "Available choices",
@@ -92,7 +71,6 @@ const copy = {
     errorBody: "We could not reach the menu. Please try again in a moment.",
     retry: "Try again",
     close: "Close",
-    browseOnly: "This menu is for browsing; your barista will take care of the order.",
     footer: "Good coffee, warm light, long conversations.",
   },
 } as const;
@@ -106,10 +84,9 @@ function CategoryMark({
 }) {
   const tone = categoryTone(category);
   const icon: Record<ReturnType<typeof categoryTone>, ReactNode> = {
-    coffee: <CoffeeIcon />,
-    tea: <TeaIcon />,
-    cold: <DrinkIcon />,
-    sweet: <CakeIcon />,
+    special: <SparkIcon />,
+    drink: <DrinkIcon />,
+    dessert: <CakeIcon />,
     food: <DishIcon />,
   };
 
@@ -117,21 +94,27 @@ function CategoryMark({
 }
 
 function ProductVisual({ product, category }: { product: MenuProduct; category: MenuCategory }) {
-  const [imageFailed, setImageFailed] = useState(false);
+  const [imageIndex, setImageIndex] = useState(0);
+  const localPictureUrl = localProductPictureUrl(product);
+  const imageSources = [
+    product.image ? productImageUrl(product.image.storageKey) : null,
+    localPictureUrl,
+  ].filter((source, index, sources): source is string => Boolean(source) && sources.indexOf(source) === index);
+  const imageSource = imageSources[imageIndex];
 
-  if (product.image && !imageFailed) {
+  if (imageSource) {
     return (
       <span className="product-visual product-visual--image">
         {/* Product files are self-hosted; dimensions and lazy decoding keep the grid stable. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={productImageUrl(product.image.storageKey)}
-          alt={product.image.altText}
+          src={imageSource}
+          alt={product.image?.altText ?? product.name}
           loading="lazy"
           decoding="async"
           width="480"
           height="360"
-          onError={() => setImageFailed(true)}
+          onError={() => setImageIndex((currentIndex) => currentIndex + 1)}
         />
         <span className="image-shade" />
       </span>
@@ -194,17 +177,13 @@ function ProductCard({
           <ChevronIcon className="card-chevron" />
         </span>
 
-        <span className="product-meta-row">
-          <span className="prep-time">
-            <ClockIcon />
-            {formatToman(product.preparationDeadlineMinutes, language)} {text.minutes}
-          </span>
-          {product.optionGroups.length > 0 ? (
+        {product.optionGroups.length > 0 ? (
+          <span className="product-meta-row">
             <span className="option-dot" title={text.options}>
               +
             </span>
-          ) : null}
-        </span>
+          </span>
+        ) : null}
 
         <span className="product-card-bottom">
           <Price product={product} language={language} />
@@ -266,63 +245,57 @@ function ProductDialog({
         aria-labelledby="product-dialog-title"
         dir={language === "fa" ? "rtl" : "ltr"}
       >
-        <div className="dialog-visual-wrap">
-          <ProductVisual product={product} category={category} />
-          <button ref={closeRef} className="dialog-close" type="button" onClick={onClose}>
-            <CloseIcon />
-            <span className="sr-only">{text.close}</span>
-          </button>
-          {!product.isAvailable ? (
-            <span className="dialog-unavailable">{text.unavailable}</span>
-          ) : null}
-        </div>
+        <button ref={closeRef} className="dialog-close" type="button" onClick={onClose}>
+          <CloseIcon />
+          <span className="sr-only">{text.close}</span>
+        </button>
 
-        <div className="dialog-body">
-          <span className="dialog-category">
-            <CategoryMark category={category} />
-            {localizedName(category, language)}
-          </span>
-          <div className="dialog-heading-row">
-            <div>
-              <h2 id="product-dialog-title">{localizedName(product, language)}</h2>
-              {detail ? <p className="dialog-secondary">{detail}</p> : null}
-            </div>
-            <Price product={product} language={language} />
+        <div className="dialog-scroll-content">
+          <div className="dialog-visual-wrap">
+            <ProductVisual product={product} category={category} />
+            {!product.isAvailable ? (
+              <span className="dialog-unavailable">{text.unavailable}</span>
+            ) : null}
           </div>
 
-          <div className="dialog-prep">
-            <ClockIcon />
-            <span>{text.prep}</span>
-            <strong>
-              {formatToman(product.preparationDeadlineMinutes, language)} {text.minutes}
-            </strong>
-          </div>
-
-          {product.optionGroups.length > 0 ? (
-            <div className="option-groups">
-              <h3>{text.options}</h3>
-              {product.optionGroups.map((group) => (
-                <div className="option-group" key={group.id}>
-                  <p>{group.name}</p>
-                  <ul>
-                    {group.options.map((option) => (
-                      <li key={option.id}>
-                        <span>{option.name}</span>
-                        <span className="option-price">
-                          + {formatToman(option.priceAmount, language)} {text.toman}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
+          <div className="dialog-body">
+            <span className="dialog-category">
+              <CategoryMark category={category} />
+              {localizedName(category, language)}
+            </span>
+            <div className="dialog-heading-row">
+              <div>
+                <h2 id="product-dialog-title">{localizedName(product, language)}</h2>
+                {detail ? <p className="dialog-secondary">{detail}</p> : null}
+              </div>
+              <Price product={product} language={language} />
             </div>
-          ) : null}
 
-          <p className="browse-note">
-            <LeafIcon />
-            {text.browseOnly}
-          </p>
+            {product.optionGroups.length > 0 ? (
+              <div className="option-groups">
+                <h3>{text.options}</h3>
+                {product.optionGroups.map((group) => (
+                  <div className="option-group" key={group.id}>
+                    <p>{group.name}</p>
+                    <ul>
+                      {group.options.map((option) => (
+                        <li key={option.id}>
+                          <span>{option.name}</span>
+                          <span className="option-price">
+                            {formatToman(product.finalPriceAmount + option.priceAmount, language)}{
+                              " "
+                            }
+                            {text.toman}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+          </div>
         </div>
       </section>
     </div>
@@ -352,11 +325,14 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
   const [menu, setMenu] = useState(initialMenu);
   const [requestFailed, setRequestFailed] = useState(initialRequestFailed);
   const [retrying, setRetrying] = useState(false);
-  const [language, setLanguage] = useState<Language>("fa");
+  const language: Language = "fa";
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [availableOnly, setAvailableOnly] = useState(false);
+  const [showCategoryScrollCue, setShowCategoryScrollCue] = useState(true);
+  const categoryScrollerRef = useRef<HTMLDivElement>(null);
+  const categoryNavigationTargetRef = useRef<string | null>(null);
+  const categoryNavigationTimerRef = useRef<number | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<{
     product: MenuProduct;
     category: MenuCategory;
@@ -365,14 +341,125 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
   const direction = language === "fa" ? "rtl" : "ltr";
 
   const filteredCategories = useMemo(
-    () => (menu ? filterMenu(menu, deferredQuery, selectedCategory, availableOnly) : []),
-    [availableOnly, deferredQuery, menu, selectedCategory],
+    () => (menu ? filterMenu(menu, deferredQuery, null) : []),
+    [deferredQuery, menu],
   );
   const resultCount = filteredCategories.reduce(
     (count, category) => count + category.products.length,
     0,
   );
-  const hasFilters = Boolean(query || selectedCategory || availableOnly);
+  const hasFilters = Boolean(query);
+
+  useEffect(() => {
+    if (!menu) return;
+
+    let animationFrame = 0;
+    const updateSelectedCategory = () => {
+      animationFrame = 0;
+      if (categoryNavigationTargetRef.current) return;
+
+      const toolbarBottom =
+        document.querySelector<HTMLElement>(".menu-toolbar")?.getBoundingClientRect().bottom ?? 0;
+      const marker = toolbarBottom + 64;
+      let activeCategory: string | null = null;
+
+      for (const category of filteredCategories) {
+        const section = document.getElementById(`category-${category.id}`);
+        if (section && section.getBoundingClientRect().top <= marker) {
+          activeCategory = category.id;
+        } else {
+          break;
+        }
+      }
+
+      if (
+        filteredCategories.length > 0 &&
+        window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2
+      ) {
+        activeCategory = filteredCategories.at(-1)?.id ?? null;
+      }
+
+      setSelectedCategory((current) =>
+        current === activeCategory ? current : activeCategory,
+      );
+    };
+    const scheduleUpdate = () => {
+      if (!animationFrame) animationFrame = window.requestAnimationFrame(updateSelectedCategory);
+    };
+
+    updateSelectedCategory();
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    return () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [filteredCategories, menu]);
+
+  useEffect(
+    () => () => {
+      if (categoryNavigationTimerRef.current !== null) {
+        window.clearTimeout(categoryNavigationTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!selectedCategory) return;
+    const scroller = categoryScrollerRef.current;
+    const activeChip = document.querySelector<HTMLElement>(
+      `[data-category-chip="${selectedCategory}"]`,
+    );
+    if (!scroller || !activeChip) return;
+
+    const scrollerRect = scroller.getBoundingClientRect();
+    const chipRect = activeChip.getBoundingClientRect();
+    const chipIsOutsideView =
+      chipRect.left < scrollerRect.left + 8 || chipRect.right > scrollerRect.right - 8;
+
+    if (chipIsOutsideView) {
+      const horizontalOffset =
+        chipRect.left + chipRect.width / 2 - (scrollerRect.left + scrollerRect.width / 2);
+      scroller.scrollBy({ left: horizontalOffset, behavior: "smooth" });
+    }
+  }, [selectedCategory]);
+
+  useEffect(() => {
+    const scroller = categoryScrollerRef.current;
+    if (!scroller) return;
+
+    let animationFrame = 0;
+    const updateScrollCue = () => {
+      animationFrame = 0;
+      const lastChip = scroller.lastElementChild as HTMLElement | null;
+      if (!lastChip) {
+        setShowCategoryScrollCue(false);
+        return;
+      }
+
+      const scrollerRect = scroller.getBoundingClientRect();
+      const lastChipRect = lastChip.getBoundingClientRect();
+      const hasMoreCategories =
+        direction === "rtl"
+          ? lastChipRect.left < scrollerRect.left + 4
+          : lastChipRect.right > scrollerRect.right - 4;
+      setShowCategoryScrollCue(hasMoreCategories);
+    };
+    const scheduleUpdate = () => {
+      if (!animationFrame) animationFrame = window.requestAnimationFrame(updateScrollCue);
+    };
+
+    updateScrollCue();
+    scroller.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    return () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      scroller.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [direction, menu?.categories.length]);
 
   async function retryMenu() {
     setRetrying(true);
@@ -392,7 +479,35 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
   function clearFilters() {
     setQuery("");
     setSelectedCategory(null);
-    setAvailableOnly(false);
+  }
+
+  function scrollToCategory(categoryId: string) {
+    if (categoryNavigationTimerRef.current !== null) {
+      window.clearTimeout(categoryNavigationTimerRef.current);
+    }
+    categoryNavigationTargetRef.current = categoryId;
+    setQuery("");
+    setSelectedCategory(categoryId);
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(`category-${categoryId}`);
+      if (!target) {
+        categoryNavigationTargetRef.current = null;
+        return;
+      }
+
+      const finishNavigation = () => {
+        if (categoryNavigationTargetRef.current !== categoryId) return;
+        categoryNavigationTargetRef.current = null;
+        if (categoryNavigationTimerRef.current !== null) {
+          window.clearTimeout(categoryNavigationTimerRef.current);
+          categoryNavigationTimerRef.current = null;
+        }
+      };
+
+      window.addEventListener("scrollend", finishNavigation, { once: true });
+      categoryNavigationTimerRef.current = window.setTimeout(finishNavigation, 1_500);
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   if (!menu && !requestFailed) return <LoadingMenu />;
@@ -419,55 +534,8 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
       <a className="skip-link" href="#menu-content">
         {text.menu}
       </a>
-      <header className="topbar">
-        <a className="brand" href="#top" aria-label="Run Café">
-          <span className="brand-mark">R</span>
-          <span>
-            <strong>RUN CAFÉ</strong>
-            <small>{text.menu}</small>
-          </span>
-        </a>
-        <div className="topbar-actions">
-          <span className="open-status">
-            <i />
-            {text.open}
-          </span>
-          <button
-            className="language-toggle"
-            type="button"
-            onClick={() => setLanguage(language === "fa" ? "en" : "fa")}
-            aria-label={language === "fa" ? "View menu in English" : "نمایش منو به فارسی"}
-          >
-            <span className={language === "fa" ? "is-active" : ""}>فا</span>
-            <span className={language === "en" ? "is-active" : ""}>EN</span>
-          </button>
-        </div>
-      </header>
-
       <main id="menu-content">
         <section className="hero" id="top">
-          <div className="hero-copy">
-            <p className="eyebrow">
-              <SparkIcon />
-              {text.welcome}
-            </p>
-            <h1>{text.heroTitle}</h1>
-            <p className="hero-body">{text.heroBody}</p>
-            <div className="hero-stats">
-              <span>
-                <strong>{formatToman(menu.categories.length, language)}</strong>
-                {text.categories}
-              </span>
-              <span>
-                <strong>{formatToman(menuProductCount(menu), language)}</strong>
-                {text.items}
-              </span>
-              <span>
-                <LeafIcon />
-                {text.fresh}
-              </span>
-            </div>
-          </div>
           <div className="hero-art" aria-hidden="true">
             <span className="hero-glow" />
             <span className="hero-plate hero-plate--outer" />
@@ -478,6 +546,9 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
             <span className="hero-leaf">
               <LeafIcon />
             </span>
+          </div>
+          <div className="hero-copy">
+            <h1>{text.heroTitle}</h1>
           </div>
         </section>
 
@@ -499,23 +570,20 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
             ) : null}
           </label>
 
-          <div className="filter-row">
-            <div className="category-scroller" role="list" aria-label={text.categories}>
-              <button
-                type="button"
-                className={`category-chip${selectedCategory === null ? " is-active" : ""}`}
-                onClick={() => setSelectedCategory(null)}
-              >
-                <span className="category-chip-all">
-                  <SparkIcon />
-                </span>
-                {text.all}
-              </button>
+          <div className="category-navigation">
+            <div
+              ref={categoryScrollerRef}
+              className="category-scroller"
+              role="list"
+              aria-label={text.categories}
+            >
               {menu.categories.map((category) => (
                 <button
                   type="button"
                   className={`category-chip${selectedCategory === category.id ? " is-active" : ""}`}
-                  onClick={() => setSelectedCategory(category.id)}
+                  aria-pressed={selectedCategory === category.id}
+                  data-category-chip={category.id}
+                  onClick={() => scrollToCategory(category.id)}
                   key={category.id}
                 >
                   <CategoryMark category={category} />
@@ -523,21 +591,16 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
                 </button>
               ))}
             </div>
-            <button
-              className={`availability-toggle${availableOnly ? " is-active" : ""}`}
-              type="button"
-              onClick={() => setAvailableOnly((current) => !current)}
-              aria-pressed={availableOnly}
+            <span
+              className={`category-scroll-cue${showCategoryScrollCue ? "" : " is-hidden"}`}
+              aria-hidden="true"
             >
-              <span className="toggle-track">
-                <i />
-              </span>
-              {text.onlyAvailable}
-            </button>
+              {language === "fa" ? "‹" : "›"}
+            </span>
           </div>
         </section>
 
-        <div className="menu-results-header">
+        <div className="menu-results-header" id="menu-results">
           <p>
             <strong>{formatToman(resultCount, language)}</strong> {text.results}
           </p>
@@ -552,7 +615,11 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
         {filteredCategories.length > 0 ? (
           <div className="category-sections">
             {filteredCategories.map((category, categoryIndex) => (
-              <section className="category-section" key={category.id}>
+              <section
+                className="category-section"
+                id={`category-${category.id}`}
+                key={category.id}
+              >
                 <div className="section-heading">
                   <CategoryMark category={category} />
                   <div>
@@ -598,9 +665,11 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
       </main>
 
       <footer>
-        <div className="footer-mark">R</div>
+        <div className="footer-mark" aria-hidden="true">
+          <img src="/run-cafe-logo.webp" alt="" width="30" height="56" />
+        </div>
         <p>{text.footer}</p>
-        <span>RUN CAFÉ · EST. 2026</span>
+        <span>RUN CAFÉ · EST. 2017</span>
       </footer>
 
       {selectedProduct ? (

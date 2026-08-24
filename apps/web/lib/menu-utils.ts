@@ -16,7 +16,6 @@ export function filterMenu(
   menu: PublicMenu,
   query: string,
   categoryId: string | null,
-  availableOnly: boolean,
 ): MenuCategory[] {
   const normalizedQuery = normalizeSearch(query);
 
@@ -25,7 +24,6 @@ export function filterMenu(
     .map((category) => ({
       ...category,
       products: category.products.filter((product) => {
-        if (availableOnly && !product.isAvailable) return false;
         if (!normalizedQuery) return true;
         return normalizeSearch(`${product.name} ${product.nameEn ?? ""}`).includes(normalizedQuery);
       }),
@@ -67,13 +65,34 @@ export function productImageUrl(storageKey: string) {
   return `${configuredBase ?? "/product-images"}/${safePath}`;
 }
 
+export function localProductPictureUrl(product: Pick<MenuProduct, "name">) {
+  const name = normalizeSearch(product.name);
+
+  if (name.includes("آمریکانو")) return "/items/آمریکانو.webp";
+  if (name === "لاته" || name === "آیس لاته") return "/items/لته_.webp";
+  if (name === "کارامل ماکیاتو" || name === "آیس کارامل ماکیاتو") {
+    return "/items/آیس_کارامل.webp";
+  }
+  if (name === "آب پرتقال") return "/items/آب_پرتقال.webp";
+  if (name === "رد مون") return "/items/ردمون.webp";
+  if (name === "دمنوش بابونه") return "/items/دمنوش_بابونه.webp";
+  if (name === "کره بادوم زمینی") return "/items/تست_کره_بادم.webp";
+  if (name.startsWith("چای ")) return "/items/چای.webp";
+
+  return null;
+}
+
 export function categoryTone(category: MenuCategory) {
   const key = `${category.nameEn ?? ""} ${category.name}`.toLowerCase();
-  if (/coffee|brew|قهوه|دم/.test(key)) return "coffee";
-  if (/tea|herbal|چای|دمنوش/.test(key)) return "tea";
-  if (/juice|mocktail|smooth|frappe|shake|آبمیوه|ماکتل|اسموتی|فراپه|شیک/.test(key)) {
-    return "cold";
+  if (/special|new|ویژه|جدید/.test(key)) return "special";
+  if (/dessert|sweet|cake|دسر|شیرینی|کیک/.test(key)) return "dessert";
+  if (/toast|panini|chips|sandwich|تست|پنینی|چیپس|ساندویچ/.test(key)) return "food";
+  if (
+    /coffee|brew|tea|herbal|drink|juice|mocktail|smooth|frappe|shake|matcha|add-on|قهوه|دمی|چای|دمنوش|نوشیدنی|آبمیوه|ماکتل|اسموتی|فراپه|شیک|ماچا|افزودنی/.test(
+      key,
+    )
+  ) {
+    return "drink";
   }
-  if (/cake|brunch|کیک|صبحانه/.test(key)) return "sweet";
   return "food";
 }

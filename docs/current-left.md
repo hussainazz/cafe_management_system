@@ -13,12 +13,22 @@ This file is the active completion checklist and current stage status for the ba
 Done:
 
 - The roadmap order was revised for the deadline, and a Next.js App Router frontend shell now consumes the typed anonymous menu API with server-rendered initial data.
-- The Persian RTL, mobile-first menu includes category navigation, live search, availability filtering, product cards, product details/options, preparation time, final Toman prices, and explicit browse-only messaging with no checkout, order, payment, or tracking capability.
+- The Persian RTL, mobile-first menu includes category navigation, live search, product cards, product details with priced item options, current availability indicators, final Toman prices, and explicit browse-only messaging with no checkout, order, payment, or tracking capability.
 - Loading, empty, error, missing-image, responsive, and reduced-motion states are implemented.
 - Frontend typecheck, 3 focused tests, and production build pass; representative browser rendering was verified at 390×844 and 1440×1000 against the local API and imported Run Cafe catalog.
 - The original dark-and-amber frontend direction was reconstructed on `feat/qr-menu-frontend-v1` with a frontend adapter for the current public API; the current backend was retained unchanged.
-- Current product availability and preparation-deadline minutes are visible to customers, using the public API as the single source of truth.
+- Customer-facing preparation time and the availability-only toggle were removed; preparation deadlines remain available to the POS workflow, while item availability can still be communicated on individual menu entries.
+- Product popups show the supplied final prices for product-specific coffee blends, coffee amounts, cup quantities, syrups, and flavors. The synchronizer applies 55 explicit price/availability configurations and 34 option-bearing product configurations, including unavailable Mini Tiramisu.
 - The visual direction was refreshed around Run Cafe's warm, dark, intimate specialty-coffee identity with restrained amber lighting, wood tones, and low-distraction browsing.
+- The revised customer menu passes frontend typecheck, all 3 focused web tests, production build, and a representative 390×844 browser rendering against the synchronized development catalog.
+- The mobile menu was hardened against the six highest-priority Iranian phone viewports (360×800, 384×832, 385×854, 390×844, 393×873, and 412×915): hero density, safe-area spacing, consistent branding, category-scroll affordance, 44px touch targets, and persistent compact option sheets were verified with Playwright without horizontal overflow or browser errors.
+- Development access from phones on the `192.168.1.x` LAN is explicitly allowed by Next.js; Playwright verified hydration through the LAN URL, working category navigation, and working product dialogs without blocked client chunks.
+- The public menu hero now uses the concise Run Cafe title and requested food description without welcome/stat lines; the redundant all-category chip was removed, category chips navigate the continuously scrollable full menu, and scroll-spy keeps the active category synchronized while browsing.
+- Public-menu category visuals now use four consistent semantic icon groups: sparkle for special/new, one shared drink icon (including Matcha Bar), one dessert icon, and one food icon.
+- The mobile category strip now uses momentum horizontal scrolling without a native scrollbar; active-chip centering no longer affects vertical page position, and the edge cue hides correctly when the final RTL category is reached.
+- Product dialogs now present only item, price, availability, and option details; the redundant browse-only barista note was removed.
+- The supplied Run Cafe photography is integrated through 20 product placements with deliberate reuse for hot/iced Americano, latte, caramel macchiato, tea, and duplicate Red Moon entries; optimized self-hosted copies keep mobile payloads bounded, the supplied 2017 logo brands the footer, and popup photography uses centered contain framing with solid-black letterboxing.
+- The redundant top navigation and language toggle were removed; the compact hero now pairs the English “Run Cafe” title on the left with animated artwork on the right and no subtitle. Desktop artwork remains unchanged, while phones use a consistently aligned 128px orbit with proportionally scaled internal icons; all six target phone viewports were verified without overflow or interaction errors.
 
 Left:
 
@@ -28,9 +38,10 @@ Left:
 
 Done:
 
-- Public, schema-validated browse-only category, product-detail, search, and category-filter endpoints; they expose active catalog data, final Toman prices, images, options, preparation-deadline minutes, and availability without sessions or public write capabilities.
+- Public, schema-validated browse-only category, product-detail, search, and category-filter endpoints expose active customer-facing catalog data, final Toman prices, images, priced options, and availability without preparation deadlines, sessions, or public write capabilities.
 - Public menu safety, visibility, search/filter, final-price, and anonymous-access integration tests (`public-menu.test.ts`, 2 tests).
 - An idempotent Run Cafe catalog synchronizer covering the exact requested category/product names and ordering as supplied on 23 August 2026; it preserves existing prices, uses Toman integer defaults for new products, and archives catalog entries outside the authoritative list.
+- The synchronizer applies authoritative per-product base prices, availability, option membership, option order, and option price differences while retaining historical order snapshots and archived option records.
 
 - The Run Cafe catalog was synchronized into the configured development database after the existing migrations were applied. The synchronizer remains available as `pnpm db:seed:run-cafe-menu` and safely updates display order/visibility while retaining archived and historically referenced records.
 

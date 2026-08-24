@@ -37,7 +37,6 @@ function toPublicProduct(product: PublicCatalogProduct) {
     id: product.id,
     name: product.name,
     priceAmount: finalPriceAmount(product),
-    preparationDeadlineMinutes: product.preparationDeadlineMinutes,
     isAvailable: product.isAvailable,
     image: product.image,
     optionGroups: product.productOptionGroups

@@ -297,8 +297,8 @@ Implement the anonymous QR-menu read endpoints.
 Acceptance criteria:
 
 - Public menu endpoints return active categories, visible products, available
-  options, product image metadata, preparation-deadline minutes, and final Toman
-  prices.
+  priced options, product image metadata, and final Toman prices. Product
+  preparation deadlines remain private to authenticated POS workflows.
 - Public endpoints expose no cart submission, order creation, payment, tracking,
   table authority, session, or Staff-only metadata.
 - Search/filter behavior is explicitly schema-validated and documented.
@@ -416,7 +416,7 @@ Exit gate:
 
 ## Stage 3 Backlog — QR-Menu Backend
 
-- Implement public read-only category, product, option, availability, image metadata, product preparation-deadline, and final Toman price endpoints for the QR menu.
+- Implement public read-only category, product, priced option, availability, image metadata, and final Toman price endpoints for the QR menu; keep product preparation deadlines in authenticated POS workflows.
 - Ensure QR-menu endpoints expose no cart submission, order creation, payment, tracking, table authority, or Staff-only metadata.
 - Add response schemas and OpenAPI coverage for the public menu API.
 - Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.

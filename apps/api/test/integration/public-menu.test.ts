@@ -39,7 +39,7 @@ describe("public QR menu", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data.categories).toEqual([{
       id: category.id, name: "قهوه", products: [{
-        id: product.id, name: "لاته", priceAmount: 200_000, preparationDeadlineMinutes: 8,
+        id: product.id, name: "لاته", priceAmount: 200_000,
         isAvailable: false, image: { storageKey: "products/latte.webp", altText: "لاته" },
         optionGroups: [{ id: optionGroup.id, name: "دانه قهوه", options: [
           { id: expect.any(String), name: "۱۰۰ عربیکا", priceAmount: 0, isAvailable: true },
@@ -48,6 +48,7 @@ describe("public QR menu", () => {
       }],
     }]);
     expect(response.body).not.toContain("saleDiscount");
+    expect(response.body).not.toContain("preparationDeadlineMinutes");
     expect(response.body).not.toContain("displayOrder");
     expect(response.body).not.toContain("archivedAt");
   });

@@ -26,8 +26,8 @@ Current implementation status as of 21 August 2026:
 - **Stage 0 — Scope and domain baseline:** complete. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including the settlement model; the initial ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; `database-constraints.md` explicitly lists the planned database constraints; `request-response-conventions.md` defines shared application envelopes, errors, pagination, idempotency, and concurrency; and `backend-backlog.md` converts the approved scope into a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** complete. The database schema and reviewed migrations, first-Manager bootstrap, isolated test-database workflow, structured error envelope, Zod-derived OpenAPI contract, Docker Compose PostgreSQL baseline, liveness/readiness routes, and graceful shutdown are implemented. The fresh-environment rehearsal on 13 August 2026 applied both migrations to a new database, created exactly one Manager, rejected a repeat bootstrap, returned healthy liveness/readiness responses, and passed typecheck and the API test suite.
 - **Stage 2 — POS backend:** complete. The complete Staff/Manager POS workflow is implemented and covered through authenticated API calls against real PostgreSQL.
-- **Stage 3 — QR-menu backend:** complete. Anonymous browse-only menu and product-detail APIs expose only public catalog data, final Toman prices, availability, options, images, and preparation-deadline minutes; search/filter, response safety, and anonymous behavior are covered by integration tests.
-- **Stage 4 — QR-menu frontend:** complete. The Persian RTL, mobile-first public menu renders the Run Cafe catalog through the typed public API with category navigation, search, product details/options, current availability, preparation time, final Toman prices, loading/empty/error states, and no ordering or payment flow. Typecheck, production build, and representative mobile/desktop browser rendering are verified.
+- **Stage 3 — QR-menu backend:** complete. Anonymous browse-only menu and product-detail APIs expose only customer-facing catalog data, final Toman prices, availability, priced options, and images; preparation deadlines remain private to POS workflows. Search/filter, response safety, and anonymous behavior are covered by integration tests.
+- **Stage 4 — QR-menu frontend:** complete. The Persian RTL, mobile-first public menu renders the Run Cafe catalog through the typed public API with category navigation, search, product details/priced item options, current availability, final Toman prices, loading/empty/error states, and no customer-facing preparation timing, availability-only toggle, ordering, or payment flow. Typecheck, production build, and representative mobile/desktop browser rendering are verified.
 
 ## Stage Overview
 
@@ -36,8 +36,8 @@ Current implementation status as of 21 August 2026:
 | 0     | Scope and domain baseline       | Approved use cases, business rules, state tables, ERD, API inventory, ADRs, and prioritized backlog                                             |
 | 1     | Database and backend foundation | Database tables, migrations, seed/bootstrap, test database workflow, runnable Fastify service, health checks, and test infrastructure           |
 | 2     | POS backend                     | Staff auth, catalog/table timing data needed by POS, Staff-created orders, split-tender payments, receipts, deletion, and audit                 |
-| 3     | QR-menu backend                 | Public browse-only menu API for categories, products, options, availability, images, preparation-deadline minutes, and final Toman prices       |
-| 4     | QR-menu frontend                | Mobile-first browse-only public menu with categories, search/filtering, options, coffee blend lines, images, and final Toman prices             |
+| 3     | QR-menu backend                 | Public browse-only menu API for categories, products, priced options, availability, images, and final Toman prices                              |
+| 4     | QR-menu frontend                | Mobile-first browse-only public menu with categories, search/filtering, priced product selections, images, and final Toman prices               |
 | 5     | Staff POS frontend              | POS, table operations, payment entry, deletion flow, receipt printing, and reconnect/conflict states                                            |
 | 6     | Manager and reporting backend   | Manager catalog/user/settings APIs, sales reports, audit queries, indexes, and bounded exports                                                  |
 | 7     | Manager frontend                | Catalog management, Staff accounts, settings, reports, and audit-history interfaces                                                             |
@@ -95,7 +95,7 @@ Exit gate:
 
 ### Stage 3 — QR-Menu Backend
 
-- Implement public read-only category, product, option, availability, image metadata, product preparation-deadline, and final Toman price endpoints for the QR menu.
+- Implement public read-only category, product, priced option, availability, image metadata, and final Toman price endpoints for the QR menu; keep preparation deadlines in authenticated POS workflows.
 - Ensure QR-menu endpoints expose no cart submission, order creation, payment, tracking, table authority, or Staff-only metadata.
 - Add response schemas and OpenAPI coverage for the public menu API.
 - Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.
@@ -106,7 +106,7 @@ Exit gate:
 
 ### Stage 4 — QR-Menu Frontend
 
-- Build the mobile-first public menu with categories, search/filtering, options, availability, preparation-deadline minutes, final Toman prices, optimized images, and no checkout.
+- Build the mobile-first public menu with categories, search/category filtering, priced item options, current availability, final Toman prices, optimized images, no customer-facing preparation timing or availability-only toggle, and no checkout.
 - Ensure the public UI exposes no cart checkout, customer order submission, payment, or tracking states.
 - Measure the public menu on representative low-end phones and slow domestic connections.
 

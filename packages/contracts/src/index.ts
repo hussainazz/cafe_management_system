@@ -493,7 +493,6 @@ export const PublicMenuProductSchema = z.object({
   id: z.uuid(),
   name: z.string(),
   priceAmount: z.number().int().nonnegative(),
-  preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema,
   isAvailable: z.boolean(),
   image: ProductImageSchema.nullable(),
   optionGroups: z.array(PublicMenuOptionGroupSchema),
