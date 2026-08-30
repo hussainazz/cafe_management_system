@@ -3,8 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @cafe/api dev",
+    "dev": "pnpm --parallel --filter @cafe/api --filter @cafe/web dev",
+    "dev:api": "pnpm --filter @cafe/api dev",
+    "dev:web": "pnpm --filter @cafe/web dev",
     "build": "pnpm -r build",
+    "build:web": "pnpm --filter @cafe/web build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
@@ -14,8 +17,10 @@
     "db:migrate": "pnpm --filter @cafe/api prisma:migrate",
     "db:studio": "pnpm --filter @cafe/api prisma:studio",
     "db:seed": "pnpm --filter @cafe/api prisma:seed",
+    "db:seed:run-cafe-menu": "pnpm --filter @cafe/api seed:run-cafe-menu",
     "db:bootstrap-manager": "pnpm --filter @cafe/api bootstrap:manager",
     "test:api": "pnpm --filter @cafe/api test",
+    "test:web": "pnpm --filter @cafe/web test",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"

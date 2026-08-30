@@ -467,6 +467,53 @@ export const ProductSaleDiscountResponseSchema = z.object({
   meta: z.object({ requestId: z.string() }),
 });
 
+export const PublicMenuQuerySchema = z
+  .object({
+    categoryId: z.uuid().optional(),
+    q: z.string().trim().min(1).max(64).optional(),
+  })
+  .strict();
+
+export type PublicMenuQuery = z.infer<typeof PublicMenuQuerySchema>;
+
+export const PublicMenuOptionSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  priceAmount: z.number().int().nonnegative(),
+  isAvailable: z.boolean(),
+});
+
+export const PublicMenuOptionGroupSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  options: z.array(PublicMenuOptionSchema),
+});
+
+export const PublicMenuProductSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  priceAmount: z.number().int().nonnegative(),
+  isAvailable: z.boolean(),
+  image: ProductImageSchema.nullable(),
+  optionGroups: z.array(PublicMenuOptionGroupSchema),
+});
+
+export const PublicMenuCategorySchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  products: z.array(PublicMenuProductSchema),
+});
+
+export const PublicMenuResponseSchema = z.object({
+  data: z.object({ categories: z.array(PublicMenuCategorySchema) }),
+  meta: z.object({ requestId: z.string() }),
+});
+
+export const PublicProductResponseSchema = z.object({
+  data: PublicMenuProductSchema,
+  meta: z.object({ requestId: z.string() }),
+});
+
 export type TableEtaInput = {
   seatedAt: Date;
   seatingLimitMinutes: number;

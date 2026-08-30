@@ -4,8 +4,9 @@ This document tracks backend work extracted from the roadmap. Product and busine
 
 ## Current Backend Status
 
-Stages 0 and 1 are complete. Stage 2 is in progress. Backend work follows this
-priority: database/tables first, POS backend second, QR-menu backend third.
+Stages 0 through 3 of the backend are complete. The reprioritized QR-menu
+frontend Stage 4 is also complete, so the Staff POS frontend is next under the
+revised deadline recorded in `roadmap.md`, before Manager/reporting backend work.
 
 Current verification:
 
@@ -26,6 +27,10 @@ Current verification:
 - The 13 August 2026 fresh-environment rehearsal applied both migrations to a
   new database, created exactly one Manager, rejected a repeat bootstrap, and
   returned healthy liveness/readiness responses.
+- Stage 3 QR-menu backend is implemented and verified: anonymous public menu
+  and product-detail reads, schema-validated search/category filtering, active
+  catalog visibility, final Toman price calculation, and public-response safety
+  are covered by integration tests.
 
 ## Stage 0 Backlog — Scope And Domain Baseline
 
@@ -292,8 +297,8 @@ Implement the anonymous QR-menu read endpoints.
 Acceptance criteria:
 
 - Public menu endpoints return active categories, visible products, available
-  options, product image metadata, preparation-deadline minutes, and final Toman
-  prices.
+  priced options, product image metadata, and final Toman prices. Product
+  preparation deadlines remain private to authenticated POS workflows.
 - Public endpoints expose no cart submission, order creation, payment, tracking,
   table authority, session, or Staff-only metadata.
 - Search/filter behavior is explicitly schema-validated and documented.
@@ -411,7 +416,7 @@ Exit gate:
 
 ## Stage 3 Backlog — QR-Menu Backend
 
-- Implement public read-only category, product, option, availability, image metadata, product preparation-deadline, and final Toman price endpoints for the QR menu.
+- Implement public read-only category, product, priced option, availability, image metadata, and final Toman price endpoints for the QR menu; keep product preparation deadlines in authenticated POS workflows.
 - Ensure QR-menu endpoints expose no cart submission, order creation, payment, tracking, table authority, or Staff-only metadata.
 - Add response schemas and OpenAPI coverage for the public menu API.
 - Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.

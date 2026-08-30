@@ -12,6 +12,7 @@ import { posRoutes } from "./modules/pos/pos.routes.js";
 import { tablesRoutes } from "./modules/tables/tables.routes.js";
 import { ordersRoutes } from "./modules/orders/orders.routes.js";
 import { catalogRoutes } from "./modules/catalog/catalog.routes.js";
+import { publicMenuRoutes } from "./modules/public-menu/public-menu.routes.js";
 import { databasePlugin } from "./plugins/database.js";
 
 export function buildApp() {
@@ -60,6 +61,7 @@ export function buildApp() {
       api.register(tablesRoutes);
       api.register(ordersRoutes);
       api.register(catalogRoutes);
+      api.register(publicMenuRoutes);
     },
     {
       prefix: "/api/v1",
