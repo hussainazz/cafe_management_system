@@ -29,6 +29,7 @@ Done:
 - Product dialogs now present only item, price, availability, and option details; the redundant browse-only barista note was removed.
 - The supplied Run Cafe photography is integrated through 20 product placements with deliberate reuse for hot/iced Americano, latte, caramel macchiato, tea, and duplicate Red Moon entries; optimized self-hosted copies keep mobile payloads bounded, the supplied 2017 logo brands the footer, and popup photography uses centered contain framing with solid-black letterboxing.
 - The redundant top navigation and language toggle were removed; the compact hero now pairs the English “Run Cafe” title on the left with animated artwork on the right and no subtitle. Desktop artwork remains unchanged, while phones use a consistently aligned 128px orbit with proportionally scaled internal icons; all six target phone viewports were verified without overflow or interaction errors.
+- Local menu photography now resolves through explicit product-to-asset mappings in `public/items_pictures`: supplied Ice Bar images are limited to their matching iced drinks, the tea image is reserved for black tea, and unmatched products retain their existing artwork. Focused web tests, typecheck, and the production build pass.
 
 Left:
 
