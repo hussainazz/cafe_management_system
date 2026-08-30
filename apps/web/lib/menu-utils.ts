@@ -67,19 +67,35 @@ export function productImageUrl(storageKey: string) {
 
 export function localProductPictureUrl(product: Pick<MenuProduct, "name">) {
   const name = normalizeSearch(product.name);
+  // Keep this list explicit: a product without a matching photograph should retain its artwork.
+  // In particular, the tea photograph belongs only to black tea—not every tea variation.
+  const pictures: Record<string, string> = {
+    "آمریکانو سینگل": "/items_pictures/americano.webp",
+    "آمریکانو دبل": "/items_pictures/americano.webp",
+    "آیس آمریکانو سینگل": "/items_pictures/ice americano.webp",
+    "آیس آمریکانو دبل": "/items_pictures/ice americano.webp",
+    "لاته": "/items_pictures/لته_.webp",
+    "آیس لاته": "/items_pictures/ice latte.webp",
+    "آیس کارامل ماکیاتو": "/items_pictures/ice carammel.webp",
+    "اسپرسو سینگل": "/items_pictures/espresso.webp",
+    "اسپرسو دبل": "/items_pictures/espresso.webp",
+    "ترک": "/items_pictures/turkish.webp",
+    "چای": "/items_pictures/چای.webp",
+    "چای سیاه": "/items_pictures/چای.webp",
+    "آب پرتقال": "/items_pictures/آب_پرتقال.webp",
+    "هندونه": "/items_pictures/watermellon.webp",
+    "طالبی": "/items_pictures/honeydew melon.webp",
+    "رد مون": "/items_pictures/ردمون.webp",
+    "دمنوش بابونه": "/items_pictures/دمنوش_بابونه.webp",
+    "کره بادوم زمینی": "/items_pictures/تست_کره_بادم.webp",
+    "تیرامیسو": "/items_pictures/tiramisu.webp",
+    "چیز کیک لوتوس": "/items_pictures/luttos cheescake.webp",
+    "کروسان شکلاتی": "/items_pictures/crossant.webp",
+    "کروسان نوتلا توت فرنگی": "/items_pictures/crossant.webp",
+    "کروسان ویژه": "/items_pictures/crossant.webp",
+  };
 
-  if (name.includes("آمریکانو")) return "/items/آمریکانو.webp";
-  if (name === "لاته" || name === "آیس لاته") return "/items/لته_.webp";
-  if (name === "کارامل ماکیاتو" || name === "آیس کارامل ماکیاتو") {
-    return "/items/آیس_کارامل.webp";
-  }
-  if (name === "آب پرتقال") return "/items/آب_پرتقال.webp";
-  if (name === "رد مون") return "/items/ردمون.webp";
-  if (name === "دمنوش بابونه") return "/items/دمنوش_بابونه.webp";
-  if (name === "کره بادوم زمینی") return "/items/تست_کره_بادم.webp";
-  if (name.startsWith("چای ")) return "/items/چای.webp";
-
-  return null;
+  return pictures[name] ?? null;
 }
 
 export function categoryTone(category: MenuCategory) {
