@@ -42,6 +42,8 @@ const copy = {
     unavailable: "فعلاً ناموجود",
     discount: "تخفیف",
     options: "انتخاب‌های این آیتم",
+    optionCount: "انتخاب",
+    finalPriceWithOption: "قیمت نهایی با انتخاب",
     from: "از",
     noResultsTitle: "چیزی پیدا نکردیم",
     noResultsBody: "عبارت دیگری را امتحان کن یا فیلترها را پاک کن.",
@@ -63,6 +65,8 @@ const copy = {
     unavailable: "Unavailable for now",
     discount: "off",
     options: "Available choices",
+    optionCount: "choices",
+    finalPriceWithOption: "Final price with choice",
     from: "from",
     noResultsTitle: "Nothing matched",
     noResultsBody: "Try another phrase or clear the filters.",
@@ -155,17 +159,20 @@ function ProductCard({
   product: MenuProduct;
   category: MenuCategory;
   language: Language;
-  onSelect: () => void;
+  onSelect: (opener: HTMLButtonElement) => void;
 }) {
   const text = copy[language];
   const detail = secondaryName(product, language);
+  const optionCount = product.optionGroups.reduce((count, group) => count + group.options.length, 0);
+  const availabilityDescription = product.isAvailable ? "" : `، ${text.unavailable}`;
+  const optionsDescription = optionCount > 0 ? `، ${optionCount} ${text.optionCount}` : "";
 
   return (
     <button
       className={`product-card${product.isAvailable ? "" : " is-unavailable"}`}
       type="button"
-      onClick={onSelect}
-      aria-label={`${localizedName(product, language)}، ${formatToman(product.finalPriceAmount, language)} ${text.toman}`}
+      onClick={(event) => onSelect(event.currentTarget)}
+      aria-label={`${localizedName(product, language)}، ${formatToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
     >
       <ProductVisual product={product} category={category} />
       <span className="product-card-body">
@@ -179,8 +186,9 @@ function ProductCard({
 
         {product.optionGroups.length > 0 ? (
           <span className="product-meta-row">
-            <span className="option-dot" title={text.options}>
-              +
+            <span className="option-indicator">
+              <span aria-hidden="true">+</span>
+              {optionCount} {text.optionCount}
             </span>
           </span>
         ) : null}
@@ -243,7 +251,27 @@ function ProductDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="product-dialog-title"
+        aria-describedby={product.optionGroups.length > 0 ? "product-dialog-options" : undefined}
         dir={language === "fa" ? "rtl" : "ltr"}
+        onKeyDown={(event) => {
+          if (event.key !== "Tab") return;
+          const focusable = Array.from(
+            event.currentTarget.querySelectorAll<HTMLElement>(
+              'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+          );
+          if (focusable.length < 2) {
+            event.preventDefault();
+            closeRef.current?.focus();
+            return;
+          }
+          const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+          const nextIndex = event.shiftKey ? currentIndex - 1 : currentIndex + 1;
+          if (nextIndex < 0 || nextIndex >= focusable.length) {
+            event.preventDefault();
+            focusable[event.shiftKey ? focusable.length - 1 : 0]?.focus();
+          }
+        }}
       >
         <button ref={closeRef} className="dialog-close" type="button" onClick={onClose}>
           <CloseIcon />
@@ -273,7 +301,7 @@ function ProductDialog({
 
             {product.optionGroups.length > 0 ? (
               <div className="option-groups">
-                <h3>{text.options}</h3>
+                <h3 id="product-dialog-options">{text.options}</h3>
                 {product.optionGroups.map((group) => (
                   <div className="option-group" key={group.id}>
                     <p>{group.name}</p>
@@ -281,7 +309,7 @@ function ProductDialog({
                       {group.options.map((option) => (
                         <li key={option.id}>
                           <span>{option.name}</span>
-                          <span className="option-price">
+                          <span className="option-price" aria-label={text.finalPriceWithOption}>
                             {formatToman(product.finalPriceAmount + option.priceAmount, language)}{
                               " "
                             }
@@ -304,7 +332,7 @@ function ProductDialog({
 
 function LoadingMenu() {
   return (
-    <main className="loading-shell" aria-label="Loading menu" aria-busy="true">
+    <main className="loading-shell" aria-label="در حال بارگذاری منو" aria-busy="true">
       <div className="skeleton skeleton--hero" />
       <div className="skeleton skeleton--search" />
       <div className="skeleton-chips">
@@ -333,6 +361,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
   const categoryScrollerRef = useRef<HTMLDivElement>(null);
   const categoryNavigationTargetRef = useRef<string | null>(null);
   const categoryNavigationTimerRef = useRef<number | null>(null);
+  const selectedProductTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<{
     product: MenuProduct;
     category: MenuCategory;
@@ -479,6 +508,11 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
   function clearFilters() {
     setQuery("");
     setSelectedCategory(null);
+  }
+
+  function closeProductDialog() {
+    setSelectedProduct(null);
+    window.requestAnimationFrame(() => selectedProductTriggerRef.current?.focus());
   }
 
   function scrollToCategory(categoryId: string) {
@@ -642,7 +676,10 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
                       product={product}
                       category={category}
                       language={language}
-                      onSelect={() => setSelectedProduct({ product, category })}
+                      onSelect={(opener) => {
+                        selectedProductTriggerRef.current = opener;
+                        setSelectedProduct({ product, category });
+                      }}
                       key={product.id}
                     />
                   ))}
@@ -677,7 +714,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
           product={selectedProduct.product}
           category={selectedProduct.category}
           language={language}
-          onClose={() => setSelectedProduct(null)}
+          onClose={closeProductDialog}
         />
       ) : null}
     </div>
