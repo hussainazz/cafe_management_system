@@ -57,7 +57,7 @@ button {
 }
 
 .site-shell[dir="ltr"] {
-  font-family: Inter, Arial, sans-serif;
+  font-family: Arial, sans-serif;
 }
 
 .sr-only {
@@ -607,7 +607,8 @@ main {
 }
 
 .product-card.is-unavailable {
-  opacity: 0.57;
+  background: #1a1612;
+  border-color: rgba(215, 140, 115, 0.26);
 }
 
 .product-visual {
@@ -744,15 +745,23 @@ main {
   margin-top: 13px;
 }
 
-.option-dot {
-  display: grid;
-  width: 17px;
-  height: 17px;
-  place-items: center;
+.option-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding-inline: 8px;
   color: var(--amber-bright);
   background: var(--amber-soft);
-  border-radius: 50%;
-  font-size: 11px;
+  border: 1px solid rgba(208, 149, 81, 0.19);
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.option-indicator > span {
+  font-size: 13px;
+  line-height: 1;
 }
 
 .product-card-bottom {
@@ -804,9 +813,9 @@ main {
 
 .discount-badge,
 .unavailable-badge {
-  padding: 5px 7px;
-  border-radius: 6px;
-  font-size: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 10px;
   line-height: 1.2;
 }
 
@@ -816,8 +825,9 @@ main {
 }
 
 .unavailable-badge {
-  color: #d9a28f;
-  background: rgba(215, 140, 115, 0.11);
+  color: #efb7a1;
+  background: rgba(215, 140, 115, 0.16);
+  border: 1px solid rgba(215, 140, 115, 0.22);
 }
 
 .empty-state {
@@ -1105,7 +1115,7 @@ footer span {
 
 .option-price {
   color: var(--ink-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .error-page {
