@@ -74,18 +74,26 @@ describe("menu utilities", () => {
     expect(categoryTone(category("پنینی"))).toBe("food");
   });
 
-  it("maps supplied local pictures to matching and reusable product variants", () => {
+  it("maps supplied local pictures only to their matching menu products", () => {
     expect(localProductPictureUrl({ name: "آمریکانو سینگل" })).toBe(
-      "/items/آمریکانو.webp",
+      "/items_pictures/americano.webp",
     );
     expect(localProductPictureUrl({ name: "آیس آمریکانو دبل" })).toBe(
-      "/items/آمریکانو.webp",
+      "/items_pictures/ice americano.webp",
     );
-    expect(localProductPictureUrl({ name: "لاته" })).toBe("/items/لته_.webp");
-    expect(localProductPictureUrl({ name: "آیس لاته" })).toBe("/items/لته_.webp");
+    expect(localProductPictureUrl({ name: "لاته" })).toBe("/items_pictures/لته_.webp");
+    expect(localProductPictureUrl({ name: "آیس لاته" })).toBe(
+      "/items_pictures/ice latte.webp",
+    );
+    expect(localProductPictureUrl({ name: "آیس کارامل ماکیاتو" })).toBe(
+      "/items_pictures/ice carammel.webp",
+    );
+    expect(localProductPictureUrl({ name: "کارامل ماکیاتو" })).toBeNull();
+    expect(localProductPictureUrl({ name: "چای" })).toBe("/items_pictures/چای.webp");
+    expect(localProductPictureUrl({ name: "چای ماسالا" })).toBeNull();
     expect(localProductPictureUrl({ name: "ماچا لته" })).toBeNull();
     expect(localProductPictureUrl({ name: "دمنوش بابونه" })).toBe(
-      "/items/دمنوش_بابونه.webp",
+      "/items_pictures/دمنوش_بابونه.webp",
     );
   });
 });
