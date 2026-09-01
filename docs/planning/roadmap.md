@@ -21,13 +21,13 @@ Manager/admin and reporting work must not block the POS and QR-menu path unless 
 
 Stages 0 through 4 are complete. Stage 5 (Staff POS frontend) is next.
 
-Current implementation status as of 21 August 2026:
+Current implementation status as of 1 September 2026:
 
 - **Stage 0 — Scope and domain baseline:** complete. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including the settlement model; the initial ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; `database-constraints.md` explicitly lists the planned database constraints; `request-response-conventions.md` defines shared application envelopes, errors, pagination, idempotency, and concurrency; and `backend-backlog.md` converts the approved scope into a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** complete. The database schema and reviewed migrations, first-Manager bootstrap, isolated test-database workflow, structured error envelope, Zod-derived OpenAPI contract, Docker Compose PostgreSQL baseline, liveness/readiness routes, and graceful shutdown are implemented. The fresh-environment rehearsal on 13 August 2026 applied both migrations to a new database, created exactly one Manager, rejected a repeat bootstrap, returned healthy liveness/readiness responses, and passed typecheck and the API test suite.
 - **Stage 2 — POS backend:** complete. The complete Staff/Manager POS workflow is implemented and covered through authenticated API calls against real PostgreSQL.
 - **Stage 3 — QR-menu backend:** complete. Anonymous browse-only menu and product-detail APIs expose only customer-facing catalog data, final Toman prices, availability, priced options, and images; preparation deadlines remain private to POS workflows. Search/filter, response safety, and anonymous behavior are covered by integration tests.
-- **Stage 4 — QR-menu frontend:** complete. The Persian RTL, mobile-first public menu renders the Run Cafe catalog through the typed public API with category navigation, search, product details/priced item options, current availability, final Toman prices, loading/empty/error states, and no customer-facing preparation timing, availability-only toggle, ordering, or payment flow. Typecheck, production build, and representative mobile/desktop browser rendering are verified.
+- **Stage 4 — QR-menu frontend:** complete. The Persian RTL, mobile-first public menu renders the Run Cafe catalog through the typed public API with category navigation, search, product details and priced options, current availability, compact displayed Toman prices, loading/empty/error states, local product photography, and no customer-facing preparation timing, ordering, or payment flow. The root route redirects to `/menu`; typecheck, focused tests, production build, and representative mobile/desktop browser rendering were verified during the completed stage.
 
 ## Stage Overview
 

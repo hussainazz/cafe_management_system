@@ -54,6 +54,13 @@ export function formatToman(amount: number, language: Language) {
   return new Intl.NumberFormat(language === "fa" ? "fa-IR" : "en-US").format(amount);
 }
 
+export function formatCompactToman(amount: number, language: Language) {
+  return new Intl.NumberFormat(language === "fa" ? "fa-IR" : "en-US", {
+    useGrouping: false,
+    maximumFractionDigits: 2,
+  }).format(amount / 1_000);
+}
+
 export function productImageUrl(storageKey: string) {
   const configuredBase = process.env.NEXT_PUBLIC_PRODUCT_IMAGE_BASE_URL?.replace(/\/$/, "");
   const safePath = storageKey
@@ -77,13 +84,14 @@ export function localProductPictureUrl(product: Pick<MenuProduct, "name">) {
     "لاته": "/items_pictures/لته_.webp",
     "آیس لاته": "/items_pictures/ice latte.webp",
     "آیس کارامل ماکیاتو": "/items_pictures/ice carammel.webp",
+    "کارامل ماکیاتو": "/items_pictures/لته_.webp",
     "اسپرسو سینگل": "/items_pictures/espresso.webp",
     "اسپرسو دبل": "/items_pictures/espresso.webp",
     "ترک": "/items_pictures/turkish.webp",
-    "چای": "/items_pictures/چای.webp",
-    "چای سیاه": "/items_pictures/چای.webp",
+    "چای هل و زغفران": "/items_pictures/چای.webp",
     "آب پرتقال": "/items_pictures/آب_پرتقال.webp",
     "هندونه": "/items_pictures/watermellon.webp",
+    "هندوانه": "/items_pictures/watermellon.webp",
     "طالبی": "/items_pictures/honeydew melon.webp",
     "رد مون": "/items_pictures/ردمون.webp",
     "دمنوش بابونه": "/items_pictures/دمنوش_بابونه.webp",
@@ -91,8 +99,6 @@ export function localProductPictureUrl(product: Pick<MenuProduct, "name">) {
     "تیرامیسو": "/items_pictures/tiramisu.webp",
     "چیز کیک لوتوس": "/items_pictures/luttos cheescake.webp",
     "کروسان شکلاتی": "/items_pictures/crossant.webp",
-    "کروسان نوتلا توت فرنگی": "/items_pictures/crossant.webp",
-    "کروسان ویژه": "/items_pictures/crossant.webp",
   };
 
   return pictures[name] ?? null;

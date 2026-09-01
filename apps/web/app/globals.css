@@ -1094,7 +1094,7 @@ footer span {
 .option-group p {
   margin: 0 0 10px;
   color: var(--amber-bright);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .option-group ul {
@@ -1110,12 +1110,12 @@ footer span {
   justify-content: space-between;
   gap: 12px;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .option-price {
   color: var(--ink-muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .error-page {

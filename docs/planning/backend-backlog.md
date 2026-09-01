@@ -290,6 +290,10 @@ Acceptance criteria:
 
 ### P2 - Stage 3 QR-Menu Backend
 
+Complete. The anonymous, browse-only category/menu and product-detail endpoints,
+their OpenAPI schemas, and public-response integration coverage are implemented.
+The Run Cafe catalog synchronizer is available as `pnpm db:seed:run-cafe-menu`.
+
 #### P2.1 Public Browse-Only Menu API
 
 Implement the anonymous QR-menu read endpoints.

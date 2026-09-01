@@ -16,7 +16,7 @@ Done:
 - The Persian RTL, mobile-first menu includes category navigation, live search, product cards, product details with priced item options, current availability indicators, final Toman prices, and explicit browse-only messaging with no checkout, order, payment, or tracking capability.
 - Loading, empty, error, missing-image, responsive, and reduced-motion states are implemented.
 - Frontend typecheck, 3 focused tests, and production build pass; representative browser rendering was verified at 390×844 and 1440×1000 against the local API and imported Run Cafe catalog.
-- The original dark-and-amber frontend direction was reconstructed on `feat/qr-menu-frontend-v1` with a frontend adapter for the current public API; the current backend was retained unchanged.
+- The public-menu frontend uses the current API through a frontend adapter; its dark-and-amber direction and backend contract remain unchanged.
 - Customer-facing preparation time and the availability-only toggle were removed; preparation deadlines remain available to the POS workflow, while item availability can still be communicated on individual menu entries.
 - Product popups show the supplied final prices for product-specific coffee blends, coffee amounts, cup quantities, syrups, and flavors. The synchronizer applies 55 explicit price/availability configurations and 34 option-bearing product configurations, including unavailable Mini Tiramisu.
 - The visual direction was refreshed around Run Cafe's warm, dark, intimate specialty-coffee identity with restrained amber lighting, wood tones, and low-distraction browsing.
@@ -30,6 +30,7 @@ Done:
 - The supplied Run Cafe photography is integrated through 20 product placements with deliberate reuse for hot/iced Americano, latte, caramel macchiato, tea, and duplicate Red Moon entries; optimized self-hosted copies keep mobile payloads bounded, the supplied 2017 logo brands the footer, and popup photography uses centered contain framing with solid-black letterboxing.
 - The redundant top navigation and language toggle were removed; the compact hero now pairs the English “Run Cafe” title on the left with animated artwork on the right and no subtitle. Desktop artwork remains unchanged, while phones use a consistently aligned 128px orbit with proportionally scaled internal icons; all six target phone viewports were verified without overflow or interaction errors.
 - Local menu photography now resolves through explicit product-to-asset mappings in `public/items_pictures`: supplied Ice Bar images are limited to their matching iced drinks, the tea image is reserved for black tea, and unmatched products retain their existing artwork. Focused web tests, typecheck, and the production build pass.
+- Black tea (`چای هل و زغفران`) now uses its dedicated photo; the hot caramel macchiato uses the hot latte photo; and only chocolate croissants use the croissant photo. Menu prices use the requested compact thousands form without separators (for example, `۱۶۵`), option text is larger in product dialogs, and the synchronized juice catalog now calls watermelon `هندوانه`.
 
 Left:
 

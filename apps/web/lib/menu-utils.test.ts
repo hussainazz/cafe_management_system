@@ -3,6 +3,7 @@ import type { PublicMenu } from "./menu-types";
 import {
   categoryTone,
   filterMenu,
+  formatCompactToman,
   formatToman,
   localProductPictureUrl,
   normalizeSearch,
@@ -64,6 +65,11 @@ describe("menu utilities", () => {
     expect(formatToman(135_000, "en")).toBe("135,000");
   });
 
+  it("formats menu prices in thousands without grouping separators", () => {
+    expect(formatCompactToman(165_000, "en")).toBe("165");
+    expect(formatCompactToman(165_000, "fa")).toBe("۱۶۵");
+  });
+
   it("uses consistent icon groups for menu categories", () => {
     const category = (name: string) => ({ ...menu.categories[0]!, name, nameEn: null });
 
@@ -88,10 +94,15 @@ describe("menu utilities", () => {
     expect(localProductPictureUrl({ name: "آیس کارامل ماکیاتو" })).toBe(
       "/items_pictures/ice carammel.webp",
     );
-    expect(localProductPictureUrl({ name: "کارامل ماکیاتو" })).toBeNull();
-    expect(localProductPictureUrl({ name: "چای" })).toBe("/items_pictures/چای.webp");
+    expect(localProductPictureUrl({ name: "کارامل ماکیاتو" })).toBe(
+      "/items_pictures/لته_.webp",
+    );
+    expect(localProductPictureUrl({ name: "چای هل و زغفران" })).toBe(
+      "/items_pictures/چای.webp",
+    );
     expect(localProductPictureUrl({ name: "چای ماسالا" })).toBeNull();
     expect(localProductPictureUrl({ name: "ماچا لته" })).toBeNull();
+    expect(localProductPictureUrl({ name: "کروسان ویژه" })).toBeNull();
     expect(localProductPictureUrl({ name: "دمنوش بابونه" })).toBe(
       "/items_pictures/دمنوش_بابونه.webp",
     );

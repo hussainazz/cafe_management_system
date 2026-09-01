@@ -8,3 +8,4 @@
 - When committing and pushing changes, stage files explicitly. Do not stage all changed files and push them as one commit. Commit and push each changed file separately unless the user explicitly asks for a combined commit.
 - Commit and push changes only when the user explicitly asks for it.
 - ignore the pnpm lint errors.
+- Do not use the `impeccable` skill unless the user explicitly asks to use `impeccable` or names that skill.

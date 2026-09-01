@@ -4,6 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode 
 import type { MenuCategory, MenuProduct, PublicMenu } from "../lib/menu-types";
 import {
   categoryTone,
+  formatCompactToman,
   filterMenu,
   formatToman,
   localProductPictureUrl,
@@ -101,8 +102,8 @@ function ProductVisual({ product, category }: { product: MenuProduct; category: 
   const [imageIndex, setImageIndex] = useState(0);
   const localPictureUrl = localProductPictureUrl(product);
   const imageSources = [
-    product.image ? productImageUrl(product.image.storageKey) : null,
     localPictureUrl,
+    product.image ? productImageUrl(product.image.storageKey) : null,
   ].filter((source, index, sources): source is string => Boolean(source) && sources.indexOf(source) === index);
   const imageSource = imageSources[imageIndex];
 
@@ -140,10 +141,10 @@ function Price({ product, language }: { product: MenuProduct; language: Language
   return (
     <span className="price-block">
       {product.saleDiscount ? (
-        <span className="old-price">{formatToman(product.basePriceAmount, language)}</span>
+        <span className="old-price">{formatCompactToman(product.basePriceAmount, language)}</span>
       ) : null}
       <span className="price-line">
-        <strong>{formatToman(product.finalPriceAmount, language)}</strong>
+        <strong>{formatCompactToman(product.finalPriceAmount, language)}</strong>
         <small>{text.toman}</small>
       </span>
     </span>
@@ -172,7 +173,7 @@ function ProductCard({
       className={`product-card${product.isAvailable ? "" : " is-unavailable"}`}
       type="button"
       onClick={(event) => onSelect(event.currentTarget)}
-      aria-label={`${localizedName(product, language)}، ${formatToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
+      aria-label={`${localizedName(product, language)}، ${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
     >
       <ProductVisual product={product} category={category} />
       <span className="product-card-body">
@@ -199,7 +200,7 @@ function ProductCard({
             <span className="discount-badge">
               {product.saleDiscount.kind === "PERCENTAGE"
                 ? `${formatToman(product.saleDiscount.value, language)}٪`
-                : formatToman(product.saleDiscount.amount, language)}{" "}
+                : formatCompactToman(product.saleDiscount.amount, language)}{" "}
               {text.discount}
             </span>
           ) : null}
@@ -310,7 +311,7 @@ function ProductDialog({
                         <li key={option.id}>
                           <span>{option.name}</span>
                           <span className="option-price" aria-label={text.finalPriceWithOption}>
-                            {formatToman(product.finalPriceAmount + option.priceAmount, language)}{
+                            {formatCompactToman(product.finalPriceAmount + option.priceAmount, language)}{
                               " "
                             }
                             {text.toman}
