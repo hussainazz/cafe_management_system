@@ -10,11 +10,27 @@ This file is the active completion checklist and current stage status for the ba
 - Stage 5 preparation completed: the forward migration seeds the requested
   16-table layout in display order and the POS table-read contract exposes
   waiter-call eligibility plus availability/occupancy/reminder state.
-- Left before the Stage 5 exit gate: add hashed table QR credentials; implement explicit `AVAILABLE`/`OCCUPIED`
-  dashboard state, QR-scan occupancy reminders, eligibility only for tables
-  `1`, `2`, `3`, `4`, `5`, `6`, `جگوار`, `7`, `8`, `9`, and `10`, one pending call per eligible occupied
-  table, table-opening acknowledgement/resolution, realtime/refetch behavior,
-  constraints, OpenAPI contracts, and integration tests.
+- Database readiness gate completed on 2 September 2026: all six migrations
+  pass fresh/repeat deploy, existing-data upgrade, invalid-data atomic rollback,
+  exact physical-table seed, and clean `pg_dump`/`pg_restore` rehearsals. The
+  real-PostgreSQL API suite passes 12 files and 52 tests, including direct
+  constraint rejection, simultaneous settlement conflicts, table QR
+  provisioning, and table-context/waiter-call coverage.
+- Stage 5 persistence preparation completed: hashed-only table QR credential
+  storage, one-active-credential and one-pending-call partial uniqueness,
+  waiter-call lifecycle/version constraints, complete order/payment/catalog/auth
+  checks, restrictive history foreign keys, and café-settings singleton
+  enforcement are represented in the reviewed schema and forward migration.
+- Stage 5 table-context backend increment completed: explicit provisioning and
+  rotation generate private SVG/HTML/JSON artifacts for only tables `1`–`10`
+  and `جگوار`; `/t/:token` exchanges a hash-only credential for a signed
+  12-hour HttpOnly context and redirects to the one `/menu`; scans record one
+  non-blocking reminder without occupying a table; waiter-calls are limited to
+  eligible occupied tables and deduplicated; table clearing and rotation
+  invalidate old contexts; table opening resolves the pending call. OpenAPI,
+  service/API, provisioning, cookie, rate-limit, invalidation, and public-menu
+  proxy/UI tests pass. The 390×844 built-menu flow was live-checked against an
+  isolated `_test` database with no browser-console errors.
 - Left for the Stage 5 interface: implement the shared basic order, table,
   payment, deletion, receipt, reconnect/conflict, and waiter-call workflows in
   a new sibling `apps/pos` package; keep the existing menu in `apps/web`.
