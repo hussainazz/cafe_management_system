@@ -70,7 +70,7 @@ model User {
 model RefreshSession {
   id        String    @id @default(uuid())
   userId    String
-  tokenHash String
+  tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
@@ -109,7 +109,7 @@ model Category {
 }
 
 model Product {
-  id                         String    @id @default(uuid())
+  id                         String        @id @default(uuid())
   categoryId                 String
   name                       String
   priceAmount                Int
@@ -117,8 +117,8 @@ model Product {
   saleDiscountValue          Int?
   preparationDeadlineMinutes Int
   displayOrder               Int
-  isActive                   Boolean   @default(true)
-  isAvailable                Boolean   @default(true)
+  isActive                   Boolean       @default(true)
+  isAvailable                Boolean       @default(true)
   archivedAt                 DateTime?
 
   category            Category             @relation(fields: [categoryId], references: [id])
@@ -182,22 +182,60 @@ model Option {
 }
 
 model CafeTable {
-  id                  String              @id @default(uuid())
-  name                String
-  seatingLimitMinutes Int                 @default(45)
-  displayOrder        Int
-  isActive            Boolean             @default(true)
-  waiterCallEnabled   Boolean             @default(false)
-  occupancyState      TableOccupancyState @default(AVAILABLE)
-  occupiedAt          DateTime?
-  occupancyReminderAt DateTime?
-  archivedAt          DateTime?
+  id                        String              @id @default(uuid())
+  name                      String
+  seatingLimitMinutes       Int                 @default(45)
+  displayOrder              Int
+  isActive                  Boolean             @default(true)
+  waiterCallEnabled         Boolean             @default(false)
+  occupancyState            TableOccupancyState @default(AVAILABLE)
+  occupiedAt                DateTime?
+  occupancyReminderAt       DateTime?
+  tableContextInvalidBefore DateTime?
+  archivedAt                DateTime?
 
-  orders Order[]
+  orders        Order[]
+  qrCredentials TableQrCredential[]
+  waiterCalls   WaiterCall[]
 
   @@index([isActive, displayOrder])
   @@index([waiterCallEnabled, occupancyState])
   @@map("cafe_tables")
+}
+
+enum WaiterCallStatus {
+  PENDING
+  RESOLVED
+}
+
+model TableQrCredential {
+  id        String    @id @default(uuid())
+  tableId   String
+  tokenHash String    @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  rotatedAt DateTime?
+
+  table CafeTable @relation(fields: [tableId], references: [id])
+
+  @@index([tableId])
+  @@map("table_qr_credentials")
+}
+
+model WaiterCall {
+  id             String           @id @default(uuid())
+  tableId        String
+  status         WaiterCallStatus @default(PENDING)
+  version        Int              @default(1)
+  requestedAt    DateTime         @default(now())
+  acknowledgedAt DateTime?
+  resolvedAt     DateTime?
+
+  table CafeTable @relation(fields: [tableId], references: [id])
+
+  @@index([status, requestedAt])
+  @@index([tableId, requestedAt])
+  @@map("waiter_calls")
 }
 
 model Order {
@@ -239,7 +277,7 @@ model Order {
 }
 
 model OrderItem {
-  id                                 String  @id @default(uuid())
+  id                                 String        @id @default(uuid())
   orderId                            String
   productId                          String
   productNameSnapshot                String
@@ -249,7 +287,7 @@ model OrderItem {
   note                               String?
   discountKind                       DiscountKind?
   discountValue                      Int?
-  discountAmount                     Int     @default(0)
+  discountAmount                     Int           @default(0)
   discountReason                     String?
   lineTotalAmount                    Int
   displayOrder                       Int
@@ -379,6 +417,7 @@ model AuditLog {
 
 model CafeSettings {
   id                              String   @id @default(uuid())
+  singletonKey                    Boolean  @unique @default(true)
   defaultTableSeatingLimitMinutes Int      @default(45)
   updatedById                     String?
   updatedAt                       DateTime @updatedAt
