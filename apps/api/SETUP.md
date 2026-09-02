@@ -20,6 +20,8 @@ development data.
    empty PostgreSQL database and set distinct values for
    `BOOTSTRAP_MANAGER_USERNAME`, `BOOTSTRAP_MANAGER_PASSWORD`, `ACCESS_TOKEN_SECRET`, and
    `REFRESH_TOKEN_SECRET`. Both token secrets must be at least 32 characters.
+   Production also requires independent `TABLE_QR_TOKEN_SECRET` and
+   `TABLE_CONTEXT_COOKIE_SECRET` values of at least 32 characters.
 
 3. Start PostgreSQL:
 
