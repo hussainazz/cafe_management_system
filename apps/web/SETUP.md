@@ -23,8 +23,11 @@ product details, options, and language controls.
    pnpm dev
    ```
 
-The QR menu is available at `http://localhost:3000`. It has no cart, checkout,
-customer ordering, payment, tracking, or customer-session feature.
+The one public menu is available at `http://localhost:3000/menu`. It has no
+cart, checkout, customer ordering, payment, or tracking feature. An eligible
+printed table URL at `/t/:token` exchanges the token through Fastify, sets a
+short-lived HttpOnly table-context cookie, and redirects to the same `/menu`;
+generic menu visits have no waiter-call control.
 
 ## Verification
 
