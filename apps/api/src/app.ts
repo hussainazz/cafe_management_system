@@ -13,12 +13,14 @@ import { tablesRoutes } from "./modules/tables/tables.routes.js";
 import { ordersRoutes } from "./modules/orders/orders.routes.js";
 import { catalogRoutes } from "./modules/catalog/catalog.routes.js";
 import { publicMenuRoutes } from "./modules/public-menu/public-menu.routes.js";
+import { waiterCallRoutes } from "./modules/waiter-calls/waiter-calls.routes.js";
 import { databasePlugin } from "./plugins/database.js";
 
 export function buildApp() {
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
+      redact: ["req.headers.cookie", "res.headers.set-cookie"],
     },
     genReqId(request) {
       const requestId = request.headers["x-request-id"];
@@ -62,6 +64,7 @@ export function buildApp() {
       api.register(ordersRoutes);
       api.register(catalogRoutes);
       api.register(publicMenuRoutes);
+      api.register(waiterCallRoutes);
     },
     {
       prefix: "/api/v1",
