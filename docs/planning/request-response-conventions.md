@@ -47,9 +47,12 @@ responses, and attached to application logs and audit records.
   opaque values stored only as one-way hashes and rotated on every refresh.
   Logout revokes the current refresh session and logout-all revokes every active
   refresh session owned by the user.
-- Public QR-menu reads are anonymous and read-only. All other application
-  routes require an authenticated Staff or Manager session unless the API
-  inventory says otherwise.
+- Public QR-menu reads are anonymous and read-only. The anonymous table-context
+  writes are the scan-reminder and waiter-call commands, which require a valid
+  table-scoped credential. A waiter-call additionally requires an eligible
+  occupied table and grants no other authority. All other application routes
+  require an authenticated Staff or Manager session unless the API inventory
+  says otherwise.
 - Missing, invalid, or expired authentication returns `401`; an authenticated
   user without the required role returns `403`.
 - Authenticated and mutating responses use `Cache-Control: no-store`.
@@ -141,9 +144,10 @@ or interpret cursors.
 Filters are explicit query parameters, not ad hoc filter expressions. Common
 examples are `state`, `paymentStatus`, `channel`, `tableId`, `from`, `to`,
 `q`, `includeInactive`, and `includeDeleted`. `from` and `to` are UTC ISO 8601
-timestamps. Report endpoints may instead accept explicitly named local
-calendar parameters such as `fromDate`, `toDate`, or `period`, interpreted in
-`Asia/Tehran` and returned with their resolved UTC range in response metadata.
+timestamps. The initial daily report accepts only `period=today` or
+`period=yesterday`, interpreted in `Asia/Tehran`, and returns the resolved UTC
+range in response metadata. Arbitrary report dates/ranges are rejected; this
+query restriction does not change historical data retention.
 
 ## Idempotency
 
@@ -166,6 +170,13 @@ and uniqueness constraint are defined in `database-constraints.md`.
 
 Idempotency protects retry safety. It does not replace the order-version check
 required for changes to an existing order.
+
+Anonymous waiter-call submission does not use an actor-scoped idempotency key.
+Instead, the eligible-and-occupied table credential check and database rule
+allowing at most one pending call per table make repeated taps return the
+existing call. Opening the highlighted table acknowledges and resolves the
+call in one version-checked POS action; no actor identity is stored for that
+handling step.
 
 ## Concurrency And State Changes
 

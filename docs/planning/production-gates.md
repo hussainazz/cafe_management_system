@@ -2,7 +2,72 @@
 
 This document owns deployment, resilience, quality, fixed production decisions, and production readiness evidence.
 
-Deployment is the last major delivery area. Do not spend implementation time on Iranian VPS deployment or CDN evaluation until the database, POS backend, QR-menu backend, POS frontend, QR-menu frontend, Manager/reporting work, and full-system hardening are ready enough to measure.
+## Live VPS Observation (2026-09-01)
+
+The following snapshot was collected read-only from the configured ArvanCloud VPS
+(`ubuntu@185.97.116.250`). It describes the current host, not the desired end
+state; secret values are intentionally excluded.
+
+### Deployed tree and release shape
+
+- The deployed application root is `/opt/cafe-menu`.
+- The checkout contains `apps/api`, `apps/web`, shared `packages`, `docs`, and
+  `infra` directories, plus installed dependencies and generated runtime output.
+- The deployed root has no `.git` metadata, so the VPS is an artifact/runtime
+  installation rather than a source-controlled checkout. Release identity must
+  therefore be recorded by the release procedure or deployment manifest.
+- The API has compiled output under `apps/api/dist` and generated Prisma output.
+  The web app has a production `.next` directory and a prior release snapshot at
+  `apps/web/.next.before-local-20260830`.
+- A rollback archive exists at
+  `/opt/cafe-menu-release-backups/menu-before-20260830-122409.tar.gz`.
+
+### Current process and network topology
+
+```text
+Internet :80/:443
+        ↓
+      Nginx (active)
+        ↓
+  127.0.0.1:3000  Next.js web, cafe-web.service
+  127.0.0.1:3001  Fastify API, cafe-api.service
+        ↓
+  PostgreSQL dependency used by the API
+```
+
+- `cafe-web.service` is enabled and active, runs as user `cafe`, and starts
+  `pnpm --filter @cafe/web exec next start --hostname 127.0.0.1 --port 3000`.
+- `cafe-api.service` is enabled and active, runs as user `cafe`, and starts the
+  compiled `dist/src/server.js` through the API package start script.
+- Both services use `Restart=on-failure` and currently report `NRestarts=0`.
+- Nginx is active and owns ports 80 and 443. Caddy is inactive.
+- No Docker containers were running during the audit. The repository's Compose
+  file therefore remains a development/baseline configuration, not the current
+  production runtime mechanism.
+
+### Verification observed
+
+- `http://127.0.0.1:3000/menu` returned HTTP 200.
+- `/api/v1/health/live` returned HTTP 200.
+- `/api/v1/health/ready` returned HTTP 200.
+
+This proves local process and dependency readiness at the audit time. It does
+not yet prove public-domain routing, HTTPS certificate renewal, external backup
+retention, clean restore, log rotation, alerting, printer operation, or a live
+pilot. Those remain production-gate evidence to collect.
+
+### Consequences for the release method
+
+The current safe release flow is artifact-based: build and validate locally,
+preserve production environment/secrets, database, uploads, and runtime data,
+create a rollback archive, copy only the verified changed runtime artifacts to
+`/opt/cafe-menu`, restart the affected systemd service, and retry health checks
+after startup. Do not build, seed, or run migrations on the VPS as an incidental
+part of a frontend release. The intended Docker Compose/Caddy architecture stays
+documented as a hardening target until it is deliberately implemented and
+verified.
+
+Deployment is the last major delivery area. Do not spend implementation time on Iranian VPS deployment or CDN evaluation until the database, POS backend, QR-menu backend/frontend, shared Staff/Manager POS, Manager capability work, and full-system hardening are ready enough to measure.
 
 ## Deployment And Operations
 
@@ -38,9 +103,9 @@ Operating rules:
 | Level        | Purpose                                         | Examples                                                                                                                                                                                                                 |
 | ------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Unit         | Fast tests for pure rules and state transitions | Toman arithmetic, option validation, discount allocation, settlement allocation, payment-status transitions, permission predicates                                                                                       |
-| Integration  | Real PostgreSQL constraints and transactions    | Order creation, selected-item settlement, mixed tender, card transfer, reversal, logical deletion, idempotency, stale-version conflict, rollback                                                                         |
-| API contract | Request/response and authorization behavior     | OpenAPI schema, error envelope, Manager-only routes, forbidden actions                                                                                                                                                   |
-| Browser E2E  | Small complete journeys                         | Staff login, POS order and concise bar-ticket print, selected-item mixed-tender/card-transfer settlement, delete/clear table, detailed customer whole-order/settlement receipt, Manager price change, public menu browse |
+| Integration  | Real PostgreSQL constraints and transactions    | Order creation, selected-item settlement, mixed tender, card transfer, reversal, logical deletion, idempotency, stale-version conflict, table occupancy/reminder, pending waiter-call deduplication and table-opening resolution, rollback |
+| API contract | Request/response and authorization behavior     | OpenAPI schema, error envelope, Manager-only product sale-discount configuration/payment history/daily report, shared item/order discounts, eligible occupied-table credential boundaries, forbidden actions |
+| Browser E2E  | Small complete journeys                         | Shared POS login, order and concise bar-ticket print, selected-item mixed-tender/card-transfer settlement, QR-scan occupancy reminder, highlighted waiter-call table opening, delete/clear table, detailed receipt, Manager role-gated panels, public menu browse |
 | Operational  | Release and recovery behavior                   | Migration, health checks, restart recovery, backup restore, printer output, smoke tests                                                                                                                                  |
 
 Definition of done for a feature:
@@ -57,12 +122,12 @@ Definition of done for a feature:
 
 | Gate                 | Required evidence                                                                                                                                                                                        |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Business correctness | Critical open/deleted, unpaid/partially-paid/paid, settlement allocation, table timing, concise bar-ticket, detailed customer-receipt, and price/timing-snapshot scenarios pass with known Toman totals. |
+| Business correctness | Critical open/deleted, unpaid/partially-paid/paid, settlement allocation, table timing, occupancy/reminder flow, eligible-table waiter-call, concise bar-ticket, detailed customer-receipt, and today/yesterday report scenarios pass with known Toman totals. |
 | Security             | HTTPS, secure session controls, CSRF controls, rate limits, Manager/Staff authorization review, secret handling, safe logging, dependency scan.                                                          |
-| Data safety          | Migration test, automated backup, successful clean restore, retention policy, disk monitoring.                                                                                                           |
+| Data safety          | Migration test, automated backup, successful clean restore, explicit full order/payment-history retention despite the two-day report window, retention policy, disk monitoring.                           |
 | Reliability          | Restart recovery, readiness checks, stale-client conflicts, idempotent retries, and café-internet-loss/manual-fallback behavior tested.                                                                  |
 | Operations           | Versioned release, rollback/forward-fix procedure, log access, alerts, Manager recovery, operator runbook.                                                                                               |
-| Hardware and UX      | Actual POS device, browser, network, receipt printer, paper size, both bar-ticket/customer-receipt layouts, touch targets, and busy-hour workflow tested.                                                |
+| Hardware and UX      | Actual POS device, shared Staff/Manager dashboard, waiter-call alert, browser, network, receipt printer, paper size, both print layouts, touch targets, and busy-hour workflow tested.                    |
 | Pilot                | A limited live shift runs with the fallback procedure; issues are recorded and no unreconciled financial difference remains.                                                                             |
 
 ## Decisions Fixed Before Implementation

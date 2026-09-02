@@ -4,28 +4,28 @@ This document owns delivery sequencing and stage status. Product decisions live 
 
 ## Sequence Rule
 
-The delivery order is database-first. The QR-menu frontend is temporarily
-prioritized ahead of the Staff POS frontend because of the revised project
+The delivery order is database-first. The QR-menu frontend was temporarily
+prioritized ahead of the shared POS foundation because of the revised project
 deadline approved on 21 August 2026:
 
 1. Create the database schema, tables, migrations, seed/bootstrap flow, and test database workflow.
 2. Build the backend required for Staff POS operation.
 3. Build the backend required for the browse-only QR menu.
 4. Build the browse-only QR-menu frontend.
-5. Build the Staff POS frontend.
+5. Build the first shared POS frontend for Staff and Manager operational work, including waiter-call, with the small backend increment it requires.
 6. Complete deployment hardening, including Iranian VPS deployment and any CDN decision, last.
 
-Manager/admin and reporting work must not block the POS and QR-menu path unless a current POS/QR dependency requires it. UX research, wireframes, and design assets may be prepared earlier, but they must not drive unfinished backend rules or create a second source of business logic.
+Manager accounting/catalog panels and expanded administration work must not block the first shared POS release. Manager and Staff are role levels inside one POS application, not separate applications; shared table/order/payment behavior must not be duplicated. UX research, wireframes, and design assets may be prepared earlier, but they must not drive unfinished backend rules or create a second source of business logic.
 
 ## Current Stage Status
 
-Stages 0 through 4 are complete. Stage 5 (Staff POS frontend) is next.
+Stages 0 through 4 are complete. Stage 5 (shared POS foundation) is next.
 
 Current implementation status as of 1 September 2026:
 
-- **Stage 0 — Scope and domain baseline:** complete. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including the settlement model; the initial ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; `database-constraints.md` explicitly lists the planned database constraints; `request-response-conventions.md` defines shared application envelopes, errors, pagination, idempotency, and concurrency; and `backend-backlog.md` converts the approved scope into a prioritized backend backlog with acceptance criteria.
+- **Stage 0 — Scope and domain baseline:** complete and amended by ADR 0009. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including settlement allocation and the shared POS/waiter-call/reporting boundary; the ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; `database-constraints.md` explicitly lists the planned database constraints; `request-response-conventions.md` defines shared application envelopes, errors, pagination, idempotency, and concurrency; and `backend-backlog.md` converts the approved scope into a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** complete. The database schema and reviewed migrations, first-Manager bootstrap, isolated test-database workflow, structured error envelope, Zod-derived OpenAPI contract, Docker Compose PostgreSQL baseline, liveness/readiness routes, and graceful shutdown are implemented. The fresh-environment rehearsal on 13 August 2026 applied both migrations to a new database, created exactly one Manager, rejected a repeat bootstrap, returned healthy liveness/readiness responses, and passed typecheck and the API test suite.
-- **Stage 2 — POS backend:** complete. The complete Staff/Manager POS workflow is implemented and covered through authenticated API calls against real PostgreSQL.
+- **Stage 2 — POS backend core:** complete under its original baseline. The order/payment/receipt workflow, including Staff/Manager reasoned item/order discounts and Manager-only product sale-discount configuration, is covered through authenticated API calls against real PostgreSQL. The newly approved waiter-call persistence/API is a Stage 5 prerequisite increment and is not yet implemented.
 - **Stage 3 — QR-menu backend:** complete. Anonymous browse-only menu and product-detail APIs expose only customer-facing catalog data, final Toman prices, availability, priced options, and images; preparation deadlines remain private to POS workflows. Search/filter, response safety, and anonymous behavior are covered by integration tests.
 - **Stage 4 — QR-menu frontend:** complete. The Persian RTL, mobile-first public menu renders the Run Cafe catalog through the typed public API with category navigation, search, product details and priced options, current availability, compact displayed Toman prices, loading/empty/error states, local product photography, and no customer-facing preparation timing, ordering, or payment flow. The root route redirects to `/menu`; typecheck, focused tests, production build, and representative mobile/desktop browser rendering were verified during the completed stage.
 
@@ -38,9 +38,9 @@ Current implementation status as of 1 September 2026:
 | 2     | POS backend                     | Staff auth, catalog/table timing data needed by POS, Staff-created orders, split-tender payments, receipts, deletion, and audit                 |
 | 3     | QR-menu backend                 | Public browse-only menu API for categories, products, priced options, availability, images, and final Toman prices                              |
 | 4     | QR-menu frontend                | Mobile-first browse-only public menu with categories, search/filtering, priced product selections, images, and final Toman prices               |
-| 5     | Staff POS frontend              | POS, table operations, payment entry, deletion flow, receipt printing, and reconnect/conflict states                                            |
-| 6     | Manager and reporting backend   | Manager catalog/user/settings APIs, sales reports, audit queries, indexes, and bounded exports                                                  |
-| 7     | Manager frontend                | Catalog management, Staff accounts, settings, reports, and audit-history interfaces                                                             |
+| 5     | Shared POS foundation           | One Staff/Manager POS shell and table dashboard: basic order/payment/receipt workflows, ordered physical tables, occupancy/reminder flow, and table-scoped waiter-call |
+| 6     | Manager capability backend      | Manager catalog/user/settings, payment history, discounts, audit queries, and today/yesterday daily accounting report                           |
+| 7     | Manager panels in shared POS    | Role-gated catalog, Staff-account, settings, payment-history, audit, and daily-report panels inside the existing POS application                 |
 | 8     | Full-system hardening           | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, and API/frontend stabilization                     |
 | 9     | Deployment preparation          | Production Compose/Caddy-or-Nginx baseline, backup/restore procedures, monitoring, log rotation, release procedure, and manual fallback runbook |
 | 10    | VPS deployment and pilot        | Iranian VPS deployment, HTTPS, production secrets, restore drill, CDN need check after measurement, and limited live pilot                      |
@@ -55,7 +55,7 @@ Current implementation status as of 1 September 2026:
 - Finalize the `OPEN` → `DELETED` lifecycle state rules, `UNPAID`/`PARTIALLY_PAID`/`PAID` payment statuses, settlement allocation rules, and exceptional transitions.
 - Create the initial ERD, ownership boundaries, and database constraint list.
 - Define request/response conventions, error envelope, pagination, idempotency, and concurrency behavior.
-- Record the major decisions as ADRs: modular monolith, PostgreSQL/Prisma, Toman integers, UTC storage with `Asia/Tehran` reporting, Iranian VPS, browser printing, browse-only QR menu, and settlement allocation.
+- Record the major decisions as ADRs: modular monolith, PostgreSQL/Prisma, Toman integers, UTC storage with `Asia/Tehran` reporting, Iranian VPS, browser printing, browse-only QR menu, settlement allocation, and the shared POS/waiter-call/initial-reporting boundary.
 - Convert the approved scope into an ordered backend backlog with acceptance criteria.
 
 Exit gate:
@@ -96,7 +96,7 @@ Exit gate:
 ### Stage 3 — QR-Menu Backend
 
 - Implement public read-only category, product, priced option, availability, image metadata, and final Toman price endpoints for the QR menu; keep preparation deadlines in authenticated POS workflows.
-- Ensure QR-menu endpoints expose no cart submission, order creation, payment, tracking, table authority, or Staff-only metadata.
+- Ensure QR-menu browse endpoints expose no cart submission, order creation, payment, tracking, table-management authority, or Staff-only metadata. The Stage 5 waiter-call command is a separate, narrowly scoped exception.
 - Add response schemas and OpenAPI coverage for the public menu API.
 - Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.
 
@@ -114,42 +114,46 @@ Exit gate:
 
 - Customers can reliably browse the complete current menu on mobile.
 
-### Stage 5 — Staff POS Frontend
+### Stage 5 — Shared POS Foundation
 
-- Create the Next.js application shell, route groups, layouts, shared UI primitives, environment configuration, and typed API client needed by Staff routes.
+- Add the minimal waiter-call backend increment: ordered physical-table records, hashed table QR credentials, explicit `AVAILABLE`/`OCCUPIED` state, QR-scan occupancy reminders, one pending call per eligible occupied table, common table-opening acknowledgement/resolution, events, constraints, and tests.
+- Preserve the existing discount boundary: Staff and Manager may apply reasoned item/order discounts, while only Manager may configure catalog product sale discounts.
+- Add `apps/pos` as a sibling of the existing public-menu `apps/web` package, then create one Next.js POS application shell, route groups, layouts, shared UI primitives, environment configuration, and typed API client used by both Staff and Manager accounts.
 - Build order channel selection, product/options entry, notes, totals, and controlled `OPEN` order edits, including adding items after partial payment without rewriting settled quantities.
-- Build table assignment/transfer, active-table view with estimated release timing, selected-item settlement with mixed tenders, payment-status display, deletion/clear flow, concise bar-ticket printing, and detailed customer-receipt printing for whole orders and settlements.
+- Build one shared table dashboard for both roles with table assignment/transfer, active-table timing, occupancy controls/reminders, highlighted waiter-call cards that resolve when opened, selected-item settlement with mixed tenders, payment-status display, deletion/clear flow, concise bar-ticket printing, and detailed customer-receipt printing for whole orders and settlements.
 - Handle idempotent retry results, stale-version conflicts, API failures, connection state, and reconnect refetch.
 - Validate touch targets, keyboard operation, actual café devices, and the real receipt printer/paper size.
 
 Exit gate:
 
-- Staff can complete every v1 POS operational journey through the interface without database or API tooling.
+- Staff and Manager can complete the same basic POS operational journeys—including reasoned item/order discounts—through one shared interface, a table waiter-call can be received and resolved, and Staff cannot access Manager-only product sale-discount configuration, accounting, payment-history, catalog, settings, or audit capabilities.
 
-### Stage 6 — Manager And Reporting Backend
+### Stage 6 — Manager Capability Backend
 
 - Implement complete Manager-only catalog, product option, image, price, availability, display-order, Staff account, and settings APIs.
-- Implement bounded daily, weekly, and monthly sales reports.
-- Add payment-method, channel, hour, product, category, discount, settlement-reversal, and deleted-order breakdowns.
-- Apply `Asia/Tehran` calendar boundaries consistently. The cafe is always open, so v1 has no configurable business-day cut-off.
-- Add audit queries, export limits, and required database indexes.
+- Implement Manager-only cursor-paginated payment history while keeping Staff access to individual order and settlement receipts.
+- Implement one bounded daily accounting report whose only valid period is the current or immediately previous `Asia/Tehran` calendar day.
+- Include daily totals, order count, payment-method totals, discounts, settlement reversals, and logically deleted-order treatment. Defer weekly/monthly periods, arbitrary date ranges, exports, product/category/hour analytics, and forecasting.
+- Keep every historical order, item, settlement, tender, reversal, and audit row regardless of the two-day report window.
+- Add audit queries and the database indexes required by measured payment-history and two-day report query plans.
 - Implement permissioned full-settlement reversal instead of editing posted tenders or allocations.
-- Verify report totals against fixed fixtures and inspect query plans for important ranges.
+- Verify today/yesterday report totals against fixed fixtures and inspect both permitted query plans.
 
 Exit gate:
 
-- Manager and reporting APIs are documented, permissioned, tested, and bounded.
+- Manager capability APIs are documented, permissioned, tested, and bounded; Staff cannot browse payment history or reports, and data older than yesterday remains retained.
 
-### Stage 7 — Manager Frontend
+### Stage 7 — Manager Panels In Shared POS
 
+- Extend the existing POS shell and navigation according to the authenticated role; do not create a separate Manager application or duplicate the table dashboard.
 - Build category, product, option, image, price, product preparation-deadline, table seating-limit, availability, and display-order management.
 - Build Staff account creation, deactivation, and session-management interfaces.
-- Build settings, sales reports, deleted-order views, settlement-reversal views, and audit-history search.
+- Build settings, Manager-only payment history, today/yesterday daily accounting, settlement-reversal, and audit-history interfaces.
 - Add confirmation, permission, validation, loading, error, and empty states for every Manager action.
 
 Exit gate:
 
-- A Manager can operate the v1 system without direct server or database access.
+- A Manager can operate all v1 capabilities from role-gated panels inside the shared POS without direct server or database access.
 
 ### Stage 8 — Full-System Hardening
 

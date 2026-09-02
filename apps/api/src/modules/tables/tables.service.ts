@@ -18,6 +18,10 @@ function tableDto(table: {
   id: string;
   name: string;
   seatingLimitMinutes: number;
+  waiterCallEnabled: boolean;
+  occupancyState: "AVAILABLE" | "OCCUPIED";
+  occupiedAt: Date | null;
+  occupancyReminderAt: Date | null;
   orders: Array<{
     id: string;
     orderNumber: string;
@@ -31,6 +35,10 @@ function tableDto(table: {
     id: table.id,
     name: table.name,
     seatingLimitMinutes: table.seatingLimitMinutes,
+    waiterCallEnabled: table.waiterCallEnabled,
+    occupancyState: table.occupancyState,
+    occupiedAt: table.occupiedAt?.toISOString() ?? null,
+    occupancyReminderAt: table.occupancyReminderAt?.toISOString() ?? null,
     activeOrders: table.orders.map((order) => ({
       ...order,
       // The database constraint requires this timestamp for every table order.

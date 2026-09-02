@@ -4,9 +4,10 @@ This document tracks backend work extracted from the roadmap. Product and busine
 
 ## Current Backend Status
 
-Stages 0 through 3 of the backend are complete. The reprioritized QR-menu
-frontend Stage 4 is also complete, so the Staff POS frontend is next under the
-revised deadline recorded in `roadmap.md`, before Manager/reporting backend work.
+Stages 0 through 3 of the original backend baseline are complete. The
+reprioritized QR-menu frontend Stage 4 is also complete, so the shared POS
+foundation is next. Before its exit gate, the backend needs the newly approved
+waiter-call increment.
 
 Current verification:
 
@@ -21,9 +22,10 @@ Current verification:
   and Manager users, Manager-only guards return `403 FORBIDDEN` to Staff users,
   missing sessions return `401 AUTHENTICATION_REQUIRED`, and a Manager-only
   account-deactivation service check prevents route-bypass authorization.
-- Product sale discounts are Manager-only catalog configuration. Staff and
-  Managers may apply reasoned item-level or order-level discounts to open
-  orders; every applied discount is snapshotted and audited.
+- Product sale-discount configuration is Manager-only. Staff and Manager may
+  apply reasoned item-level or order-level discounts to open orders while the
+  settlement immutability rules permit the change; applied discounts are
+  server-calculated, snapshotted, and audited.
 - The 13 August 2026 fresh-environment rehearsal applied both migrations to a
   new database, created exactly one Manager, rejected a repeat bootstrap, and
   returned healthy liveness/readiness responses.
@@ -37,7 +39,7 @@ Current verification:
 Done:
 
 - v1 scope, explicit non-goals, roles, order states, money/time/deployment rules, domain modules, architecture direction, production gates, and the database-first/POS-first roadmap are documented.
-- ADR files for modular monolith, PostgreSQL/Prisma, Toman integers, UTC storage with `Asia/Tehran` reporting, Iranian VPS, browser printing, browse-only QR menu, and settlement allocation are documented.
+- ADR files for modular monolith, PostgreSQL/Prisma, Toman integers, UTC storage with `Asia/Tehran` reporting, Iranian VPS, browser printing, browse-only QR menu, settlement allocation, and the shared POS/waiter-call/initial-reporting boundary are documented.
 - Initial ERD is documented.
 - API inventory is documented in `api-inventory.md`, including operational, identity, POS, public-menu, Manager, reporting, and planned realtime boundaries.
 - Database constraints are explicitly documented in `database-constraints.md`, including keys, foreign keys, checks, indexes, and transactional invariants.
@@ -205,8 +207,10 @@ Acceptance criteria:
 - Order details include item/option snapshots, payment status, totals,
   settlements, timing, table context, and current `version`.
 - Content and table edits require `expectedVersion`.
-- Before the first settlement, Staff may edit order content, discount, notes,
-  and table assignment.
+- Before the first settlement, Staff and Manager may edit order content,
+  reasoned item/order discounts, notes, and table assignment. Only Manager may
+  configure a product sale discount, and the same settlement immutability rules
+  still apply.
 - After the first settlement, Staff may add new items, increase quantities, and
   adjust only quantities or notes that have not been allocated to active
   settlements.
@@ -288,6 +292,36 @@ Acceptance criteria:
   calls without a frontend.
 - Typecheck and the relevant API test suite pass.
 
+#### P1.11 Shared POS Waiter-Call And Role Alignment
+
+Add the small backend increment required by the first shared POS interface.
+
+Acceptance criteria:
+
+- Seed physical tables in this exact `displayOrder`: `1`, `2`, `3`, `4`,
+  `کانتر وسط`, `5`, `6`, `جگوار`, `7`, `8`, `سوشال`, `سوشال سوشال`, `9`, `10`,
+  `11`, `12`. Enable waiter-calls only for `1`, `2`, `3`, `4`, `5`, `6`,
+  `جگوار`, `7`, `8`, `9`, and `10`.
+- A table has a rotatable opaque QR credential whose usable value is never
+  stored or logged in plaintext. An eligible-table QR scan while the dashboard
+  still shows `AVAILABLE` creates a non-blocking occupancy reminder; it does
+  not mark the table occupied or identify the customer.
+- Staff and Manager have equal authority to mark a table `OCCUPIED` or
+  `AVAILABLE`. Only an eligible occupied table may submit a waiter-call; the
+  public command creates or returns that table's one pending call and grants no
+  order, payment, receipt, tracking, or catalog authority.
+- The POS table card is highlighted while its call is `PENDING`. Opening that
+  card acknowledges and resolves the call in one version-checked action, then
+  returns the card to its normal occupied state. No acknowledgement/resolution
+  actor is stored.
+- Database constraints prevent more than one pending waiter-call per table, and
+  integration tests cover table eligibility, scan-before-occupancy reminder,
+  duplicate taps, invalid/rotated credentials, occupied-table validation,
+  table-opening conflicts, reconnect/refetch, and event emission.
+- Product sale-discount configuration is Manager-only in routes and services.
+  Staff and Manager may apply reasoned item/order discounts while permitted by
+  settlement state, and Staff retains settlement and individual-receipt access.
+
 ### P2 - Stage 3 QR-Menu Backend
 
 Complete. The anonymous, browse-only category/menu and product-detail endpoints,
@@ -303,8 +337,10 @@ Acceptance criteria:
 - Public menu endpoints return active categories, visible products, available
   priced options, product image metadata, and final Toman prices. Product
   preparation deadlines remain private to authenticated POS workflows.
-- Public endpoints expose no cart submission, order creation, payment, tracking,
-  table authority, session, or Staff-only metadata.
+- Public menu endpoints expose no cart submission, order creation, payment,
+  tracking, session, or Staff-only metadata. The separately documented
+  waiter-call command accepts a table-scoped credential that grants only that
+  single capability and no order authority.
 - Search/filter behavior is explicitly schema-validated and documented.
 - Inactive, archived, or unavailable items follow the documented public
   visibility rules.
@@ -321,7 +357,7 @@ Acceptance criteria:
   item behavior, and final Toman price representation.
 - Anonymous access works without cookies or Staff session state.
 
-### P3 - Stage 6 Manager And Reporting Backend
+### P3 - Stage 6 Manager Capability Backend
 
 #### P3.1 Manager Catalog, Staff, And Settings APIs
 
@@ -338,17 +374,26 @@ Acceptance criteria:
 - All writes validate DTOs, write audit entries where meaningful, and preserve
   historical order snapshots.
 
-#### P3.2 Sales Reports And Audit Queries
+#### P3.2 Payment History, Daily Report, And Audit Queries
 
-Implement bounded Manager reporting and audit reads.
+Implement bounded Manager accounting, payment-history, and audit reads.
 
 Acceptance criteria:
 
-- Reports cover daily, weekly, and monthly sales, order counts, average value,
-  payment mix, item/category sales, discounts, deleted orders, and hourly sales.
-- `Asia/Tehran` calendar boundaries are applied consistently and response
-  metadata includes the resolved UTC range.
-- Report queries have documented bounds, export limits, and supporting indexes.
+- Manager can browse cursor-paginated payment history and open its associated
+  settlement receipts; Staff cannot browse this history but can still open and
+  print an individual receipt through an authorized POS order workflow.
+- The first report is one daily accounting summary. Its only accepted period is
+  `today` or `yesterday` in `Asia/Tehran`; metadata includes the resolved UTC
+  range.
+- The daily summary covers sales/paid totals, order count, payment-method mix,
+  discounts, reversals, and logically deleted-order treatment. Weekly/monthly
+  periods, arbitrary ranges, exports, and product/category/hour breakdowns are
+  deferred.
+- The two-day report limit never deletes or expires orders, order items,
+  settlements, tenders, reversals, or audit history.
+- Payment-history and report queries have documented bounds and supporting
+  indexes selected from measured query plans.
 - Fixed fixtures prove report totals, payment breakdowns, reversals, and deleted
   order handling.
 
@@ -414,6 +459,13 @@ Exit gate:
 - Provide concise bar-ticket and detailed customer-receipt API data with stable order numbers, timing snapshots, and `Asia/Tehran` display timestamps. Bar-ticket data must exclude prices, discounts, totals, and payment information; customer receipts retain the financial detail for whole orders and settlements.
 - Test permissions, duplicate retries, stale edits, invalid transitions, adding items after partial payment, preventing settled-quantity rewrites, unavailable products, historical price/timing stability, selected-item allocation, mixed tender, optional card-transfer references, settlement reversal, payment reconciliation, and transaction rollback.
 
+Left for the revised shared-POS baseline:
+
+- Add table QR credentials plus QR-scan occupancy reminders and one pending
+  waiter-call for each eligible occupied table. Opening its highlighted card
+  acknowledges and resolves the call together; add the required realtime/refetch
+  behavior, constraints, OpenAPI contracts, and integration tests.
+
 Exit gate:
 
 - Staff can complete every POS backend workflow through documented API calls against real PostgreSQL without any frontend dependency.
@@ -421,7 +473,7 @@ Exit gate:
 ## Stage 3 Backlog — QR-Menu Backend
 
 - Implement public read-only category, product, priced option, availability, image metadata, and final Toman price endpoints for the QR menu; keep product preparation deadlines in authenticated POS workflows.
-- Ensure QR-menu endpoints expose no cart submission, order creation, payment, tracking, table authority, or Staff-only metadata.
+- Ensure QR-menu browse endpoints expose no cart submission, order creation, payment, tracking, table-management authority, or Staff-only metadata. The Stage 5 waiter-call command is a separate, narrowly scoped exception.
 - Add response schemas and OpenAPI coverage for the public menu API.
 - Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.
 
@@ -429,19 +481,20 @@ Exit gate:
 
 - Customers can browse the complete current menu through public API calls, with no order-submission capability.
 
-## Stage 6 Backlog — Manager And Reporting Backend
+## Stage 6 Backlog — Manager Capability Backend
 
 - Implement complete Manager-only catalog, product option, image, price, product preparation-deadline, table seating-limit, availability, display-order, Staff account, and settings APIs.
-- Implement bounded daily, weekly, and monthly sales reports.
-- Add payment-method, channel, hour, product, category, discount, settlement-reversal, and deleted-order breakdowns.
-- Apply `Asia/Tehran` calendar boundaries consistently. The cafe is always open, so v1 has no configurable business-day cut-off.
-- Add audit queries, export limits, and required database indexes.
+- Implement Manager-only cursor-paginated payment history while retaining Staff access to individual POS receipts.
+- Implement one daily accounting report limited to the current or immediately previous `Asia/Tehran` calendar day, with sales/paid totals, order count, payment-method totals, discounts, reversals, and deleted-order treatment.
+- Reject arbitrary report ranges and defer weekly/monthly reports, exports, product/category/hour analytics, and forecasting.
+- Retain the complete order/payment/audit history in PostgreSQL regardless of the two-day report window.
+- Add audit queries and required database indexes from measured payment-history and report query plans.
 - Implement permissioned full-settlement reversal instead of editing posted tenders or allocations.
-- Verify report totals against fixed fixtures and inspect query plans for important ranges.
+- Verify today/yesterday totals against fixed fixtures and inspect both permitted query plans.
 
 Exit gate:
 
-- Manager and reporting APIs are documented, permissioned, tested, and bounded.
+- Manager capability APIs are documented, permissioned, tested, and bounded; Staff cannot browse payment history or reports, and older financial history remains retained.
 
 ## Stage 8 Backlog — Backend Stabilization For Full-System Hardening
 

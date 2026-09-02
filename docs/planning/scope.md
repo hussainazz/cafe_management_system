@@ -12,7 +12,7 @@ This document owns product scope, business rules, architecture boundaries, and f
 
 ## Executive Summary
 
-The project is an integrated café operations platform with three task-focused surfaces: a public digital menu, a Staff POS, and a Manager administration area. They share one backend, one PostgreSQL database, and one set of business rules.
+The project is an integrated café operations platform with two applications: a public digital menu and one shared POS application. Staff and Manager users sign in to the same POS, use the same table dashboard, and receive additional panels and actions according to their server-enforced role. Both applications share one backend, one PostgreSQL database, and one set of business rules.
 
 The v1 system is intentionally simple: staff create every order; customers can browse the QR menu but cannot send an order. This lets the first production release concentrate on reliable POS operation, correct prices and payments, and a clean audit trail before customer self-ordering is introduced.
 
@@ -27,7 +27,7 @@ Product goals:
 v1 success criteria:
 
 - A Staff user can create a table or takeaway order, print a concise bar ticket for preparation, settle selected items with cash, card-terminal, or card-to-card transfer tenders, print a detailed customer receipt, and logically delete an order when required.
-- A customer can scan a QR code and browse the current menu on a phone. They cannot create, submit, pay for, or track an order in v1.
+- A customer can scan a table-specific QR code, browse the current menu on a phone, and send a waiter-call for that table. They cannot create, submit, pay for, or track an order in v1.
 - A product-price change never changes the price on a historical order or receipt.
 - A retry cannot create duplicate orders, settlements, or tender records.
 - Two simultaneous POS edits do not silently overwrite each other.
@@ -38,8 +38,8 @@ v1 success criteria:
 | Area           | Baseline decision                                                                                                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                                                                                                                     |
-| Roles          | Only Manager and Staff exist. Staff performs POS work.                                                                                                                                                                                 |
-| Customers      | Customers are anonymous menu viewers in v1. There are no customer accounts, guest-order sessions, or self-ordering endpoints.                                                                                                          |
+| Roles          | Only Manager and Staff exist. Both use one POS application and one table dashboard; Manager-only capabilities are revealed by authorization rather than a separate application.                                                      |
+| Customers      | Customers are anonymous menu viewers in v1. A table-scoped QR credential may authorize only a waiter-call for an eligible, occupied table; there are no customer accounts, guest-order sessions, or self-ordering endpoints. |
 | Currency       | Every amount is an integer count of **Toman**. Floating-point values and Rial conversion are forbidden.                                                                                                                                |
 | Time           | Store timestamps in UTC. Display timestamps and calculate calendar-day reports in `Asia/Tehran`.                                                                                                                                       |
 | Ordering       | Every v1 order is created by a logged-in Staff user through POS.                                                                                                                                                                       |
@@ -50,15 +50,14 @@ v1 success criteria:
 
 User-facing surfaces:
 
-| Surface        | Primary user | v1 purpose                                                                                                                                        |
-| -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Digital Menu   | Customer     | Browse the menu, categories, item details, priced item options, current availability, and final Toman prices. Preparation timing remains an internal POS concern. No cart submission or order tracking. |
-| POS            | Staff        | Create and edit table or takeaway orders, assign tables where applicable, register payment, logically delete an order, and print receipts.        |
-| Administration | Manager      | Manage catalog, Staff accounts, settings, reports, and audit history.                                                                             |
+| Surface      | Primary user     | v1 purpose                                                                                                                                                                                                                                                  |
+| ------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Digital Menu | Customer         | Browse the menu, categories, item details, priced item options, current availability, and final Toman prices; from a table-scoped QR context, send a waiter-call. Preparation timing remains internal to POS. No cart submission, payment, or order tracking. |
+| Shared POS   | Staff, Manager   | Use one table dashboard for orders, payments, waiter-calls, deletion, and receipts. Manager authorization additionally exposes accounting, payment-history, discount, catalog, Staff-account, settings, and audit capabilities.                             |
 
 Explicit non-goals for v1:
 
-- Customer self-ordering, customer carts submitted to the café, table-order QR security, guest order tracking, customer accounts, loyalty, wallets, coupons, and marketing automation.
+- Customer self-ordering, customer carts submitted to the café, table-order authority, guest order tracking, customer accounts, loyalty, wallets, coupons, and marketing automation. The table-scoped waiter-call credential is not order or payment authority.
 - Inventory, recipes, ingredient deduction, waste, suppliers, and purchase orders.
 - Reservations, multi-branch management, multi-tenancy, franchise reporting, and third-party delivery synchronization.
 - Online payments, direct card-terminal control, automatic refunds, and accounting integrations.
@@ -70,7 +69,7 @@ Scope rule: a future feature may influence a clean module boundary, but it must 
 
 ## Actors, Permissions, And Workflows
 
-There are no application roles beyond Manager and Staff in v1. A person’s real-world job title does not determine application permissions; the POS uses the **Staff** role.
+There are no application roles beyond Manager and Staff in v1. Both roles use the same POS application and table dashboard. A Manager receives additional server-authorized capabilities; this is not a separate Manager application or a second implementation of POS business rules.
 
 | Capability                                                                  | Staff | Manager |
 | --------------------------------------------------------------------------- | :---: | :-----: |
@@ -80,10 +79,15 @@ There are no application roles beyond Manager and Staff in v1. A person’s real
 | Record a cash, card-terminal, or card-to-card transfer settlement           |  Yes  |   Yes   |
 | Delete an order, including an already-paid order, without a required reason |  Yes  |   Yes   |
 | Print/reprint receipts                                                      |  Yes  |   Yes   |
+| View and handle active waiter-calls in the shared table dashboard           |  Yes  |   Yes   |
+| Browse accounting payment history                                           |  No   |   Yes   |
+| View the initial daily report for today or yesterday                         |  No   |   Yes   |
+| Apply a reasoned item-level or order-level discount while permitted          |  Yes  |   Yes   |
+| Configure or remove a catalog product sale discount                          |  No   |   Yes   |
 | Manage categories, products, options, images, prices, and availability      |  No   |   Yes   |
 | Manage Staff accounts and role assignment                                   |  No   |   Yes   |
 | Change café settings                                                        |  No   |   Yes   |
-| View reports and full audit history                                         |  No   |   Yes   |
+| View full audit history                                                      |  No   |   Yes   |
 
 Authorization is enforced by permissions in routes and service methods, not only by hiding buttons. Since v1 has only two roles, the initial permission set can be simple and explicit rather than over-designed.
 
@@ -132,13 +136,13 @@ Corrections and exceptional flows:
 | Authentication         | Staff login, secure sessions, logout, account deactivation, and Manager/Staff authorization.                                                                                                                                                                                                                                                                                                                                    |
 | Catalog                | Categories, products, options, images, display order, Manager-controlled product sale discounts, final Toman price, active state, temporary availability, and product preparation-deadline minutes.                                                                                                                                                                                                                             |
 | POS order entry        | Table/takeaway orders; quantities, options, notes, server totals, controlled edits while `OPEN`, logical deletion, and order history.                                                                                                                                                                                                                                                                                           |
-| Table operations       | Assign, transfer, view active orders with estimated table release time, and clear table orders through the defined settlement/delete flow. No order or table split/merge.                                                                                                                                                                                                                                                       |
-| Customer menu          | Mobile-first QR menu for browse/search/category filtering, priced item options, current availability, and final Toman price. Preparation deadlines are not displayed to customers. No checkout or order submission.                                                                                                                                                                                                                                                                |
+| Table operations       | Assign, transfer, view active orders with estimated table release time, mark tables occupied or available, receive QR-scan occupancy reminders, and acknowledge/resolve eligible-table waiter-calls by opening the highlighted table in the shared dashboard. No order or table split/merge. |
+| Customer menu          | Mobile-first QR menu for browse/search/category filtering, priced item options, current availability, final Toman price, and a table-scoped waiter-call action. Preparation deadlines are not displayed to customers. No checkout or order submission.                                                                                                                                                                                                                              |
 | Payments               | Per-payer settlements for selected item quantities, each with one or more manual cash, card-terminal, or card-to-card transfer tenders; split tender, item allocation, total-paid calculation, optional card-to-card transfer references, and audit trail. No online payments.                                                                                                                                                  |
-| Discounts              | A Manager may configure or remove one fixed or percentage sale discount on a catalog product. Staff and Managers may apply fixed or percentage discounts with a reason to an order item or whole order. There are no taxes or service charges.                                                                                                                                                                                  |
+| Discounts              | Only a Manager may configure or remove a fixed or percentage sale discount on a catalog product. Staff and Manager may apply a fixed or percentage discount with a required reason to an order item or whole order while settlement immutability permits it. There are no taxes or service charges.                                                                                                                         |
 | Receipts               | Print-friendly HTML has two variants: a concise bar ticket with the order number, local time, table/takeaway context, item quantities, selected options, and notes; and a detailed customer receipt (whole-order or payer-settlement) with item snapshots, Toman totals, tender summary where applicable, order number, and `Asia/Tehran` display time. The bar ticket excludes prices, discounts, totals, and payment details. |
-| Reports                | Daily/weekly/monthly sales, orders, average value, payment mix, item/category sales, discounts, deleted orders, and hourly sales.                                                                                                                                                                                                                                                                                               |
-| Administration         | Catalog, product preparation deadlines, table seating limits, availability, Staff accounts, settings, reports, and audit log.                                                                                                                                                                                                                                                                                                   |
+| Reports                | One Manager-only daily accounting report for either the current `Asia/Tehran` calendar day or the immediately previous day. The report window does not limit storage retention.                                                                                                                                                                                                                                                  |
+| Manager capabilities   | Role-gated panels inside the shared POS for payment history, discounts, catalog, product preparation deadlines, table seating limits, availability, Staff accounts, settings, the daily report, and audit log.                                                                                                                                                                                                                   |
 | Quality and operations | Critical tests, OpenAPI documentation, Docker deployment, HTTPS, backups, restore test, monitoring, and release rollback/forward-fix.                                                                                                                                                                                                                                                                                           |
 
 Pilot acceptance scenarios:
@@ -151,6 +155,8 @@ Pilot acceptance scenarios:
 - Retry an order or settlement request and confirm that only one result exists.
 - Use two POS terminals to edit the same `OPEN` order and confirm that stale data receives a conflict response. Confirm that after a partial settlement, new items can be added while settled item quantities and posted settlement records cannot be rewritten.
 - Restart the application during a busy workflow and confirm clients recover state from the API.
+- Scan an eligible table QR before the table is marked occupied and confirm the shared dashboard shows an occupancy reminder. Mark it occupied, send a waiter-call, confirm the table is highlighted in the dashboard, then open that table to acknowledge and resolve the call without granting the customer order or payment authority.
+- Confirm a Manager can open today’s and yesterday’s daily reports while Staff cannot; confirm older orders and payments remain stored and available to authorized history/receipt workflows.
 - Restore a backup into a clean environment and run the critical smoke tests.
 
 ## Domain Model And Business Rules
@@ -160,16 +166,16 @@ Pilot acceptance scenarios:
 | Identity   | Users, credentials, sessions, Manager/Staff role, permissions, authentication events.                                         |
 | Catalog    | Categories, products, images, option groups/options, availability, preparation deadlines, and display order.                  |
 | Ordering   | Orders, order items, price/preparation snapshots, notes, channel, lifecycle state, payment status, and idempotency.           |
-| Tables     | Physical tables, seating limits, active table estimates, and assignment/clearing of active orders.                            |
+| Tables     | Physical-table order and labels, seating limits, waiter-call eligibility, current occupancy state, QR-scan occupancy reminders, active table estimates, assignment/clearing of active orders, table QR credentials, and waiter-call lifecycle. |
 | Payments   | Settlements, tender entries, item-quantity allocations, settlement reversal policy, order numbering, and balance calculation. |
-| Reporting  | Read-oriented sales queries and exports based on committed data.                                                              |
+| Reporting  | Manager-only payment history and the bounded today/yesterday daily accounting query over retained committed data.             |
 | Operations | Café settings, audit logs, system health, and operational metadata.                                                           |
 
 Money, pricing, and tax rules:
 
 - The database stores money as signed-safe integer Toman values. It never stores Rial or floating-point money.
 - Product and option prices are final customer prices before any active Manager-configured product sale discount. No tax, VAT, service charge, or tax calculation exists in v1.
-- A product sale discount is configured only by a Manager and applies to new order-item snapshots only; changing or removing it never changes historical orders. Staff may apply order-item or order-level discounts while the order is open, with a non-empty reason.
+- A product sale discount is configured only by a Manager and applies to new order-item snapshots only; changing or removing it never changes historical orders. Staff and Manager may apply order-item or order-level discounts while the order is open, with a non-empty reason and subject to settlement immutability.
 - The backend is the only authority for unit price, option price, discount, line total, grand total, settlement total, paid total, and balance.
 - Each order item stores a snapshot of product name, base price, product preparation-deadline minutes, selected options and their prices, quantity, discount allocation, and final line total.
 - Each product has a Manager-configurable preparation deadline in minutes. Order items snapshot this value so old bar tickets and table estimates do not change after catalog edits.
@@ -205,15 +211,24 @@ Table timing rules:
 - An order's estimated preparation minutes are the maximum preparation-deadline snapshot across its order items. This keeps v1 independent of kitchen capacity or station scheduling, which are outside scope.
 - A table order's estimated release time is `order.createdAt + tableSeatingLimitSnapshotMinutes + estimatedPreparationMinutes`. The POS table interface can use this server-derived value to show expected table availability.
 
+Waiter-call rules:
+
+- The initial physical-table order is: `1`, `2`, `3`, `4`, `کانتر وسط`, `5`, `6`, `جگوار`, `7`, `8`, `سوشال`, `سوشال سوشال`, `9`, `10`, `11`, `12`. Only numeric tables `1` through `10`, plus `جگوار`, may receive waiter-calls: `1`, `2`, `3`, `4`, `5`, `6`, `جگوار`, `7`, `8`, `9`, `10`. `کانتر وسط`, `سوشال`, `سوشال سوشال`, `11`, and `12` never expose a waiter-call action.
+- A table has the operational states `AVAILABLE` and `OCCUPIED`. Staff and Manager have the same authority to mark either state; the system does not assign acknowledgement or resolution to a particular person.
+- When a customer scans an eligible table QR while that table is `AVAILABLE`, the dashboard receives a non-blocking occupancy reminder. The scan does not create an order, change the table to occupied, or expose any customer identity. Staff or Manager must explicitly mark the table `OCCUPIED`.
+- A waiter-call may be submitted only from an eligible, occupied table. Submission creates or returns that table's one `PENDING` call and highlights the table in the shared POS dashboard. This is the customer's terminal state: the customer sees only that the request was sent.
+- Opening/clicking the highlighted table in the shared POS acknowledges and resolves the pending call in one staff action, returns the table card to its normal `OCCUPIED` state, and retains the call as history. The acknowledgement/resolution records timestamps but no responsible-user foreign keys.
+- The opaque QR credential is stored only as a hash and is never logged. Repeated taps are deduplicated by the one-pending-call database rule.
+
 ## Application Architecture
 
 The system begins as a modular monolith. It keeps feature boundaries and strong transactions without microservice deployment overhead.
 
 ```text
-Digital Menu | Staff POS | Manager Admin
-                 ↓
-    Next.js web application (separate routes)
-                         ↓
+ Digital Menu          Shared POS (Staff + Manager panels)
+      ↓                              ↓
+ Menu Next.js app              POS Next.js app
+               ↘              ↙
         Fastify modular monolith (REST + WebSockets)
                          ↓
               PostgreSQL — source of truth
@@ -224,7 +239,8 @@ Digital Menu | Staff POS | Manager Admin
 Deployment units:
 
 - One Fastify API process owns business rules, persistence, authentication, OpenAPI, and WebSocket notifications.
-- One Next.js application provides separate menu, POS, and admin routes with their own authorization/layouts.
+- One Next.js menu application provides the anonymous digital menu.
+- One separate Next.js POS application provides a single shared shell for both Staff and Manager. They use the same operational routes and table dashboard; role-gated Manager routes/panels extend that shell rather than forming another application.
 - PostgreSQL is the transactional source of truth.
 - Local/self-hosted image storage holds product images; the database stores metadata and references.
 - Caddy or Nginx terminates HTTPS and proxies web, API, and WebSocket traffic.
@@ -235,12 +251,19 @@ Recommended monorepo shape:
 ```text
 apps/
   api/          # Fastify modular monolith
-  web/          # Next.js menu, POS, manager admin
+  web/          # Next.js public digital menu
+  pos/          # Next.js shared Staff/Manager POS
 packages/
   contracts/    # Zod DTO schemas and API types
   config/       # shared lint, TypeScript, test configuration
   ui/           # add only when reuse exists
 ```
+
+Keep the existing `apps/web` package as the deployed public-menu application
+and add `apps/pos` as a sibling workspace package named `@cafe/pos`. Do not turn
+`apps/web` into a container holding nested `menu` and `pos` packages; it is
+already an application package and is referenced by the current menu build,
+tests, Docker image, and release workflow.
 
 Backend and API rules:
 
@@ -255,8 +278,9 @@ Frontend and operational UX:
 
 - Use React, Next.js, TypeScript, Tailwind CSS, TanStack Query, React Hook Form, and Zod.
 - Use Zustand only for small transient state such as an unsaved POS draft. Persisted business truth remains on the server.
-- The digital menu is mobile-first and browse-only. It displays final Toman prices, priced item options, and current availability without a customer-facing availability-only toggle or preparation timing, and without exposing checkout, payment, or order-tracking controls.
-- The POS shows connection state, stale-data conflicts, open/deleted state, `UNPAID`/`PARTIALLY_PAID`/`PAID` status, settlement totals, and the actor responsible for privileged actions.
+- The digital menu is mobile-first and browse-only for commerce. It displays final Toman prices, priced item options, and current availability without a customer-facing availability-only toggle or preparation timing, and without exposing checkout, payment, or order-tracking controls. A table-scoped QR context may expose only the waiter-call action.
+- The shared POS shows connection state, stale-data conflicts, open/deleted state, `UNPAID`/`PARTIALLY_PAID`/`PAID` status, settlement totals, active waiter-calls, and the actor responsible for privileged actions.
+- Staff receipt viewing/printing is an operational order capability. It must not expose the Manager-only payment-history browser, accounting report, or audit search.
 - Browser printing is the v1 receipt boundary. Validate the actual café printer and paper size before pilot.
 
 Authentication, authorization, and security:
@@ -264,18 +288,18 @@ Authentication, authorization, and security:
 - Staff and Manager use short-lived access tokens with rotated, revocable refresh sessions. Store refresh tokens hashed at rest.
 - Use secure HTTP-only cookies where the deployment origin permits, with CSRF protection through SameSite policy, origin checks, and a CSRF token when needed.
 - Bootstrap the first Manager as a one-time deployment procedure, never as a permanent public registration route.
-- Enforce Manager-only catalog, user, settings, full-report, and full-audit operations server-side.
+- Enforce Manager-only product sale-discount configuration, catalog, payment-history, user, settings, reporting, and full-audit operations server-side. Staff and Manager may apply reasoned item/order discounts through the shared POS while settlement rules permit them. Hiding panels in the shared POS is not sufficient authorization.
 - Require HTTPS, security headers, least-privilege database credentials, secret management, request-size limits, rate-limited login, and safe logging.
-- QR menu URLs are public read-only URLs in v1. They do not grant table, order, or payment authority.
+- Normal QR-menu browsing is public and read-only. A table QR credential grants only the narrowly scoped QR-scan reminder and eligible-occupied-table waiter-call capabilities; it never grants order, receipt, or payment authority.
 - Uploaded images are type-checked, size-limited, renamed, and never executed.
 
 Reporting and audit:
 
-- Initial reports include daily, weekly, and monthly sales; order count; average order value; sales by payment method, channel, hour, category, and product; discounts; settlement reversals; deleted orders; and table turnover when table timestamps are complete.
-- Report boundaries use `Asia/Tehran` calendar days, weeks, and months, while stored timestamps remain UTC. The cafe is always open, so v1 has no configurable business-day cutoff.
-- Report definitions explicitly distinguish item totals, discounts, active settlement amount, reversed settlement amount, paid amount, and deleted orders. There are no tax or service-charge fields.
-- Initial reports query transactional tables and are verified against known fixtures. Add indexes based on measured query plans.
-- Exports and large ranges are bounded so reporting cannot degrade POS work.
+- The first POS reporting implementation contains one Manager-only daily accounting report. The Manager may select only `today` or `yesterday` using `Asia/Tehran` calendar boundaries; arbitrary ranges, weekly/monthly reports, exports, product/category analytics, and forecasting are deferred.
+- The daily report distinguishes gross item totals, discounts, active settled/paid amounts by payment method, reversed settlements, and logically deleted orders. There are no tax or service-charge fields.
+- Manager-only payment history is a separate cursor-paginated operational view over retained settlements and receipts; it is not available to Staff. Staff may still open and print an individual whole-order or payer-settlement receipt through authorized POS order workflows.
+- The two-day report window is never a retention policy. Orders, order items, settlements, tenders, reversals, receipts derived from snapshots, and audit records remain in PostgreSQL and are not deleted when they become older than yesterday.
+- The daily report queries transactional tables, is verified against known fixtures, and receives supporting indexes based on measured query plans. The two permitted day windows keep reporting bounded so it cannot degrade POS work.
 
 ## Technology Baseline
 

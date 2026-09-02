@@ -140,6 +140,10 @@ export const PosTableSchema = z.object({
   id: z.uuid(),
   name: z.string(),
   seatingLimitMinutes: TableSeatingLimitMinutesSchema,
+  waiterCallEnabled: z.boolean(),
+  occupancyState: z.enum(["AVAILABLE", "OCCUPIED"]),
+  occupiedAt: z.iso.datetime().nullable(),
+  occupancyReminderAt: z.iso.datetime().nullable(),
   activeOrders: z.array(ActiveTableOrderSchema),
 });
 

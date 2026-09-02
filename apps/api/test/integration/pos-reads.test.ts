@@ -162,6 +162,10 @@ describe("POS catalog and table reads", () => {
         id: table.id,
         name: "Table 1",
         seatingLimitMinutes: 45,
+        waiterCallEnabled: false,
+        occupancyState: "AVAILABLE",
+        occupiedAt: null,
+        occupancyReminderAt: null,
         activeOrders: [
           {
             id: order.id,

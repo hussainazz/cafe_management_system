@@ -4,7 +4,35 @@ This file is the active completion checklist and current stage status for the ba
 
 ## In Progress Stages
 
-- None. Stage 5 (Staff POS frontend) is next in the revised roadmap.
+- Stage 5 (shared POS foundation) is next. Staff and Manager will use one POS
+  application and one table dashboard; Manager-only capabilities are role-gated
+  panels/actions rather than a separate application.
+- Stage 5 preparation completed: the forward migration seeds the requested
+  16-table layout in display order and the POS table-read contract exposes
+  waiter-call eligibility plus availability/occupancy/reminder state.
+- Left before the Stage 5 exit gate: add hashed table QR credentials; implement explicit `AVAILABLE`/`OCCUPIED`
+  dashboard state, QR-scan occupancy reminders, eligibility only for tables
+  `1`, `2`, `3`, `4`, `5`, `6`, `جگوار`, `7`, `8`, `9`, and `10`, one pending call per eligible occupied
+  table, table-opening acknowledgement/resolution, realtime/refetch behavior,
+  constraints, OpenAPI contracts, and integration tests.
+- Left for the Stage 5 interface: implement the shared basic order, table,
+  payment, deletion, receipt, reconnect/conflict, and waiter-call workflows in
+  a new sibling `apps/pos` package; keep the existing menu in `apps/web`.
+- Left for Stage 6 after the shared POS foundation: Manager-only payment
+  history, catalog/users/settings/audit APIs, and one daily accounting report
+  limited to the current or previous `Asia/Tehran` day. The full historical
+  order/payment/audit data must remain retained regardless of this report limit.
+- Target GHCR release machinery is now scaffolded: API and menu images have
+  independent version tracks, production Compose uses exact image references,
+  and the release runbook records pull, migration, digest, and rollback rules.
+  POS image/version publication remains left until POS is a separate deployable
+  frontend.
+- Live VPS audit is complete for the 2026-09-01 snapshot. Production hardening
+  remains: GitHub/GHCR ownership and first-image publication, deliberate VPS
+  Compose migration, public Nginx routing and HTTPS renewal, backup retention
+  and clean restore, logs/alerts, and the operator/manual-fallback runbook. The
+  observed runtime is systemd + Nginx with local-build artifact releases;
+  Docker Compose/Caddy remains a target baseline, not the active path.
 
 ## Completed Stages
 
@@ -56,7 +84,7 @@ Done:
 - Staff/Manager-protected POS catalog and active-table reads, including current catalog availability, option/image metadata, table seating limits, and active-order release timing.
 - Staff table/takeaway order creation with server-calculated Toman totals and timing, immutable product/option snapshots, active-table validation, atomic audit/idempotency records, and retry-safe results.
 - Order list/detail reads and controlled `OPEN`-order edits, including optimistic version checks, table transfers, catalog-backed additions, restricted post-settlement edits, and audit records.
-- Manager-configured product sale discounts plus reasoned Staff/Manager item and order discounts, all server-calculated and snapshotted for historical orders.
+- Product sale-discount configuration is Manager-only; Staff and Manager may apply reasoned item/order discounts while settlement immutability permits them. All discounts are server-calculated and snapshotted for historical orders.
 - Staff/Manager logical order deletion with optimistic version checks, optional reason, retained financial/history rows, actor/timestamp, and audit record.
 - Per-payer selected-item settlement recording with mixed manual tenders, reconciliation, idempotency, version checks, payment-status updates, and audit records.
 - Manager-only full settlement reversal with a required reason, immutable posted rows, recalculated payment status, version increment, and audit record.
@@ -74,7 +102,7 @@ Verified:
 Done:
 
 - `docs/planning/scope.md` and `docs/planning/roadmap.md` define the v1 scope, explicit non-goals, roles, order states, money/time/deployment rules, domain modules, architecture direction, production gates, and database-first/POS-first roadmap.
-- ADR files document the fixed major decisions.
+- ADR files document the fixed major decisions, including ADR 0009 for the shared POS, waiter-call, Manager-only capability boundary, and today/yesterday initial reporting scope.
 - The initial ERD, API inventory, database constraints, request/response conventions, error envelope, pagination, idempotency, and concurrency are documented.
 - `docs/planning/backend-backlog.md` converts the approved scope into a prioritized backend backlog with acceptance criteria.
 

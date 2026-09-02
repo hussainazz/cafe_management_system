@@ -27,6 +27,8 @@ hard-deleted by normal application actions.
   - `PaymentStatus`: `UNPAID`, `PARTIALLY_PAID`, `PAID`
   - `DiscountKind`: `FIXED`, `PERCENTAGE`
   - `PaymentMethod`: `CASH`, `CARD_TERMINAL`, `CARD_TRANSFER`
+  - `TableOccupancyState`: `AVAILABLE`, `OCCUPIED`
+  - `WaiterCallStatus`: `PENDING`, `RESOLVED`
 - Monetary amount columns are integer Toman values and never floating-point
   values. Prices, discounts, settlement amounts, tender amounts, paid amounts,
   and balances must be non-negative unless a future ADR explicitly introduces a
@@ -39,7 +41,9 @@ hard-deleted by normal application actions.
   deactivate, reverse, or logically delete records instead of physically
   deleting referenced business history.
 - `createdAt`, `updatedAt`, `recordedAt`, `occurredAt`, `expiresAt`,
-  `deletedAt`, `revokedAt`, and `archivedAt` are stored as UTC timestamps.
+  `deletedAt`, `revokedAt`, `archivedAt`, `occupiedAt`, `occupancyReminderAt`,
+  `requestedAt`, `acknowledgedAt`, `resolvedAt`, and `rotatedAt` are stored as
+  UTC timestamps.
 - Audit and idempotency JSON columns must contain safe operational data only;
   passwords, token material, cookies, and unnecessary personal data are never
   stored there.
@@ -61,6 +65,8 @@ history by default.
 | `Order.tableId -> CafeTable.id`                             | Optional foreign key. Table deletion is restricted while referenced.                    |
 | `Order.createdById -> User.id`                              | Required foreign key. User deletion is restricted while referenced.                     |
 | `Order.deletedById -> User.id`                              | Optional foreign key. User deletion is restricted while referenced.                     |
+| `TableQrCredential.tableId -> CafeTable.id`                 | Required foreign key. Table deletion is restricted while referenced.                    |
+| `WaiterCall.tableId -> CafeTable.id`                        | Required foreign key. Table deletion is restricted while referenced.                    |
 | `OrderItem.orderId -> Order.id`                             | Required foreign key. Order deletion is restricted.                                     |
 | `OrderItem.productId -> Product.id`                         | Required foreign key for traceability. Product deletion is restricted while referenced. |
 | `OrderItemOption.orderItemId -> OrderItem.id`               | Required foreign key. Order item deletion is restricted.                                |
@@ -183,15 +189,61 @@ history by default.
 ### `cafe_tables`
 
 - Primary key: `id`.
-- Required: `name`, `seatingLimitMinutes`, `displayOrder`, `isActive`.
-- Optional: `archivedAt`.
+- Required: `name`, `seatingLimitMinutes`, `displayOrder`, `isActive`,
+  `waiterCallEnabled`, `occupancyState`.
+- Optional: `archivedAt`, `occupiedAt`, `occupancyReminderAt`.
 - Checks:
   - `name` is not an empty string.
   - `seatingLimitMinutes > 0`.
   - `displayOrder >= 0`.
   - `archivedAt IS NULL OR isActive = false`.
+  - `occupancyState = 'OCCUPIED'` requires `occupiedAt`; an occupied table has
+    no outstanding occupancy reminder.
+  - `occupancyState = 'AVAILABLE'` requires `occupiedAt IS NULL`.
+  - `waiterCallEnabled = false` tables never accept QR scan reminders or
+    waiter-call submissions.
 - Indexes:
   - `(isActive, displayOrder)`.
+  - `(waiterCallEnabled, occupancyState)` for dashboard reminder and call
+    validation.
+- Initial records, in `displayOrder` order: `1`, `2`, `3`, `4`, `کانتر وسط`,
+  `5`, `6`, `جگوار`, `7`, `8`, `سوشال`, `سوشال سوشال`, `9`, `10`, `11`, `12`.
+  Waiter-call eligibility is enabled only for `1`, `2`, `3`, `4`, `5`, `6`,
+  `جگوار`, `7`, `8`, `9`, and `10`.
+
+### `table_qr_credentials`
+
+- Primary key: `id`.
+- Unique: `tokenHash`.
+- Required: `tableId`, `tokenHash`, `isActive`, `createdAt`.
+- Optional: `rotatedAt`.
+- Checks:
+  - `tokenHash` is not an empty string and contains only the one-way hash, never
+    the usable QR credential.
+  - `rotatedAt IS NULL OR isActive = false`.
+  - `rotatedAt IS NULL OR rotatedAt >= createdAt`.
+- Indexes:
+  - A partial unique index on `tableId WHERE isActive = true` so one table has
+    at most one active waiter-call credential.
+
+### `waiter_calls`
+
+- Primary key: `id`.
+- Required: `tableId`, `status`, `version`, `requestedAt`.
+- Optional: `acknowledgedAt`, `resolvedAt`.
+- Checks:
+  - `version >= 1`.
+  - `status = 'PENDING'` requires acknowledgement and resolution timestamps to
+    be null.
+  - `status = 'RESOLVED'` requires both timestamps; they are written by the
+    same table-opening action and have the same value.
+  - `acknowledgedAt IS NULL OR acknowledgedAt >= requestedAt`.
+  - `resolvedAt IS NULL OR resolvedAt >= acknowledgedAt`.
+- Indexes:
+  - `(status, requestedAt)` for the shared active-call dashboard.
+  - `(tableId, requestedAt)` for retained table call history.
+  - A partial unique index on `tableId WHERE status = 'PENDING'` so repeated
+    taps cannot create multiple active calls.
 
 ### `orders`
 
@@ -396,9 +448,23 @@ tableSeatingLimitSnapshotMinutes + estimatedPreparationMinutes`.
   increments `Order.version`, and writes an audit entry atomically.
 - Posted settlements, tenders, allocations, reversals, and audit rows are never
   updated or deleted by normal application actions.
+- QR scan processing resolves the hashed credential and, when the eligible
+  table is still `AVAILABLE`, records an occupancy reminder atomically. It
+  never marks the table occupied, creates an order, or stores browser/device or
+  IP-address data.
+- Waiter-call submission resolves the hashed credential and creates or returns
+  the eligible occupied table's existing pending call atomically. The raw
+  credential is never persisted in a waiter-call or audit row.
+- Opening a highlighted table uses compare-and-swap on `WaiterCall.version` to
+  write the acknowledgement and resolution timestamps together and change the
+  call to `RESOLVED`. Resolved waiter-calls are retained as operational history;
+  no handling-user relation is stored.
 - Logical order deletion writes `state = 'DELETED'`, `deletedById`, `deletedAt`,
   optional `deletionReason`, increments `Order.version`, and writes an audit
   entry atomically.
-- Manager-only operations are enforced in application authorization and are
+- Manager-only operations—including product sale-discount configuration,
+  payment-history browsing, reports, catalog, users, and settings—are enforced in application authorization and are
   covered by API and integration tests; the database records the actor for
   auditability but does not make role-based write decisions.
+- Staff and Manager may apply reasoned item/order discounts while settlement
+  immutability permits them; the database preserves the resulting snapshots.

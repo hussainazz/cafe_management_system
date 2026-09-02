@@ -2,9 +2,10 @@
 
 ## Purpose And Status
 
-This is the initial v1 persistence model. It translates the approved scope into
-entity ownership and relationships before the Stage 1 Prisma schema and first
-migration are created. It is not itself a database migration or an API contract.
+This is the v1 persistence model. It began as the Stage 1 schema baseline and
+now also records the approved Stage 5 waiter-call addendum. It is not itself a
+database migration or an API contract; newly documented entities still require
+a reviewed Prisma migration before implementation.
 
 All timestamps are stored in UTC. Every monetary field is an integer Toman
 value. `database-constraints.md` defines the exact PostgreSQL constraints and
@@ -97,7 +98,30 @@ erDiagram
         integer seatingLimitMinutes
         integer displayOrder
         boolean isActive
+        boolean waiterCallEnabled
+        enum occupancyState
+        datetime occupiedAt
+        datetime occupancyReminderAt
         datetime archivedAt
+    }
+
+    TableQrCredential {
+        uuid id PK
+        uuid tableId FK
+        string tokenHash UK
+        boolean isActive
+        datetime createdAt
+        datetime rotatedAt
+    }
+
+    WaiterCall {
+        uuid id PK
+        uuid tableId FK
+        enum status
+        integer version
+        datetime requestedAt
+        datetime acknowledgedAt
+        datetime resolvedAt
     }
 
     Order {
@@ -224,6 +248,8 @@ erDiagram
     OptionGroup ||--o{ ProductOptionGroup : applies_to
     OptionGroup ||--o{ Option : contains
     CafeTable |o--o{ Order : assigned_to
+    CafeTable ||--o{ TableQrCredential : identifies_for_call
+    CafeTable ||--o{ WaiterCall : receives
     User ||--o{ Order : creates
     Order ||--|{ OrderItem : contains
     Product ||--o{ OrderItem : referenced_by
@@ -370,7 +396,34 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 | `seatingLimitMinutes` | Configurable expected seating limit for the table in whole minutes. The initial data default is 45 minutes, but POS code must read it from the API. |
 | `displayOrder`        | The order used to lay out tables in the POS.                                                                                                        |
 | `isActive`            | Whether staff may assign new orders to the table.                                                                                                   |
+| `waiterCallEnabled`   | Whether this physical table may expose the customer waiter-call action. It is enabled only for `1`, `2`, `3`, `4`, `5`, `6`, `جگوار`, `7`, `8`, `9`, and `10`. |
+| `occupancyState`      | Shared dashboard state: `AVAILABLE` or explicitly staff/Manager-marked `OCCUPIED`.                                                                  |
+| `occupiedAt`          | When the current occupancy began; empty while available.                                                                                            |
+| `occupancyReminderAt` | Most recent eligible-table QR scan made while the table was still available; cleared when staff marks it occupied.                                  |
 | `archivedAt`          | When the table was retired while keeping its historical orders.                                                                                     |
+
+#### TableQrCredential
+
+| Field       | Explanation                                                                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`        | Internal identity of one rotatable table QR credential record.                                                                        |
+| `tableId`   | The only table for which the credential may process a QR scan or, when eligible and occupied, create a waiter-call.                  |
+| `tokenHash` | One-way hash of the opaque credential. The usable token is never stored or logged in plaintext.                                        |
+| `isActive`  | Whether this credential may submit a waiter-call. Rotation deactivates the previous credential without deleting history.               |
+| `createdAt` | When the credential record was issued.                                                                                                 |
+| `rotatedAt` | When it was replaced or deactivated; empty while it remains active.                                                                    |
+
+#### WaiterCall
+
+| Field              | Explanation                                                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `id`               | Internal identity of one waiter-call.                                                                                  |
+| `tableId`          | The eligible occupied table requesting Staff attention.                                                                |
+| `status`           | Controlled lifecycle: `PENDING` or `RESOLVED`.                                                                         |
+| `version`          | Optimistic-concurrency value used to reject conflicting table-opening actions.                                         |
+| `requestedAt`      | When the anonymous table request was accepted.                                                                         |
+| `acknowledgedAt`   | When a Staff or Manager opened the highlighted table.                                                                  |
+| `resolvedAt`       | Same table-opening time; records that the request is no longer active. Resolved rows remain as operational history.   |
 
 #### Order
 
@@ -516,7 +569,7 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity      | A `User` has zero or more revocable `RefreshSession` and `AuthEvent` records. Roles remain limited to `MANAGER` and `STAFF`.                                                                                                                                                                                                                                                                                                                                         |
 | Catalog       | A `Category` groups products. Every v1 product goes to the single bar; it can have zero or one image, many option groups through `ProductOptionGroup`, and one preparation deadline in whole minutes.                                                                                                                                                                                                                                                                |
-| Tables        | A table order references one `CafeTable`; a takeaway order has no table. A table can have many historical orders. The active table estimate uses the order's seating-limit snapshot and item prep snapshots.                                                                                                                                                                                                                                                         |
+| Tables        | A table order references one `CafeTable`; a takeaway order has no table. A table can have many historical orders. The dashboard preserves the configured physical-table order, explicit `AVAILABLE`/`OCCUPIED` state, eligible-table QR-scan reminders, and pending waiter-call highlight. The active table estimate uses the order's seating-limit snapshot and item prep snapshots. |
 | Order history | `OrderItem` and `OrderItemOption` retain product and option names, prices, and preparation-deadline snapshots. Catalog references support traceability, but historical display, totals, and estimates use the snapshots.                                                                                                                                                                                                                                             |
 | Payments      | An order has payer settlements. Each settlement allocates selected item quantities and contains one or more cash, card-terminal, or card-to-card transfer tenders. Card-terminal tenders store no reconciliation reference because terminal entry is manual and not synchronized with the application. Card-to-card transfer references are optional. A Manager reversal applies to the whole settlement; posted records are retained rather than edited or removed. |
 | Receipts      | A concise bar ticket is derived from `Order`, `CafeTable`, `OrderItem`, and `OrderItemOption`; it contains only the order number, local display time, table/takeaway context, quantities, item/option snapshots, and notes. A detailed customer receipt is derived from the same snapshots and, where applicable, `PaymentSettlement`, `SettlementAllocation`, and `Payment` data. Neither variant requires a persisted receipt or printer-job entity in v1.         |
