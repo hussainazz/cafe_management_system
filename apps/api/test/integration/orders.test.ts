@@ -395,6 +395,53 @@ describe("logical order deletion", () => {
 });
 
 describe("settlement recording", () => {
+  it("commits only one of two simultaneous settlements for the same order version", async () => {
+    const cookies = await userSession(UserRole.STAFF, "settlement.race.staff");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(
+      cookies,
+      { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] },
+      "settlement-race-order-create-1",
+    );
+    const order = created.json().data;
+    const payload = {
+      expectedVersion: 1,
+      allocations: [{ orderItemId: order.items[0].id, quantity: 1 }],
+      payments: [{ method: "CASH", amount: 50_000 }],
+    };
+
+    const responses = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/api/v1/orders/${order.id}/record-settlement`,
+        cookies,
+        headers: { "idempotency-key": "settlement-race-key-1" },
+        payload,
+      }),
+      app.inject({
+        method: "POST",
+        url: `/api/v1/orders/${order.id}/record-settlement`,
+        cookies,
+        headers: { "idempotency-key": "settlement-race-key-2" },
+        payload,
+      }),
+    ]);
+
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 409]);
+    expect(responses.find((response) => response.statusCode === 409)?.json().error.code).toBe("STALE_VERSION");
+    expect(await app.prisma.paymentSettlement.count()).toBe(1);
+    expect(await app.prisma.settlementAllocation.count()).toBe(1);
+    expect(await app.prisma.payment.count()).toBe(1);
+    expect(await app.prisma.idempotencyRecord.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(1);
+    expect(await app.prisma.auditLog.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(1);
+    await expect(app.prisma.order.findUniqueOrThrow({ where: { id: order.id } })).resolves.toMatchObject({
+      paymentStatus: "PAID",
+      version: 2,
+      paidAmount: 50_000,
+      balanceAmount: 0,
+    });
+  });
+
   it("records selected quantities with mixed tenders, is retry-safe, and updates payment status", async () => {
     const cookies = await userSession(UserRole.STAFF, "settlement.staff");
     const { product: first } = await sellableProduct();
