@@ -163,6 +163,57 @@ main {
   justify-self: start;
 }
 
+.table-context-banner {
+  width: min(1120px, calc(100% - 32px));
+  margin: 18px auto;
+  padding: 16px 18px;
+  border: 1px solid rgba(201, 150, 87, 0.34);
+  background: #1a1410;
+  color: #f4eadb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.table-context-banner--warning {
+  border-color: rgba(220, 129, 92, 0.5);
+  background: #21130f;
+}
+
+.table-context-banner strong {
+  font-size: 1rem;
+}
+
+.table-context-banner p {
+  margin: 5px 0 0;
+  color: #cbbca9;
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.table-context-banner .table-context-error {
+  color: #f0a58c;
+}
+
+.table-context-banner button {
+  min-height: 44px;
+  flex: 0 0 auto;
+  border: 1px solid #c99657;
+  border-radius: 4px;
+  background: #c99657;
+  color: #17100b;
+  padding: 0 18px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.table-context-banner button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .hero-glow,
 .hero-plate,
 .hero-cup,
@@ -1268,6 +1319,18 @@ footer span {
 }
 
 @media (max-width: 700px) {
+  .table-context-banner {
+    width: calc(100% - 28px);
+    margin-block: 12px;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .table-context-banner button {
+    width: 100%;
+  }
+
   .hero {
     display: block;
     width: calc(100% - 28px);
