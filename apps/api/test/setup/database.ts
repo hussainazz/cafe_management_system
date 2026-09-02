@@ -4,6 +4,8 @@ import { beforeEach } from "vitest";
 const tableNames = [
   "audit_logs",
   "idempotency_records",
+  "waiter_calls",
+  "table_qr_credentials",
   "settlement_reversals",
   "payments",
   "settlement_allocations",
