@@ -72,20 +72,24 @@ export function productImageUrl(storageKey: string) {
   return `${configuredBase ?? "/product-images"}/${safePath}`;
 }
 
-export function localProductPictureUrl(product: Pick<MenuProduct, "name">) {
+export function localProductPictureUrl(
+  product: Pick<MenuProduct, "name">,
+  category?: Pick<MenuCategory, "name">,
+) {
   const name = normalizeSearch(product.name);
+  const categoryName = normalizeSearch(category?.name ?? "");
   // Keep this list explicit: a product without a matching photograph should retain its artwork.
   // In particular, the tea photograph belongs only to black tea—not every tea variation.
   const pictures: Record<string, string> = {
-    "آمریکانو سینگل": "/items_pictures/americano.webp",
-    "آمریکانو دبل": "/items_pictures/americano.webp",
+    "آمریکانو سینگل": "/items_pictures/americano-single.webp",
+    "آمریکانو دبل": "/items_pictures/americano_double.webp",
     "آیس آمریکانو سینگل": "/items_pictures/ice americano.webp",
     "آیس آمریکانو دبل": "/items_pictures/ice americano.webp",
     "لاته": "/items_pictures/لته_.webp",
     "آیس لاته": "/items_pictures/ice latte.webp",
-    "آیس کارامل ماکیاتو": "/items_pictures/ice carammel.webp",
-    "کارامل ماکیاتو": "/items_pictures/لته_.webp",
-    "اسپرسو سینگل": "/items_pictures/espresso.webp",
+    "آیس کارامل ماکیاتو": "/items_pictures/ice-caramel.webp",
+    "کارامل ماکیاتو": "/items_pictures/white-espresso.webp",
+    "اسپرسو سینگل": "/items_pictures/espresso-single.webp",
     "اسپرسو دبل": "/items_pictures/espresso.webp",
     "ترک": "/items_pictures/turkish.webp",
     "چای هل و زغفران": "/items_pictures/چای.webp",
@@ -95,11 +99,26 @@ export function localProductPictureUrl(product: Pick<MenuProduct, "name">) {
     "طالبی": "/items_pictures/honeydew melon.webp",
     "رد مون": "/items_pictures/ردمون.webp",
     "دمنوش بابونه": "/items_pictures/دمنوش_بابونه.webp",
-    "کره بادوم زمینی": "/items_pictures/تست_کره_بادم.webp",
+    "کاپوچینو": "/items_pictures/catpuccino.webp",
+    "وایت اسپرسو": "/items_pictures/white-espresso.webp",
+    "وایت چاکلت": "/items_pictures/white-choclote.webp",
+    "چای ماسالا": "/items_pictures/masala.webp",
+    "aeropress": "/items_pictures/aeropress.webp",
+    "v 60": "/items_pictures/v60.webp",
+    "siphone": "/items_pictures/siphone.webp",
+    "چری بری": "/items_pictures/cherry-berry.webp",
+    "سیمیت پنیر گردو": "/items_pictures/simmit.webp",
+    "تست ژامبون": "/items_pictures/ham-toast.webp",
+    "کره بادوم زمینی": "/items_pictures/peanutbutter-toast.webp",
     "تیرامیسو": "/items_pictures/tiramisu.webp",
     "چیز کیک لوتوس": "/items_pictures/luttos cheescake.webp",
     "کروسان شکلاتی": "/items_pictures/crossant.webp",
   };
+
+  // Nescafe exists in both the hot-coffee bar and shake bar; this photo is the hot drink.
+  if (name === "نسکافه") {
+    return categoryName === "بار گرم قهوه" ? "/items_pictures/nescafe.webp" : null;
+  }
 
   return pictures[name] ?? null;
 }
