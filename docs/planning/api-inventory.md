@@ -16,7 +16,7 @@ in `request-response-conventions.md`.
 
 Legend:
 
-- **Public**: anonymous QR-menu browsing plus the narrowly scoped table-scan and waiter-call commands documented below.
+- **Public**: anonymous QR-menu browsing plus the narrowly scoped table-context exchange and waiter-call commands documented below.
 - **Staff**: authenticated Staff or Manager.
 - **Manager**: authenticated Manager only.
 - **Internal**: infrastructure or authenticated application-session support;
@@ -94,18 +94,21 @@ settlement, or creating a customer order.
 
 Public QR-menu reads expose only the current menu, temporary availability,
 single product image metadata, and final Toman prices required for browsing.
-The public QR writes are table-context commands only: a scan can remind the
-shared dashboard that an eligible table was not marked occupied, and a
-waiter-call can be submitted only from an eligible occupied table. They require
-an opaque credential, are duplicate-safe through database state, and grant no
-order, payment, receipt, tracking, or catalog authority.
+The public catalog is one shared `/menu`. An eligible-table `/t/:token` entry
+exchanges the printed credential for a signed, HttpOnly 12-hour context cookie,
+records the available-table scan reminder, and redirects to `/menu`. A
+waiter-call can be submitted only from an eligible occupied context. Commands
+are rate-limited and duplicate-safe, and grant no order, payment, receipt,
+tracking, identity, or catalog authority.
 
 | Method | Path                                  | Access | Stage | Purpose                                                                                                                                                                                |
 | ------ | ------------------------------------- | ------ | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET`  | `/api/v1/public/menu`                 | Public | 3     | Read the complete browse-only menu, including active categories, products, options, availability, each product's single image, and final prices; preparation deadlines remain private. |
 | `GET`  | `/api/v1/public/products/:productId`  | Public | 3     | Read one current, publicly visible product plus available option groups/options, without exposing the Staff-only preparation deadline.                                                  |
-| `POST` | `/api/v1/public/table-scans`          | Public | 5     | Process a valid credential scan; when its eligible table is still available, create or refresh a dashboard occupancy reminder without changing occupancy or exposing customer data. |
-| `POST` | `/api/v1/public/waiter-calls`         | Public | 5     | Create or return the one pending waiter-call for the eligible occupied table identified by a valid credential; raw credentials are never logged or stored.                           |
+| `GET`  | `/t/:token`                           | Public | 5     | Web entrypoint: exchange an eligible active printed token, set table context, record an available-table reminder, and redirect to the same `/menu`. Invalid links redirect with a safe warning. |
+| `POST` | `/api/v1/public/table-context/exchange` | Public QR bearer | 5 | Hash and resolve the raw QR token without logging it, set the signed context cookie, and return only the safe table label; the web `/t/:token` entrypoint is its intended caller. |
+| `GET`  | `/api/v1/public/table-context`        | Public cookie | 5 | Return safe table label, occupancy, call eligibility, and pending state for a current context; generic menu visits return inactive context. |
+| `POST` | `/api/v1/public/waiter-calls`         | Public cookie | 5 | Create or return the one pending waiter-call for the eligible occupied table represented by the current context cookie. |
 
 There are no public cart, order, payment, receipt, tracking, session, or
 Staff-metadata routes in v1. The waiter-call response contains only safe call
@@ -119,7 +122,7 @@ Staff and Manager use these same contracts from the shared table dashboard.
 | ------ | ------------------------------------------------ | ------ | ----- | ------------------------------------------------------------------------------------------------------------ |
 | `GET`  | `/api/v1/waiter-calls`                           | Staff  | 5     | List active waiter-calls in stable request-time order for the shared table dashboard.                       |
 | `POST` | `/api/v1/tables/:tableId/occupy`                 | Staff  | 5     | Explicitly mark an eligible or non-eligible physical table occupied and clear its scan reminder.            |
-| `POST` | `/api/v1/tables/:tableId/make-available`         | Staff  | 5     | Explicitly return a physical table to available after its service is complete.                              |
+| `POST` | `/api/v1/tables/:tableId/make-available`         | Staff  | 5     | Return a table to available, clear reminders, resolve any pending call, and invalidate prior guest contexts. |
 | `POST` | `/api/v1/tables/:tableId/acknowledge-waiter-call`| Staff  | 5     | Open the highlighted table and atomically acknowledge and resolve its pending call; stale actions conflict. |
 
 ## Manager Catalog, Staff, And Settings
@@ -199,7 +202,7 @@ clients must refetch affected API resources after reconnecting.
   service-layer authorization remains mandatory.
 - No endpoint exposes Prisma models, password hashes, tokens, refresh-session
   records, cookies, terminal secrets, or unsafe audit snapshots.
-- The table-scan and waiter-call commands are the only approved public writes
+- The table-context exchange and waiter-call commands are the only approved public writes
   in the initial POS scope. Any additional public write, customer ordering, online payment,
   inventory, multi-branch behavior, or order/payment-model change requires an
   ADR and scope update before it is added here.
