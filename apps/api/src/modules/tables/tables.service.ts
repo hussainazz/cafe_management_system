@@ -70,3 +70,62 @@ export async function readPosTable(prisma: PrismaClient, tableId: string) {
 
   return tableDto(table);
 }
+
+export async function occupyTable(prisma: PrismaClient, tableId: string) {
+  const updated = await prisma.cafeTable.updateMany({
+    where: { id: tableId, isActive: true, archivedAt: null },
+    data: { occupancyState: "OCCUPIED", occupiedAt: new Date(), occupancyReminderAt: null },
+  });
+  if (updated.count !== 1) {
+    throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested table was not found.");
+  }
+  return readPosTable(prisma, tableId);
+}
+
+export async function makeTableAvailable(prisma: PrismaClient, tableId: string) {
+  const now = new Date();
+  await prisma.$transaction(async (transaction) => {
+    const updated = await transaction.cafeTable.updateMany({
+      where: { id: tableId, isActive: true, archivedAt: null },
+      data: {
+        occupancyState: "AVAILABLE",
+        occupiedAt: null,
+        occupancyReminderAt: null,
+        tableContextInvalidBefore: now,
+      },
+    });
+    if (updated.count !== 1) {
+      throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested table was not found.");
+    }
+    await transaction.waiterCall.updateMany({
+      where: { tableId, status: "PENDING" },
+      data: { status: "RESOLVED", acknowledgedAt: now, resolvedAt: now, version: { increment: 1 } },
+    });
+  });
+  return readPosTable(prisma, tableId);
+}
+
+export async function acknowledgeTableWaiterCall(
+  prisma: PrismaClient,
+  tableId: string,
+  expectedVersion: number,
+) {
+  const now = new Date();
+  await prisma.$transaction(async (transaction) => {
+    const call = await transaction.waiterCall.findFirst({
+      where: { tableId, status: "PENDING" },
+      orderBy: { requestedAt: "asc" },
+    });
+    if (!call) {
+      throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "No pending waiter-call exists for this table.");
+    }
+    const updated = await transaction.waiterCall.updateMany({
+      where: { id: call.id, status: "PENDING", version: expectedVersion },
+      data: { status: "RESOLVED", acknowledgedAt: now, resolvedAt: now, version: { increment: 1 } },
+    });
+    if (updated.count !== 1) {
+      throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The waiter-call has changed.");
+    }
+  });
+  return readPosTable(prisma, tableId);
+}
