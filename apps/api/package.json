@@ -10,6 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test",
     "test": "pnpm test:db:reset && node --env-file=.env.test ../../node_modules/vitest/vitest.mjs run",
+    "test:database": "pnpm test:migrations && pnpm test",
+    "test:migrations": "node prisma/verify-migrations.mjs",
     "test:watch": "node --env-file=.env.test ../../node_modules/vitest/vitest.mjs",
     "test:db:create": "node prisma/test-database.mjs create",
     "test:db:reset": "node prisma/test-database.mjs reset",
@@ -20,7 +22,8 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/bootstrap-manager.ts",
     "seed:run-cafe-menu": "tsx prisma/seed-run-cafe-menu.ts",
-    "bootstrap:manager": "tsx prisma/bootstrap-manager.ts"
+    "bootstrap:manager": "tsx prisma/bootstrap-manager.ts",
+    "provision:table-qrs": "tsx prisma/provision-table-qrs.ts"
   },
   "dependencies": {
     "@cafe/contracts": "workspace:*",
@@ -36,9 +39,11 @@
     "fastify-plugin": "^5",
     "pg": "^8",
     "prisma": "^6.19.3",
+    "qrcode": "^1.5.4",
     "zod": "^4"
   },
   "devDependencies": {
-    "@types/pg": "^8"
+    "@types/pg": "^8",
+    "@types/qrcode": "^1.5.6"
   }
 }
