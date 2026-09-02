@@ -24,7 +24,7 @@ Create and push a tag only after local validation:
 
 ```bash
 pnpm typecheck
-pnpm --filter @cafe/api test
+pnpm --filter @cafe/api test:database
 pnpm --filter @cafe/web test
 pnpm --filter @cafe/web build
 git tag api-v0.1.0
@@ -52,6 +52,23 @@ Keep API secrets in `runtime/api.env`; never put them in Git, a Dockerfile, or
 an image label. Authenticate the VPS to GHCR with a read-only package token.
 The Compose volume is the authoritative database; uploads and other runtime
 data must remain on persistent volumes or explicitly preserved host paths.
+The API environment must include independent `TABLE_QR_TOKEN_SECRET` and
+`TABLE_CONTEXT_COOKIE_SECRET` values. Configure Nginx so `/t/<token>` access
+logs record only a redacted `/t/[redacted]` path (or disable access logging for
+that location); raw printed tokens must not enter proxy logs.
+
+Provision printable eligible-table QRs only from a trusted operations host
+against the intended database. Keep the generated directory outside Git and
+back it up for reprinting:
+
+```bash
+pnpm --filter @cafe/api provision:table-qrs -- --all-eligible \
+  --base-url https://runncafe.ir --output-dir /secure/run-cafe-table-qrs
+```
+
+Use `--table "1"` for one table. Never use `--rotate` until the replacement
+printout is ready for immediate placement because the old QR and its existing
+browser contexts become invalid at once.
 
 ## Deploy and rollback
 
