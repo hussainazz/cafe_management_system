@@ -21,11 +21,11 @@ Manager accounting/catalog panels and expanded administration work must not bloc
 
 Stages 0 through 4 are complete. Stage 5 (shared POS foundation) is next.
 
-Current implementation status as of 1 September 2026:
+Current implementation status as of 2 September 2026:
 
 - **Stage 0 — Scope and domain baseline:** complete and amended by ADR 0009. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including settlement allocation and the shared POS/waiter-call/reporting boundary; the ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; `database-constraints.md` explicitly lists the planned database constraints; `request-response-conventions.md` defines shared application envelopes, errors, pagination, idempotency, and concurrency; and `backend-backlog.md` converts the approved scope into a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** complete. The database schema and reviewed migrations, first-Manager bootstrap, isolated test-database workflow, structured error envelope, Zod-derived OpenAPI contract, Docker Compose PostgreSQL baseline, liveness/readiness routes, and graceful shutdown are implemented. The fresh-environment rehearsal on 13 August 2026 applied both migrations to a new database, created exactly one Manager, rejected a repeat bootstrap, returned healthy liveness/readiness responses, and passed typecheck and the API test suite.
-- **Stage 2 — POS backend core:** complete under its original baseline. The order/payment/receipt workflow, including Staff/Manager reasoned item/order discounts and Manager-only product sale-discount configuration, is covered through authenticated API calls against real PostgreSQL. The newly approved waiter-call persistence/API is a Stage 5 prerequisite increment and is not yet implemented.
+- **Stage 2 — POS backend core:** complete under its original baseline. The order/payment/receipt workflow, including Staff/Manager reasoned item/order discounts and Manager-only product sale-discount configuration, is covered through authenticated API calls against real PostgreSQL. The Stage 5 table-context/waiter-call prerequisite increment is now implemented and locally verified; the shared `apps/pos` interface remains next.
 - **Stage 3 — QR-menu backend:** complete. Anonymous browse-only menu and product-detail APIs expose only customer-facing catalog data, final Toman prices, availability, priced options, and images; preparation deadlines remain private to POS workflows. Search/filter, response safety, and anonymous behavior are covered by integration tests.
 - **Stage 4 — QR-menu frontend:** complete. The Persian RTL, mobile-first public menu renders the Run Cafe catalog through the typed public API with category navigation, search, product details and priced options, current availability, compact displayed Toman prices, loading/empty/error states, local product photography, and no customer-facing preparation timing, ordering, or payment flow. The root route redirects to `/menu`; typecheck, focused tests, production build, and representative mobile/desktop browser rendering were verified during the completed stage.
 
@@ -116,7 +116,12 @@ Exit gate:
 
 ### Stage 5 — Shared POS Foundation
 
-- Add the minimal waiter-call backend increment: ordered physical-table records, hashed table QR credentials, explicit `AVAILABLE`/`OCCUPIED` state, QR-scan occupancy reminders, one pending call per eligible occupied table, common table-opening acknowledgement/resolution, events, constraints, and tests.
+- Add the minimal waiter-call backend increment: ordered physical-table records,
+  hash-only eligible-table QR provisioning/rotation and print artifacts, one
+  public `/menu` with 12-hour table context, explicit `AVAILABLE`/`OCCUPIED`
+  state, QR-scan reminders, prior-occupancy invalidation, one pending call per
+  eligible occupied table, common table-opening resolution, refetch behavior,
+  constraints, safe logs, and tests.
 - Preserve the existing discount boundary: Staff and Manager may apply reasoned item/order discounts, while only Manager may configure catalog product sale discounts.
 - Add `apps/pos` as a sibling of the existing public-menu `apps/web` package, then create one Next.js POS application shell, route groups, layouts, shared UI primitives, environment configuration, and typed API client used by both Staff and Manager accounts.
 - Build order channel selection, product/options entry, notes, totals, and controlled `OPEN` order edits, including adding items after partial payment without rewriting settled quantities.
