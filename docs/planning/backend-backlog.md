@@ -12,7 +12,10 @@ waiter-call increment.
 Current verification:
 
 - `pnpm typecheck` passes.
-- `pnpm --filter @cafe/api test` passes against the current local PostgreSQL connection.
+- `pnpm --filter @cafe/api test:database` passes: all six migrations pass
+  fresh/repeat deploy, existing-data upgrade, invalid-data atomic rollback,
+  exact seed, and clean backup/restore rehearsals; the real-PostgreSQL API suite
+  passes 12 files and 52 tests.
 - `pnpm lint` errors are ignored by project rule in `AGENTS.md`.
 - Stage 2 authentication is implemented and verified: unique Staff/Manager
   usernames, signed access sessions, rotating hashed refresh sessions,
@@ -303,9 +306,15 @@ Acceptance criteria:
   `11`, `12`. Enable waiter-calls only for `1`, `2`, `3`, `4`, `5`, `6`,
   `جگوار`, `7`, `8`, `9`, and `10`.
 - A table has a rotatable opaque QR credential whose usable value is never
-  stored or logged in plaintext. An eligible-table QR scan while the dashboard
+  stored in PostgreSQL or server logs. The operations command provisions one
+  table or all eligible tables, emits SVG/HTML/JSON print artifacts outside
+  version control, refuses implicit replacement, and rotates only explicitly.
+  An eligible-table QR scan while the dashboard
   still shows `AVAILABLE` creates a non-blocking occupancy reminder; it does
   not mark the table occupied or identify the customer.
+- `/menu` remains the only catalog. `/t/:token` establishes a signed HttpOnly
+  context for at most 12 hours and redirects there; generic visits have no call
+  control, and table clearing or credential rotation invalidates old contexts.
 - Staff and Manager have equal authority to mark a table `OCCUPIED` or
   `AVAILABLE`. Only an eligible occupied table may submit a waiter-call; the
   public command creates or returns that table's one pending call and grants no
@@ -316,8 +325,9 @@ Acceptance criteria:
   actor is stored.
 - Database constraints prevent more than one pending waiter-call per table, and
   integration tests cover table eligibility, scan-before-occupancy reminder,
-  duplicate taps, invalid/rotated credentials, occupied-table validation,
-  table-opening conflicts, reconnect/refetch, and event emission.
+  duplicate taps, invalid/rotated/expired/prior-occupancy contexts,
+  occupied-table validation, table-opening conflicts, reconnect/refetch,
+  plaintext-token exclusion, rate limits, and print artifact mapping.
 - Product sale-discount configuration is Manager-only in routes and services.
   Staff and Manager may apply reasoned item/order discounts while permitted by
   settlement state, and Staff retains settlement and individual-receipt access.
@@ -339,8 +349,9 @@ Acceptance criteria:
   preparation deadlines remain private to authenticated POS workflows.
 - Public menu endpoints expose no cart submission, order creation, payment,
   tracking, session, or Staff-only metadata. The separately documented
-  waiter-call command accepts a table-scoped credential that grants only that
-  single capability and no order authority.
+  waiter-call command derives authority from a signed HttpOnly table-context
+  cookie established by `/t/:token`; it grants only that single capability and
+  no order authority.
 - Search/filter behavior is explicitly schema-validated and documented.
 - Inactive, archived, or unavailable items follow the documented public
   visibility rules.
@@ -461,10 +472,13 @@ Exit gate:
 
 Left for the revised shared-POS baseline:
 
-- Add table QR credentials plus QR-scan occupancy reminders and one pending
-  waiter-call for each eligible occupied table. Opening its highlighted card
-  acknowledges and resolves the call together; add the required realtime/refetch
-  behavior, constraints, OpenAPI contracts, and integration tests.
+- Table QR credential and waiter-call persistence, partial uniqueness, lifecycle
+  constraints, physical-table seed data, and direct database rejection tests are
+  complete. Credential provisioning/rotation, QR-scan reminders, signed
+  table-context exchange, eligible-occupied-table submission, table-opening
+  resolution, refetch behavior, OpenAPI contracts, and service/API integration
+  tests are implemented and the full local database/API gate is green; evidence
+  is tracked in `docs/current-left.md`.
 
 Exit gate:
 
