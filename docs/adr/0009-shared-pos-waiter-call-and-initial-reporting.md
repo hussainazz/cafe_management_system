@@ -33,6 +33,14 @@ introducing broad historical aggregation before real usage is measured.
   hashed, rotatable QR credential grants waiter-call submission only for an
   eligible table that Staff or Manager has marked occupied. It grants no order,
   payment, receipt, tracking, or catalog authority.
+- Keep one public menu at `/menu`. Eligible-table printouts use `/t/:token` to
+  exchange the printed credential for a signed, HttpOnly 12-hour table-context
+  cookie and then redirect to that same menu; they never select different menu
+  content. Generic `/menu` visits have no waiter-call authority.
+- Provision only tables `1` through `10` and `جگوار` through the operations
+  command. PostgreSQL stores only the token hash and table relation; printable
+  SVG/HTML and the plaintext URL manifest are generated once outside version
+  control. Rotation is explicit and immediately invalidates the old printout.
 - The dashboard uses `AVAILABLE` and `OCCUPIED` table states. An eligible-table
   QR scan while available produces a non-blocking occupancy reminder; it never
   marks the table occupied automatically. A customer call creates the table's
@@ -51,6 +59,10 @@ introducing broad historical aggregation before real usage is measured.
   waiter-call are the only approved anonymous writes in the initial scope. Their
   controls are the opaque table credential, eligible-and-occupied-table
   validation for calls, and the one-pending-call rule.
+- A copied physical QR is expected to be visible to guests but remains a
+  narrowly scoped bearer capability. Hash-only storage, redacted logs,
+  rate-limits, occupied-table validation, explicit rotation, 12-hour expiry,
+  and invalidation whenever a table is made available limit reuse.
 - Stage 5 includes a small backend migration/API increment before its shared POS
   interface can pass the exit gate.
 - Product sale-discount configuration remains Manager-only, while reasoned
