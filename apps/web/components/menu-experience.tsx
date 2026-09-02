@@ -29,6 +29,15 @@ import {
 type MenuExperienceProps = {
   initialMenu: PublicMenu | null;
   initialRequestFailed: boolean;
+  invalidTableContext: boolean;
+};
+
+type PublicTableContext = {
+  active: boolean;
+  tableName: string | null;
+  occupancyState: "AVAILABLE" | "OCCUPIED" | null;
+  waiterCallStatus: "PENDING" | null;
+  canCallWaiter: boolean;
 };
 
 const copy = {
@@ -54,6 +63,14 @@ const copy = {
     retry: "تلاش دوباره",
     close: "بستن",
     footer: "قهوه خوب، نور گرم، گفت‌وگوی طولانی.",
+    invalidQrTitle: "این کد میز دیگر معتبر نیست",
+    invalidQrBody: "منو همچنان در دسترس است؛ برای تعویض کد میز با همکاران کافه صحبت کنید.",
+    tableContext: "میز",
+    scanReminder: "اسکن میز ثبت شد؛ همکاران کافه مطلع می‌شوند.",
+    callWaiter: "درخواست گارسون",
+    callingWaiter: "در حال ارسال…",
+    waiterCalled: "درخواست شما ارسال شد",
+    waiterCallError: "ارسال درخواست ممکن نشد؛ کمی بعد دوباره امتحان کنید.",
   },
   en: {
     menu: "Menu",
@@ -77,6 +94,14 @@ const copy = {
     retry: "Try again",
     close: "Close",
     footer: "Good coffee, warm light, long conversations.",
+    invalidQrTitle: "This table QR is no longer valid",
+    invalidQrBody: "The menu is still available. Please ask café staff to replace the table QR.",
+    tableContext: "Table",
+    scanReminder: "The table scan was recorded and café staff will be notified.",
+    callWaiter: "Call a waiter",
+    callingWaiter: "Sending…",
+    waiterCalled: "Your request was sent",
+    waiterCallError: "The request could not be sent. Please try again shortly.",
   },
 } as const;
 
@@ -100,7 +125,7 @@ function CategoryMark({
 
 function ProductVisual({ product, category }: { product: MenuProduct; category: MenuCategory }) {
   const [imageIndex, setImageIndex] = useState(0);
-  const localPictureUrl = localProductPictureUrl(product);
+  const localPictureUrl = localProductPictureUrl(product, category);
   const imageSources = [
     localPictureUrl,
     product.image ? productImageUrl(product.image.storageKey) : null,
@@ -350,10 +375,13 @@ function LoadingMenu() {
   );
 }
 
-export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperienceProps) {
+export function MenuExperience({ initialMenu, initialRequestFailed, invalidTableContext }: MenuExperienceProps) {
   const [menu, setMenu] = useState(initialMenu);
   const [requestFailed, setRequestFailed] = useState(initialRequestFailed);
   const [retrying, setRetrying] = useState(false);
+  const [tableContext, setTableContext] = useState<PublicTableContext | null>(null);
+  const [callingWaiter, setCallingWaiter] = useState(false);
+  const [waiterCallFailed, setWaiterCallFailed] = useState(false);
   const language: Language = "fa";
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -435,6 +463,29 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
     },
     [],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    const refreshContext = async () => {
+      try {
+        const response = await fetch("/api/table-context", { cache: "no-store" });
+        if (!response.ok) return;
+        const body = (await response.json()) as { data: PublicTableContext };
+        if (!cancelled) setTableContext(body.data);
+        if (!cancelled && body.data.active) {
+          timer = window.setTimeout(refreshContext, 15_000);
+        }
+      } catch {
+        // The public menu remains fully usable when table context cannot be refreshed.
+      }
+    };
+    void refreshContext();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedCategory) return;
@@ -545,6 +596,20 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
     });
   }
 
+  async function callWaiter() {
+    setCallingWaiter(true);
+    setWaiterCallFailed(false);
+    try {
+      const response = await fetch("/api/waiter-call", { method: "POST" });
+      if (!response.ok) throw new Error("Waiter-call request failed");
+      setTableContext((current) => current ? { ...current, waiterCallStatus: "PENDING" } : current);
+    } catch {
+      setWaiterCallFailed(true);
+    } finally {
+      setCallingWaiter(false);
+    }
+  }
+
   if (!menu && !requestFailed) return <LoadingMenu />;
 
   if (!menu) {
@@ -586,6 +651,36 @@ export function MenuExperience({ initialMenu, initialRequestFailed }: MenuExperi
             <h1>{text.heroTitle}</h1>
           </div>
         </section>
+
+        {invalidTableContext ? (
+          <section className="table-context-banner table-context-banner--warning" role="status">
+            <strong>{text.invalidQrTitle}</strong>
+            <p>{text.invalidQrBody}</p>
+          </section>
+        ) : null}
+
+        {tableContext?.active ? (
+          <section className="table-context-banner" aria-live="polite">
+            <div>
+              <strong>{text.tableContext} {tableContext.tableName}</strong>
+              {tableContext.occupancyState === "AVAILABLE" ? <p>{text.scanReminder}</p> : null}
+              {waiterCallFailed ? <p className="table-context-error">{text.waiterCallError}</p> : null}
+            </div>
+            {tableContext.canCallWaiter ? (
+              <button
+                type="button"
+                disabled={callingWaiter || tableContext.waiterCallStatus === "PENDING"}
+                onClick={() => void callWaiter()}
+              >
+                {tableContext.waiterCallStatus === "PENDING"
+                  ? text.waiterCalled
+                  : callingWaiter
+                    ? text.callingWaiter
+                    : text.callWaiter}
+              </button>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="menu-toolbar" aria-label={text.categories}>
           <label className="search-box">
