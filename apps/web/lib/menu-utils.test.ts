@@ -82,7 +82,7 @@ describe("menu utilities", () => {
 
   it("maps supplied local pictures only to their matching menu products", () => {
     expect(localProductPictureUrl({ name: "آمریکانو سینگل" })).toBe(
-      "/items_pictures/americano.webp",
+      "/items_pictures/americano-single.webp",
     );
     expect(localProductPictureUrl({ name: "آیس آمریکانو دبل" })).toBe(
       "/items_pictures/ice americano.webp",
@@ -92,19 +92,32 @@ describe("menu utilities", () => {
       "/items_pictures/ice latte.webp",
     );
     expect(localProductPictureUrl({ name: "آیس کارامل ماکیاتو" })).toBe(
-      "/items_pictures/ice carammel.webp",
+      "/items_pictures/ice-caramel.webp",
     );
     expect(localProductPictureUrl({ name: "کارامل ماکیاتو" })).toBe(
-      "/items_pictures/لته_.webp",
+      "/items_pictures/white-espresso.webp",
     );
+    expect(localProductPictureUrl({ name: "آیس اورنج" })).toBeNull();
     expect(localProductPictureUrl({ name: "چای هل و زغفران" })).toBe(
       "/items_pictures/چای.webp",
     );
-    expect(localProductPictureUrl({ name: "چای ماسالا" })).toBeNull();
+    expect(localProductPictureUrl({ name: "چای ماسالا" })).toBe(
+      "/items_pictures/masala.webp",
+    );
     expect(localProductPictureUrl({ name: "ماچا لته" })).toBeNull();
     expect(localProductPictureUrl({ name: "کروسان ویژه" })).toBeNull();
     expect(localProductPictureUrl({ name: "دمنوش بابونه" })).toBe(
       "/items_pictures/دمنوش_بابونه.webp",
     );
+    expect(localProductPictureUrl({ name: "Aeropress" })).toBe(
+      "/items_pictures/aeropress.webp",
+    );
+    expect(localProductPictureUrl({ name: "تست ژامبون" })).toBe(
+      "/items_pictures/ham-toast.webp",
+    );
+    expect(localProductPictureUrl({ name: "نسکافه" }, { name: "بار گرم قهوه" })).toBe(
+      "/items_pictures/nescafe.webp",
+    );
+    expect(localProductPictureUrl({ name: "نسکافه" }, { name: "شیک" })).toBeNull();
   });
 });
