@@ -108,7 +108,7 @@ history by default.
   - `revokedAt IS NULL OR revokedAt >= createdAt`.
 - Indexes:
   - `userId`.
-  - Add `tokenHash` uniqueness if session lookup uses the stored hash directly.
+  - Unique `tokenHash`, because refresh rotation resolves the stored hash directly.
 
 ### `auth_events`
 
@@ -143,6 +143,8 @@ history by default.
 - Checks:
   - `name` is not an empty string.
   - `priceAmount >= 0`.
+  - A fixed product sale discount is greater than zero and cannot exceed
+    `priceAmount`; a percentage sale discount is between 1 and 100.
   - `preparationDeadlineMinutes > 0`.
   - `displayOrder >= 0`.
   - `archivedAt IS NULL OR isActive = false`.
@@ -191,7 +193,8 @@ history by default.
 - Primary key: `id`.
 - Required: `name`, `seatingLimitMinutes`, `displayOrder`, `isActive`,
   `waiterCallEnabled`, `occupancyState`.
-- Optional: `archivedAt`, `occupiedAt`, `occupancyReminderAt`.
+- Optional: `archivedAt`, `occupiedAt`, `occupancyReminderAt`,
+  `tableContextInvalidBefore`.
 - Checks:
   - `name` is not an empty string.
   - `seatingLimitMinutes > 0`.
@@ -202,6 +205,8 @@ history by default.
   - `occupancyState = 'AVAILABLE'` requires `occupiedAt IS NULL`.
   - `waiterCallEnabled = false` tables never accept QR scan reminders or
     waiter-call submissions.
+  - A table-context cookie issued at or before `tableContextInvalidBefore` is
+    rejected. Marking a table available advances this timestamp.
 - Indexes:
   - `(isActive, displayOrder)`.
   - `(waiterCallEnabled, occupancyState)` for dashboard reminder and call
@@ -268,6 +273,8 @@ history by default.
   - `discountKind IS NULL` iff `discountValue IS NULL`.
   - When `discountKind = 'PERCENTAGE'`, `discountValue BETWEEN 1 AND 100`.
   - When `discountKind = 'FIXED'`, `discountValue > 0`.
+  - A fixed order discount cannot exceed `subtotalAmount`, and every order
+    discount has a non-empty `discountReason`.
   - `discountAmount <= subtotalAmount`.
   - `totalAmount = subtotalAmount - discountAmount`.
   - `paidAmount <= totalAmount`.
@@ -294,7 +301,7 @@ history by default.
 - Required: `orderId`, `productId`, `productNameSnapshot`,
   `basePriceSnapshot`, `preparationDeadlineSnapshotMinutes`, `quantity`,
   `discountAmount`, `lineTotalAmount`, `displayOrder`.
-- Optional: `note`.
+- Optional: `note`, `discountKind`, `discountValue`, `discountReason`.
 - Checks:
   - `productNameSnapshot` is not an empty string.
   - `basePriceSnapshot >= 0`.
@@ -303,6 +310,10 @@ history by default.
   - `discountAmount >= 0`.
   - `lineTotalAmount >= 0`.
   - `displayOrder >= 0`.
+  - `discountKind` and `discountValue` are both null or both valid; a stored
+    `discountReason`, when present, is not blank. Catalog sale-discount
+    snapshots legitimately have no item-level reason, while the application
+    requires a reason for Staff/Manager item-discount commands.
 - Indexes:
   - `(orderId, displayOrder)`.
   - `productId`.
@@ -348,7 +359,7 @@ history by default.
 - Optional: `reference`.
 - Checks:
   - `amount > 0`.
-  - `method = 'CARD_TRANSFER'` allows `reference` to be null or a non-empty string.
+  - `method = 'CARD_TRANSFER'` allows `reference` to be null or a non-blank string.
   - `method = 'CARD_TERMINAL'` requires `reference IS NULL`.
   - `method = 'CASH'` requires `reference IS NULL`.
 - Indexes:
@@ -455,6 +466,9 @@ tableSeatingLimitSnapshotMinutes + estimatedPreparationMinutes`.
 - Waiter-call submission resolves the hashed credential and creates or returns
   the eligible occupied table's existing pending call atomically. The raw
   credential is never persisted in a waiter-call or audit row.
+- Provisioning and rotation leave exactly one active credential per eligible
+  table. Rotation deactivates the prior credential and advances the table
+  context invalidation timestamp in one transaction.
 - Opening a highlighted table uses compare-and-swap on `WaiterCall.version` to
   write the acknowledgement and resolution timestamps together and change the
   call to `RESOLVED`. Resolved waiter-calls are retained as operational history;
