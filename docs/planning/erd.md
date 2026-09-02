@@ -102,6 +102,7 @@ erDiagram
         enum occupancyState
         datetime occupiedAt
         datetime occupancyReminderAt
+        datetime tableContextInvalidBefore
         datetime archivedAt
     }
 
@@ -400,6 +401,7 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 | `occupancyState`      | Shared dashboard state: `AVAILABLE` or explicitly staff/Manager-marked `OCCUPIED`.                                                                  |
 | `occupiedAt`          | When the current occupancy began; empty while available.                                                                                            |
 | `occupancyReminderAt` | Most recent eligible-table QR scan made while the table was still available; cleared when staff marks it occupied.                                  |
+| `tableContextInvalidBefore` | Context cookies issued at or before this time belong to an earlier table occupancy and are rejected.                                         |
 | `archivedAt`          | When the table was retired while keeping its historical orders.                                                                                     |
 
 #### TableQrCredential
