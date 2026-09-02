@@ -27,7 +27,7 @@ Product goals:
 v1 success criteria:
 
 - A Staff user can create a table or takeaway order, print a concise bar ticket for preparation, settle selected items with cash, card-terminal, or card-to-card transfer tenders, print a detailed customer receipt, and logically delete an order when required.
-- A customer can scan a table-specific QR code, browse the current menu on a phone, and send a waiter-call for that table. They cannot create, submit, pay for, or track an order in v1.
+- A customer can browse the one public menu at `/menu`. Scanning an eligible-table QR establishes temporary table context, redirects to that same menu, and permits only a waiter-call for that table. They cannot create, submit, pay for, or track an order in v1.
 - A product-price change never changes the price on a historical order or receipt.
 - A retry cannot create duplicate orders, settlements, or tender records.
 - Two simultaneous POS edits do not silently overwrite each other.
@@ -214,11 +214,19 @@ Table timing rules:
 Waiter-call rules:
 
 - The initial physical-table order is: `1`, `2`, `3`, `4`, `کانتر وسط`, `5`, `6`, `جگوار`, `7`, `8`, `سوشال`, `سوشال سوشال`, `9`, `10`, `11`, `12`. Only numeric tables `1` through `10`, plus `جگوار`, may receive waiter-calls: `1`, `2`, `3`, `4`, `5`, `6`, `جگوار`, `7`, `8`, `9`, `10`. `کانتر وسط`, `سوشال`, `سوشال سوشال`, `11`, and `12` never expose a waiter-call action.
+- The public catalog is always the same `/menu`. Eligible-table QRs point to
+  `/t/:token`, which establishes a signed, HttpOnly table context for at most
+  12 hours and redirects to `/menu`; noneligible locations may display the
+  generic menu QR without a waiter-call action.
 - A table has the operational states `AVAILABLE` and `OCCUPIED`. Staff and Manager have the same authority to mark either state; the system does not assign acknowledgement or resolution to a particular person.
 - When a customer scans an eligible table QR while that table is `AVAILABLE`, the dashboard receives a non-blocking occupancy reminder. The scan does not create an order, change the table to occupied, or expose any customer identity. Staff or Manager must explicitly mark the table `OCCUPIED`.
 - A waiter-call may be submitted only from an eligible, occupied table. Submission creates or returns that table's one `PENDING` call and highlights the table in the shared POS dashboard. This is the customer's terminal state: the customer sees only that the request was sent.
 - Opening/clicking the highlighted table in the shared POS acknowledges and resolves the pending call in one staff action, returns the table card to its normal `OCCUPIED` state, and retains the call as history. The acknowledgement/resolution records timestamps but no responsible-user foreign keys.
-- The opaque QR credential is stored only as a hash and is never logged. Repeated taps are deduplicated by the one-pending-call database rule.
+- The opaque QR credential is stored only as a hash and is never emitted by API,
+  audit, application, or proxy logs. The provisioning command intentionally
+  writes the usable URL and print artifacts outside version control. Rotation
+  is explicit; marking a table `AVAILABLE` invalidates contexts from its prior
+  occupancy, and repeated taps are deduplicated by the one-pending-call rule.
 
 ## Application Architecture
 
@@ -290,7 +298,10 @@ Authentication, authorization, and security:
 - Bootstrap the first Manager as a one-time deployment procedure, never as a permanent public registration route.
 - Enforce Manager-only product sale-discount configuration, catalog, payment-history, user, settings, reporting, and full-audit operations server-side. Staff and Manager may apply reasoned item/order discounts through the shared POS while settlement rules permit them. Hiding panels in the shared POS is not sufficient authorization.
 - Require HTTPS, security headers, least-privilege database credentials, secret management, request-size limits, rate-limited login, and safe logging.
-- Normal QR-menu browsing is public and read-only. A table QR credential grants only the narrowly scoped QR-scan reminder and eligible-occupied-table waiter-call capabilities; it never grants order, receipt, or payment authority.
+- Normal `/menu` browsing is public and read-only. A table QR exchanges once
+  for a signed 12-hour HttpOnly context cookie, which grants only the narrowly
+  scoped scan reminder and eligible-occupied-table waiter-call capabilities;
+  it never grants order, receipt, payment, tracking, or customer identity.
 - Uploaded images are type-checked, size-limited, renamed, and never executed.
 
 Reporting and audit:
