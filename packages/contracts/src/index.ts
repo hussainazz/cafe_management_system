@@ -518,6 +518,55 @@ export const PublicProductResponseSchema = z.object({
   meta: z.object({ requestId: z.string() }),
 });
 
+export const TableContextExchangeRequestSchema = z
+  .object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
+  .strict();
+export type TableContextExchangeRequest = z.infer<typeof TableContextExchangeRequestSchema>;
+
+export const PublicTableContextSchema = z.object({
+  active: z.boolean(),
+  tableName: z.string().nullable(),
+  occupancyState: z.enum(["AVAILABLE", "OCCUPIED"]).nullable(),
+  waiterCallStatus: z.enum(["PENDING"]).nullable(),
+  canCallWaiter: z.boolean(),
+});
+
+export const PublicTableContextResponseSchema = z.object({
+  data: PublicTableContextSchema,
+  meta: z.object({ requestId: z.string() }),
+});
+
+export const PublicWaiterCallResponseSchema = z.object({
+  data: z.object({
+    status: z.literal("PENDING"),
+    tableName: z.string(),
+    requestedAt: z.iso.datetime(),
+  }),
+  meta: z.object({ requestId: z.string() }),
+});
+
+export const TableOccupancyRequestSchema = z.object({}).strict();
+
+export const AcknowledgeWaiterCallRequestSchema = z
+  .object({ expectedVersion: z.number().int().positive() })
+  .strict();
+export type AcknowledgeWaiterCallRequest = z.infer<
+  typeof AcknowledgeWaiterCallRequestSchema
+>;
+
+export const ActiveWaiterCallSchema = z.object({
+  id: z.uuid(),
+  tableId: z.uuid(),
+  tableName: z.string(),
+  version: z.number().int().positive(),
+  requestedAt: z.iso.datetime(),
+});
+
+export const ActiveWaiterCallsResponseSchema = z.object({
+  data: z.object({ calls: z.array(ActiveWaiterCallSchema) }),
+  meta: z.object({ requestId: z.string() }),
+});
+
 export type TableEtaInput = {
   seatedAt: Date;
   seatingLimitMinutes: number;
