@@ -5,8 +5,9 @@ This document tracks backend work extracted from the roadmap. Product and busine
 ## Current Backend Status
 
 Stages 0 through 3 of the original backend baseline are complete. The
-reprioritized QR-menu frontend Stage 4 is also complete, so the shared POS
-foundation is next. Before its exit gate, the backend needs the newly approved
+reprioritized QR-menu frontend Stage 4 is also complete. Public-menu deployment
+Stages 5 and 6 were brought forward for the deadline; the shared POS foundation
+is now Stage 7. Before its exit gate, the backend needs the newly approved
 waiter-call increment.
 
 Current verification:
@@ -327,7 +328,7 @@ Acceptance criteria:
   integration tests cover table eligibility, scan-before-occupancy reminder,
   duplicate taps, invalid/rotated/expired/prior-occupancy contexts,
   occupied-table validation, table-opening conflicts, reconnect/refetch,
-  plaintext-token exclusion, rate limits, and print artifact mapping.
+  plaintext-token exclusion, and print artifact mapping.
 - Product sale-discount configuration is Manager-only in routes and services.
   Staff and Manager may apply reasoned item/order discounts while permitted by
   settlement state, and Staff retains settlement and individual-receipt access.
@@ -368,7 +369,7 @@ Acceptance criteria:
   item behavior, and final Toman price representation.
 - Anonymous access works without cookies or Staff session state.
 
-### P3 - Stage 6 Manager Capability Backend
+### P3 - Stage 8 Manager Capability Backend
 
 #### P3.1 Manager Catalog, Staff, And Settings APIs
 
@@ -408,11 +409,11 @@ Acceptance criteria:
 - Fixed fixtures prove report totals, payment breakdowns, reversals, and deleted
   order handling.
 
-### P4 - Stage 8 Backend Stabilization
+### P4 - Stage 10 Backend Stabilization
 
 #### P4.1 Contract, Security, Migration, And Performance Hardening
 
-Complete backend hardening needed before deployment preparation.
+Complete backend hardening needed before the shared POS pilot.
 
 Acceptance criteria:
 
@@ -487,7 +488,7 @@ Exit gate:
 ## Stage 3 Backlog — QR-Menu Backend
 
 - Implement public read-only category, product, priced option, availability, image metadata, and final Toman price endpoints for the QR menu; keep product preparation deadlines in authenticated POS workflows.
-- Ensure QR-menu browse endpoints expose no cart submission, order creation, payment, tracking, table-management authority, or Staff-only metadata. The Stage 5 waiter-call command is a separate, narrowly scoped exception.
+- Ensure QR-menu browse endpoints expose no cart submission, order creation, payment, tracking, table-management authority, or Staff-only metadata. The Stage 7 waiter-call command is a separate, narrowly scoped exception.
 - Add response schemas and OpenAPI coverage for the public menu API.
 - Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.
 
@@ -495,7 +496,7 @@ Exit gate:
 
 - Customers can browse the complete current menu through public API calls, with no order-submission capability.
 
-## Stage 6 Backlog — Manager Capability Backend
+## Stage 8 Backlog — Manager Capability Backend
 
 - Implement complete Manager-only catalog, product option, image, price, product preparation-deadline, table seating-limit, availability, display-order, Staff account, and settings APIs.
 - Implement Manager-only cursor-paginated payment history while retaining Staff access to individual POS receipts.
@@ -510,7 +511,7 @@ Exit gate:
 
 - Manager capability APIs are documented, permissioned, tested, and bounded; Staff cannot browse payment history or reports, and older financial history remains retained.
 
-## Stage 8 Backlog — Backend Stabilization For Full-System Hardening
+## Stage 10 Backlog — Backend Stabilization For Full-System Hardening
 
 Full-system hardening may pass only when:
 
