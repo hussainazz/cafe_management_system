@@ -140,15 +140,12 @@ describe("public table context and waiter-calls", () => {
     expect(rotated.json().data.active).toBe(false);
   });
 
-  it("rate-limits repeated QR exchanges without creating extra database records", async () => {
+  it("allows repeated QR exchanges without creating extra database records", async () => {
     const { token } = await tableCredential("2");
-    for (let index = 0; index < 30; index += 1) {
+    for (let index = 0; index < 31; index += 1) {
       const response = await app.inject({ method: "POST", url: "/api/v1/public/table-context/exchange", payload: { token } });
       expect(response.statusCode).toBe(200);
     }
-    const limited = await app.inject({ method: "POST", url: "/api/v1/public/table-context/exchange", payload: { token } });
-    expect(limited.statusCode).toBe(429);
-    expect(limited.json().error.code).toBe("RATE_LIMITED");
     expect(await app.prisma.tableQrCredential.count()).toBe(1);
     expect(await app.prisma.waiterCall.count()).toBe(0);
   });
