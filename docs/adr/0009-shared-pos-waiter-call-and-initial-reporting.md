@@ -61,9 +61,9 @@ introducing broad historical aggregation before real usage is measured.
   validation for calls, and the one-pending-call rule.
 - A copied physical QR is expected to be visible to guests but remains a
   narrowly scoped bearer capability. Hash-only storage, redacted logs,
-  rate-limits, occupied-table validation, explicit rotation, 12-hour expiry,
+  occupied-table validation, explicit rotation, 12-hour expiry,
   and invalidation whenever a table is made available limit reuse.
-- Stage 5 includes a small backend migration/API increment before its shared POS
+- Stage 7 includes a small backend migration/API increment before its shared POS
   interface can pass the exit gate.
 - Product sale-discount configuration remains Manager-only, while reasoned
   item/order discount application remains part of the shared Staff/Manager POS
