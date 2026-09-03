@@ -12,20 +12,30 @@ deadline approved on 21 August 2026:
 2. Build the backend required for Staff POS operation.
 3. Build the backend required for the browse-only QR menu.
 4. Build the browse-only QR-menu frontend.
-5. Build the first shared POS frontend for Staff and Manager operational work, including waiter-call, with the small backend increment it requires.
-6. Complete deployment hardening, including Iranian VPS deployment and any CDN decision, last.
+5. Prepare the public-menu production release, recovery procedure, and
+   production configuration.
+6. Deploy and pilot the browse-only public menu on the Iranian VPS, then use
+   production measurements to decide whether an Iranian CDN is needed.
+7. Build the first shared POS frontend for Staff and Manager operational work,
+   including waiter-call, with the small backend increment it requires.
+8. Add Manager capability backend work and role-gated panels inside that shared
+   POS.
+9. Complete full-system hardening and the POS pilot after the POS exists.
 
 Manager accounting/catalog panels and expanded administration work must not block the first shared POS release. Manager and Staff are role levels inside one POS application, not separate applications; shared table/order/payment behavior must not be duplicated. UX research, wireframes, and design assets may be prepared earlier, but they must not drive unfinished backend rules or create a second source of business logic.
 
 ## Current Stage Status
 
-Stages 0 through 4 are complete. Stage 5 (shared POS foundation) is next.
+Stages 0 through 4 are complete. Stages 5 and 6 were deliberately brought
+forward for the public-menu release deadline; the menu release is live, with
+its limited browse-only pilot evidence still being collected. Stage 7 (shared
+POS foundation) is the next development stage.
 
-Current implementation status as of 2 September 2026:
+Current implementation status as of 3 September 2026:
 
 - **Stage 0 — Scope and domain baseline:** complete and amended by ADR 0009. `scope.md` defines the main v1 scope, non-goals, roles, lifecycle/payment states, business rules, architecture direction, and production gates. ADR files exist for the fixed major decisions, including settlement allocation and the shared POS/waiter-call/reporting boundary; the ERD is documented; `api-inventory.md` maps the approved v1 HTTP and realtime contract surface; `database-constraints.md` explicitly lists the planned database constraints; `request-response-conventions.md` defines shared application envelopes, errors, pagination, idempotency, and concurrency; and `backend-backlog.md` converts the approved scope into a prioritized backend backlog with acceptance criteria.
 - **Stage 1 — Database and backend foundation:** complete. The database schema and reviewed migrations, first-Manager bootstrap, isolated test-database workflow, structured error envelope, Zod-derived OpenAPI contract, Docker Compose PostgreSQL baseline, liveness/readiness routes, and graceful shutdown are implemented. The fresh-environment rehearsal on 13 August 2026 applied both migrations to a new database, created exactly one Manager, rejected a repeat bootstrap, returned healthy liveness/readiness responses, and passed typecheck and the API test suite.
-- **Stage 2 — POS backend core:** complete under its original baseline. The order/payment/receipt workflow, including Staff/Manager reasoned item/order discounts and Manager-only product sale-discount configuration, is covered through authenticated API calls against real PostgreSQL. The Stage 5 table-context/waiter-call prerequisite increment is now implemented and locally verified; the shared `apps/pos` interface remains next.
+- **Stage 2 — POS backend core:** complete under its original baseline. The order/payment/receipt workflow, including Staff/Manager reasoned item/order discounts and Manager-only product sale-discount configuration, is covered through authenticated API calls against real PostgreSQL. The Stage 7 table-context/waiter-call prerequisite increment is now implemented and locally verified; the shared `apps/pos` interface remains next.
 - **Stage 3 — QR-menu backend:** complete. Anonymous browse-only menu and product-detail APIs expose only customer-facing catalog data, final Toman prices, availability, priced options, and images; preparation deadlines remain private to POS workflows. Search/filter, response safety, and anonymous behavior are covered by integration tests.
 - **Stage 4 — QR-menu frontend:** complete. The Persian RTL, mobile-first public menu renders the Run Cafe catalog through the typed public API with category navigation, search, product details and priced options, current availability, compact displayed Toman prices, loading/empty/error states, local product photography, and no customer-facing preparation timing, ordering, or payment flow. The root route redirects to `/menu`; typecheck, focused tests, production build, and representative mobile/desktop browser rendering were verified during the completed stage.
 
@@ -38,12 +48,12 @@ Current implementation status as of 2 September 2026:
 | 2     | POS backend                     | Staff auth, catalog/table timing data needed by POS, Staff-created orders, split-tender payments, receipts, deletion, and audit                 |
 | 3     | QR-menu backend                 | Public browse-only menu API for categories, products, priced options, availability, images, and final Toman prices                              |
 | 4     | QR-menu frontend                | Mobile-first browse-only public menu with categories, search/filtering, priced product selections, images, and final Toman prices               |
-| 5     | Shared POS foundation           | One Staff/Manager POS shell and table dashboard: basic order/payment/receipt workflows, ordered physical tables, occupancy/reminder flow, and table-scoped waiter-call |
-| 6     | Manager capability backend      | Manager catalog/user/settings, payment history, discounts, audit queries, and today/yesterday daily accounting report                           |
-| 7     | Manager panels in shared POS    | Role-gated catalog, Staff-account, settings, payment-history, audit, and daily-report panels inside the existing POS application                 |
-| 8     | Full-system hardening           | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, and API/frontend stabilization                     |
-| 9     | Deployment preparation          | Production Compose/Caddy-or-Nginx baseline, backup/restore procedures, monitoring, log rotation, release procedure, and manual fallback runbook |
-| 10    | VPS deployment and pilot        | Iranian VPS deployment, HTTPS, production secrets, restore drill, CDN need check after measurement, and limited live pilot                      |
+| 5     | Public-menu deployment preparation | Production web/API release baseline, backup/restore, monitoring, log rotation, release procedure, and public-menu fallback runbook          |
+| 6     | Public-menu VPS deployment and pilot | Iranian VPS public-menu deployment, HTTPS, production secrets, restore drill, CDN measurement, and limited browse-only pilot               |
+| 7     | Shared POS foundation           | One Staff/Manager POS shell and table dashboard: basic order/payment/receipt workflows, ordered physical tables, occupancy/reminder flow, and table-scoped waiter-call |
+| 8     | Manager capability backend      | Manager catalog/user/settings, payment history, discounts, audit queries, and today/yesterday daily accounting report                           |
+| 9     | Manager panels in shared POS    | Role-gated catalog, Staff-account, settings, payment-history, audit, and daily-report panels inside the existing POS application                 |
+| 10    | Full-system hardening and POS pilot | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, POS stabilization, and limited live shift      |
 | Later | Customer ordering               | Customer cart, table selection, Staff confirmation, and protected public order submission                                                       |
 
 ## Stages
@@ -96,7 +106,7 @@ Exit gate:
 ### Stage 3 — QR-Menu Backend
 
 - Implement public read-only category, product, priced option, availability, image metadata, and final Toman price endpoints for the QR menu; keep preparation deadlines in authenticated POS workflows.
-- Ensure QR-menu browse endpoints expose no cart submission, order creation, payment, tracking, table-management authority, or Staff-only metadata. The Stage 5 waiter-call command is a separate, narrowly scoped exception.
+- Ensure QR-menu browse endpoints expose no cart submission, order creation, payment, tracking, table-management authority, or Staff-only metadata. The Stage 7 waiter-call command is a separate, narrowly scoped exception.
 - Add response schemas and OpenAPI coverage for the public menu API.
 - Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.
 
@@ -114,8 +124,40 @@ Exit gate:
 
 - Customers can reliably browse the complete current menu on mobile.
 
-### Stage 5 — Shared POS Foundation
+### Stage 5 — Public-Menu Deployment Preparation
 
+- Create the production web/API release baseline, Caddy-or-Nginx configuration,
+  backup/restore procedure, monitoring targets, log rotation, release procedure,
+  and public-menu manual fallback runbook.
+- Validate public-menu accessibility, supported browsers, QR codes, image sizes,
+  and low-end-phone behavior.
+- Complete restart, rollback/forward-fix, and clean restore drills without
+  downloading required international dependencies.
+
+Exit gate:
+
+- The browse-only menu release is ready to execute on the Iranian VPS with
+  public-menu recovery evidence documented.
+
+### Stage 6 — Public-Menu VPS Deployment And Pilot
+
+- Deploy the browse-only public menu and its supporting API to the Iranian VPS
+  with HTTPS, production secrets, health checks, backups, and log rotation.
+- Check whether the public menu needs an Iranian CDN only after deployment and
+  real measurement. Do not add a CDN by default.
+- Run a limited browse-only menu pilot, record defects, and fix release
+  blockers. This stage does not claim POS/payment pilot readiness.
+
+Exit gate:
+
+- The public menu is live, recoverable, and validated through public browser
+  flows; unresolved POS readiness work remains scheduled after this stage.
+
+### Stage 7 — Shared POS Foundation
+
+- (1) Add `apps/pos` as a sibling of the existing public-menu `apps/web` package, then create one Next.js POS application shell, route groups, layouts, shared UI primitives, environment configuration, and typed API client used by both Staff and Manager accounts.
+- (2) Build order channel selection, product/options entry, notes, totals, and controlled `OPEN` order edits, including adding items after partial payment without rewriting settled quantities.
+- (3) Build one shared table dashboard for both roles with table assignment/transfer, active-table timing, occupancy controls/reminders, highlighted waiter-call cards that resolve when opened, selected-item settlement with mixed tenders, payment-status display, deletion/clear flow, concise bar-ticket printing, and detailed customer-receipt printing for whole orders and settlements.
 - Add the minimal waiter-call backend increment: ordered physical-table records,
   hash-only eligible-table QR provisioning/rotation and print artifacts, one
   public `/menu` with 12-hour table context, explicit `AVAILABLE`/`OCCUPIED`
@@ -123,9 +165,6 @@ Exit gate:
   eligible occupied table, common table-opening resolution, refetch behavior,
   constraints, safe logs, and tests.
 - Preserve the existing discount boundary: Staff and Manager may apply reasoned item/order discounts, while only Manager may configure catalog product sale discounts.
-- Add `apps/pos` as a sibling of the existing public-menu `apps/web` package, then create one Next.js POS application shell, route groups, layouts, shared UI primitives, environment configuration, and typed API client used by both Staff and Manager accounts.
-- Build order channel selection, product/options entry, notes, totals, and controlled `OPEN` order edits, including adding items after partial payment without rewriting settled quantities.
-- Build one shared table dashboard for both roles with table assignment/transfer, active-table timing, occupancy controls/reminders, highlighted waiter-call cards that resolve when opened, selected-item settlement with mixed tenders, payment-status display, deletion/clear flow, concise bar-ticket printing, and detailed customer-receipt printing for whole orders and settlements.
 - Handle idempotent retry results, stale-version conflicts, API failures, connection state, and reconnect refetch.
 - Validate touch targets, keyboard operation, actual café devices, and the real receipt printer/paper size.
 
@@ -133,7 +172,7 @@ Exit gate:
 
 - Staff and Manager can complete the same basic POS operational journeys—including reasoned item/order discounts—through one shared interface, a table waiter-call can be received and resolved, and Staff cannot access Manager-only product sale-discount configuration, accounting, payment-history, catalog, settings, or audit capabilities.
 
-### Stage 6 — Manager Capability Backend
+### Stage 8 — Manager Capability Backend
 
 - Implement complete Manager-only catalog, product option, image, price, availability, display-order, Staff account, and settings APIs.
 - Implement Manager-only cursor-paginated payment history while keeping Staff access to individual order and settlement receipts.
@@ -148,7 +187,7 @@ Exit gate:
 
 - Manager capability APIs are documented, permissioned, tested, and bounded; Staff cannot browse payment history or reports, and data older than yesterday remains retained.
 
-### Stage 7 — Manager Panels In Shared POS
+### Stage 9 — Manager Panels In Shared POS
 
 - Extend the existing POS shell and navigation according to the authenticated role; do not create a separate Manager application or duplicate the table dashboard.
 - Build category, product, option, image, price, product preparation-deadline, table seating-limit, availability, and display-order management.
@@ -160,7 +199,7 @@ Exit gate:
 
 - A Manager can operate all v1 capabilities from role-gated panels inside the shared POS without direct server or database access.
 
-### Stage 8 — Full-System Hardening
+### Stage 10 — Full-System Hardening And POS Pilot
 
 - Run the critical browser E2E suite across public menu, POS, bar-ticket printing, selected-item settlement, mixed tender, card transfer, deletion, customer whole-order/settlement receipts, Manager, and reporting journeys.
 - Complete integration/contract test coverage for authorization, idempotency, concurrency, settlement allocation, reversals, reports, and public-response safety.
@@ -170,28 +209,14 @@ Exit gate:
 
 Exit gate:
 
-- The full system is stable enough to prepare deployment without major behavior or contract changes.
-
-### Stage 9 — Deployment Preparation
-
-- Create the production Docker Compose baseline, Caddy-or-Nginx configuration, backup/restore procedures, monitoring targets, log rotation, release procedure, and manual order fallback runbook.
-- Validate accessibility, supported browsers, café devices, QR codes, image sizes, and busy-hour workflows.
-- Complete restart, rollback/forward-fix, and clean restore drills without downloading required international dependencies.
+- The full system is stable enough for the shared POS pilot without major
+  behavior or contract changes.
+- Run a limited live café shift with the manual internet-failure fallback,
+  reconcile payments, and fix release blockers before declaring the full v1
+  pilot complete.
 
 Exit gate:
 
-- Deployment is ready to execute on the Iranian VPS, with required procedures and recovery evidence documented.
-
-### Stage 10 — VPS Deployment And Pilot
-
-- Deploy the self-hosted stack to the Iranian VPS with HTTPS, production secrets, health checks, monitoring, backups, and log rotation.
-- Check whether the project needs an Iranian CDN only after VPS deployment and real measurement. Do not add a CDN by default.
-- Run a limited live café shift with the manual internet-failure fallback, record defects, reconcile all payments, and fix release blockers.
-
-Exit gate:
-
-- All production readiness gates in `production-gates.md` have evidence and the pilot finishes without an unreconciled financial difference.
-
-### Post-v1 — Customer Ordering
-
-Start this only after v1 is stable in production. Define a new state model and ADR before adding the customer cart, table selection, Staff confirmation, rate limits, idempotency, safe public tokens, and customer-facing failure/retry states.
+- All full-system production readiness gates in `production-gates.md` have
+  evidence and the POS pilot finishes without an unreconciled financial
+  difference.
