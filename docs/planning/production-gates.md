@@ -89,7 +89,32 @@ timeouts before staging completed.
   build ID, internal and public `/menu`, representative rendered image URLs,
   service state, logs, and `NRestarts`.
 
-Deployment is the last major delivery area. Do not spend implementation time on Iranian VPS deployment or CDN evaluation until the database, POS backend, QR-menu backend/frontend, shared Staff/Manager POS, Manager capability work, and full-system hardening are ready enough to measure.
+### Prisma native-engine release rule
+
+This repository can be built on a RHEL-family workstation while the VPS runs
+Debian with OpenSSL 3. A locally generated Prisma client that contains only the
+workstation's `rhel-openssl-3.0.x` engine cannot start on the VPS. This has
+caused more than one failed production activation and is a mandatory release
+check, not an optional optimization.
+
+- Keep `binaryTargets = ["native", "debian-openssl-3.0.x"]` in
+  `apps/api/prisma/schema.prisma`.
+- Run `pnpm --filter @cafe/api prisma:generate` and the API build locally after
+  any Prisma schema/client change.
+- The copied API runtime must include
+  `apps/api/dist/generated/prisma/libquery_engine-debian-openssl-3.0.x.so.node`.
+  Verify that exact file on the VPS before restarting `cafe-api.service`.
+- Deploy the matching `packages/contracts/dist` together with an API build when
+  that API imports newly added contract exports; do not restart an API artifact
+  against an older contracts runtime.
+- Treat the first readiness probe as a startup race only after the systemd log
+  shows the API listening. A Prisma engine or missing-export error is a release
+  failure and requires rollback or a corrected local artifact.
+
+The public-menu artifact release is live for the browse-only menu and its
+supporting API. It does not satisfy the later shared POS, payment, printer,
+Manager, or full-system pilot gates; those remain in the post-deployment
+roadmap stages.
 
 ## Deployment And Operations
 
