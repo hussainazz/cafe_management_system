@@ -4,10 +4,14 @@ This file is the active completion checklist and current stage status for the ba
 
 ## In Progress Stages
 
-- Stage 5 (shared POS foundation) is next. Staff and Manager will use one POS
+- Stages 5 and 6 (public-menu deployment preparation and public-menu VPS
+  deployment/pilot) were deliberately brought forward after the completed
+  QR-menu stages for the release deadline. Its limited browse-only pilot
+  evidence remains in progress; Stage 7 (shared POS foundation) is the next
+  development stage. Staff and Manager will use one POS
   application and one table dashboard; Manager-only capabilities are role-gated
   panels/actions rather than a separate application.
-- Stage 5 preparation completed: the forward migration seeds the requested
+- Stage 7 preparation completed: the forward migration seeds the requested
   16-table layout in display order and the POS table-read contract exposes
   waiter-call eligibility plus availability/occupancy/reminder state.
 - Database readiness gate completed on 2 September 2026: all six migrations
@@ -16,25 +20,29 @@ This file is the active completion checklist and current stage status for the ba
   real-PostgreSQL API suite passes 12 files and 52 tests, including direct
   constraint rejection, simultaneous settlement conflicts, table QR
   provisioning, and table-context/waiter-call coverage.
-- Stage 5 persistence preparation completed: hashed-only table QR credential
+- Stage 7 persistence preparation completed: hashed-only table QR credential
   storage, one-active-credential and one-pending-call partial uniqueness,
   waiter-call lifecycle/version constraints, complete order/payment/catalog/auth
   checks, restrictive history foreign keys, and café-settings singleton
   enforcement are represented in the reviewed schema and forward migration.
-- Stage 5 table-context backend increment completed: explicit provisioning and
+- Stage 7 table-context backend increment completed: explicit provisioning and
   rotation generate private SVG/HTML/JSON artifacts for only tables `1`–`10`
   and `جگوار`; `/t/:token` exchanges a hash-only credential for a signed
   12-hour HttpOnly context and redirects to the one `/menu`; scans record one
   non-blocking reminder without occupying a table; waiter-calls are limited to
   eligible occupied tables and deduplicated; table clearing and rotation
   invalidate old contexts; table opening resolves the pending call. OpenAPI,
-  service/API, provisioning, cookie, rate-limit, invalidation, and public-menu
+  service/API, provisioning, cookie, invalidation, and public-menu
   proxy/UI tests pass. The 390×844 built-menu flow was live-checked against an
   isolated `_test` database with no browser-console errors.
-- Left for the Stage 5 interface: implement the shared basic order, table,
+- Left for the Stage 7 interface: implement the shared basic order, table,
   payment, deletion, receipt, reconnect/conflict, and waiter-call workflows in
   a new sibling `apps/pos` package; keep the existing menu in `apps/web`.
-- Left for Stage 6 after the shared POS foundation: Manager-only payment
+- Stage 7 POS workspace foundation is now present at `apps/pos`: an isolated
+  Next.js application on port 3002 with RTL metadata, same-origin API rewrite,
+  shared frontend-library dependencies, and no premature operational or
+  Manager-only UI. The ordered UI passes remain left.
+- Left for Stage 8 after the shared POS foundation: Manager-only payment
   history, catalog/users/settings/audit APIs, and one daily accounting report
   limited to the current or previous `Asia/Tehran` day. The full historical
   order/payment/audit data must remain retained regardless of this report limit.
@@ -49,6 +57,16 @@ This file is the active completion checklist and current stage status for the ba
   and clean restore, logs/alerts, and the operator/manual-fallback runbook. The
   observed runtime is systemd + Nginx with local-build artifact releases;
   Docker Compose/Caddy remains a target baseline, not the active path.
+- The brought-forward public-menu deployment is live and has local-build
+  artifact, migration, rollback, secret, API/web health, public HTTPS, and
+  rendered-photo verification. It is not evidence that the later shared POS or
+  financial/pilot production gates are complete.
+- VPS artifact-release lesson recorded on 3 September 2026: local Prisma
+  generation must bundle the VPS `debian-openssl-3.0.x` engine as well as the
+  local native engine, and API releases must carry the matching compiled
+  contracts package. The exact pre-restart artifact checks are now mandatory in
+  `docs/planning/production-gates.md`; the release was recovered after both
+  were deployed from local builds.
 
 ## Completed Stages
 
