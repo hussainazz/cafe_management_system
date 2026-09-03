@@ -8,20 +8,6 @@ import {
   tableContextCookieName,
 } from "../../table-context/table-context.js";
 
-const rateWindows = new Map<string, number[]>();
-const rateWindowMilliseconds = 60_000;
-
-function enforceRateLimit(key: string, maximum: number, now = Date.now()): void {
-  const recent = (rateWindows.get(key) ?? []).filter(
-    (timestamp) => timestamp > now - rateWindowMilliseconds,
-  );
-  if (recent.length >= maximum) {
-    throw new ApplicationError(429, ErrorCodes.RATE_LIMITED, "Too many table requests.");
-  }
-  recent.push(now);
-  rateWindows.set(key, recent);
-}
-
 const inactiveContext = {
   active: false,
   tableName: null,
@@ -74,7 +60,6 @@ function contextDto(credential: NonNullable<Awaited<ReturnType<typeof credential
 
 export async function exchangeTableQrToken(prisma: PrismaClient, token: string) {
   const tokenHash = hashTableQrToken(token);
-  enforceRateLimit(`exchange:${tokenHash}`, 30);
   const credential = await prisma.tableQrCredential.findUnique({
     where: { tokenHash },
     include: { table: true },
@@ -129,8 +114,6 @@ export async function createWaiterCall(prisma: PrismaClient, cookieHeader: strin
       "Table context is invalid or expired.",
     );
   }
-  enforceRateLimit(`waiter:${context.credential.id}`, 10);
-
   if (context.credential.table.occupancyState !== "OCCUPIED") {
     throw new ApplicationError(
       409,
