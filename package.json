@@ -3,11 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --parallel --filter @cafe/api --filter @cafe/web dev",
+    "dev": "pnpm --parallel --filter @cafe/api --filter @cafe/web --filter @cafe/pos dev",
     "dev:api": "pnpm --filter @cafe/api dev",
     "dev:web": "pnpm --filter @cafe/web dev",
+    "dev:pos": "pnpm --filter @cafe/pos dev",
     "build": "pnpm -r build",
     "build:web": "pnpm --filter @cafe/web build",
+    "build:pos": "pnpm --filter @cafe/pos build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
@@ -21,6 +23,7 @@
     "db:bootstrap-manager": "pnpm --filter @cafe/api bootstrap:manager",
     "test:api": "pnpm --filter @cafe/api test",
     "test:web": "pnpm --filter @cafe/web test",
+    "test:pos": "pnpm --filter @cafe/pos test",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"
