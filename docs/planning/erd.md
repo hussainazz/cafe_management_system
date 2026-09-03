@@ -3,7 +3,7 @@
 ## Purpose And Status
 
 This is the v1 persistence model. It began as the Stage 1 schema baseline and
-now also records the approved Stage 5 waiter-call addendum. It is not itself a
+now also records the approved Stage 7 waiter-call addendum. It is not itself a
 database migration or an API contract; newly documented entities still require
 a reviewed Prisma migration before implementation.
 
