@@ -1,0 +1,32 @@
+{
+  "name": "@cafe/pos",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0 --port 3002",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0 --port 3002",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cafe/contracts": "workspace:*",
+    "@tanstack/react-query": "^5.90.20",
+    "next": "^16.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-hook-form": "^7.71.1",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@cafe/config": "workspace:*",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "~5.9.0",
+    "vitest": "^4.1.10"
+  }
+}
