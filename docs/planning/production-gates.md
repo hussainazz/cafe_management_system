@@ -67,6 +67,28 @@ part of a frontend release. The intended Docker Compose/Caddy architecture stays
 documented as a hardening target until it is deliberately implemented and
 verified.
 
+### Next.js artifact transfer rule
+
+The shared local `.next` directory can retain large Turbopack development and
+build caches. These files are not production runtime artifacts and previously
+expanded a menu release from about 42 MB to 424 MB, causing repeated transfer
+timeouts before staging completed.
+
+- Never transfer `.next/dev/` or `.next/cache/` to production.
+- Package the remaining production `.next` output and required public assets as
+  one compressed, resumable archive instead of synchronizing thousands of files
+  individually over the current slow VPS connection.
+- Transfer into a versioned staging directory with a timeout sized for the
+  measured connection speed; do not diagnose a short transport timeout as an
+  SSH, permissions, or application failure without a single-file transfer check.
+- Compare local and remote archive checksums before extraction. Verify staged
+  `BUILD_ID`, `server/`, `static/`, required public assets, and the absence of
+  `dev/` and `cache/` before activation.
+- Back up the active `.next` and public images before swapping, restart only
+  `cafe-web.service`, allow for its startup delay, then verify the release ID,
+  build ID, internal and public `/menu`, representative rendered image URLs,
+  service state, logs, and `NRestarts`.
+
 Deployment is the last major delivery area. Do not spend implementation time on Iranian VPS deployment or CDN evaluation until the database, POS backend, QR-menu backend/frontend, shared Staff/Manager POS, Manager capability work, and full-system hardening are ready enough to measure.
 
 ## Deployment And Operations
