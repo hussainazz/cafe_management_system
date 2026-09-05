@@ -42,6 +42,16 @@ This file is the active completion checklist and current stage status for the ba
   Next.js application on port 3002 with RTL metadata, same-origin API rewrite,
   shared frontend-library dependencies, and no premature operational or
   Manager-only UI. The ordered UI passes remain left.
+- Stage 7 authentication handoff is now present: the POS uses the existing
+  API login/session contract, and local-only Manager/Staff provisioning commands
+  create deterministic development accounts without bypassing cookie-based
+  authorization. The table and order interface remains the next UI pass.
+- Stage 7 pass 2 is implemented for starting one order: authenticated Staff and
+  Manager users can choose table/takeaway, select a table, compose catalog
+  items/options/quantities/notes, and create an idempotent `OPEN` order with
+  server-confirmed total and preparation timing. Payment, receipts, deletion,
+  transfers, dashboard cards, history, waiter-call handling, and Manager-only
+  panels remain left for later ordered passes.
 - Left for Stage 8 after the shared POS foundation: Manager-only payment
   history, catalog/users/settings/audit APIs, and one daily accounting report
   limited to the current or previous `Asia/Tehran` day. The full historical
