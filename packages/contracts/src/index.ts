@@ -115,12 +115,14 @@ export const PosCatalogProductSchema = z.object({
   image: ProductImageSchema.nullable(),
   optionGroups: z.array(PosCatalogOptionGroupSchema),
 });
+export type PosCatalogProduct = z.infer<typeof PosCatalogProductSchema>;
 
 export const PosCatalogCategorySchema = z.object({
   id: z.uuid(),
   name: z.string(),
   products: z.array(PosCatalogProductSchema),
 });
+export type PosCatalogCategory = z.infer<typeof PosCatalogCategorySchema>;
 
 export const PosCatalogResponseSchema = z.object({
   data: z.object({ categories: z.array(PosCatalogCategorySchema) }),
@@ -146,6 +148,7 @@ export const PosTableSchema = z.object({
   occupancyReminderAt: z.iso.datetime().nullable(),
   activeOrders: z.array(ActiveTableOrderSchema),
 });
+export type PosTable = z.infer<typeof PosTableSchema>;
 
 export const PosTablesResponseSchema = z.object({
   data: z.object({ tables: z.array(PosTableSchema) }),
@@ -258,6 +261,7 @@ export const CreatedOrderSchema = z.object({
   createdAt: z.iso.datetime(),
   items: z.array(CreatedOrderItemSchema),
 });
+export type CreatedOrder = z.infer<typeof CreatedOrderSchema>;
 
 export const CreateOrderResponseSchema = z.object({
   data: CreatedOrderSchema,
