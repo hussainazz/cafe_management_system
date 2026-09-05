@@ -12,6 +12,26 @@ scheduled UI passes.
 2. Run `pnpm dev:pos` from the repository root.
 3. Open `http://localhost:3002`.
 
+## Local POS accounts
+
+Create or reset the local development Manager account with:
+
+```bash
+pnpm auth:manager
+```
+
+Create or reset the local development Staff account with:
+
+```bash
+pnpm auth:staff
+```
+
+The commands print the local credentials they provision. By default they are
+`run.manager` / `RunCafeManager2026` and `run.staff` / `RunCafeStaff2026`.
+Override either username or password through the matching `DEV_POS_*`
+environment variable. These commands refuse production, remote-host, and
+`_test` databases.
+
 The browser calls `/api/v1/*` on the POS origin. Next.js rewrites those requests
 to the server-only `API_BASE_URL`, which keeps session cookies on the POS origin.
 
