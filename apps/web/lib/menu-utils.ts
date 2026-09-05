@@ -125,6 +125,7 @@ export function localProductPictureUrl(
     "کره بادوم زمینی": "/items_pictures/peanutbutter-toast.webp",
     "تیرامیسو": "/items_pictures/tiramisu.webp",
     "چیز کیک لوتوس": "/items_pictures/luttos cheescake.webp",
+    "چیزکیک انبه": "/items_pictures/mango-cheesecake.webp",
     "کروسان شکلاتی": "/items_pictures/crossant.webp",
     "چیز چیپس": "/items_pictures/cheese-chips.webp",
     "هات چیپس": "/items_pictures/hot-chips.webp",
