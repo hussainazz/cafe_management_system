@@ -115,7 +115,6 @@ export function localProductPictureUrl(
     "v 60": "/items_pictures/v60.webp",
     "siphone": "/items_pictures/siphone.webp",
     "چری بری": "/items_pictures/cherry-berry.webp",
-    "شکلات": "/items_pictures/chocolate-shakes.webp",
     "موز شکلات": "/items_pictures/chocolate-shakes.webp",
     "بادام زمینی": "/items_pictures/peanut-shakes.webp",
     "بادوم زمینی": "/items_pictures/peanut-shakes.webp",
@@ -134,6 +133,11 @@ export function localProductPictureUrl(
   // Nescafe exists in both the hot-coffee bar and shake bar; this photo is the hot drink.
   if (name === "نسکافه") {
     return categoryName === "بار گرم قهوه" ? "/items_pictures/nescafe.webp" : null;
+  }
+
+  // The chocolate photograph belongs to the shake, not the same-named toast.
+  if (name === "شکلات") {
+    return categoryName === "شیک" ? "/items_pictures/chocolate-shakes.webp" : null;
   }
 
   return pictures[name] ?? null;
