@@ -21,6 +21,8 @@
     "db:seed": "pnpm --filter @cafe/api prisma:seed",
     "db:seed:run-cafe-menu": "pnpm --filter @cafe/api seed:run-cafe-menu",
     "db:bootstrap-manager": "pnpm --filter @cafe/api bootstrap:manager",
+    "auth:manager": "pnpm --filter @cafe/api provision:dev-pos-manager",
+    "auth:staff": "pnpm --filter @cafe/api provision:dev-pos-staff",
     "test:api": "pnpm --filter @cafe/api test",
     "test:web": "pnpm --filter @cafe/web test",
     "test:pos": "pnpm --filter @cafe/pos test",
