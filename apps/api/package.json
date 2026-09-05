@@ -23,6 +23,8 @@
     "prisma:seed": "tsx prisma/bootstrap-manager.ts",
     "seed:run-cafe-menu": "tsx prisma/seed-run-cafe-menu.ts",
     "bootstrap:manager": "tsx prisma/bootstrap-manager.ts",
+    "provision:dev-pos-manager": "tsx prisma/provision-dev-pos-user.ts manager",
+    "provision:dev-pos-staff": "tsx prisma/provision-dev-pos-user.ts staff",
     "provision:table-qrs": "tsx prisma/provision-table-qrs.ts"
   },
   "dependencies": {
