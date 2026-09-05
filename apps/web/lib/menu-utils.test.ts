@@ -115,6 +115,10 @@ describe("menu utilities", () => {
     expect(localProductPictureUrl({ name: "تست ژامبون" })).toBe(
       "/items_pictures/ham-toast.webp",
     );
+    expect(localProductPictureUrl({ name: "شکلات" }, { name: "تست بار" })).toBeNull();
+    expect(localProductPictureUrl({ name: "شکلات" }, { name: "شیک" })).toBe(
+      "/items_pictures/chocolate-shakes.webp",
+    );
     expect(localProductPictureUrl({ name: "نسکافه" }, { name: "بار گرم قهوه" })).toBe(
       "/items_pictures/nescafe.webp",
     );
