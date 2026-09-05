@@ -76,6 +76,7 @@ Done:
 - Local menu photography now resolves through explicit product-to-asset mappings in `public/items_pictures`: supplied Ice Bar images are limited to their matching iced drinks, the tea image is reserved for black tea, and unmatched products retain their existing artwork. Focused web tests, typecheck, and the production build pass.
 - The newly supplied item photography is now copied into `apps/web/public/items_pictures` and mapped to the previously unpictured iced espresso/mocha/chocolate drinks, cortado, hot drinks, shakes, smoothie, toast/chips items, and updated ham toast asset.
 - The newly supplied mango cheesecake photography is mapped to `چیزکیک انبه`.
+- The chocolate shake photo is now restricted to `شیک`; the same-named `تست بار` toast has no local photo.
 - Black tea (`چای هل و زغفران`) now uses its dedicated photo; the hot caramel macchiato uses the hot latte photo; and only chocolate croissants use the croissant photo. Menu prices use the requested compact thousands form without separators (for example, `۱۶۵`), option text is larger in product dialogs, and the synchronized juice catalog now calls watermelon `هندوانه`.
 
 Left:
