@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-03T00:00:00+03:30",
+  "title": "Design System: Run Cafe POS",
+  "extensions": {
+    "colorMeta": {
+      "amber": { "role": "primary", "displayName": "Service Amber", "canonical": "#b86e27", "tonalRamp": ["#3a1e09", "#5b310d", "#7b4615", "#9b5a1d", "#b86e27", "#cf8a4c", "#e8b77f", "#f7e4ca"] },
+      "paper": { "role": "neutral", "displayName": "Warm Paper", "canonical": "#f7f1e8", "tonalRamp": ["#31291f", "#514536", "#766550", "#9b8871", "#c1ae96", "#dfd0bd", "#f0e6d8", "#f7f1e8"] },
+      "success": { "role": "secondary", "displayName": "Service Green", "canonical": "#28734b", "tonalRamp": ["#11341f", "#18502f", "#20633d", "#28734b", "#55946d", "#8bb99a", "#c5e0cc", "#e0f1e5"] },
+      "danger": { "role": "tertiary", "displayName": "Clear Red", "canonical": "#a53e31", "tonalRamp": ["#45110d", "#672018", "#853027", "#a53e31", "#c56a5d", "#dda196", "#f1cfc9", "#fbe7e3"] }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Operational Headline", "purpose": "State and workspace headings." },
+      "body": { "displayName": "Operational Body", "purpose": "Persian RTL guidance and recovery text." }
+    },
+    "shadows": [
+      { "name": "confirmation-lift", "value": "0 24px 70px rgba(77, 53, 28, .22)", "purpose": "Protected confirmation dialogs only." }
+    ],
+    "motion": [
+      { "name": "state-transition", "value": "150ms ease", "purpose": "Control feedback without decorative motion." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "760px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Reserved for the next confirmed operational action.",
+      "html": "<button class=\"ds-btn-primary\">بازخوانی</button>",
+      "css": ".ds-btn-primary { min-height:42px; padding:0 13px; border:0; border-radius:10px; background:#b86e27; color:#fffaf4; font-family:Tahoma,Arial,sans-serif; font-weight:800; cursor:pointer; transition:background-color 150ms ease; } .ds-btn-primary:hover { background:#8d511c; } .ds-btn-primary:focus-visible { outline:3px solid #8d511c; outline-offset:3px; }"
+    },
+    {
+      "name": "Operational Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "The calm structural surface for workspace and state content.",
+      "html": "<section class=\"ds-panel\"><strong>فضای میزها</strong><p>وضعیت زنده از سرویس دریافت می‌شود.</p></section>",
+      "css": ".ds-panel { padding:28px; border:1px solid #d9c9b5; border-radius:14px; background:#fffdf9; color:#2d261f; font-family:Tahoma,Arial,sans-serif; } .ds-panel p { margin:10px 0 0; color:#655747; line-height:1.9; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "status-badge",
+      "description": "Text-and-icon semantic status; never color only.",
+      "html": "<span class=\"ds-status\">متصل</span>",
+      "css": ".ds-status { display:inline-flex; min-height:30px; align-items:center; padding:4px 9px; border:1px solid #9dcaae; border-radius:999px; background:#e0f1e5; color:#28734b; font:700 12px Tahoma,Arial,sans-serif; }"
+    },
+    {
+      "name": "Operational Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Light input surface with an explicit amber focus boundary.",
+      "html": "<input class=\"ds-input\" aria-label=\"نام کاربری\" placeholder=\"نام کاربری\">",
+      "css": ".ds-input { min-height:46px; padding:0 13px; border:1px solid #c9b197; border-radius:10px; background:#fffaf4; color:#2d261f; font:14px Tahoma,Arial,sans-serif; } .ds-input:focus { border-color:#8d511c; outline:2px solid rgba(184,110,39,.22); outline-offset:1px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Warm Service Counter",
+    "overview": "A light operational workspace for busy Persian RTL cafe service. Cream surfaces, dark readable text, and restrained amber keep status and the next action clear without becoming a marketing treatment.",
+    "keyCharacteristics": ["Light warm surfaces with high-contrast operational information.", "Amber reserved for action and identity.", "Semantic status uses text and icons as well as color."],
+    "rules": [{ "name": "The Amber Reserve Rule", "body": "Amber identifies the action that moves work forward; it is not a general-purpose decoration or a default status color.", "section": "colors" }],
+    "dos": ["Do keep operational text dark against light warm surfaces.", "Do use semantic state colors with text and icons."],
+    "donts": ["Don't reintroduce a dark page canvas for POS surfaces.", "Don't use glassmorphism, oversized rounded cards, hero sections, or decorative motion."]
+  }
+}
