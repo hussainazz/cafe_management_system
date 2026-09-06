@@ -1,9 +1,11 @@
 # Run Café POS setup
 
 `apps/pos` is the shared Staff/Manager Next.js application introduced for
-Stage 7. It intentionally contains only the application foundation; table,
-order, payment, printing, and Manager capability screens are added in their
-scheduled UI passes.
+Stage 7. Its first replacement UI pass contains the shared authenticated
+`سفارش` workspace, table/takeaway entry, table occupancy controls, and a local
+order-composition draft backed by the current catalog/table/order read
+contracts. Payment, printing, waiter-call handling, order persistence/editing,
+and Manager capability screens remain for their scheduled UI passes.
 
 ## Local development
 
