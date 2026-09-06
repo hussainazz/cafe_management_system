@@ -20,7 +20,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
     const response = await fetch(`${apiBaseUrl}/api/v1/public/table-context/exchange`, {
       method: "POST",
       cache: "no-store",
-      headers: { "content-type": "application/json", accept: "application/json" },
+      headers: { "content-type": "application/json", accept: "application/json", cookie: _request.headers.get("cookie") ?? "" },
       body: JSON.stringify({ token }),
       signal: AbortSignal.timeout(8_000),
     });
