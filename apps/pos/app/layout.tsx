@@ -3,17 +3,17 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "سامانه فروش کافه ران | Run Café POS",
-  description: "سامانه عملیاتی کارکنان و مدیران کافه ران.",
-  applicationName: "Run Café POS",
+  title: "سفارش | سامانه فروش کافه ران",
+  description: "فضای مشترک سفارش‌گیری پرسنل و مدیران کافه ران.",
+  applicationName: "Run Cafe POS",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#f7f1e8",
   colorScheme: "light",
+  themeColor: "#f4efe7",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
