@@ -59,7 +59,9 @@ logic in the interface.
 - The server remains authoritative for permissions, totals, idempotency, and
   conflicts; UI visibility never replaces authorization.
 - Stage 7 includes no customer ordering, cart checkout, online payment,
-  customer order tracking, customer identity, or QR credential management.
+  customer order tracking, customer identity display, or QR credential
+  management. ADR 0010's customer OTP and table-visit authorization remain
+  public-menu/server concerns; POS handles only the resulting table-level call.
 - Stage 7 includes no Manager-only payment history, reports, catalog/product
   management, Staff management, settings, audit search, or product sale
   discount configuration.
