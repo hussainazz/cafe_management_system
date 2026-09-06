@@ -11,6 +11,10 @@ const EnvironmentSchema = z.object({
   REFRESH_TOKEN_SECRET: z.string().min(32),
   TABLE_QR_TOKEN_SECRET: z.string().min(32).optional(),
   TABLE_CONTEXT_COOKIE_SECRET: z.string().min(32).optional(),
+  CUSTOMER_PHONE_LOOKUP_SECRET: z.string().min(32).optional(),
+  CUSTOMER_OTP_SECRET: z.string().min(32).optional(),
+  CUSTOMER_SESSION_SECRET: z.string().min(32).optional(),
+  CUSTOMER_OTP_DEV_CODE: z.string().regex(/^\d{6}$/).optional(),
 });
 
 const result = EnvironmentSchema.safeParse(process.env);
@@ -23,10 +27,12 @@ if (!result.success) {
 
 if (
   result.data.NODE_ENV === "production" &&
-  (!result.data.TABLE_QR_TOKEN_SECRET || !result.data.TABLE_CONTEXT_COOKIE_SECRET)
+  (!result.data.TABLE_QR_TOKEN_SECRET || !result.data.TABLE_CONTEXT_COOKIE_SECRET ||
+    !result.data.CUSTOMER_PHONE_LOOKUP_SECRET || !result.data.CUSTOMER_OTP_SECRET ||
+    !result.data.CUSTOMER_SESSION_SECRET || result.data.CUSTOMER_OTP_DEV_CODE)
 ) {
   console.error(
-    "TABLE_QR_TOKEN_SECRET and TABLE_CONTEXT_COOKIE_SECRET are required in production",
+    "Table QR/context and customer authentication secrets are required in production; CUSTOMER_OTP_DEV_CODE is forbidden",
   );
   process.exit(1);
 }
@@ -36,4 +42,7 @@ export const env = {
   TABLE_QR_TOKEN_SECRET: result.data.TABLE_QR_TOKEN_SECRET ?? result.data.REFRESH_TOKEN_SECRET,
   TABLE_CONTEXT_COOKIE_SECRET:
     result.data.TABLE_CONTEXT_COOKIE_SECRET ?? result.data.ACCESS_TOKEN_SECRET,
+  CUSTOMER_PHONE_LOOKUP_SECRET: result.data.CUSTOMER_PHONE_LOOKUP_SECRET ?? result.data.REFRESH_TOKEN_SECRET,
+  CUSTOMER_OTP_SECRET: result.data.CUSTOMER_OTP_SECRET ?? result.data.REFRESH_TOKEN_SECRET,
+  CUSTOMER_SESSION_SECRET: result.data.CUSTOMER_SESSION_SECRET ?? result.data.REFRESH_TOKEN_SECRET,
 };
