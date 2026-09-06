@@ -29,12 +29,17 @@ This file is the active completion checklist and current stage status for the ba
   rotation generate private SVG/HTML/JSON artifacts for only tables `1`–`10`
   and `جگوار`; `/t/:token` exchanges a hash-only credential for a signed
   12-hour HttpOnly context and redirects to the one `/menu`; scans record one
-  non-blocking reminder without occupying a table; waiter-calls are limited to
-  eligible occupied tables and deduplicated; table clearing and rotation
+  non-blocking reminder without occupying a table; waiter-calls were initially
+  limited to eligible occupied tables and deduplicated; table clearing and rotation
   invalidate old contexts; table opening resolves the pending call. OpenAPI,
   service/API, provisioning, cookie, invalidation, and public-menu
   proxy/UI tests pass. The 390×844 built-menu flow was live-checked against an
   isolated `_test` database with no browser-console errors.
+- Stage 7 customer-authenticated waiter-call replacement is in progress under
+  ADR 0010. It replaces occupancy as public-call authorization with a remembered
+  customer login plus a four-hour QR/table visit, while preserving POS occupancy,
+  reminder, and staff acknowledgement behavior. OTP proves phone control only;
+  copied QR images remain a bounded threat.
 - Left for the Stage 7 interface: implement the shared basic order, table,
   payment, deletion, receipt, reconnect/conflict, and waiter-call workflows in
   a new sibling `apps/pos` package; keep the existing menu in `apps/web`.
