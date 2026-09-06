@@ -148,6 +148,10 @@ async function provision() {
             where: { id: item.table.id },
             data: { tableContextInvalidBefore: rotatedAt },
           });
+          await transaction.customerTableVisit.updateMany({
+            where: { tableId: item.table.id, invalidatedAt: null },
+            data: { invalidatedAt: rotatedAt },
+          });
         }
         await transaction.tableQrCredential.create({
           data: { tableId: item.table.id, tokenHash: item.tokenHash, createdAt: generatedAt },
