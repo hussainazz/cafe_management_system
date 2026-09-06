@@ -63,6 +63,19 @@ decision.
   values. The design must expose uncertainty, retries, stale-version conflicts,
   unavailable items, and restricted actions honestly.
 
+### Waiter-call contract for UI branches
+
+The public waiter-call authorization method is defined by ADR 0010 and is
+deliberately independent of POS visual direction. Customer OTP, remembered
+customer login, and the four-hour QR/table visit are public-menu/server concerns;
+the shared POS must never display a customer phone number, OTP, session, or
+identity. Keep `AVAILABLE`/`OCCUPIED`, scan reminders, and the accessible
+occupancy action as operational table state, but do not present occupancy as the
+prerequisite for a customer call. A pending call remains one deduplicated,
+table-level urgent state. Opening/acknowledging its highlighted table resolves
+the call, while clearing a table or rotating its QR invalidates public visits
+server-side and is reflected by normal refreshed table/call state.
+
 ## Experience Principles
 
 1. **See the café at a glance.** The primary surface should make table state,
