@@ -101,6 +101,10 @@ export async function makeTableAvailable(prisma: PrismaClient, tableId: string) 
       where: { tableId, status: "PENDING" },
       data: { status: "RESOLVED", acknowledgedAt: now, resolvedAt: now, version: { increment: 1 } },
     });
+    await transaction.customerTableVisit.updateMany({
+      where: { tableId, invalidatedAt: null },
+      data: { invalidatedAt: now },
+    });
   });
   return readPosTable(prisma, tableId);
 }
