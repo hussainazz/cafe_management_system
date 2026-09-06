@@ -46,12 +46,26 @@ This file is the active completion checklist and current stage status for the ba
   API login/session contract, and local-only Manager/Staff provisioning commands
   create deterministic development accounts without bypassing cookie-based
   authorization. The table and order interface remains the next UI pass.
-- Stage 7 pass 2 is implemented for starting one order: authenticated Staff and
-  Manager users can choose table/takeaway, select a table, compose catalog
-  items/options/quantities/notes, and create an idempotent `OPEN` order with
-  server-confirmed total and preparation timing. Payment, receipts, deletion,
-  transfers, dashboard cards, history, waiter-call handling, and Manager-only
-  panels remain left for later ordered passes.
+- The earlier Stage 7 pass 2 established typed catalog/table/order integration
+  and retry-safe `OPEN`-order creation. Its superseded composition screen was
+  retired during the approved frontend reset; the typed API client remains,
+  while reconnecting the replacement draft to order submission/editing is now
+  explicitly left for a separately approved pass.
+- Stage 7 POS frontend redesign direction is documented in
+  `docs/planning/pos-frontend-design.md`. The Impeccable-era visual direction
+  is superseded. The first replacement UI-only pass now provides the shared
+  authenticated `سفارش` page, left-side one-item menu, salon/takeaway entry,
+  16-table dashboard, accessible occupancy control, active-order timing and
+  subtotal display, and the responsive category/product/current-order
+  composer with required server-catalog option selection. Authenticated live
+  endpoints, authored-source lint, POS tests/typecheck, and production build
+  pass; attached-browser desktop/mobile interaction proof remains left.
+- Left after this first replacement pass: review and validate the UI in an
+  attached browser, then implement separately approved Stage 7 passes for
+  draft submission and controlled active-order editing, payments/settlements,
+  receipts/printing, table transfer, discounts, waiter-call handling,
+  reconnect/conflict recovery, and logical deletion/clear. Manager-only
+  panels remain later-stage work.
 - Left for Stage 8 after the shared POS foundation: Manager-only payment
   history, catalog/users/settings/audit APIs, and one daily accounting report
   limited to the current or previous `Asia/Tehran` day. The full historical
