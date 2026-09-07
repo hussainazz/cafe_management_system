@@ -1,720 +1,783 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PosCatalogCategory, PosCatalogProduct, PosTable } from "@cafe/contracts";
 import {
-  markTableOccupied,
+  acknowledgeWaiterCall,
+  createOpenOrder,
+  deleteOpenOrder,
   readOpenOrders,
+  readOrder,
   readPosCatalog,
   readPosTables,
-  type ApiFailure,
+  readWaiterCalls,
+  recordSettlement,
+  updateOpenOrder,
+  type PosOrderDetail,
 } from "../lib/api-client";
-import { elapsedLabel, formatToman, persianNumber, sumAmounts } from "../lib/pos-utils";
-import { BagIcon, CheckIcon, ClockIcon, CupIcon, TableIcon } from "./icons";
+import { elapsedLabel, englishNumber, formatToman, sumAmounts } from "../lib/pos-utils";
+import { AlertIcon, BagIcon, CupIcon, RefreshIcon, TableIcon } from "./icons";
 
 type Channel = "TABLE" | "TAKEAWAY";
-type View = { kind: "dashboard" } | { kind: "composer"; channel: Channel; table: PosTable | null };
-type CatalogOption = PosCatalogProduct["optionGroups"][number]["options"][number];
-type DraftOption = Pick<CatalogOption, "id" | "name" | "priceAmount">;
-type DraftItem = {
-  key: string;
-  productId: string;
-  name: string;
-  quantity: number;
-  basePrice: number;
-  options: DraftOption[];
-};
-
-type WorkspaceData = {
+type OrderDetail = PosOrderDetail;
+type Option = PosCatalogProduct["optionGroups"][number]["options"][number];
+type Draft = { key: string; product: PosCatalogProduct; options: Option[]; quantity: number };
+type ProductCard = { key: string; name: string; products: PosCatalogProduct[] };
+type Data = {
   catalog: PosCatalogCategory[];
   tables: PosTable[];
-  openOrders: Array<{ tableId: string | null; totalAmount: number }>;
+  calls: Array<{ tableId: string; version: number }>;
+  openOrders: Array<{ id: string; tableId: string | null; totalAmount: number }>;
 };
+const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+const shotName = /^(.*)\s(سینگل|دبل)$/;
 
-export function OrdersWorkspace() {
-  const [section, setSection] = useState<Channel>("TABLE");
-  const [view, setView] = useState<View>({ kind: "dashboard" });
-  const [data, setData] = useState<WorkspaceData | null>(null);
+function productCards(products: PosCatalogProduct[]): ProductCard[] {
+  const grouped = new Map<string, PosCatalogProduct[]>();
+  products.forEach((product) => {
+    const match = product.name.match(shotName);
+    const key = match ? `shot:${match[1]}` : `product:${product.id}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), product]);
+  });
+  return [...grouped.entries()].map(([key, groupedProducts]) => ({
+    key,
+    name: key.startsWith("shot:") ? key.slice(5) : groupedProducts[0]!.name,
+    products: groupedProducts,
+  }));
+}
+
+export function OrdersWorkspace({ refreshing }: { refreshing: boolean }) {
+  const [data, setData] = useState<Data | null>(null);
+  const [channel, setChannel] = useState<Channel>("TABLE");
+  const [selected, setSelected] = useState<PosTable | null>(null);
+  const [order, setOrder] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [failure, setFailure] = useState<ApiFailure | null>(null);
-  const [ordersWarning, setOrdersWarning] = useState<string | null>(null);
-  const [occupyingId, setOccupyingId] = useState<string | null>(null);
-  const [actionFailure, setActionFailure] = useState<string | null>(null);
-
+  const [message, setMessage] = useState<{ tone: "error" | "notice"; text: string } | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
-    setFailure(null);
-    setOrdersWarning(null);
-    const [catalog, tables, orders] = await Promise.all([
+    setMessage(null);
+    const [catalog, tables, calls, orders] = await Promise.all([
       readPosCatalog(),
       readPosTables(),
+      readWaiterCalls(),
       readOpenOrders(),
     ]);
-    if (!catalog.ok) {
-      setFailure(catalog.error);
+    if (!catalog.ok || !tables.ok) {
+      const failure = !catalog.ok ? catalog.error : !tables.ok ? tables.error : null;
+      setMessage({ tone: "error", text: failure?.message ?? "اطلاعات صندوق آماده نشد." });
       setLoading(false);
       return;
     }
-    if (!tables.ok) {
-      setFailure(tables.error);
-      setLoading(false);
-      return;
-    }
-    if (!orders.ok)
-      setOrdersWarning("مبلغ سفارش‌های باز اکنون قابل دریافت نیست؛ وضعیت میزها همچنان تازه است.");
     setData({
       catalog: catalog.data,
       tables: tables.data,
+      calls: calls.ok ? calls.data : [],
       openOrders: orders.ok ? orders.data : [],
     });
+    if (!calls.ok || !orders.ok)
+      setMessage({
+        tone: "notice",
+        text: "بخشی از وضعیت زنده صندوق در دسترس نیست؛ برای تازه‌سازی دوباره تلاش کنید.",
+      });
     setLoading(false);
   }, []);
-
   useEffect(() => {
     void load();
   }, [load]);
-
-  const occupyAndOpen = useCallback(async (table: PosTable) => {
-    if (table.occupancyState === "OCCUPIED") {
-      setView({ kind: "composer", channel: "TABLE", table });
+  const selectTable = async (table: PosTable) => {
+    setMessage(null);
+    const call = data?.calls.find((item) => item.tableId === table.id);
+    if (call) {
+      const result = await acknowledgeWaiterCall(table.id, call.version);
+      if (!result.ok) {
+        setMessage({ tone: "error", text: result.error.message });
+        return;
+      }
+      setMessage({ tone: "notice", text: `درخواست میز ${result.data.name} پذیرفته شد.` });
+      await load();
       return;
     }
-    setOccupyingId(table.id);
-    setActionFailure(null);
-    const result = await markTableOccupied(table.id);
-    setOccupyingId(null);
-    if (!result.ok) {
-      setActionFailure(result.error.message);
-      return;
-    }
-    setData((current) =>
-      current
-        ? {
-            ...current,
-            tables: current.tables.map((item) => (item.id === table.id ? result.data : item)),
-          }
-        : current,
-    );
-    setView({ kind: "composer", channel: "TABLE", table: result.data });
-  }, []);
-
-  if (loading) return <WorkspaceLoading />;
-  if (failure || !data)
-    return (
-      <WorkspaceFailure
-        message={failure?.message ?? "اطلاعات سفارش آماده نشد."}
-        onRetry={() => void load()}
-      />
-    );
-
+    const summary = data?.openOrders.find((item) => item.tableId === table.id);
+    if (summary) {
+      const result = await readOrder(summary.id);
+      if (!result.ok) {
+        setMessage({ tone: "error", text: result.error.message });
+        return;
+      }
+      setOrder(result.data);
+    } else setOrder(null);
+    setSelected(table);
+    setChannel("TABLE");
+  };
+  const close = () => {
+    setSelected(null);
+    setOrder(null);
+  };
+  if (loading) return <Loading />;
+  if (!data) return <Failure onRetry={load} message={message?.text ?? "صندوق آماده نشد."} />;
   return (
-    <section className="orders-page" aria-labelledby="orders-title">
+    <section className="pos-workspace">
       <header className="workspace-header">
-        <div>
-          <p className="eyebrow">فضای کاری روزانه</p>
-          <h1 id="orders-title">سفارش</h1>
+        <div className="header-actions">
+          <span className={`connection ${refreshing ? "connection--busy" : ""}`}>
+            <i aria-hidden="true" />
+            {refreshing ? "در حال بازخوانی" : "متصل"}
+          </span>
+          <button className="icon-button" onClick={() => void load()} aria-label="تازه‌سازی">
+            <RefreshIcon />
+          </button>
+          {(selected || channel === "TAKEAWAY") && (
+            <button className="button button--quiet" onClick={close}>
+              بازگشت به میزها
+            </button>
+          )}
         </div>
-        {view.kind === "composer" ? (
+        <div className="channel-tabs" role="tablist" aria-label="کانال سفارش">
           <button
-            className="back-button"
-            type="button"
+            className={channel === "TABLE" && !selected ? "active" : ""}
             onClick={() => {
-              setView({ kind: "dashboard" });
+              setChannel("TABLE");
+              close();
             }}
           >
-            بازگشت به میزها
+            <TableIcon /> سالن
           </button>
-        ) : null}
+          <button
+            className={channel === "TAKEAWAY" ? "active" : ""}
+            onClick={() => {
+              setChannel("TAKEAWAY");
+              setSelected(null);
+              setOrder(null);
+            }}
+          >
+            <BagIcon /> بیرون‌بر
+          </button>
+        </div>
       </header>
-
-      <div className="channel-switch" role="tablist" aria-label="نوع سفارش">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={section === "TABLE"}
-          className={section === "TABLE" ? "is-active" : ""}
-          onClick={() => {
-            setSection("TABLE");
-            setView({ kind: "dashboard" });
-          }}
+      {message && (
+        <div
+          className={`toast toast--${message.tone}`}
+          role={message.tone === "error" ? "alert" : "status"}
         >
-          <TableIcon />
-          سالن
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={section === "TAKEAWAY"}
-          className={section === "TAKEAWAY" ? "is-active" : ""}
-          onClick={() => {
-            setSection("TAKEAWAY");
-            setView({ kind: "dashboard" });
-          }}
-        >
-          <BagIcon />
-          بیرون بر
-        </button>
-      </div>
-
-      {actionFailure ? (
-        <div className="inline-error workspace-alert" role="alert">
-          {actionFailure}
-          <button
-            type="button"
-            onClick={() => {
-              setActionFailure(null);
-            }}
-          >
-            بستن
-          </button>
+          <AlertIcon />
+          {message.text}
+          <button onClick={() => setMessage(null)}>×</button>
         </div>
-      ) : null}
-      {ordersWarning ? (
-        <div className="inline-warning workspace-alert" role="status">
-          {ordersWarning}
-        </div>
-      ) : null}
-
-      {view.kind === "composer" ? (
-        <OrderComposer
-          key={`${view.channel}-${view.table?.id ?? "takeaway"}`}
+      )}
+      {selected || channel === "TAKEAWAY" ? (
+        <OrderDesk
           catalog={data.catalog}
-          channel={view.channel}
-          table={view.table}
-        />
-      ) : section === "TABLE" ? (
-        <TableDashboard
-          data={data}
-          occupyingId={occupyingId}
-          onOpen={(table) => {
-            setView({ kind: "composer", channel: "TABLE", table });
+          table={selected}
+          channel={channel}
+          initialOrder={order}
+          onOrder={setOrder}
+          onDone={async (notice) => {
+            setMessage({ tone: "notice", text: notice });
+            close();
+            await load();
           }}
-          onOccupy={(table) => void occupyAndOpen(table)}
         />
       ) : (
-        <TakeawayEntry
-          onOpen={() => {
-            setView({ kind: "composer", channel: "TAKEAWAY", table: null });
-          }}
+        <TableBoard
+          tables={data.tables}
+          calls={data.calls}
+          orders={data.openOrders}
+          onSelect={selectTable}
         />
       )}
     </section>
   );
 }
 
-function TableDashboard({
-  data,
-  occupyingId,
-  onOpen,
-  onOccupy,
+function TableBoard({
+  tables,
+  calls,
+  orders,
+  onSelect,
 }: {
-  data: WorkspaceData;
-  occupyingId: string | null;
-  onOpen: (table: PosTable) => void;
-  onOccupy: (table: PosTable) => void;
+  tables: PosTable[];
+  calls: Data["calls"];
+  orders: Data["openOrders"];
+  onSelect: (table: PosTable) => void;
 }) {
-  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const clock = setInterval(() => {
-      setNow(Date.now());
-    }, 60_000);
-    return () => {
-      clearInterval(clock);
-      if (clickTimer.current) clearTimeout(clickTimer.current);
-    };
-  }, []);
-  const totals = useMemo(() => {
-    const map = new Map<string, number>();
-    data.openOrders.forEach((order) => {
-      if (order.tableId) map.set(order.tableId, (map.get(order.tableId) ?? 0) + order.totalAmount);
-    });
-    return map;
-  }, [data.openOrders]);
-
-  if (!data.tables.length)
-    return (
-      <EmptyPanel title="هنوز میزی تعریف نشده است">
-        پس از فعال شدن میزهای فیزیکی، آن‌ها در این بخش دیده می‌شوند.
-      </EmptyPanel>
-    );
-
+  const totals = new Map(orders.filter((x) => x.tableId).map((x) => [x.tableId!, x.totalAmount]));
   return (
-    <div className="tables-section">
-      <div className="section-copy">
-        <div>
-          <h2>میزهای سالن</h2>
-          <p>برای باز کردن سفارش، میز را انتخاب کنید.</p>
-        </div>
-        <div className="table-legend" aria-label="راهنمای وضعیت میز">
-          <span>
-            <i className="legend-free" />
-            آزاد
-          </span>
-          <span>
-            <i className="legend-busy" />
-            اشغال
-          </span>
-          <span>
-            <i className="legend-order" />
-            سفارش باز
-          </span>
-        </div>
-      </div>
+    <div className="table-board">
       <div className="table-grid">
-        {data.tables.map((table) => {
-          const subtotal = totals.get(table.id);
+        {tables.map((table) => {
           const hasOrder = table.activeOrders.length > 0;
-          const state = hasOrder ? "order" : table.occupancyState === "OCCUPIED" ? "busy" : "free";
-          const elapsed = elapsedLabel(
-            table.occupiedAt ?? table.activeOrders[0]?.createdAt ?? null,
-            now,
-          );
+          const call = calls.some((x) => x.tableId === table.id);
+          const state = call
+            ? "call"
+            : hasOrder
+              ? "order"
+              : table.occupancyState === "OCCUPIED"
+                ? "occupied"
+                : "available";
           return (
-            <article className={`table-card table-card--${state}`} key={table.id}>
-              <button
-                className="table-card__open"
-                type="button"
-                onClick={() => {
-                  if (clickTimer.current) clearTimeout(clickTimer.current);
-                  clickTimer.current = setTimeout(() => {
-                    onOpen(table);
-                  }, 230);
-                }}
-                onDoubleClick={(event) => {
-                  event.preventDefault();
-                  if (clickTimer.current) clearTimeout(clickTimer.current);
-                  if (table.occupancyState === "AVAILABLE") onOccupy(table);
-                  else onOpen(table);
-                }}
-                aria-label={`باز کردن میز ${table.name}، ${hasOrder ? "دارای سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال" : "آزاد"}`}
-              >
-                <span className="table-card__top">
-                  <span className="table-name">{table.name}</span>
-                  <span className={`table-state table-state--${state}`}>
-                    {hasOrder ? (
-                      <CupIcon />
-                    ) : table.occupancyState === "OCCUPIED" ? (
-                      <ClockIcon />
-                    ) : (
-                      <CheckIcon />
-                    )}
-                    {hasOrder
-                      ? "سفارش باز"
-                      : table.occupancyState === "OCCUPIED"
-                        ? "اشغال"
-                        : "آزاد"}
-                  </span>
+            <article key={table.id} className={`table-tile table-tile--${state}`}>
+              <button className="table-tile__main" onClick={() => onSelect(table)}>
+                <span className="table-tile__top">
+                  <strong>{table.name}</strong>
                 </span>
-                <span className="table-card__details">
-                  {elapsed ? (
-                    <span>
-                      <ClockIcon />
-                      {elapsed}
-                    </span>
-                  ) : (
-                    <span className="quiet-detail">آماده پذیرش</span>
-                  )}
+                <span className="table-tile__details">
                   {hasOrder ? (
-                    <strong>
-                      {subtotal === undefined ? "مبلغ نامشخص" : formatToman(subtotal)}
-                    </strong>
-                  ) : null}
+                    <>
+                      <span>{table.activeOrders[0]?.orderNumber}</span>
+                      <b>{formatToman(totals.get(table.id) ?? 0)}</b>
+                    </>
+                  ) : (
+                    <span>{table.occupiedAt ? elapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>
+                  )}
                 </span>
               </button>
-              {table.occupancyState === "AVAILABLE" ? (
-                <button
-                  className="occupy-button"
-                  type="button"
-                  disabled={occupyingId === table.id}
-                  onClick={() => {
-                    onOccupy(table);
-                  }}
-                >
-                  {occupyingId === table.id ? "در حال تغییر…" : "اشغال کردن میز"}
-                </button>
-              ) : null}
             </article>
           );
         })}
       </div>
-      <p className="dashboard-hint">
-        روی میز آزاد دوبار کلیک کنید یا برای لمس و صفحه‌کلید، دکمه «اشغال کردن میز» را بزنید.
-      </p>
     </div>
   );
 }
 
-function TakeawayEntry({ onOpen }: { onOpen: () => void }) {
-  return (
-    <div className="takeaway-entry">
-      <div className="takeaway-entry__icon">
-        <BagIcon />
-      </div>
-      <p className="eyebrow">بدون میز فیزیکی</p>
-      <h2>سفارش بیرون بر</h2>
-      <p>محصولات را انتخاب کنید و سفارش را بدون وابستگی به میز آماده کنید.</p>
-      <button className="primary-button" type="button" onClick={onOpen}>
-        شروع سفارش بیرون بر
-      </button>
-    </div>
-  );
-}
-
-function OrderComposer({
+function OrderDesk({
   catalog,
-  channel,
   table,
+  channel,
+  initialOrder,
+  onOrder,
+  onDone,
 }: {
   catalog: PosCatalogCategory[];
-  channel: Channel;
   table: PosTable | null;
+  channel: Channel;
+  initialOrder: OrderDetail | null;
+  onOrder: (order: OrderDetail | null) => void;
+  onDone: (message: string) => void;
 }) {
   const [categoryId, setCategoryId] = useState(catalog[0]?.id ?? "");
-  const [draft, setDraft] = useState<DraftItem[]>([]);
-  const [choosing, setChoosing] = useState<PosCatalogProduct | null>(null);
-  const selectedCategory = catalog.find((category) => category.id === categoryId) ?? catalog[0];
-  const subtotal = sumAmounts(draft.map((item) => unitPrice(item) * item.quantity));
-
-  const addProduct = (product: PosCatalogProduct, options: DraftOption[] = []) => {
+  const [draft, setDraft] = useState<Draft[]>([]);
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<PosCatalogProduct | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [checkout, setCheckout] = useState(false);
+  const category = catalog.find((x) => x.id === categoryId) ?? catalog[0];
+  const cards = productCards(category?.products ?? []);
+  const draftTotal = sumAmounts(
+    draft.map(
+      (x) => (x.product.priceAmount + sumAmounts(x.options.map((o) => o.priceAmount))) * x.quantity,
+    ),
+  );
+  const add = (product: PosCatalogProduct, options: Option[] = []) => {
     const signature = `${product.id}:${options
-      .map((option) => option.id)
+      .map((x) => x.id)
       .sort()
       .join(",")}`;
     setDraft((current) => {
-      const existing = current.find((item) => item.key === signature);
-      return existing
-        ? current.map((item) =>
-            item.key === signature ? { ...item, quantity: item.quantity + 1 } : item,
-          )
-        : [
-            ...current,
-            {
-              key: signature,
-              productId: product.id,
-              name: product.name,
-              quantity: 1,
-              basePrice: product.priceAmount,
-              options,
-            },
-          ];
+      const found = current.find((x) => x.key === signature);
+      return found
+        ? current.map((x) => (x.key === signature ? { ...x, quantity: x.quantity + 1 } : x))
+        : [...current, { key: signature, product, options, quantity: 1 }];
     });
-    setChoosing(null);
+    setExpandedCard(null);
+    setSelectedProduct(null);
   };
-
-  if (!catalog.length)
-    return (
-      <EmptyPanel title="فهرست محصولات خالی است">
-        در حال حاضر محصول فعالی برای سفارش وجود ندارد.
-      </EmptyPanel>
-    );
-
+  const payloadItems = () =>
+    draft.map((item) => ({
+      productId: item.product.id,
+      quantity: item.quantity,
+      options: item.options.map((option) => ({ optionId: option.id, quantity: 1 })),
+    }));
+  const save = async () => {
+    if (!draft.length) return;
+    setBusy(true);
+    setError(null);
+    if (initialOrder) {
+      const result = await updateOpenOrder(initialOrder.id, {
+        expectedVersion: initialOrder.version,
+        addItems: payloadItems(),
+      });
+      setBusy(false);
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      onOrder(result.data);
+    } else {
+      const result = await createOpenOrder(
+        channel === "TABLE"
+          ? { channel, tableId: table!.id, items: payloadItems() }
+          : { channel, items: payloadItems() },
+        requestKey(),
+      );
+      setBusy(false);
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      const detail = await readOrder(result.data.id);
+      if (!detail.ok) {
+        setError(detail.error.message);
+        return;
+      }
+      onOrder(detail.data);
+    }
+    setDraft([]);
+  };
+  const remove = async () => {
+    if (
+      !initialOrder ||
+      !confirm("این سفارش به‌صورت منطقی از عملیات فعال حذف می‌شود. ادامه می‌دهید؟")
+    )
+      return;
+    setBusy(true);
+    const result = await deleteOpenOrder(initialOrder.id, {
+      expectedVersion: initialOrder.version,
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    onDone("سفارش از فهرست فعال حذف شد.");
+  };
   return (
-    <div className="composer-wrap">
-      <div className="composer-context">
-        <span>{channel === "TABLE" ? `میز ${table?.name ?? "—"}` : "بیرون بر"}</span>
-        <small>پیش‌نویس محلی · قیمت و موجودی از فهرست سرویس</small>
+    <>
+      <div className="service-context">
+        <span className="context-icon">{channel === "TABLE" ? <TableIcon /> : <BagIcon />}</span>
+        <div>
+          <b>{channel === "TABLE" ? `میز ${table?.name}` : "سفارش بیرون‌بر"}</b>
+          <small>
+            {initialOrder
+              ? `${initialOrder.orderNumber} · ${initialOrder.paymentStatus === "PAID" ? "تسویه‌شده" : "باز"}`
+              : "پیش‌نویس جدید"}
+          </small>
+        </div>
+        {initialOrder && (
+          <span className="payment-chip">مانده {formatToman(initialOrder.balanceAmount)}</span>
+        )}
       </div>
-      <div className="order-composer">
-        <aside className="category-column" aria-label="دسته‌بندی محصولات">
-          <div className="column-heading">
-            <span>۱</span>
-            <div>
-              <h2>دسته‌ها</h2>
-              <p>انتخاب گروه</p>
-            </div>
-          </div>
-          <div className="category-list" role="tablist" aria-label="دسته‌بندی محصولات">
-            {catalog.map((category) => (
+      {error && (
+        <div className="toast toast--error" role="alert">
+          <AlertIcon />
+          {error}
+        </div>
+      )}
+      <div className="order-desk">
+        <aside className="categories">
+          <p className="kicker">دسته‌ها</p>
+          <h2>فهرست</h2>
+          <div>
+            {catalog.map((item) => (
               <button
-                key={category.id}
-                type="button"
-                role="tab"
-                aria-selected={category.id === selectedCategory?.id}
-                className={category.id === selectedCategory?.id ? "is-active" : ""}
-                onClick={() => {
-                  setCategoryId(category.id);
-                }}
+                key={item.id}
+                className={item.id === category?.id ? "active" : ""}
+                onClick={() => setCategoryId(item.id)}
               >
-                {category.name}
-                <small>{persianNumber.format(category.products.length)}</small>
+                <span>{item.name}</span>
+                <small>{englishNumber.format(item.products.length)}</small>
               </button>
             ))}
           </div>
         </aside>
-        <section className="products-column" aria-label="محصولات">
-          <div className="column-heading">
-            <span>۲</span>
+        <section className="products">
+          <div className="section-title">
             <div>
-              <h2>{selectedCategory?.name ?? "محصولات"}</h2>
-              <p>برای افزودن انتخاب کنید</p>
+              <p className="kicker">انتخاب محصول</p>
+              <h2>{category?.name}</h2>
             </div>
+            <span>{englishNumber.format(category?.products.length ?? 0)} آیتم</span>
           </div>
-          {selectedCategory?.products.length ? (
-            <div className="product-grid">
-              {selectedCategory.products.map((product) => (
-                <button
-                  key={product.id}
-                  type="button"
-                  className="product-card"
-                  disabled={!product.isAvailable}
-                  onClick={() => {
-                    if (product.optionGroups.length) setChoosing(product);
-                    else addProduct(product);
-                  }}
-                >
-                  <span className="product-card__name">{product.name}</span>
-                  <span className="product-card__price">
-                    {product.isAvailable ? formatToman(product.priceAmount) : "ناموجود"}
-                  </span>
-                  {product.optionGroups.length ? (
-                    <span className="product-card__option">انتخاب گزینه</span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="column-empty">محصولی در این دسته وجود ندارد.</div>
-          )}
+          <div className="product-grid">
+            {cards.map((card) => (
+              <ProductPicker
+                key={card.key}
+                card={card}
+                expanded={expandedCard === card.key}
+                selectedProduct={selectedProduct}
+                onOpen={() => {
+                  const soleProduct = card.products[0];
+                  if (card.products.length === 1 && soleProduct && soleProduct.optionGroups.length === 0) {
+                    add(soleProduct);
+                    return;
+                  }
+                  setExpandedCard(card.key);
+                  setSelectedProduct(card.products.length === 1 ? soleProduct ?? null : null);
+                }}
+                onSelectProduct={(product) => {
+                  if (!product.optionGroups.length) add(product);
+                  else setSelectedProduct(product);
+                }}
+                onSelectOptions={(product, options) => add(product, options)}
+              />
+            ))}
+          </div>
         </section>
-        <aside className="cart-column" aria-label="اقلام انتخاب‌شده">
-          <div className="column-heading">
-            <span>۳</span>
-            <div>
-              <h2>سفارش جاری</h2>
-              <p>{persianNumber.format(draft.length)} ردیف</p>
-            </div>
-          </div>
-          <Cart
-            items={draft}
-            subtotal={subtotal}
-            onQuantity={(key, delta) => {
-              setDraft((current) =>
-                current.flatMap((item) =>
+        <aside className="order-panel">
+          <OrderSummary
+            order={initialOrder}
+            draft={draft}
+            total={draftTotal}
+            onQuantity={(key, value) =>
+              setDraft((items) =>
+                items.flatMap((item) =>
                   item.key !== key
                     ? [item]
-                    : item.quantity + delta <= 0
-                      ? []
-                      : [{ ...item, quantity: item.quantity + delta }],
+                    : item.quantity + value > 0
+                      ? [{ ...item, quantity: item.quantity + value }]
+                      : [],
                 ),
-              );
-            }}
+              )
+            }
+            onSave={() => void save()}
+            onCheckout={() => setCheckout(true)}
+            onDelete={() => void remove()}
+            busy={busy}
           />
         </aside>
       </div>
-      {choosing ? (
-        <OptionDialog
-          product={choosing}
-          onClose={() => {
-            setChoosing(null);
-          }}
-          onConfirm={(options) => {
-            addProduct(choosing, options);
+      {checkout && initialOrder && (
+        <SettlementSheet
+          order={initialOrder}
+          onClose={() => setCheckout(false)}
+          onSuccess={(updated) => {
+            setCheckout(false);
+            if (updated.state === "DELETED" && channel === "TABLE") {
+              onDone("پرداخت ثبت شد و میز آزاد شد.");
+              return;
+            }
+            onOrder(updated);
           }}
         />
-      ) : null}
-    </div>
+      )}
+    </>
   );
 }
 
-function unitPrice(item: DraftItem) {
-  return item.basePrice + sumAmounts(item.options.map((option) => option.priceAmount));
-}
-
-function Cart({
-  items,
-  subtotal,
+function OrderSummary({
+  order,
+  draft,
+  total,
   onQuantity,
+  onSave,
+  onCheckout,
+  onDelete,
+  busy,
 }: {
-  items: DraftItem[];
-  subtotal: number;
+  order: OrderDetail | null;
+  draft: Draft[];
+  total: number;
   onQuantity: (key: string, delta: number) => void;
+  onSave: () => void;
+  onCheckout: () => void;
+  onDelete: () => void;
+  busy: boolean;
 }) {
+  const [expandedDraftKey, setExpandedDraftKey] = useState<string | null>(null);
   return (
-    <div className="cart-body">
-      {items.length ? (
-        <ul className="cart-lines">
-          {items.map((item) => (
-            <li key={item.key}>
-              <div className="cart-line__title">
-                <strong>{item.name}</strong>
-                {item.options.length ? (
-                  <small>{item.options.map((option) => option.name).join("، ")}</small>
-                ) : null}
-              </div>
-              <div className="cart-line__money">
-                <span>واحد: {formatToman(unitPrice(item))}</span>
-                <strong>{formatToman(unitPrice(item) * item.quantity)}</strong>
-              </div>
-              <div className="quantity-control" aria-label={`تعداد ${item.name}`}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQuantity(item.key, -1);
-                  }}
-                  aria-label={`کم کردن ${item.name}`}
-                >
-                  −
-                </button>
-                <output>{persianNumber.format(item.quantity)}</output>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQuantity(item.key, 1);
-                  }}
-                  aria-label={`زیاد کردن ${item.name}`}
-                >
-                  +
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="cart-empty">
-          <CupIcon />
-          <strong>سفارش خالی است</strong>
-          <p>از ستون محصولات یک مورد انتخاب کنید.</p>
+    <>
+      <div className="section-title">
+        <div>
+          <p className="kicker">سفارش جاری</p>
+          <h2>{order ? order.orderNumber : "پیش‌نویس"}</h2>
+        </div>
+        {order && (
+          <span className="status-badge">
+            {order.paymentStatus === "PAID"
+              ? "تسویه شد"
+              : order.paymentStatus === "PARTIALLY_PAID"
+                ? "بخشی پرداخت شد"
+                : "بدون پرداخت"}
+          </span>
+        )}
+      </div>
+      <div className="order-lines">
+        {order?.items.map((item) => (
+          <div className="order-line order-line--saved" key={item.id}>
+            <b>
+              {item.productNameSnapshot} × {englishNumber.format(item.quantity)}
+            </b>
+            <span>{formatToman(Math.floor(item.lineTotalAmount / item.quantity))}</span>
+          </div>
+        ))}
+        {draft.map((item) => {
+          const expanded = expandedDraftKey === item.key;
+          const unitPrice = item.product.priceAmount + sumAmounts(item.options.map((x) => x.priceAmount));
+          return (
+            <article className={expanded ? "order-line order-line--expanded" : "order-line"} key={item.key}>
+              <button
+                className="order-line__summary"
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={`quantity-${item.key}`}
+                onClick={() => setExpandedDraftKey((current) => (current === item.key ? null : item.key))}
+              >
+                <span className="order-line__count">
+                  {englishNumber.format(item.quantity)} <b>×</b>
+                </span>
+                <span className="order-line__details">
+                  <b>{item.product.name}</b>
+                  {item.options.length > 0 && <small>{item.options.map((x) => x.name).join("، ")}</small>}
+                </span>
+                <strong>{formatToman(unitPrice)}</strong>
+              </button>
+              {expanded && (
+                <div className="quantity" id={`quantity-${item.key}`} aria-label={`تعداد ${item.product.name}`}>
+                  <button type="button" aria-label={`کم کردن ${item.product.name}`} onClick={() => onQuantity(item.key, -1)}>
+                    −
+                  </button>
+                  <output>{englishNumber.format(item.quantity)}</output>
+                  <button type="button" aria-label={`زیاد کردن ${item.product.name}`} onClick={() => onQuantity(item.key, 1)}>
+                    +
+                  </button>
+                  <strong className="quantity__total">
+                    <small>جمع این آیتم</small>
+                    {formatToman(unitPrice * item.quantity)}
+                  </strong>
+                </div>
+              )}
+            </article>
+          );
+        })}
+        {!order && !draft.length && (
+          <div className="empty-order">
+            <CupIcon />
+            <b>سفارش خالی است</b>
+            <span>یک محصول را انتخاب کنید.</span>
+          </div>
+        )}
+      </div>
+      <div className="order-total">
+        <span>{order ? "مانده پرداخت" : "جمع پیش‌نویس"}</span>
+        <strong>{formatToman(order ? order.balanceAmount : total)}</strong>
+      </div>
+      {draft.length > 0 && (
+        <button className="button button--primary button--wide" disabled={busy} onClick={onSave}>
+          {busy ? "در حال ثبت…" : order ? "افزودن به سفارش" : "ثبت سفارش"}
+        </button>
+      )}
+      {order && (
+        <div className="order-actions">
+          <button
+            className="button button--primary"
+            disabled={order.balanceAmount === 0}
+            onClick={onCheckout}
+          >
+            تسویه حساب
+          </button>
+          <button className="button button--quiet" onClick={() => window.print()}>
+            چاپ رسید
+          </button>
+          <button className="text-danger" disabled={busy} onClick={onDelete}>
+            حذف سفارش
+          </button>
         </div>
       )}
-      <div className="subtotal">
-        <span>جمع سفارش</span>
-        <strong>{formatToman(subtotal)}</strong>
-      </div>
-      <p className="server-truth">مبلغ نهایی هنگام ثبت سفارش توسط سرویس دوباره محاسبه می‌شود.</p>
-    </div>
+      <p className="server-note">قیمت، موجودی و مبلغ نهایی در سرویس تأیید می‌شود.</p>
+    </>
   );
 }
 
-function OptionDialog({
-  product,
-  onClose,
-  onConfirm,
+function ProductPicker({
+  card,
+  expanded,
+  selectedProduct,
+  onOpen,
+  onSelectProduct,
+  onSelectOptions,
 }: {
-  product: PosCatalogProduct;
-  onClose: () => void;
-  onConfirm: (options: DraftOption[]) => void;
+  card: ProductCard;
+  expanded: boolean;
+  selectedProduct: PosCatalogProduct | null;
+  onOpen: () => void;
+  onSelectProduct: (product: PosCatalogProduct) => void;
+  onSelectOptions: (product: PosCatalogProduct, options: Option[]) => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const availableGroups = product.optionGroups.map((group) => ({
-    ...group,
-    options: group.options.filter((option) => option.isAvailable),
+  const [picked, setPicked] = useState<Record<string, Option>>({});
+  useEffect(() => setPicked({}), [expanded, selectedProduct?.id]);
+  const groups = (selectedProduct?.optionGroups ?? []).map((g) => ({
+    ...g,
+    options: g.options.filter((x) => x.isAvailable),
   }));
-  const [selected, setSelected] = useState<Record<string, string>>({});
-  const complete = availableGroups.every((group) => group.options.length > 0 && selected[group.id]);
-  useEffect(() => {
-    dialogRef.current?.showModal();
-  }, []);
-  const chosen = availableGroups.flatMap((group) =>
-    group.options.filter((option) => option.id === selected[group.id]),
-  );
-  const selectedPrice =
-    product.priceAmount + sumAmounts(chosen.map((option) => option.priceAmount));
-
+  const chooseOption = (groupId: string, option: Option) => {
+    if (!selectedProduct) return;
+    const next = { ...picked, [groupId]: option };
+    setPicked(next);
+    const selectedOptions = groups
+      .map((group) => next[group.id])
+      .filter((candidate): candidate is Option => candidate !== undefined);
+    if (selectedOptions.length === groups.length) onSelectOptions(selectedProduct, selectedOptions);
+  };
+  const isAvailable = card.products.some((product) => product.isAvailable);
+  const showSizeChoices = card.products.length > 1;
   return (
-    <dialog
-      ref={dialogRef}
-      className="option-dialog"
-      aria-labelledby="option-title"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-    >
-      <form
-        method="dialog"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (complete) onConfirm(chosen);
-        }}
-      >
-        <div className="option-dialog__head">
+    <article className={expanded ? "product-picker product-picker--expanded" : "product-picker"}>
+      <button className="product-card" disabled={!isAvailable} onClick={onOpen} aria-expanded={expanded}>
+        <span>{card.name}</span>
+        <b>{isAvailable ? formatToman(Math.min(...card.products.map((product) => product.priceAmount))) : "ناموجود"}</b>
+        {(showSizeChoices || card.products.some((product) => product.optionGroups.length > 0)) && <small>دارای انتخاب</small>}
+      </button>
+      {expanded && (
+        <div className="product-picker__choices">
+          {showSizeChoices && (
+            <div className="shot-choices" aria-label="اندازه شات">
+              {card.products.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  className={selectedProduct?.id === product.id ? "active" : ""}
+                  onClick={() => onSelectProduct(product)}
+                >
+                  {product.name.match(shotName)?.[2]}
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedProduct && groups.map((group) => (
+            <section className="product-option-group" key={group.id}>
+              <small>{group.name}</small>
+              <div>
+                {group.options.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={picked[group.id]?.id === option.id ? "active" : ""}
+                    onClick={() => chooseOption(group.id, option)}
+                  >
+                    <span>{option.name}</span>
+                    <b>{formatToman(option.priceAmount)}</b>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function SettlementSheet({
+  order,
+  onClose,
+  onSuccess,
+}: {
+  order: OrderDetail;
+  onClose: () => void;
+  onSuccess: (order: OrderDetail) => void;
+}) {
+  const unpaid = useMemo(() => {
+    const used = new Map<string, number>();
+    order.settlements
+      .filter((x) => !x.reversedAt)
+      .forEach((s) =>
+        s.allocations.forEach((a) =>
+          used.set(a.orderItemId, (used.get(a.orderItemId) ?? 0) + a.quantity),
+        ),
+      );
+    return order.items
+      .map((item) => ({ item, quantity: item.quantity - (used.get(item.id) ?? 0) }))
+      .filter((x) => x.quantity > 0);
+  }, [order]);
+  const [method, setMethod] = useState<"CASH" | "CARD_TERMINAL" | "CARD_TRANSFER">("CARD_TERMINAL");
+  const [reference, setReference] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const amount = sumAmounts(
+    unpaid.map(({ item, quantity }) =>
+      Math.floor((item.lineTotalAmount / item.quantity) * quantity),
+    ),
+  );
+  const settle = async () => {
+    setBusy(true);
+    const payment =
+      method === "CARD_TRANSFER" && reference.trim()
+        ? { method, amount, reference: reference.trim() }
+        : { method, amount };
+    const result = await recordSettlement(
+      order.id,
+      {
+        expectedVersion: order.version,
+        allocations: unpaid.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })),
+        payments: [payment],
+      },
+      requestKey(),
+    );
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    onSuccess(result.data);
+  };
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card">
+        <div className="modal-header">
           <div>
-            <p className="eyebrow">انتخاب الزامی</p>
-            <h2 id="option-title">{product.name}</h2>
+            <p className="kicker">ثبت پرداخت</p>
+            <h2>تسویه {order.orderNumber}</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="بستن انتخاب گزینه">
+          <button className="icon-button" onClick={onClose}>
             ×
           </button>
         </div>
-        {availableGroups.map((group) => (
-          <fieldset key={group.id}>
-            <legend>{group.name}</legend>
-            <div className="option-grid">
-              {group.options.map((option) => (
-                <label
-                  key={option.id}
-                  className={selected[group.id] === option.id ? "is-selected" : ""}
-                >
-                  <input
-                    type="radio"
-                    name={group.id}
-                    value={option.id}
-                    checked={selected[group.id] === option.id}
-                    onChange={() => {
-                      setSelected((current) => ({ ...current, [group.id]: option.id }));
-                    }}
-                  />
-                  <span>{option.name}</span>
-                  <small>
-                    {option.priceAmount ? `+ ${formatToman(option.priceAmount)}` : "بدون افزایش"}
-                  </small>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        ))}
-        {!complete && availableGroups.some((group) => !group.options.length) ? (
-          <div className="inline-error" role="alert">
-            گزینه قابل انتخابی برای این محصول موجود نیست.
-          </div>
-        ) : null}
-        <div className="option-dialog__actions">
-          <button className="secondary-button" type="button" onClick={onClose}>
+        <p className="settlement-total">
+          مبلغ انتخاب‌شده <strong>{formatToman(amount)}</strong>
+        </p>
+        <div className="payment-methods">
+          {(["CASH", "CARD_TERMINAL", "CARD_TRANSFER"] as const).map((item) => (
+            <button
+              key={item}
+              className={method === item ? "active" : ""}
+              onClick={() => setMethod(item)}
+            >
+              {item === "CASH" ? "نقدی" : item === "CARD_TERMINAL" ? "کارتخوان" : "کارت‌به‌کارت"}
+            </button>
+          ))}
+        </div>
+        {method === "CARD_TRANSFER" && (
+          <label className="field">
+            شماره پیگیری
+            <input value={reference} onChange={(e) => setReference(e.target.value)} />
+          </label>
+        )}
+        {error && <div className="toast toast--error">{error}</div>}
+        <div className="modal-actions">
+          <button className="button button--quiet" onClick={onClose}>
             انصراف
           </button>
-          <button className="primary-button" type="submit" disabled={!complete}>
-            افزودن · {formatToman(selectedPrice)}
+          <button
+            className="button button--primary"
+            disabled={busy || !amount}
+            onClick={() => void settle()}
+          >
+            {busy ? "در حال ثبت…" : "تأیید پرداخت"}
           </button>
         </div>
-      </form>
-    </dialog>
-  );
-}
-
-function EmptyPanel({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="empty-panel">
-      <CupIcon />
-      <h2>{title}</h2>
-      <p>{children}</p>
+      </section>
     </div>
   );
 }
-function WorkspaceFailure({ message, onRetry }: { message: string; onRetry: () => void }) {
+function Loading() {
   return (
-    <div className="empty-panel empty-panel--error" role="alert">
-      <h2>فضای سفارش آماده نشد</h2>
+    <div className="loading-panel" aria-busy="true">
+      <i />
+      <i />
+      <i />
+      <i />
+    </div>
+  );
+}
+function Failure({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="failure">
+      <AlertIcon />
+      <h1>صندوق آماده نشد</h1>
       <p>{message}</p>
-      <button className="primary-button" type="button" onClick={onRetry}>
+      <button className="button button--primary" onClick={onRetry}>
         تلاش دوباره
       </button>
-    </div>
-  );
-}
-function WorkspaceLoading() {
-  return (
-    <div className="workspace-loading" aria-busy="true" aria-label="در حال دریافت میزها و محصولات">
-      <div className="skeleton skeleton--heading" />
-      <div className="skeleton-tabs">
-        <span className="skeleton" />
-        <span className="skeleton" />
-      </div>
-      <div className="skeleton-grid">
-        {Array.from({ length: 8 }, (_, index) => (
-          <span className="skeleton" key={index} />
-        ))}
-      </div>
     </div>
   );
 }
