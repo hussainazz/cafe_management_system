@@ -8,9 +8,8 @@
 `current-left.md` remain authoritative for product scope, roles, business
 rules, delivery order, and stage status.
 
-This document replaces the previous Impeccable-derived visual direction and
-the superseded POS product/design notes. It does not authorize a product-scope
-or backend-contract change.
+This document records the POS visual direction. It does not authorize a
+product-scope or backend-contract change.
 
 ## Purpose
 
@@ -42,10 +41,6 @@ to frontend-design context:
 5. Turn the selected direction into a small reusable token/component contract;
    do not build a giant, generic design system.
 
-The project will **not** use the `impeccable` skill or its generated design
-configuration for this redesign unless the user explicitly changes that
-decision.
-
 ## Non-Negotiable Product Boundaries
 
 - One shared `apps/pos` application serves Staff and Manager users. Manager
@@ -57,7 +52,9 @@ decision.
 - Do not introduce customer ordering, payment, order tracking, QR credential
   management, reporting, catalog management, settings, audit screens, or any
   other Stage 8/9 capability during this redesign.
-- Persian RTL is the default. Toman values remain integers. Critical status
+- Persian RTL is the default. POS numeric values use English digits without a
+  displayed currency suffix; Toman amounts remain integers in the domain.
+  Critical status
   cannot rely on color alone.
 - UI state never substitutes for server authorization or server-calculated
   values. The design must expose uncertainty, retries, stale-version conflicts,
@@ -206,7 +203,7 @@ that distinguishes these categories:
 
 | Preserve pending review                                                                                                                                         | Retire/replace with the new UI                                                                                         |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| approved planning and ADR changes; backend/auth/contract changes; POS package/runtime configuration that remains necessary; setup guidance that remains correct | old page composition, components, CSS, icon set, Impeccable configuration, and superseded POS design/product documents |
+| approved planning and ADR changes; backend/auth/contract changes; POS package/runtime configuration that remains necessary; setup guidance that remains correct | old page composition, components, CSS, icon set, and superseded POS design/product documents |
 
 The exact file list was reviewed against the selected design and branch diff
 before this first implementation. The old page composition, UI primitives,
