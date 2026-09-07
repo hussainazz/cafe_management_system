@@ -1,17 +1,28 @@
 import {
   AuthenticationResponseSchema,
   CreateOrderResponseSchema,
+  OrderDetailResponseSchema,
   ErrorResponseSchema,
   OrderListResponseSchema,
   PosCatalogResponseSchema,
   PosTableResponseSchema,
   PosTablesResponseSchema,
+  ActiveWaiterCallsResponseSchema,
+  type RecordSettlementRequest,
+  type UpdateOrderRequest,
+  type DeleteOrderRequest,
   type AuthenticatedUser,
   type CreateOrderRequest,
   type CreatedOrder,
   type PosCatalogCategory,
   type PosTable,
 } from "@cafe/contracts";
+import type { z } from "zod";
+
+export type PosOrderDetail = z.infer<typeof OrderDetailResponseSchema>["data"];
+export type PosActiveWaiterCall = z.infer<
+  typeof ActiveWaiterCallsResponseSchema
+>["data"]["calls"][number];
 
 export type ApiFailure = {
   kind: "network" | "response" | "invalid-response";
@@ -165,6 +176,102 @@ export async function createOpenOrder(
     }),
     CreateOrderResponseSchema,
     "پاسخ ثبت سفارش معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function readOrder(orderId: string): Promise<ApiResult<PosOrderDetail>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}`),
+    OrderDetailResponseSchema,
+    "جزئیات سفارش معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function updateOpenOrder(
+  orderId: string,
+  input: UpdateOrderRequest,
+): Promise<ApiResult<PosOrderDetail>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+    OrderDetailResponseSchema,
+    "پاسخ ویرایش سفارش معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function deleteOpenOrder(
+  orderId: string,
+  input: DeleteOrderRequest,
+): Promise<ApiResult<PosOrderDetail>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/delete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+    OrderDetailResponseSchema,
+    "پاسخ حذف سفارش معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function recordSettlement(
+  orderId: string,
+  input: RecordSettlementRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<PosOrderDetail>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/record-settlement`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
+      body: JSON.stringify(input),
+    }),
+    OrderDetailResponseSchema,
+    "پاسخ تسویه معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function makeTableAvailable(tableId: string): Promise<ApiResult<PosTable>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/tables/${encodeURIComponent(tableId)}/make-available`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+    PosTableResponseSchema,
+    "پاسخ آزادسازی میز معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function readWaiterCalls(): Promise<ApiResult<PosActiveWaiterCall[]>> {
+  const parsed = parseResponse(
+    await request<unknown>("/waiter-calls"),
+    ActiveWaiterCallsResponseSchema,
+    "فهرست درخواست‌ها معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data.calls, replayed: parsed.replayed } : parsed;
+}
+
+export async function acknowledgeWaiterCall(
+  tableId: string,
+  expectedVersion: number,
+): Promise<ApiResult<PosTable>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/tables/${encodeURIComponent(tableId)}/acknowledge-waiter-call`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedVersion }),
+    }),
+    PosTableResponseSchema,
+    "پاسخ رسیدگی به درخواست معتبر نیست.",
   );
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
