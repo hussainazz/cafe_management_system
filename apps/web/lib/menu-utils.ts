@@ -50,12 +50,12 @@ export function secondaryName(
   return language === "en" ? item.name : item.nameEn;
 }
 
-export function formatToman(amount: number, language: Language) {
-  return new Intl.NumberFormat(language === "fa" ? "fa-IR" : "en-US").format(amount);
+export function formatToman(amount: number, _language: Language) {
+  return new Intl.NumberFormat("en-US").format(amount);
 }
 
-export function formatCompactToman(amount: number, language: Language) {
-  return new Intl.NumberFormat(language === "fa" ? "fa-IR" : "en-US", {
+export function formatCompactToman(amount: number, _language: Language) {
+  return new Intl.NumberFormat("en-US", {
     useGrouping: false,
     maximumFractionDigits: 2,
   }).format(amount / 1_000);
