@@ -67,7 +67,8 @@ describe("menu utilities", () => {
 
   it("formats menu prices in thousands without grouping separators", () => {
     expect(formatCompactToman(165_000, "en")).toBe("165");
-    expect(formatCompactToman(165_000, "fa")).toBe("۱۶۵");
+    expect(formatCompactToman(165_000, "fa")).toBe("165");
+    expect(formatToman(135_000, "fa")).toBe("135,000");
   });
 
   it("uses consistent icon groups for menu categories", () => {
