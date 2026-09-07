@@ -79,36 +79,6 @@ export function PosSessionBoundary() {
   return (
     <div className="pos-shell">
       <header className="topbar">
-        <div className="brand" aria-label="سامانه فروش کافه ران">
-          <span className="brand__mark" aria-hidden="true">
-            R
-          </span>
-          <span>
-            <strong>Run Cafe</strong>
-            <small>سامانه فروش</small>
-          </span>
-        </div>
-        <div className="topbar__operator">
-          <span className={`connection ${session.refreshing ? "connection--busy" : ""}`}>
-            <i aria-hidden="true" />
-            {session.refreshing ? "در حال بازخوانی" : "متصل"}
-          </span>
-          <span className="operator">
-            <strong>{session.user.username}</strong>
-            <small>{role}</small>
-          </span>
-          <button
-            className="text-button"
-            type="button"
-            onClick={() => {
-              void endSession().then(() => {
-                setSession({ kind: "authentication-required" });
-              });
-            }}
-          >
-            خروج
-          </button>
-        </div>
         <button
           className="menu-button"
           type="button"
@@ -137,7 +107,15 @@ export function PosSessionBoundary() {
         aria-hidden={!drawerOpen}
       >
         <div className="side-drawer__heading">
-          <strong>منوی اصلی</strong>
+          <div className="brand" aria-label="سامانه فروش کافه ران">
+            <span className="brand__mark" aria-hidden="true">
+              R
+            </span>
+            <span>
+              <strong>Run Cafe</strong>
+              <small>سامانه فروش</small>
+            </span>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -146,6 +124,23 @@ export function PosSessionBoundary() {
             aria-label="بستن منو"
           >
             ×
+          </button>
+        </div>
+        <div className="drawer-operator">
+          <span className="operator">
+            <strong>{session.user.username}</strong>
+            <small>{role}</small>
+          </span>
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => {
+              void endSession().then(() => {
+                setSession({ kind: "authentication-required" });
+              });
+            }}
+          >
+            خروج
           </button>
         </div>
         <nav>
@@ -163,7 +158,7 @@ export function PosSessionBoundary() {
       </aside>
 
       <main className="pos-main">
-        <OrdersWorkspace />
+        <OrdersWorkspace refreshing={session.refreshing} />
       </main>
     </div>
   );
