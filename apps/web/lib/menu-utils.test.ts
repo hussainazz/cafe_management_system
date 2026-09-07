@@ -97,12 +97,23 @@ describe("menu utilities", () => {
     expect(localProductPictureUrl({ name: "کارامل ماکیاتو" })).toBe(
       "/items_pictures/white-espresso.webp",
     );
-    expect(localProductPictureUrl({ name: "آیس اورنج" })).toBeNull();
+    expect(localProductPictureUrl({ name: "آیس اورنج" })).toBe(
+      "/items_pictures/ice-orange.webp",
+    );
+    expect(localProductPictureUrl({ name: "تونیک اسپرسو" })).toBe(
+      "/items_pictures/tonic-espresso.webp",
+    );
     expect(localProductPictureUrl({ name: "چای هل و زغفران" })).toBe(
       "/items_pictures/چای.webp",
     );
     expect(localProductPictureUrl({ name: "چای ماسالا" })).toBe(
       "/items_pictures/masala.webp",
+    );
+    expect(localProductPictureUrl({ name: "ایس تی هلو" })).toBe(
+      "/items_pictures/ice-tea-peach.webp",
+    );
+    expect(localProductPictureUrl({ name: "گل گاو زبان" })).toBe(
+      "/items_pictures/gol-gav-zaban.webp",
     );
     expect(localProductPictureUrl({ name: "ماچا لته" })).toBeNull();
     expect(localProductPictureUrl({ name: "کروسان ویژه" })).toBeNull();
@@ -114,6 +125,12 @@ describe("menu utilities", () => {
     );
     expect(localProductPictureUrl({ name: "تست ژامبون" })).toBe(
       "/items_pictures/ham-toast.webp",
+    );
+    expect(localProductPictureUrl({ name: "موز وانیل" })).toBe(
+      "/items_pictures/banana-vanilla-shake.webp",
+    );
+    expect(localProductPictureUrl({ name: "پروتئین" })).toBe(
+      "/items_pictures/protein-shake.webp",
     );
     expect(localProductPictureUrl({ name: "شکلات" }, { name: "تست بار" })).toBeNull();
     expect(localProductPictureUrl({ name: "شکلات" }, { name: "شیک" })).toBe(
