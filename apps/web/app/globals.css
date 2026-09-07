@@ -799,19 +799,19 @@ main {
 .option-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 24px;
-  padding-inline: 8px;
+  gap: 6px;
+  min-height: 28px;
+  padding-inline: 10px;
   color: var(--amber-bright);
   background: var(--amber-soft);
   border: 1px solid rgba(208, 149, 81, 0.19);
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1;
 }
 
 .option-indicator > span {
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1;
 }
 
