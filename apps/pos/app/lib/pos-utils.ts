@@ -1,9 +1,9 @@
-export const persianNumber = new Intl.NumberFormat("fa-IR", {
+export const englishNumber = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
 export function formatToman(amount: number) {
-  return `${persianNumber.format(amount)} تومان`;
+  return englishNumber.format(amount);
 }
 
 export function elapsedLabel(startedAt: string | null, now = Date.now()) {
@@ -15,9 +15,9 @@ export function elapsedLabel(startedAt: string | null, now = Date.now()) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
 
-  if (hours === 0) return `${persianNumber.format(minutes)} دقیقه`;
-  if (minutes === 0) return `${persianNumber.format(hours)} ساعت`;
-  return `${persianNumber.format(hours)} ساعت و ${persianNumber.format(minutes)} دقیقه`;
+  if (hours === 0) return `${englishNumber.format(minutes)} دقیقه`;
+  if (minutes === 0) return `${englishNumber.format(hours)} ساعت`;
+  return `${englishNumber.format(hours)} ساعت و ${englishNumber.format(minutes)} دقیقه`;
 }
 
 export function sumAmounts(values: readonly number[]) {
