@@ -199,15 +199,19 @@ function ProductCard({
   const text = copy[language];
   const detail = secondaryName(product, language);
   const optionCount = product.optionGroups.reduce((count, group) => count + group.options.length, 0);
+  const hasVariableOptionPrice = product.optionGroups.some(
+    (group) => new Set(group.options.map((option) => option.priceAmount)).size > 1,
+  );
   const availabilityDescription = product.isAvailable ? "" : `، ${text.unavailable}`;
   const optionsDescription = optionCount > 0 ? `، ${optionCount} ${text.optionCount}` : "";
+  const startingPriceDescription = hasVariableOptionPrice ? `${text.from} ` : "";
 
   return (
     <button
       className={`product-card${product.isAvailable ? "" : " is-unavailable"}`}
       type="button"
       onClick={(event) => onSelect(event.currentTarget)}
-      aria-label={`${localizedName(product, language)}، ${text.from} ${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
+      aria-label={`${localizedName(product, language)}، ${startingPriceDescription}${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
     >
       <ProductVisual product={product} category={category} />
       <span className="product-card-body">
@@ -229,7 +233,7 @@ function ProductCard({
         ) : null}
 
         <span className="product-card-bottom">
-          <Price product={product} language={language} showFrom />
+          <Price product={product} language={language} showFrom={hasVariableOptionPrice} />
           {product.saleDiscount ? (
             <span className="discount-badge">
               {product.saleDiscount.kind === "PERCENTAGE"
