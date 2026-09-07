@@ -9,7 +9,7 @@ import {
   signIn,
   type ApiFailure,
 } from "../lib/api-client";
-import { MenuIcon, OrdersIcon } from "./icons";
+import { OrdersIcon } from "./icons";
 import { OrdersWorkspace } from "./orders-workspace";
 
 type SessionState =
@@ -78,20 +78,6 @@ export function PosSessionBoundary() {
   const role = session.user.role === "MANAGER" ? "مدیر" : "پرسنل";
   return (
     <div className="pos-shell">
-      <header className="topbar">
-        <button
-          className="menu-button"
-          type="button"
-          aria-label="باز کردن منو"
-          aria-expanded={drawerOpen}
-          onClick={() => {
-            setDrawerOpen(true);
-          }}
-        >
-          <MenuIcon />
-        </button>
-      </header>
-
       <button
         className={`drawer-scrim ${drawerOpen ? "is-open" : ""}`}
         type="button"
@@ -158,7 +144,13 @@ export function PosSessionBoundary() {
       </aside>
 
       <main className="pos-main">
-        <OrdersWorkspace refreshing={session.refreshing} />
+        <OrdersWorkspace
+          refreshing={session.refreshing}
+          onOpenMenu={() => {
+            setDrawerOpen(true);
+          }}
+          menuOpen={drawerOpen}
+        />
       </main>
     </div>
   );
