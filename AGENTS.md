@@ -8,5 +8,5 @@
 - When committing and pushing changes, stage files explicitly. Do not stage all changed files and push them as one commit. Commit and push each changed file separately unless the user explicitly asks for a combined commit.
 - Commit and push changes only when the user explicitly asks for it.
 - ignore the pnpm lint errors.
-- Do not use the `impeccable` skill unless the user explicitly asks to use `impeccable` or names that skill.
+- Never use the `impeccable` skill or plugin unless the user explicitly invokes it in that same request as `@impeccable` or `$impeccable`. A prior mention, approval, or use of Impeccable never carries forward to a later task, even within the same session.
 - Never create, add, switch to, or use a temporary Git worktree for this project. Work only in the user's existing repository checkout unless the user explicitly revokes this rule in writing.
