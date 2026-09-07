@@ -29,9 +29,10 @@ This file is the active completion checklist and current stage status for the ba
   rotation generate private SVG/HTML/JSON artifacts for only tables `1`–`10`
   and `جگوار`; `/t/:token` exchanges a hash-only credential for a signed
   12-hour HttpOnly context and redirects to the one `/menu`; scans record one
-  non-blocking reminder without occupying a table; waiter-calls are limited to
-  eligible occupied tables and deduplicated; table clearing and rotation
-  invalidate old contexts; table opening resolves the pending call. OpenAPI,
+  non-blocking reminder without occupying a table; QR-authenticated waiter
+  calls are deduplicated, acknowledgement marks the table occupied, and full
+  payment clears the table; table clearing and rotation invalidate old contexts.
+  OpenAPI,
   service/API, provisioning, cookie, invalidation, and public-menu
   proxy/UI tests pass. The 390×844 built-menu flow was live-checked against an
   isolated `_test` database with no browser-console errors.
@@ -52,8 +53,7 @@ This file is the active completion checklist and current stage status for the ba
   while reconnecting the replacement draft to order submission/editing is now
   explicitly left for a separately approved pass.
 - Stage 7 POS frontend redesign direction is documented in
-  `docs/planning/pos-frontend-design.md`. The Impeccable-era visual direction
-  is superseded. The first replacement UI-only pass now provides the shared
+  `docs/planning/pos-frontend-design.md`. The first replacement UI-only pass now provides the shared
   authenticated `سفارش` page, left-side one-item menu, salon/takeaway entry,
   16-table dashboard, accessible occupancy control, active-order timing and
   subtotal display, and the responsive category/product/current-order
@@ -66,6 +66,14 @@ This file is the active completion checklist and current stage status for the ba
   receipts/printing, table transfer, discounts, waiter-call handling,
   reconnect/conflict recovery, and logical deletion/clear. Manager-only
   panels remain later-stage work.
+- 6 September 2026 redesign pass: the shared light-mode POS now uses a
+  table-first operational layout, QR-authenticated waiter-call acknowledgement
+  that establishes occupancy, order creation/append, an all-unsettled
+  settlement action, logical deletion, and print styling. Typecheck, focused
+  POS tests, and a production build pass. Still left: browser/device evidence,
+  selected-item and mixed-tender settlement UI, API-backed receipt/bar-ticket
+  presentation, transfer, reasoned discounts, and explicit stale/reconnect
+  recovery UX.
 - Left for Stage 8 after the shared POS foundation: Manager-only payment
   history, catalog/users/settings/audit APIs, and one daily accounting report
   limited to the current or previous `Asia/Tehran` day. The full historical
