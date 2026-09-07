@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PosCatalogCategory, PosCatalogProduct, PosTable } from "@cafe/contracts";
 import {
   acknowledgeWaiterCall,
@@ -16,7 +16,7 @@ import {
   type PosOrderDetail,
 } from "../lib/api-client";
 import { elapsedLabel, englishNumber, formatToman, sumAmounts } from "../lib/pos-utils";
-import { AlertIcon, BagIcon, CupIcon, RefreshIcon, TableIcon } from "./icons";
+import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon } from "./icons";
 
 type Channel = "TABLE" | "TAKEAWAY";
 type OrderDetail = PosOrderDetail;
@@ -31,6 +31,7 @@ type Data = {
 };
 const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const shotName = /^(.*)\s(سینگل|دبل)$/;
+const coffeeRatio = (name: string) => name.replace(/\s*(روبوستا|عربیکا)/g, "").replace("٪", "%");
 
 function productCards(products: PosCatalogProduct[]): ProductCard[] {
   const grouped = new Map<string, PosCatalogProduct[]>();
@@ -46,11 +47,21 @@ function productCards(products: PosCatalogProduct[]): ProductCard[] {
   }));
 }
 
-export function OrdersWorkspace({ refreshing }: { refreshing: boolean }) {
+export function OrdersWorkspace({
+  refreshing,
+  onOpenMenu,
+  menuOpen,
+}: {
+  refreshing: boolean;
+  onOpenMenu: () => void;
+  menuOpen: boolean;
+}) {
   const [data, setData] = useState<Data | null>(null);
   const [channel, setChannel] = useState<Channel>("TABLE");
   const [selected, setSelected] = useState<PosTable | null>(null);
   const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [editingOrder, setEditingOrder] = useState(false);
+  const [checkout, setCheckout] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ tone: "error" | "notice"; text: string } | null>(null);
   const load = useCallback(async () => {
@@ -107,11 +118,13 @@ export function OrdersWorkspace({ refreshing }: { refreshing: boolean }) {
       setOrder(result.data);
     } else setOrder(null);
     setSelected(table);
+    setEditingOrder(false);
     setChannel("TABLE");
   };
   const close = () => {
     setSelected(null);
     setOrder(null);
+    setEditingOrder(false);
   };
   if (loading) return <Loading />;
   if (!data) return <Failure onRetry={load} message={message?.text ?? "صندوق آماده نشد."} />;
@@ -121,20 +134,26 @@ export function OrdersWorkspace({ refreshing }: { refreshing: boolean }) {
         <div className="header-actions">
           <span className={`connection ${refreshing ? "connection--busy" : ""}`}>
             <i aria-hidden="true" />
-            {refreshing ? "در حال بازخوانی" : "متصل"}
+            <span title={refreshing ? "در حال بازخوانی وضعیت" : "اتصال برقرار است"}>
+              {refreshing ? "در حال بازخوانی" : "متصل"}
+            </span>
           </span>
           <button className="icon-button" onClick={() => void load()} aria-label="تازه‌سازی">
             <RefreshIcon />
           </button>
-          {(selected || channel === "TAKEAWAY") && (
-            <button className="button button--quiet" onClick={close}>
-              بازگشت به میزها
-            </button>
-          )}
+          <button
+            className="menu-button"
+            type="button"
+            aria-label="باز کردن منو"
+            aria-expanded={menuOpen}
+            onClick={onOpenMenu}
+          >
+            <MenuIcon />
+          </button>
         </div>
         <div className="channel-tabs" role="tablist" aria-label="کانال سفارش">
           <button
-            className={channel === "TABLE" && !selected ? "active" : ""}
+            className={channel === "TABLE" ? "active" : ""}
             onClick={() => {
               setChannel("TABLE");
               close();
@@ -164,7 +183,7 @@ export function OrdersWorkspace({ refreshing }: { refreshing: boolean }) {
           <button onClick={() => setMessage(null)}>×</button>
         </div>
       )}
-      {selected || channel === "TAKEAWAY" ? (
+      {editingOrder || (selected && !order) || channel === "TAKEAWAY" ? (
         <OrderDesk
           catalog={data.catalog}
           table={selected}
@@ -182,7 +201,28 @@ export function OrdersWorkspace({ refreshing }: { refreshing: boolean }) {
           tables={data.tables}
           calls={data.calls}
           orders={data.openOrders}
+          selectedTableId={selected?.id ?? null}
+          selectedOrder={order}
           onSelect={selectTable}
+          onClosePanel={close}
+          onEditOrder={() => setEditingOrder(true)}
+          onCheckout={() => setCheckout(true)}
+        />
+      )}
+      {checkout && order && (
+        <SettlementSheet
+          order={order}
+          onClose={() => setCheckout(false)}
+          onSuccess={async (updated) => {
+            setCheckout(false);
+            if (updated.state === "DELETED") {
+              setMessage({ tone: "notice", text: "پرداخت ثبت شد و میز آزاد شد." });
+              close();
+              await load();
+              return;
+            }
+            setOrder(updated);
+          }}
         />
       )}
     </section>
@@ -193,16 +233,49 @@ function TableBoard({
   tables,
   calls,
   orders,
+  selectedTableId,
+  selectedOrder,
   onSelect,
+  onClosePanel,
+  onEditOrder,
+  onCheckout,
 }: {
   tables: PosTable[];
   calls: Data["calls"];
   orders: Data["openOrders"];
+  selectedTableId: string | null;
+  selectedOrder: OrderDetail | null;
   onSelect: (table: PosTable) => void;
+  onClosePanel: () => void;
+  onEditOrder: () => void;
+  onCheckout: () => void;
 }) {
   const totals = new Map(orders.filter((x) => x.tableId).map((x) => [x.tableId!, x.totalAmount]));
   return (
-    <div className="table-board">
+    <div className={selectedOrder ? "table-board table-board--inspecting" : "table-board"}>
+      {selectedOrder && (
+        <>
+          <button
+            className="panel-scrim"
+            type="button"
+            aria-label="بستن جزئیات سفارش"
+            onClick={onClosePanel}
+          />
+          <OccupiedTablePanel
+            table={tables.find((table) => table.id === selectedTableId) ?? null}
+            order={selectedOrder}
+            onClose={onClosePanel}
+            onEdit={onEditOrder}
+            onCheckout={onCheckout}
+          />
+        </>
+      )}
+      <div className="table-board__content">
+        <div className="table-board__heading">
+          <div>
+            <h1>مدیریت میزها</h1>
+          </div>
+        </div>
       <div className="table-grid">
         {tables.map((table) => {
           const hasOrder = table.activeOrders.length > 0;
@@ -215,28 +288,46 @@ function TableBoard({
                 ? "occupied"
                 : "available";
           return (
-            <article key={table.id} className={`table-tile table-tile--${state}`}>
-              <button className="table-tile__main" onClick={() => onSelect(table)}>
+            <article key={table.id} className={`table-tile table-tile--${state}${selectedTableId === table.id ? " is-selected" : ""}`}>
+              <button className="table-tile__main" onClick={() => void onSelect(table)} aria-pressed={selectedTableId === table.id}>
                 <span className="table-tile__top">
                   <strong>{table.name}</strong>
+                  {call && <AlertIcon />}
                 </span>
                 <span className="table-tile__details">
-                  {hasOrder ? (
-                    <>
-                      <span>{table.activeOrders[0]?.orderNumber}</span>
-                      <b>{formatToman(totals.get(table.id) ?? 0)}</b>
-                    </>
-                  ) : (
-                    <span>{table.occupiedAt ? elapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>
-                  )}
+                  <span className="table-status"><i />{call ? "درخواست گارسون" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال" : "آماده"}</span>
+                  {hasOrder && <span className="table-tile__meta">{elapsedLabel(table.activeOrders[0]!.createdAt)}</span>}
+                  {call && <span className="table-tile__meta">نیاز به رسیدگی</span>}
+                  {!hasOrder && !call && <span className="table-tile__meta">{table.occupiedAt ? elapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>}
+                  {hasOrder && <b>{formatToman(totals.get(table.id) ?? 0)}</b>}
                 </span>
               </button>
             </article>
           );
         })}
       </div>
+      </div>
     </div>
   );
+}
+
+function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void }) {
+  const status = order.paymentStatus === "PAID" ? "تسویه شد" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت شد" : "بدون پرداخت";
+  return <aside className="occupied-panel" aria-label={`جزئیات سفارش میز ${table?.name ?? ""}`}>
+    <header className="occupied-panel__header">
+      <button className="icon-button" type="button" onClick={onClose} aria-label="بستن جزئیات"><CloseIcon /></button>
+      <div><h2>میز {table?.name}</h2><span><ClockIcon /> {elapsedLabel(order.createdAt)} · {status}</span></div>
+    </header>
+    <div className="occupied-panel__items">
+      {order.items.map((item) => <div className="occupied-panel__item" key={item.id}><div><b>{item.productNameSnapshot} <small>× {englishNumber.format(item.quantity)}</small></b>{item.options.length > 0 && <span>{item.options.map((option) => option.optionNameSnapshot).join("، ")}</span>}</div><strong>{formatToman(item.lineTotalAmount)}</strong></div>)}
+    </div>
+    <footer className="occupied-panel__footer">
+      <div className="occupied-panel__total"><span>جمع کل</span><strong>{formatToman(order.totalAmount)}</strong></div>
+      {order.paidAmount > 0 && <div className="occupied-panel__balance">مانده: {formatToman(order.balanceAmount)}</div>}
+      <button className="button button--primary button--wide" disabled={order.balanceAmount === 0} onClick={onCheckout}>تسویه و پرداخت</button>
+      <button className="button button--quiet button--wide" onClick={onEdit}>ویرایش سفارش</button>
+    </footer>
+  </aside>;
 }
 
 function OrderDesk({
@@ -254,14 +345,18 @@ function OrderDesk({
   onOrder: (order: OrderDetail | null) => void;
   onDone: (message: string) => void;
 }) {
-  const [categoryId, setCategoryId] = useState(catalog[0]?.id ?? "");
+  const posCatalog = useMemo(
+    () => catalog.filter((item) => item.name !== "ویژه و جدید"),
+    [catalog],
+  );
+  const [categoryId, setCategoryId] = useState("");
   const [draft, setDraft] = useState<Draft[]>([]);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<PosCatalogProduct | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkout, setCheckout] = useState(false);
-  const category = catalog.find((x) => x.id === categoryId) ?? catalog[0];
+  const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
   const cards = productCards(category?.products ?? []);
   const draftTotal = sumAmounts(
     draft.map(
@@ -343,20 +438,6 @@ function OrderDesk({
   };
   return (
     <>
-      <div className="service-context">
-        <span className="context-icon">{channel === "TABLE" ? <TableIcon /> : <BagIcon />}</span>
-        <div>
-          <b>{channel === "TABLE" ? `میز ${table?.name}` : "سفارش بیرون‌بر"}</b>
-          <small>
-            {initialOrder
-              ? `${initialOrder.orderNumber} · ${initialOrder.paymentStatus === "PAID" ? "تسویه‌شده" : "باز"}`
-              : "پیش‌نویس جدید"}
-          </small>
-        </div>
-        {initialOrder && (
-          <span className="payment-chip">مانده {formatToman(initialOrder.balanceAmount)}</span>
-        )}
-      </div>
       {error && (
         <div className="toast toast--error" role="alert">
           <AlertIcon />
@@ -364,30 +445,33 @@ function OrderDesk({
         </div>
       )}
       <div className="order-desk">
-        <aside className="categories">
-          <p className="kicker">دسته‌ها</p>
-          <h2>فهرست</h2>
-          <div>
-            {catalog.map((item) => (
-              <button
-                key={item.id}
-                className={item.id === category?.id ? "active" : ""}
-                onClick={() => setCategoryId(item.id)}
-              >
-                <span>{item.name}</span>
-                <small>{englishNumber.format(item.products.length)}</small>
-              </button>
-            ))}
+        <aside className="desk-sidebar">
+          <div className="desk-context">
+            <span className="context-icon">
+              {channel === "TABLE" ? <TableIcon /> : <BagIcon />}
+            </span>
+            <span>
+              <b>{channel === "TABLE" ? `میز ${table?.name}` : "بیرون‌بر"}</b>
+              <small>{initialOrder ? "ویرایش سفارش" : "سفارش جدید"}</small>
+            </span>
+            {initialOrder ? <em>مانده {formatToman(initialOrder.balanceAmount)}</em> : null}
           </div>
+          <nav className="categories" aria-label="دسته‌های محصولات">
+            <div>
+              {posCatalog.map((item) => (
+                <button
+                  key={item.id}
+                  className={item.id === category?.id ? "active" : ""}
+                  onClick={() => setCategoryId(item.id)}
+                >
+                  <span>{item.name}</span>
+                  <small>{englishNumber.format(item.products.length)}</small>
+                </button>
+              ))}
+            </div>
+          </nav>
         </aside>
         <section className="products">
-          <div className="section-title">
-            <div>
-              <p className="kicker">انتخاب محصول</p>
-              <h2>{category?.name}</h2>
-            </div>
-            <span>{englishNumber.format(category?.products.length ?? 0)} آیتم</span>
-          </div>
           <div className="product-grid">
             {cards.map((card) => (
               <ProductPicker
@@ -397,12 +481,27 @@ function OrderDesk({
                 selectedProduct={selectedProduct}
                 onOpen={() => {
                   const soleProduct = card.products[0];
-                  if (card.products.length === 1 && soleProduct && soleProduct.optionGroups.length === 0) {
+                  if (
+                    card.products.length === 1 &&
+                    soleProduct &&
+                    soleProduct.optionGroups.length === 0
+                  ) {
                     add(soleProduct);
                     return;
                   }
                   setExpandedCard(card.key);
-                  setSelectedProduct(card.products.length === 1 ? soleProduct ?? null : null);
+                  setSelectedProduct(
+                    card.products.find(
+                      (product) => product.name.includes("دبل") && product.optionGroups.length > 0,
+                    ) ??
+                      card.products.find((product) => product.optionGroups.length > 0) ??
+                      soleProduct ??
+                      null,
+                  );
+                }}
+                onClose={() => {
+                  setExpandedCard(null);
+                  setSelectedProduct(null);
                 }}
                 onSelectProduct={(product) => {
                   if (!product.optionGroups.length) add(product);
@@ -476,12 +575,8 @@ function OrderSummary({
   const [expandedDraftKey, setExpandedDraftKey] = useState<string | null>(null);
   return (
     <>
-      <div className="section-title">
-        <div>
-          <p className="kicker">سفارش جاری</p>
-          <h2>{order ? order.orderNumber : "پیش‌نویس"}</h2>
-        </div>
-        {order && (
+      {order && (
+        <div className="section-title">
           <span className="status-badge">
             {order.paymentStatus === "PAID"
               ? "تسویه شد"
@@ -489,49 +584,70 @@ function OrderSummary({
                 ? "بخشی پرداخت شد"
                 : "بدون پرداخت"}
           </span>
-        )}
-      </div>
+        </div>
+      )}
       <div className="order-lines">
         {order?.items.map((item) => (
           <div className="order-line order-line--saved" key={item.id}>
             <b>
               {item.productNameSnapshot} × {englishNumber.format(item.quantity)}
             </b>
-            <span>{formatToman(Math.floor(item.lineTotalAmount / item.quantity))}</span>
+            <span>{formatToman(item.lineTotalAmount)}</span>
           </div>
         ))}
         {draft.map((item) => {
           const expanded = expandedDraftKey === item.key;
-          const unitPrice = item.product.priceAmount + sumAmounts(item.options.map((x) => x.priceAmount));
+          const unitPrice =
+            item.product.priceAmount + sumAmounts(item.options.map((x) => x.priceAmount));
           return (
-            <article className={expanded ? "order-line order-line--expanded" : "order-line"} key={item.key}>
+            <article
+              className={expanded ? "order-line order-line--expanded" : "order-line"}
+              key={item.key}
+            >
               <button
                 className="order-line__summary"
                 type="button"
                 aria-expanded={expanded}
                 aria-controls={`quantity-${item.key}`}
-                onClick={() => setExpandedDraftKey((current) => (current === item.key ? null : item.key))}
+                onClick={() =>
+                  setExpandedDraftKey((current) => (current === item.key ? null : item.key))
+                }
               >
-                <span className="order-line__count">
-                  {englishNumber.format(item.quantity)} <b>×</b>
-                </span>
                 <span className="order-line__details">
-                  <b>{item.product.name}</b>
-                  {item.options.length > 0 && <small>{item.options.map((x) => x.name).join("، ")}</small>}
+                  <b>
+                    {item.product.name}{" "}
+                    <span className="order-line__inline-count">
+                      × {englishNumber.format(item.quantity)}
+                    </span>
+                  </b>
+                  {item.options.length > 0 && (
+                    <small>{item.options.map((x) => x.name).join("، ")}</small>
+                  )}
                 </span>
                 <strong>{formatToman(unitPrice)}</strong>
               </button>
               {expanded && (
-                <div className="quantity" id={`quantity-${item.key}`} aria-label={`تعداد ${item.product.name}`}>
-                  <button type="button" aria-label={`کم کردن ${item.product.name}`} onClick={() => onQuantity(item.key, -1)}>
+                <div
+                  className="quantity"
+                  id={`quantity-${item.key}`}
+                  aria-label={`تعداد ${item.product.name}`}
+                >
+                  <button
+                    type="button"
+                    aria-label={`کم کردن ${item.product.name}`}
+                    onClick={() => onQuantity(item.key, -1)}
+                  >
                     −
                   </button>
                   <output>{englishNumber.format(item.quantity)}</output>
-                  <button type="button" aria-label={`زیاد کردن ${item.product.name}`} onClick={() => onQuantity(item.key, 1)}>
+                  <button
+                    type="button"
+                    aria-label={`زیاد کردن ${item.product.name}`}
+                    onClick={() => onQuantity(item.key, 1)}
+                  >
                     +
                   </button>
                   <strong className="quantity__total">
-                    <small>جمع این آیتم</small>
                     {formatToman(unitPrice * item.quantity)}
                   </strong>
                 </div>
@@ -543,7 +659,6 @@ function OrderSummary({
           <div className="empty-order">
             <CupIcon />
             <b>سفارش خالی است</b>
-            <span>یک محصول را انتخاب کنید.</span>
           </div>
         )}
       </div>
@@ -573,7 +688,6 @@ function OrderSummary({
           </button>
         </div>
       )}
-      <p className="server-note">قیمت، موجودی و مبلغ نهایی در سرویس تأیید می‌شود.</p>
     </>
   );
 }
@@ -583,6 +697,7 @@ function ProductPicker({
   expanded,
   selectedProduct,
   onOpen,
+  onClose,
   onSelectProduct,
   onSelectOptions,
 }: {
@@ -590,11 +705,21 @@ function ProductPicker({
   expanded: boolean;
   selectedProduct: PosCatalogProduct | null;
   onOpen: () => void;
+  onClose: () => void;
   onSelectProduct: (product: PosCatalogProduct) => void;
   onSelectOptions: (product: PosCatalogProduct, options: Option[]) => void;
 }) {
+  const pickerRef = useRef<HTMLElement>(null);
   const [picked, setPicked] = useState<Record<string, Option>>({});
   useEffect(() => setPicked({}), [expanded, selectedProduct?.id]);
+  useEffect(() => {
+    if (!expanded) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) onClose();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [expanded, onClose]);
   const groups = (selectedProduct?.optionGroups ?? []).map((g) => ({
     ...g,
     options: g.options.filter((x) => x.isAvailable),
@@ -611,16 +736,27 @@ function ProductPicker({
   const isAvailable = card.products.some((product) => product.isAvailable);
   const showSizeChoices = card.products.length > 1;
   return (
-    <article className={expanded ? "product-picker product-picker--expanded" : "product-picker"}>
-      <button className="product-card" disabled={!isAvailable} onClick={onOpen} aria-expanded={expanded}>
+    <article className="product-picker" ref={pickerRef}>
+      <button
+        className="product-card"
+        disabled={!isAvailable}
+        onClick={onOpen}
+        aria-expanded={expanded}
+      >
         <span>{card.name}</span>
-        <b>{isAvailable ? formatToman(Math.min(...card.products.map((product) => product.priceAmount))) : "ناموجود"}</b>
-        {(showSizeChoices || card.products.some((product) => product.optionGroups.length > 0)) && <small>دارای انتخاب</small>}
+        {(showSizeChoices || card.products.some((product) => product.optionGroups.length > 0)) && (
+          <span className="product-card__add" aria-label="دارای انتخاب">
+            +
+          </span>
+        )}
       </button>
       {expanded && (
-        <div className="product-picker__choices">
+        <div className="product-overlay" aria-label={`انتخاب گزینه برای ${card.name}`}>
+          <div className="product-overlay__card">
+            <span>{card.name}</span>
+          </div>
           {showSizeChoices && (
-            <div className="shot-choices" aria-label="اندازه شات">
+            <div className="shot-choices" aria-label={`انتخاب شات ${card.name}`}>
               {card.products.map((product) => (
                 <button
                   key={product.id}
@@ -633,24 +769,28 @@ function ProductPicker({
               ))}
             </div>
           )}
-          {selectedProduct && groups.map((group) => (
-            <section className="product-option-group" key={group.id}>
-              <small>{group.name}</small>
-              <div>
-                {group.options.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className={picked[group.id]?.id === option.id ? "active" : ""}
-                    onClick={() => chooseOption(group.id, option)}
-                  >
-                    <span>{option.name}</span>
-                    <b>{formatToman(option.priceAmount)}</b>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))}
+          {selectedProduct && (
+            <div className="product-picker__choices">
+              {groups.map((group) => (
+                <section className="product-option-group" key={group.id}>
+                  <div>
+                    {group.options.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={picked[group.id]?.id === option.id ? "active" : ""}
+                        onClick={() => chooseOption(group.id, option)}
+                      >
+                        <span>
+                          {group.name === "لاین قهوه" ? coffeeRatio(option.name) : option.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </article>
@@ -666,6 +806,7 @@ function SettlementSheet({
   onClose: () => void;
   onSuccess: (order: OrderDetail) => void;
 }) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const unpaid = useMemo(() => {
     const used = new Map<string, number>();
     order.settlements
@@ -710,26 +851,35 @@ function SettlementSheet({
     }
     onSuccess(result.data);
   };
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [busy, onClose]);
   return (
     <div className="modal-backdrop">
-      <section className="modal-card">
+      <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
         <div className="modal-header">
           <div>
-            <p className="kicker">ثبت پرداخت</p>
-            <h2>تسویه {order.orderNumber}</h2>
+            <h2 id="settlement-title">ثبت پرداخت {order.orderNumber}</h2>
           </div>
-          <button className="icon-button" onClick={onClose}>
-            ×
+          <button className="icon-button" type="button" ref={closeButtonRef} onClick={onClose} aria-label="بستن ثبت پرداخت">
+            <CloseIcon />
           </button>
         </div>
-        <p className="settlement-total">
-          مبلغ انتخاب‌شده <strong>{formatToman(amount)}</strong>
+        <p className="settlement-total" aria-live="polite">
+          مبلغ قابل پرداخت <strong>{formatToman(amount)}</strong>
         </p>
-        <div className="payment-methods">
+        <div className="payment-methods" role="group" aria-label="روش پرداخت">
           {(["CASH", "CARD_TERMINAL", "CARD_TRANSFER"] as const).map((item) => (
             <button
               key={item}
+              type="button"
               className={method === item ? "active" : ""}
+              aria-pressed={method === item}
               onClick={() => setMethod(item)}
             >
               {item === "CASH" ? "نقدی" : item === "CARD_TERMINAL" ? "کارتخوان" : "کارت‌به‌کارت"}
@@ -742,7 +892,7 @@ function SettlementSheet({
             <input value={reference} onChange={(e) => setReference(e.target.value)} />
           </label>
         )}
-        {error && <div className="toast toast--error">{error}</div>}
+        {error && <div className="toast toast--error" role="alert">{error}</div>}
         <div className="modal-actions">
           <button className="button button--quiet" onClick={onClose}>
             انصراف
