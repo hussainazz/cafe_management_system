@@ -74,6 +74,27 @@ This file is the active completion checklist and current stage status for the ba
   selected-item and mixed-tender settlement UI, API-backed receipt/bar-ticket
   presentation, transfer, reasoned discounts, and explicit stale/reconnect
   recovery UX.
+- 7 September 2026 POS polish pass: the active order-inspection and
+  all-unsettled payment flows now use a mobile-safe dismissible sheet, explicit
+  dialog semantics, visible payment-method selection, focused close control,
+  Escape dismissal, and non-color-only status/copy. POS tests, typecheck,
+  production build, and `git diff --check` pass. Attached-browser desktop and
+  mobile interaction evidence remains left; this refinement does not complete
+  the separately scoped settlement, receipt, transfer, discount, or recovery
+  passes.
+- 7 September 2026 POS responsive pass: the normal-mobile layout honors
+  viewport safe areas and dynamic viewport height, touch controls expand for
+  coarse pointers, hover-only styling is withheld from touch devices, and the
+  tablet inspection view keeps two readable table columns. POS tests,
+  typecheck, production build, and `git diff --check` pass. Real-device and
+  attached-browser responsive evidence remains left.
+- 7 September 2026 POS typography pass: the shared operational type scale now
+  distinguishes titles, body labels, metadata, and microcopy consistently,
+  uses Persian-appropriate line-height, and aligns English-digit money and
+  quantities with tabular figures. The order-context remaining balance no
+  longer collapses to microcopy size. The type detector, POS tests, typecheck,
+  production build, and `git diff --check` pass; rendered browser/device proof
+  remains left.
 - Left for Stage 8 after the shared POS foundation: Manager-only payment
   history, catalog/users/settings/audit APIs, and one daily accounting report
   limited to the current or previous `Asia/Tehran` day. The full historical
