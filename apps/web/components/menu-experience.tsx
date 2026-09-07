@@ -161,7 +161,15 @@ function ProductVisual({ product, category }: { product: MenuProduct; category: 
   );
 }
 
-function Price({ product, language }: { product: MenuProduct; language: Language }) {
+function Price({
+  product,
+  language,
+  showFrom = false,
+}: {
+  product: MenuProduct;
+  language: Language;
+  showFrom?: boolean;
+}) {
   const text = copy[language];
   return (
     <span className="price-block">
@@ -169,6 +177,7 @@ function Price({ product, language }: { product: MenuProduct; language: Language
         <span className="old-price">{formatCompactToman(product.basePriceAmount, language)}</span>
       ) : null}
       <span className="price-line">
+        {showFrom ? <small>{text.from}</small> : null}
         <strong>{formatCompactToman(product.finalPriceAmount, language)}</strong>
         <small>{text.toman}</small>
       </span>
@@ -198,7 +207,7 @@ function ProductCard({
       className={`product-card${product.isAvailable ? "" : " is-unavailable"}`}
       type="button"
       onClick={(event) => onSelect(event.currentTarget)}
-      aria-label={`${localizedName(product, language)}، ${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
+      aria-label={`${localizedName(product, language)}، ${text.from} ${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
     >
       <ProductVisual product={product} category={category} />
       <span className="product-card-body">
@@ -220,7 +229,7 @@ function ProductCard({
         ) : null}
 
         <span className="product-card-bottom">
-          <Price product={product} language={language} />
+          <Price product={product} language={language} showFrom />
           {product.saleDiscount ? (
             <span className="discount-badge">
               {product.saleDiscount.kind === "PERCENTAGE"
