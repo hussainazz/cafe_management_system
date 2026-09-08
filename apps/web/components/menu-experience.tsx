@@ -123,7 +123,15 @@ function CategoryMark({
   return <span className={`category-mark category-mark--${tone} ${className}`}>{icon[tone]}</span>;
 }
 
-function ProductVisual({ product, category }: { product: MenuProduct; category: MenuCategory }) {
+function ProductVisual({
+  product,
+  category,
+  presentation = "card",
+}: {
+  product: MenuProduct;
+  category: MenuCategory;
+  presentation?: "card" | "dialog";
+}) {
   const [imageIndex, setImageIndex] = useState(0);
   const localPictureUrl = localProductPictureUrl(product, category);
   const imageSources = [
@@ -134,10 +142,16 @@ function ProductVisual({ product, category }: { product: MenuProduct; category: 
 
   if (imageSource) {
     return (
-      <span className="product-visual product-visual--image">
+      <span className={`product-visual product-visual--image product-visual--${presentation}`}>
         {/* Product files are self-hosted; dimensions and lazy decoding keep the grid stable. */}
+        {presentation === "dialog" ? (
+          // Decorative blurred copy fills the contain-image letterboxing in the product sheet.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="product-visual-image-backdrop" src={imageSource} alt="" aria-hidden="true" />
+        ) : null}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          className="product-visual-image-main"
           src={imageSource}
           alt={product.image?.altText ?? product.name}
           loading="lazy"
@@ -319,7 +333,7 @@ function ProductDialog({
 
         <div className="dialog-scroll-content">
           <div className="dialog-visual-wrap">
-            <ProductVisual product={product} category={category} />
+            <ProductVisual product={product} category={category} presentation="dialog" />
             {!product.isAvailable ? (
               <span className="dialog-unavailable">{text.unavailable}</span>
             ) : null}
