@@ -11,6 +11,7 @@ import {
   type RecordSettlementRequest,
   type UpdateOrderRequest,
   type DeleteOrderRequest,
+  type TransferOrderTableRequest,
   type AuthenticatedUser,
   type CreateOrderRequest,
   type CreatedOrder,
@@ -217,6 +218,22 @@ export async function deleteOpenOrder(
     }),
     OrderDetailResponseSchema,
     "پاسخ حذف سفارش معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function transferOrderTable(
+  orderId: string,
+  input: TransferOrderTableRequest,
+): Promise<ApiResult<PosOrderDetail>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/transfer-table`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+    OrderDetailResponseSchema,
+    "پاسخ انتقال میز معتبر نیست.",
   );
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
