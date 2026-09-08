@@ -12,6 +12,7 @@ import {
   readPosTables,
   readWaiterCalls,
   recordSettlement,
+  transferOrderTable,
   makeTableAvailable,
   updateOpenOrder,
   type PosOrderDetail,
@@ -32,6 +33,7 @@ type Data = {
   openOrders: Array<{ id: string; tableId: string | null; totalAmount: number }>;
 };
 type PendingTableClear = { tableId: string; tableName: string; orderNumber: string; error: string };
+type PendingTransfer = { order: OrderDetail; source: PosTable; destination: PosTable; swaps: boolean };
 const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const shotName = /^(.*)\s(سینگل|دبل)$/;
 const coffeeRatio = (name: string) => name.replace(/\s*(روبوستا|عربیکا)/g, "").replace("٪", "%");
@@ -68,6 +70,8 @@ export function OrdersWorkspace({
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ tone: "error" | "notice"; text: string } | null>(null);
   const [pendingTableClear, setPendingTableClear] = useState<PendingTableClear | null>(null);
+  const [pendingTransfer, setPendingTransfer] = useState<PendingTransfer | null>(null);
+  const [transferring, setTransferring] = useState(false);
   const [retryingTableClear, setRetryingTableClear] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
@@ -245,6 +249,46 @@ export function OrdersWorkspace({
           onClosePanel={close}
           onEditOrder={() => setEditingOrder(true)}
           onCheckout={() => setCheckout(true)}
+          onRequestTransfer={async (source, destination) => {
+            let sourceOrder: OrderDetail | null = order?.tableId === source.id ? order : null;
+            if (!sourceOrder) {
+              const result = await readOrder(source.activeOrders[0]!.id);
+              if (!result.ok) {
+                setMessage({ tone: "error", text: result.error.message });
+                return;
+              }
+              sourceOrder = result.data;
+            }
+            setPendingTransfer({ order: sourceOrder, source, destination, swaps: destination.activeOrders.length > 0 });
+          }}
+        />
+      )}
+      {pendingTransfer && (
+        <TransferTableDialog
+          transfer={pendingTransfer}
+          busy={transferring}
+          onCancel={() => setPendingTransfer(null)}
+          onConfirm={async () => {
+            setTransferring(true);
+            const result = await transferOrderTable(pendingTransfer.order.id, {
+              expectedVersion: pendingTransfer.order.version,
+              tableId: pendingTransfer.destination.id,
+            });
+            setTransferring(false);
+            if (!result.ok) {
+              setMessage({ tone: "error", text: result.error.message });
+              return;
+            }
+            setPendingTransfer(null);
+            close();
+            await load();
+            setMessage({
+              tone: "notice",
+              text: pendingTransfer.swaps
+                ? `سفارش‌های میز ${pendingTransfer.source.name} و میز ${pendingTransfer.destination.name} جابه‌جا شدند.`
+                : `سفارش میز ${pendingTransfer.source.name} به میز ${pendingTransfer.destination.name} منتقل شد.`,
+            });
+          }}
         />
       )}
       {checkout && order && (
@@ -277,6 +321,7 @@ function TableBoard({
   onClosePanel,
   onEditOrder,
   onCheckout,
+  onRequestTransfer,
 }: {
   tables: PosTable[];
   calls: Data["calls"];
@@ -287,7 +332,9 @@ function TableBoard({
   onClosePanel: () => void;
   onEditOrder: () => void;
   onCheckout: () => void;
+  onRequestTransfer: (source: PosTable, destination: PosTable) => Promise<void>;
 }) {
+  const [transferSourceId, setTransferSourceId] = useState<string | null>(null);
   const totals = new Map(orders.filter((x) => x.tableId).map((x) => [x.tableId!, x.totalAmount]));
   return (
     <div className={selectedOrder ? "table-board table-board--inspecting" : "table-board"}>
@@ -305,6 +352,10 @@ function TableBoard({
             onClose={onClosePanel}
             onEdit={onEditOrder}
             onCheckout={onCheckout}
+            onTransfer={() => {
+              setTransferSourceId(selectedOrder.tableId);
+              requestAnimationFrame(() => document.getElementById("table-transfer-targets")?.focus());
+            }}
           />
         </>
       )}
@@ -314,7 +365,8 @@ function TableBoard({
             <h1>مدیریت میزها</h1>
           </div>
         </div>
-      <div className="table-grid">
+      {transferSourceId && <p className="table-transfer-hint" role="status">مقصد انتقال میز را انتخاب کنید. میزهای دارای درخواست گارسون قابل انتخاب نیستند.</p>}
+      <div className="table-grid" id="table-transfer-targets" tabIndex={-1}>
         {tables.map((table) => {
           const hasOrder = table.activeOrders.length > 0;
           const call = calls.some((x) => x.tableId === table.id);
@@ -326,8 +378,30 @@ function TableBoard({
                 ? "occupied"
                 : "available";
           return (
-            <article key={table.id} className={`table-tile table-tile--${state}${selectedTableId === table.id ? " is-selected" : ""}`}>
-              <button className="table-tile__main" onClick={() => void onSelect(table)} aria-pressed={selectedTableId === table.id}>
+            <article
+              key={table.id}
+              draggable={hasOrder && !call}
+              onDragStart={(event) => event.dataTransfer.setData("text/plain", table.id)}
+              onDragOver={(event) => {
+                if (!call) event.preventDefault();
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const source = tables.find((item) => item.id === event.dataTransfer.getData("text/plain"));
+                if (!source || !source.activeOrders[0] || source.id === table.id || call) return;
+                void onRequestTransfer(source, table);
+              }}
+              className={`table-tile table-tile--${state}${selectedTableId === table.id ? " is-selected" : ""}`}
+            >
+              <button className="table-tile__main" onClick={() => {
+                const source = tables.find((item) => item.id === transferSourceId);
+                if (source && source.id !== table.id && !call) {
+                  setTransferSourceId(null);
+                  void onRequestTransfer(source, table);
+                  return;
+                }
+                void onSelect(table);
+              }} aria-pressed={selectedTableId === table.id}>
                 <span className="table-tile__top">
                   <strong>{table.name}</strong>
                   {call && <AlertIcon />}
@@ -349,7 +423,7 @@ function TableBoard({
   );
 }
 
-function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void }) {
+function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onTransfer }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void; onTransfer: () => void }) {
   const status = order.paymentStatus === "PAID" ? "تسویه شد" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت شد" : "بدون پرداخت";
   return <aside className="occupied-panel" aria-label={`جزئیات سفارش میز ${table?.name ?? ""}`}>
     <header className="occupied-panel__header">
@@ -364,6 +438,7 @@ function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout }: { tab
       {order.paidAmount > 0 && <div className="occupied-panel__balance">مانده: {formatToman(order.balanceAmount)}</div>}
       <button className="button button--primary button--wide" disabled={order.balanceAmount === 0} onClick={onCheckout}>تسویه و پرداخت</button>
       <button className="button button--quiet button--wide" onClick={onEdit}>ویرایش سفارش</button>
+      <button className="button button--quiet button--wide" onClick={onTransfer}>انتقال میز</button>
     </footer>
   </aside>;
 }
@@ -779,6 +854,38 @@ function DeleteOrderDialog({ order, table, clearsTable, busy, onCancel, onConfir
         <div className="modal-actions">
           <button className="button button--quiet" type="button" ref={cancelButtonRef} disabled={busy} onClick={onCancel}>انصراف</button>
           <button className="button button--danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? "در حال ثبت…" : clearsTable ? "پایان و آزادسازی میز" : "حذف از فهرست فعال"}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function TransferTableDialog({ transfer, busy, onCancel, onConfirm }: { transfer: PendingTransfer; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    cancelButtonRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onCancel();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [busy, onCancel]);
+  const title = transfer.swaps ? "تأیید جابه‌جایی میزها" : "تأیید انتقال میز";
+  const description = transfer.swaps
+    ? `سفارش‌های باز میز ${transfer.source.name} و میز ${transfer.destination.name} با هم جابه‌جا می‌شوند.`
+    : `سفارش باز میز ${transfer.source.name} به میز ${transfer.destination.name} منتقل می‌شود و میز ${transfer.source.name} آماده پذیرش خواهد شد.`;
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card transfer-dialog" role="dialog" aria-modal="true" aria-labelledby="transfer-table-title" aria-describedby="transfer-table-description">
+        <div className="modal-header">
+          <h2 id="transfer-table-title">{title}</h2>
+          <button className="icon-button" type="button" disabled={busy} onClick={onCancel} aria-label="بستن تأیید انتقال"><CloseIcon /></button>
+        </div>
+        <p id="transfer-table-description">{description}</p>
+        <p className="deletion-dialog__notice">مبالغ، اقلام و پرداخت‌های ثبت‌شده تغییر نمی‌کنند؛ فقط زمینه میزها به‌صورت ایمن جابه‌جا می‌شود.</p>
+        <div className="modal-actions">
+          <button className="button button--quiet" type="button" ref={cancelButtonRef} disabled={busy} onClick={onCancel}>انصراف</button>
+          <button className="button button--primary" type="button" disabled={busy} onClick={onConfirm}>{busy ? "در حال انتقال…" : transfer.swaps ? "جابه‌جایی میزها" : "انتقال سفارش"}</button>
         </div>
       </section>
     </div>
