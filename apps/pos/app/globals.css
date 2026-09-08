@@ -410,6 +410,10 @@ svg {
   animation: waiter-call-pulse 1.15s ease-in-out infinite alternate;
 }
 .table-tile.is-selected { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(31, 120, 108, 0.15), 0 12px 24px rgba(22, 35, 30, 0.1); }
+.table-tile[draggable="true"] { cursor: grab; }
+.table-tile[draggable="true"]:active { cursor: grabbing; }
+.table-transfer-hint { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--teal-soft); color: var(--teal-dark); font-size: var(--text-label); line-height: 1.65; }
+.table-grid:focus { outline: none; }
 .table-tile:has(.table-tile__main:active) { transform: translateY(0) scale(0.985); }
 .table-tile__main {
   display: grid;
@@ -1093,6 +1097,7 @@ svg {
 }
 .deletion-dialog__notice { background: #f2f5f3; }
 .deletion-dialog__consequence { background: #fff5f3; color: #79251d; }
+.transfer-dialog p { font-size: var(--text-label); line-height: 1.85; }
 .clear-retry {
   display: flex;
   align-items: center;
