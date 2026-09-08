@@ -12,9 +12,11 @@ import {
   readPosTables,
   readWaiterCalls,
   recordSettlement,
+  makeTableAvailable,
   updateOpenOrder,
   type PosOrderDetail,
 } from "../lib/api-client";
+import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
 import { elapsedLabel, englishNumber, formatToman, sumAmounts } from "../lib/pos-utils";
 import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon } from "./icons";
 
@@ -29,6 +31,7 @@ type Data = {
   calls: Array<{ tableId: string; version: number }>;
   openOrders: Array<{ id: string; tableId: string | null; totalAmount: number }>;
 };
+type PendingTableClear = { tableId: string; tableName: string; orderNumber: string; error: string };
 const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const shotName = /^(.*)\s(سینگل|دبل)$/;
 const coffeeRatio = (name: string) => name.replace(/\s*(روبوستا|عربیکا)/g, "").replace("٪", "%");
@@ -64,6 +67,8 @@ export function OrdersWorkspace({
   const [checkout, setCheckout] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ tone: "error" | "notice"; text: string } | null>(null);
+  const [pendingTableClear, setPendingTableClear] = useState<PendingTableClear | null>(null);
+  const [retryingTableClear, setRetryingTableClear] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
     setMessage(null);
@@ -183,6 +188,35 @@ export function OrdersWorkspace({
           <button onClick={() => setMessage(null)}>×</button>
         </div>
       )}
+      {pendingTableClear && (
+        <section className="clear-retry" role="alert" aria-live="assertive">
+          <div>
+            <b>سفارش {pendingTableClear.orderNumber} از فهرست فعال حذف شد.</b>
+            <span>
+              میز {pendingTableClear.tableName} هنوز اشغال است و زمینه مهمان قبلی پایان نیافته: {pendingTableClear.error}
+            </span>
+          </div>
+          <button
+            className="button button--primary"
+            type="button"
+            disabled={retryingTableClear}
+            onClick={async () => {
+              setRetryingTableClear(true);
+              const result = await makeTableAvailable(pendingTableClear.tableId);
+              setRetryingTableClear(false);
+              if (!result.ok) {
+                setPendingTableClear({ ...pendingTableClear, error: result.error.message });
+                return;
+              }
+              setPendingTableClear(null);
+              await load();
+              setMessage({ tone: "notice", text: `میز ${pendingTableClear.tableName} آماده پذیرش شد.` });
+            }}
+          >
+            {retryingTableClear ? "در حال آزادسازی…" : "تلاش دوباره برای آزادسازی میز"}
+          </button>
+        </section>
+      )}
       {editingOrder || (selected && !order) || channel === "TAKEAWAY" ? (
         <OrderDesk
           catalog={data.catalog}
@@ -191,9 +225,13 @@ export function OrdersWorkspace({
           initialOrder={order}
           onOrder={setOrder}
           onDone={async (notice) => {
-            setMessage({ tone: "notice", text: notice });
             close();
             await load();
+            setMessage({ tone: "notice", text: notice });
+          }}
+          onTableClearNeeded={(clear) => {
+            setPendingTableClear(clear);
+            close();
           }}
         />
       ) : (
@@ -337,6 +375,7 @@ function OrderDesk({
   initialOrder,
   onOrder,
   onDone,
+  onTableClearNeeded,
 }: {
   catalog: PosCatalogCategory[];
   table: PosTable | null;
@@ -344,6 +383,7 @@ function OrderDesk({
   initialOrder: OrderDetail | null;
   onOrder: (order: OrderDetail | null) => void;
   onDone: (message: string) => void;
+  onTableClearNeeded: (clear: PendingTableClear) => void;
 }) {
   const posCatalog = useMemo(
     () => catalog.filter((item) => item.name !== "ویژه و جدید"),
@@ -356,6 +396,7 @@ function OrderDesk({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkout, setCheckout] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
   const cards = productCards(category?.products ?? []);
   const draftTotal = sumAmounts(
@@ -420,21 +461,31 @@ function OrderDesk({
     setDraft([]);
   };
   const remove = async () => {
-    if (
-      !initialOrder ||
-      !confirm("این سفارش به‌صورت منطقی از عملیات فعال حذف می‌شود. ادامه می‌دهید؟")
-    )
-      return;
+    if (!initialOrder) return;
+    const clearsTable = channel === "TABLE" && canClearTableAfterDeletion(table?.activeOrders.length);
     setBusy(true);
-    const result = await deleteOpenOrder(initialOrder.id, {
-      expectedVersion: initialOrder.version,
-    });
+    setError(null);
+    const result = await deleteAndClearTableOrder(
+      () => deleteOpenOrder(initialOrder.id, { expectedVersion: initialOrder.version }),
+      clearsTable && table ? () => makeTableAvailable(table.id) : null,
+    );
     setBusy(false);
-    if (!result.ok) {
+    if (result.status === "delete-failed") {
       setError(result.error.message);
       return;
     }
-    onDone("سفارش از فهرست فعال حذف شد.");
+    setDeleteDialogOpen(false);
+    if (result.status === "needs-table-clear" && table) {
+      onTableClearNeeded({ tableId: table.id, tableName: table.name, orderNumber: initialOrder.orderNumber, error: result.error.message });
+      return;
+    }
+    onDone(
+      channel === "TABLE"
+        ? clearsTable
+          ? `سفارش حذف شد و میز ${table?.name} آماده پذیرش است.`
+          : `سفارش حذف شد؛ میز ${table?.name} همچنان سفارش باز دارد.`
+        : "سفارش از فهرست فعال حذف شد.",
+    );
   };
   return (
     <>
@@ -530,7 +581,7 @@ function OrderDesk({
             }
             onSave={() => void save()}
             onCheckout={() => setCheckout(true)}
-            onDelete={() => void remove()}
+            onRequestDelete={() => setDeleteDialogOpen(true)}
             busy={busy}
           />
         </aside>
@@ -549,6 +600,16 @@ function OrderDesk({
           }}
         />
       )}
+      {deleteDialogOpen && initialOrder && (
+        <DeleteOrderDialog
+          order={initialOrder}
+          table={channel === "TABLE" ? table : null}
+          clearsTable={channel === "TABLE" && canClearTableAfterDeletion(table?.activeOrders.length)}
+          busy={busy}
+          onCancel={() => setDeleteDialogOpen(false)}
+          onConfirm={() => void remove()}
+        />
+      )}
     </>
   );
 }
@@ -560,7 +621,7 @@ function OrderSummary({
   onQuantity,
   onSave,
   onCheckout,
-  onDelete,
+  onRequestDelete,
   busy,
 }: {
   order: OrderDetail | null;
@@ -569,7 +630,7 @@ function OrderSummary({
   onQuantity: (key: string, delta: number) => void;
   onSave: () => void;
   onCheckout: () => void;
-  onDelete: () => void;
+  onRequestDelete: () => void;
   busy: boolean;
 }) {
   const [expandedDraftKey, setExpandedDraftKey] = useState<string | null>(null);
@@ -683,12 +744,44 @@ function OrderSummary({
           <button className="button button--quiet" onClick={() => window.print()}>
             چاپ رسید
           </button>
-          <button className="text-danger" disabled={busy} onClick={onDelete}>
+          <button className="text-danger" disabled={busy} onClick={onRequestDelete}>
             حذف سفارش
           </button>
         </div>
       )}
     </>
+  );
+}
+
+function DeleteOrderDialog({ order, table, clearsTable, busy, onCancel, onConfirm }: { order: OrderDetail; table: PosTable | null; clearsTable: boolean; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const paymentStatus = order.paymentStatus === "PAID" ? "تسویه‌شده" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت‌شده" : "بدون پرداخت";
+  useEffect(() => {
+    cancelButtonRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onCancel();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [busy, onCancel]);
+  const tableOrder = Boolean(table);
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card deletion-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-order-title" aria-describedby="delete-order-description">
+        <div className="modal-header">
+          <div><h2 id="delete-order-title">{clearsTable ? "پایان و آزادسازی میز" : "حذف از سفارش‌های فعال"}</h2></div>
+          <button className="icon-button" type="button" disabled={busy} onClick={onCancel} aria-label="بستن تأیید حذف"><CloseIcon /></button>
+        </div>
+        <p id="delete-order-description">سفارش {order.orderNumber} {tableOrder ? `برای میز ${table!.name}` : "بیرون‌بر"} با وضعیت {paymentStatus} از عملیات فعال حذف می‌شود.</p>
+        <p className="deletion-dialog__notice">این حذف فیزیکی نیست؛ اطلاعات مالی و سابقه ثبت‌شده حفظ می‌شود و دلیل حذف لازم نیست.</p>
+        {clearsTable && <p className="deletion-dialog__consequence">پس از حذف، میز آماده پذیرش می‌شود، زمینه مهمان قبلی پایان می‌یابد و درخواست گارسون باز آن بسته می‌شود.</p>}
+        {tableOrder && !clearsTable && <p className="deletion-dialog__consequence">این میز سفارش باز دیگری دارد؛ فقط این سفارش حذف می‌شود و میز تا پایان سفارش‌های باقی‌مانده آماده پذیرش نخواهد شد.</p>}
+        <div className="modal-actions">
+          <button className="button button--quiet" type="button" ref={cancelButtonRef} disabled={busy} onClick={onCancel}>انصراف</button>
+          <button className="button button--danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? "در حال ثبت…" : clearsTable ? "پایان و آزادسازی میز" : "حذف از فهرست فعال"}</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
