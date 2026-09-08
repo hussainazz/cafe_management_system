@@ -70,6 +70,17 @@ async function createOrderRequest(cookies: Record<string, string>, payload: unkn
 }
 
 describe("Staff order creation", () => {
+  it("rejects a second open table order for the same physical table", async () => {
+    const cookies = await userSession(UserRole.STAFF, "single-order.staff");
+    const { product } = await sellableProduct();
+    const table = await app.prisma.cafeTable.create({ data: { name: "Single order table", seatingLimitMinutes: 45, displayOrder: 91 } });
+    const first = await createOrderRequest(cookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "single-table-first-0001");
+    expect(first.statusCode).toBe(201);
+    const second = await createOrderRequest(cookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "single-table-second-0001");
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error.code).toBe("INVALID_STATE");
+  });
+
   it("creates a table order from authoritative catalog snapshots and timing", async () => {
     const cookies = await staffSession();
     const { product, option } = await sellableProduct();
@@ -324,7 +335,7 @@ describe("order reads, edits, and discounts", () => {
     expect(historical.json().data.items[0]).toMatchObject({ discountKind: "PERCENTAGE", discountValue: 20, discountAmount: 10_000, lineTotalAmount: 40_000 });
   });
 
-  it("transfers a table order and rejects a stale edit without changing it", async () => {
+  it("moves a table order to an empty table, frees its source context, and rejects a stale edit", async () => {
     const cookies = await userSession(UserRole.STAFF, "transfer.staff");
     const { product } = await sellableProduct();
     const firstTable = await app.prisma.cafeTable.create({ data: { name: "Table 1", seatingLimitMinutes: 45, displayOrder: 1 } });
@@ -334,11 +345,42 @@ describe("order reads, edits, and discounts", () => {
     const transferred = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/transfer-table`, cookies, payload: { expectedVersion: order.version, tableId: secondTable.id } });
     expect(transferred.statusCode).toBe(200);
     expect(transferred.json().data).toMatchObject({ tableId: secondTable.id, tableSeatingLimitSnapshotMinutes: 60, version: 2 });
+    expect(await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: firstTable.id } })).toMatchObject({ occupancyState: "AVAILABLE", occupiedAt: null });
+    expect(await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: secondTable.id } })).toMatchObject({ occupancyState: "OCCUPIED" });
     const stale = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[0].id, note: "Stale edit" }] } });
     expect(stale.statusCode).toBe(409);
     expect(stale.json().error.code).toBe("STALE_VERSION");
     const current = await app.prisma.orderItem.findUniqueOrThrow({ where: { id: order.items[0].id } });
     expect(current.note).toBeNull();
+  });
+
+  it("swaps two open table orders and recalculates their table timing", async () => {
+    const cookies = await userSession(UserRole.MANAGER, "swap.manager");
+    const { product } = await sellableProduct();
+    const firstTable = await app.prisma.cafeTable.create({ data: { name: "Swap 1", seatingLimitMinutes: 45, displayOrder: 101 } });
+    const secondTable = await app.prisma.cafeTable.create({ data: { name: "Swap 2", seatingLimitMinutes: 75, displayOrder: 102 } });
+    const first = await createOrderRequest(cookies, { channel: "TABLE", tableId: firstTable.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "swap-first-order-0001");
+    expect(first.statusCode).toBe(201);
+    expect(first.json().data.tableId).toBe(firstTable.id);
+    expect(await app.prisma.order.findFirst({ where: { tableId: secondTable.id, state: "OPEN" } })).toBeNull();
+    const second = await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] }, "swap-second-order-0001");
+    expect(second.statusCode).toBe(201);
+    await app.prisma.order.update({
+      where: { id: second.json().data.id },
+      data: {
+        channel: "TABLE",
+        tableId: secondTable.id,
+        tableSeatingLimitSnapshotMinutes: secondTable.seatingLimitMinutes,
+        estimatedTableReleaseAt: new Date(new Date(second.json().data.createdAt).getTime() + (secondTable.seatingLimitMinutes + second.json().data.estimatedPreparationMinutes) * 60_000),
+      },
+    });
+    const moved = await app.inject({ method: "POST", url: `/api/v1/orders/${first.json().data.id}/transfer-table`, cookies, payload: { expectedVersion: first.json().data.version, tableId: secondTable.id } });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json().data).toMatchObject({ tableId: secondTable.id, tableSeatingLimitSnapshotMinutes: 75, version: 2 });
+    const displaced = await app.prisma.order.findUniqueOrThrow({ where: { id: second.json().data.id } });
+    expect(displaced).toMatchObject({ tableId: firstTable.id, tableSeatingLimitSnapshotMinutes: 45, version: 2 });
+    await expect(app.prisma.cafeTable.findUniqueOrThrow({ where: { id: firstTable.id } })).resolves.toMatchObject({ occupancyState: "OCCUPIED" });
+    await expect(app.prisma.cafeTable.findUniqueOrThrow({ where: { id: secondTable.id } })).resolves.toMatchObject({ occupancyState: "OCCUPIED" });
   });
 });
 
