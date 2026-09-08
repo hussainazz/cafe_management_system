@@ -18,7 +18,15 @@ import {
   type PosOrderDetail,
 } from "../lib/api-client";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
-import { elapsedLabel, englishNumber, formatToman, sumAmounts } from "../lib/pos-utils";
+import {
+  elapsedLabel,
+  englishNumber,
+  formatToman,
+  positiveIntegerAmount,
+  settlementAllocationAmount,
+  settlementAvailability,
+  sumAmounts,
+} from "../lib/pos-utils";
 import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon } from "./icons";
 
 type Channel = "TABLE" | "TAKEAWAY";
@@ -34,6 +42,8 @@ type Data = {
 };
 type PendingTableClear = { tableId: string; tableName: string; orderNumber: string; error: string };
 type PendingTransfer = { order: OrderDetail; source: PosTable; destination: PosTable; swaps: boolean };
+type TenderMethod = "CASH" | "CARD_TERMINAL" | "CARD_TRANSFER";
+type TenderDraft = { id: string; method: TenderMethod; amount: string; reference: string };
 const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const shotName = /^(.*)\s(سینگل|دبل)$/;
 const coffeeRatio = (name: string) => name.replace(/\s*(روبوستا|عربیکا)/g, "").replace("٪", "%");
@@ -1007,42 +1017,64 @@ function SettlementSheet({
   onSuccess: (order: OrderDetail) => void;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const unpaid = useMemo(() => {
-    const used = new Map<string, number>();
-    order.settlements
-      .filter((x) => !x.reversedAt)
-      .forEach((s) =>
-        s.allocations.forEach((a) =>
-          used.set(a.orderItemId, (used.get(a.orderItemId) ?? 0) + a.quantity),
-        ),
-      );
-    return order.items
-      .map((item) => ({ item, quantity: item.quantity - (used.get(item.id) ?? 0) }))
-      .filter((x) => x.quantity > 0);
-  }, [order]);
-  const [method, setMethod] = useState<"CASH" | "CARD_TERMINAL" | "CARD_TRANSFER">("CARD_TERMINAL");
-  const [reference, setReference] = useState("");
+  const settlementItems = useMemo(() => {
+    let runningSubtotal = 0;
+    return order.items.map((item) => {
+      const discountBefore = Math.floor((order.discountAmount * runningSubtotal) / order.subtotalAmount);
+      runningSubtotal += item.lineTotalAmount;
+      const discountAfter = Math.floor((order.discountAmount * runningSubtotal) / order.subtotalAmount);
+      return { ...item, lineTotalAmount: item.lineTotalAmount - (discountAfter - discountBefore) };
+    });
+  }, [order.discountAmount, order.items, order.subtotalAmount]);
+  const available = useMemo(
+    () => settlementAvailability(settlementItems, order.settlements),
+    [order.settlements, settlementItems],
+  );
+  const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>(() =>
+    Object.fromEntries(available.map(({ item, availableQuantity }) => [item.id, availableQuantity])),
+  );
+  const selected = available
+    .map((entry) => ({ ...entry, quantity: selectedQuantities[entry.item.id] ?? 0 }))
+    .filter((entry) => entry.quantity > 0);
+  const selectedAmount = sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
+  const [tenders, setTenders] = useState<TenderDraft[]>(() => [
+    { id: requestKey(), method: "CARD_TERMINAL", amount: String(selectedAmount), reference: "" },
+  ]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const amount = sumAmounts(
-    unpaid.map(({ item, quantity }) =>
-      Math.floor((item.lineTotalAmount / item.quantity) * quantity),
-    ),
-  );
+  const [attemptKey, setAttemptKey] = useState(requestKey);
+  const tenderAmount = sumAmounts(tenders.map((tender) => positiveIntegerAmount(tender.amount)));
+  const isReconciled = selectedAmount > 0 && tenderAmount === selectedAmount;
+  const resetAttempt = () => {
+    setAttemptKey(requestKey());
+    setError(null);
+  };
+  const setSelectedQuantity = (itemId: string, quantity: number, maximum: number) => {
+    resetAttempt();
+    setSelectedQuantities((current) => ({
+      ...current,
+      [itemId]: Math.max(0, Math.min(maximum, quantity)),
+    }));
+  };
+  const updateTender = (id: string, patch: Partial<TenderDraft>) => {
+    resetAttempt();
+    setTenders((current) => current.map((tender) => (tender.id === id ? { ...tender, ...patch } : tender)));
+  };
   const settle = async () => {
+    if (!isReconciled || busy) return;
     setBusy(true);
-    const payment =
-      method === "CARD_TRANSFER" && reference.trim()
-        ? { method, amount, reference: reference.trim() }
-        : { method, amount };
     const result = await recordSettlement(
       order.id,
       {
         expectedVersion: order.version,
-        allocations: unpaid.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })),
-        payments: [payment],
+        allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })),
+        payments: tenders.map((tender) =>
+          tender.method === "CARD_TRANSFER" && tender.reference.trim()
+            ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() }
+            : { method: tender.method, amount: positiveIntegerAmount(tender.amount) },
+        ),
       },
-      requestKey(),
+      attemptKey,
     );
     setBusy(false);
     if (!result.ok) {
@@ -1070,28 +1102,63 @@ function SettlementSheet({
             <CloseIcon />
           </button>
         </div>
-        <p className="settlement-total" aria-live="polite">
-          مبلغ قابل پرداخت <strong>{formatToman(amount)}</strong>
-        </p>
-        <div className="payment-methods" role="group" aria-label="روش پرداخت">
-          {(["CASH", "CARD_TERMINAL", "CARD_TRANSFER"] as const).map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={method === item ? "active" : ""}
-              aria-pressed={method === item}
-              onClick={() => setMethod(item)}
-            >
-              {item === "CASH" ? "نقدی" : item === "CARD_TERMINAL" ? "کارتخوان" : "کارت‌به‌کارت"}
-            </button>
+        <section className="settlement-selection" aria-labelledby="settlement-items-title">
+          <div className="settlement-section-heading">
+            <h3 id="settlement-items-title">اقلام قابل پرداخت</h3>
+            <span>تعداد موردنظر را انتخاب کنید</span>
+          </div>
+          {available.map(({ item, availableQuantity }) => {
+            const quantity = selectedQuantities[item.id] ?? 0;
+            return (
+              <div className="settlement-item" key={item.id}>
+                <div>
+                  <b>{item.productNameSnapshot}</b>
+                  <span>{formatToman(settlementAllocationAmount({ item, alreadyAllocatedQuantity: available.find((entry) => entry.item.id === item.id)?.alreadyAllocatedQuantity ?? 0, quantity: Math.max(quantity, 0) }))}</span>
+                </div>
+                <div className="settlement-quantity" aria-label={`تعداد قابل پرداخت ${item.productNameSnapshot}`}>
+                  <button type="button" disabled={busy || quantity === 0} onClick={() => setSelectedQuantity(item.id, quantity - 1, availableQuantity)} aria-label={`کم کردن ${item.productNameSnapshot}`}>−</button>
+                  <output>{englishNumber.format(quantity)} از {englishNumber.format(availableQuantity)}</output>
+                  <button type="button" disabled={busy || quantity === availableQuantity} onClick={() => setSelectedQuantity(item.id, quantity + 1, availableQuantity)} aria-label={`زیاد کردن ${item.productNameSnapshot}`}>+</button>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+        <section className="settlement-tenders" aria-labelledby="settlement-tenders-title">
+          <div className="settlement-section-heading">
+            <h3 id="settlement-tenders-title">روش‌های پرداخت</h3>
+            <button type="button" className="text-action" disabled={busy || tenders.length >= 10} onClick={() => {
+              resetAttempt();
+              setTenders((current) => [...current, { id: requestKey(), method: "CASH", amount: "", reference: "" }]);
+            }}>افزودن روش</button>
+          </div>
+          {tenders.map((tender, index) => (
+            <div className="tender-row" key={tender.id}>
+              <label>روش
+                <select value={tender.method} disabled={busy} onChange={(event) => updateTender(tender.id, { method: event.target.value as TenderMethod, reference: "" })}>
+                  <option value="CASH">نقدی</option>
+                  <option value="CARD_TERMINAL">کارتخوان</option>
+                  <option value="CARD_TRANSFER">کارت‌به‌کارت</option>
+                </select>
+              </label>
+              <label>مبلغ (تومان)
+                <input inputMode="numeric" value={tender.amount} disabled={busy} onChange={(event) => updateTender(tender.id, { amount: event.target.value.replace(/[^0-9]/g, "") })} aria-label={`مبلغ روش پرداخت ${index + 1}`} />
+              </label>
+              {tender.method === "CARD_TRANSFER" && <label>شماره پیگیری (اختیاری)
+                <input value={tender.reference} disabled={busy} maxLength={128} onChange={(event) => updateTender(tender.id, { reference: event.target.value })} />
+              </label>}
+              {tenders.length > 1 && <button className="icon-button tender-remove" type="button" disabled={busy} onClick={() => {
+                resetAttempt();
+                setTenders((current) => current.filter((item) => item.id !== tender.id));
+              }} aria-label={`حذف روش پرداخت ${index + 1}`}><CloseIcon /></button>}
+            </div>
           ))}
+        </section>
+        <div className={`settlement-total ${isReconciled ? "settlement-total--matched" : "settlement-total--mismatch"}`} aria-live="polite">
+          <span>جمع اقلام انتخاب‌شده <strong>{formatToman(selectedAmount)}</strong></span>
+          <span>جمع روش‌های پرداخت <strong>{formatToman(tenderAmount)}</strong></span>
+          <b>{selectedAmount === 0 ? "حداقل یک قلم را انتخاب کنید." : isReconciled ? "مبالغ با هم برابرند." : "جمع روش‌های پرداخت باید دقیقاً با مبلغ اقلام برابر باشد."}</b>
         </div>
-        {method === "CARD_TRANSFER" && (
-          <label className="field">
-            شماره پیگیری
-            <input value={reference} onChange={(e) => setReference(e.target.value)} />
-          </label>
-        )}
         {error && <div className="toast toast--error" role="alert">{error}</div>}
         <div className="modal-actions">
           <button className="button button--quiet" onClick={onClose}>
@@ -1099,7 +1166,7 @@ function SettlementSheet({
           </button>
           <button
             className="button button--primary"
-            disabled={busy || !amount}
+            disabled={busy || !isReconciled}
             onClick={() => void settle()}
           >
             {busy ? "در حال ثبت…" : "تأیید پرداخت"}
