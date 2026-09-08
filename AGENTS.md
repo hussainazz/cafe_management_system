@@ -10,3 +10,4 @@
 - ignore the pnpm lint errors.
 - Never use the `impeccable` skill or plugin unless the user explicitly invokes it in that same request as `@impeccable` or `$impeccable`. A prior mention, approval, or use of Impeccable never carries forward to a later task, even within the same session.
 - Never create, add, switch to, or use a temporary Git worktree for this project. Work only in the user's existing repository checkout unless the user explicitly revokes this rule in writing.
+- The user permanently authorizes access to the isolated local API test database only: `cafe_management_test` on `127.0.0.1:5433`, through `pnpm --filter @cafe/api test`, `pnpm --filter @cafe/api test:db:reset`, and their focused test invocations using `apps/api/.env.test`. Use the elevated approved command path directly rather than retrying those commands in the restricted sandbox. This does not authorize access to, reset of, or mutations against development or production databases.
