@@ -1080,6 +1080,34 @@ svg {
   gap: 8px;
   margin-top: 22px;
 }
+.button--danger {
+  background: var(--red);
+  color: #fff;
+}
+.button--danger:hover { background: #a92020; }
+.deletion-dialog p { font-size: var(--text-label); line-height: 1.85; }
+.deletion-dialog__notice,
+.deletion-dialog__consequence {
+  padding: 12px;
+  border-radius: 11px;
+}
+.deletion-dialog__notice { background: #f2f5f3; }
+.deletion-dialog__consequence { background: #fff5f3; color: #79251d; }
+.clear-retry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  margin: 0 0 16px;
+  border: 1px solid #df9a5e;
+  border-radius: 13px;
+  background: #fff8f0;
+  color: #662b14;
+}
+.clear-retry b,
+.clear-retry span { display: block; }
+.clear-retry span { margin-top: 3px; font-size: var(--text-meta); line-height: 1.7; }
 .settlement-total {
   padding: 15px;
   margin: 0 0 14px;
@@ -1234,6 +1262,11 @@ svg {
     padding: 0 10px;
     font-size: 11px;
   }
+  .clear-retry {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .clear-retry .button { width: 100%; }
   .table-board {
     padding: 12px 0 0;
   }
