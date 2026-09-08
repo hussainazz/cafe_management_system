@@ -26,6 +26,12 @@ const CREATE_ORDER_OPERATION = "CREATE_ORDER";
 const RECORD_SETTLEMENT_OPERATION = "RECORD_SETTLEMENT";
 const IDEMPOTENCY_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
+async function lockOperationalKeys(transaction: Prisma.TransactionClient, keys: string[]) {
+  for (const key of [...new Set(keys)].sort()) {
+    await transaction.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}::text))`);
+  }
+}
+
 type ProductForOrder = {
   id: string;
   name: string;
@@ -247,6 +253,9 @@ export async function createOrder(
 
   try {
     const order = await prisma.$transaction(async (transaction) => {
+      if (input.channel === "TABLE") {
+        await lockOperationalKeys(transaction, [`table:${input.tableId}`]);
+      }
       const productIds = [...new Set(input.items.map((item) => item.productId))];
       const products = await transaction.product.findMany({
         where: { id: { in: productIds } },
@@ -321,6 +330,19 @@ export async function createOrder(
           ErrorCodes.BUSINESS_RULE_VIOLATION,
           "The table is unavailable.",
         );
+      }
+      if (table) {
+        const activeOrder = await transaction.order.findFirst({
+          where: { tableId: table.id, channel: OrderChannel.TABLE, state: OrderState.OPEN },
+          select: { id: true },
+        });
+        if (activeOrder) {
+          throw new ApplicationError(
+            409,
+            ErrorCodes.INVALID_STATE,
+            "This table already has an open order.",
+          );
+        }
       }
 
       const preparedItems = input.items.map((item, displayOrder) => {
@@ -703,18 +725,46 @@ export async function updateOrder(
 export async function transferOrderTable(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, input: TransferOrderTableRequest, requestId: string) {
   requireRole(actor, ["STAFF", "MANAGER"]);
   return prisma.$transaction(async (transaction) => {
+    await lockOperationalKeys(transaction, [`order:${orderId}`]);
     const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.state !== OrderState.OPEN || order.channel !== OrderChannel.TABLE) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open table orders can be transferred.");
+    if (!order.tableId) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The order does not have a table assignment.");
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
-    const table = await transaction.cafeTable.findFirst({ where: { id: input.tableId, isActive: true, archivedAt: null } });
-    if (!table) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The table is unavailable.");
-    const timing = calculateTableEta({ seatedAt: order.createdAt, seatingLimitMinutes: table.seatingLimitMinutes, itemPreparationDeadlineMinutes: [order.estimatedPreparationMinutes] });
-    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { tableId: table.id, tableSeatingLimitSnapshotMinutes: table.seatingLimitMinutes, estimatedTableReleaseAt: timing.estimatedReleaseAt, version: { increment: 1 } } });
+    if (order.tableId === input.tableId) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Choose a different destination table.");
+    await lockOperationalKeys(transaction, [`table:${order.tableId}`, `table:${input.tableId}`]);
+    const [sourceTable, destinationTable] = await Promise.all([
+      transaction.cafeTable.findFirst({ where: { id: order.tableId, isActive: true, archivedAt: null } }),
+      transaction.cafeTable.findFirst({ where: { id: input.tableId, isActive: true, archivedAt: null } }),
+    ]);
+    if (!sourceTable || !destinationTable) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The table is unavailable.");
+    const pendingDestinationCall = await transaction.waiterCall.findFirst({ where: { tableId: destinationTable.id, status: "PENDING" }, select: { id: true } });
+    if (pendingDestinationCall) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Resolve the destination table waiter-call before transferring.");
+    const destinationOrder = await transaction.order.findFirst({
+      where: { tableId: destinationTable.id, channel: OrderChannel.TABLE, state: OrderState.OPEN },
+      include: orderDetailInclude,
+    });
+    const now = new Date();
+    const destinationTiming = calculateTableEta({ seatedAt: order.createdAt, seatingLimitMinutes: destinationTable.seatingLimitMinutes, itemPreparationDeadlineMinutes: [order.estimatedPreparationMinutes] });
+    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { tableId: destinationTable.id, tableSeatingLimitSnapshotMinutes: destinationTable.seatingLimitMinutes, estimatedTableReleaseAt: destinationTiming.estimatedReleaseAt, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
-    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "TRANSFER_ORDER_TABLE", entityType: "ORDER", entityId: orderId, afterSnapshot: { tableId: table.id, version: input.expectedVersion + 1 } } });
+    if (destinationOrder) {
+      const sourceTiming = calculateTableEta({ seatedAt: destinationOrder.createdAt, seatingLimitMinutes: sourceTable.seatingLimitMinutes, itemPreparationDeadlineMinutes: [destinationOrder.estimatedPreparationMinutes] });
+      await transaction.order.update({ where: { id: destinationOrder.id }, data: { tableId: sourceTable.id, tableSeatingLimitSnapshotMinutes: sourceTable.seatingLimitMinutes, estimatedTableReleaseAt: sourceTiming.estimatedReleaseAt, version: { increment: 1 } } });
+      await transaction.cafeTable.update({ where: { id: sourceTable.id }, data: { occupancyState: "OCCUPIED", occupiedAt: sourceTable.occupiedAt ?? now, occupancyReminderAt: null } });
+      await transaction.cafeTable.update({ where: { id: destinationTable.id }, data: { occupancyState: "OCCUPIED", occupiedAt: destinationTable.occupiedAt ?? now, occupancyReminderAt: null } });
+      await transaction.auditLog.createMany({ data: [
+        { actorId: actor.id, requestId, operation: "TRANSFER_ORDER_TABLE", entityType: "ORDER", entityId: orderId, afterSnapshot: { tableId: destinationTable.id, version: input.expectedVersion + 1, swappedWithOrderId: destinationOrder.id } },
+        { actorId: actor.id, requestId, operation: "TRANSFER_ORDER_TABLE", entityType: "ORDER", entityId: destinationOrder.id, afterSnapshot: { tableId: sourceTable.id, version: destinationOrder.version + 1, swappedWithOrderId: orderId } },
+      ] });
+    } else {
+      await transaction.cafeTable.update({ where: { id: destinationTable.id }, data: { occupancyState: "OCCUPIED", occupiedAt: destinationTable.occupiedAt ?? now, occupancyReminderAt: null } });
+      await transaction.cafeTable.update({ where: { id: sourceTable.id }, data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, tableContextInvalidBefore: now } });
+      await transaction.waiterCall.updateMany({ where: { tableId: sourceTable.id, status: "PENDING" }, data: { status: "RESOLVED", acknowledgedAt: now, resolvedAt: now, version: { increment: 1 } } });
+      await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "TRANSFER_ORDER_TABLE", entityType: "ORDER", entityId: orderId, afterSnapshot: { tableId: destinationTable.id, version: input.expectedVersion + 1 } } });
+    }
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function deleteOrder(
