@@ -95,6 +95,32 @@ This file is the active completion checklist and current stage status for the ba
   longer collapses to microcopy size. The type detector, POS tests, typecheck,
   production build, and `git diff --check` pass; rendered browser/device proof
   remains left.
+- Stage 7 remaining implementation checklist (recorded 8 September 2026):
+  - Logical deletion and table clearing are complete as a controlled POS
+    workflow: clear confirmation, retained-history notice, table-context
+    cleanup when the deleted order is the table's final active order, and
+    focused clear retry are implemented. Focused POS tests,
+    typecheck, production build, and `git diff --check` pass; attached-browser
+    validation remains left.
+  1. Implement table transfer.
+  2. Finish payments: selected-item settlement and mixed tenders.
+  3. Complete the current draft flow: submit drafts and support controlled
+     editing of `OPEN` orders, including safe additions after partial payment.
+  4. Implement reasoned item- and order-level discounts in the POS.
+  5. Add API-backed bar-ticket and receipt views/printing for whole orders and
+     individual settlements.
+  6. Complete waiter-call handling in the UI; acknowledgement/occupancy is
+     present, but the full operational handling pass remains.
+  7. Add explicit stale-version conflict, API-failure, connection-status,
+     retry, and reconnect/refetch recovery UX.
+  8. Validate all POS journeys with an attached browser and actual café
+     devices: desktop/mobile interaction, keyboard operation, touch targets,
+     and real receipt-printer/paper-size behavior.
+
+  Implementation dependency note: before completing selected-item settlement,
+  ensure draft submission and controlled `OPEN`-order editing are available,
+  because settlement operates on an authoritative active order. The checklist
+  order above remains the requested tracking order.
 - Left for Stage 8 after the shared POS foundation: Manager-only payment
   history, catalog/users/settings/audit APIs, and one daily accounting report
   limited to the current or previous `Asia/Tehran` day. The full historical
