@@ -103,7 +103,12 @@ This file is the active completion checklist and current stage status for the ba
     typecheck, production build, and `git diff --check` pass; attached-browser
     validation remains left.
   - Table transfer is complete: Staff and Manager can drag or use the accessible `انتقال میز` action to move an open table order to an empty table or atomically swap it with another table order; server transactions preserve one active order per table, table occupancy/context cleanup, timing snapshots, audit history, and stale-version protection. Browser/device validation remains item 8.
-  2. Finish payments: selected-item settlement and mixed tenders.
+  - Payments are complete: the shared POS supports selected unallocated item
+    quantities, one-to-ten reconciled cash/card-terminal/card-transfer tenders,
+    optional transfer references, server-authoritative settlement retries, and
+    updated partial/paid balances. Focused POS tests, typecheck, production
+    build, and `git diff --check` pass; attached-browser/device validation
+    remains item 8.
   3. Complete the current draft flow: submit drafts and support controlled
      editing of `OPEN` orders, including safe additions after partial payment.
   4. Implement reasoned item- and order-level discounts in the POS.
