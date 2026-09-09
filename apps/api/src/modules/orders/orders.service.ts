@@ -982,6 +982,7 @@ export async function recordSettlement(
 export async function reverseSettlement(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string, input: ReverseSettlementRequest, requestId: string) {
   requireRole(actor, ["MANAGER"]);
   return prisma.$transaction(async (transaction) => {
+    await lockOperationalKeys(transaction, [`order:${orderId}`]);
     const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
