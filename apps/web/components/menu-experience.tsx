@@ -38,6 +38,9 @@ type PublicTableContext = {
   occupancyState: "AVAILABLE" | "OCCUPIED" | null;
   waiterCallStatus: "PENDING" | null;
   canCallWaiter: boolean;
+  authenticationRequired?: boolean;
+  customerAuthenticated?: boolean;
+  visitActive?: boolean;
 };
 
 const copy = {
@@ -382,6 +385,12 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
   const [tableContext, setTableContext] = useState<PublicTableContext | null>(null);
   const [callingWaiter, setCallingWaiter] = useState(false);
   const [waiterCallFailed, setWaiterCallFailed] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpLoading, setOtpLoading] = useState(false);
   const language: Language = "fa";
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -610,6 +619,30 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
     }
   }
 
+  async function requestOtp() {
+    setOtpLoading(true); setOtpError(null);
+    try {
+      const response = await fetch("/api/customer-otp/request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fullName, phoneNumber }) });
+      const body = await response.json() as { data?: { challengeId: string }; error?: { message?: string } };
+      if (!response.ok || !body.data) throw new Error(body.error?.message ?? "خطا در ارسال کد");
+      setOtpChallengeId(body.data.challengeId);
+    } catch (error) { setOtpError(error instanceof Error ? error.message : "ارسال کد ممکن نشد"); }
+    finally { setOtpLoading(false); }
+  }
+
+  async function verifyOtp() {
+    if (!otpChallengeId) return;
+    setOtpLoading(true); setOtpError(null);
+    try {
+      const response = await fetch("/api/customer-otp/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ challengeId: otpChallengeId, code: otpCode }) });
+      if (!response.ok) throw new Error("کد واردشده معتبر نیست یا منقضی شده است.");
+      const context = await fetch("/api/table-context", { cache: "no-store" });
+      const body = await context.json() as { data: PublicTableContext };
+      setTableContext(body.data);
+    } catch (error) { setOtpError(error instanceof Error ? error.message : "تأیید کد ممکن نشد"); }
+    finally { setOtpLoading(false); }
+  }
+
   if (!menu && !requestFailed) return <LoadingMenu />;
 
   if (!menu) {
@@ -625,6 +658,30 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
           <RefreshIcon className={retrying ? "is-spinning" : ""} />
           {text.retry}
         </button>
+      </main>
+    );
+  }
+
+  if (tableContext?.active && tableContext.authenticationRequired) {
+    return (
+      <main className="error-page" dir="rtl">
+        <p className="eyebrow">RUN CAFÉ · میز {tableContext.tableName}</p>
+        <h1>برای استفاده از میز، نام و شماره موبایل خود را تأیید کنید</h1>
+        <p>این تأیید فقط برای درخواست گارسون در همین میز است و به معنی ثبت سفارش یا عضویت باشگاه مشتریان نیست.</p>
+        {otpChallengeId ? (
+          <form onSubmit={(event) => { event.preventDefault(); void verifyOtp(); }}>
+            <label>کد شش‌رقمی<input inputMode="numeric" autoComplete="one-time-code" value={otpCode} onChange={(event) => setOtpCode(event.target.value)} /></label>
+            <button type="submit" disabled={otpLoading || otpCode.length !== 6}>{otpLoading ? "در حال بررسی…" : "تأیید کد"}</button>
+            <button type="button" disabled={otpLoading} onClick={() => void requestOtp()}>ارسال دوباره کد</button>
+          </form>
+        ) : (
+          <form onSubmit={(event) => { event.preventDefault(); void requestOtp(); }}>
+            <label>نام و نام خانوادگی<input autoComplete="name" value={fullName} onChange={(event) => setFullName(event.target.value)} /></label>
+            <label>شماره موبایل<input inputMode="tel" autoComplete="tel" value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} /></label>
+            <button type="submit" disabled={otpLoading || fullName.trim().length < 2}>{otpLoading ? "در حال ارسال…" : "ارسال کد تأیید"}</button>
+          </form>
+        )}
+        {otpError ? <p className="table-context-error" role="alert">{otpError}</p> : null}
       </main>
     );
   }
