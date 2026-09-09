@@ -21,6 +21,7 @@ enum OrderChannel {
 
 enum OrderState {
   OPEN
+  CLOSED
   DELETED
 }
 
