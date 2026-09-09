@@ -1013,7 +1013,7 @@ export async function reverseSettlementById(prisma: PrismaClient, actor: Authent
 }
 
 function tehranDisplayTime(value: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", dateStyle: "medium", timeStyle: "short" }).format(value);
+  return new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: "Asia/Tehran", dateStyle: "short", timeStyle: "short" }).format(value);
 }
 
 const receiptInclude = {
@@ -1040,7 +1040,7 @@ export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUse
   requireRole(actor, ["STAFF", "MANAGER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-  return { displayTime: tehranDisplayTime(order.createdAt), items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), lineTotalAmount: item.lineTotalAmount })), subtotalAmount: order.subtotalAmount, discountAmount: order.discountAmount, totalAmount: order.totalAmount, paidAmount: order.paidAmount, balanceAmount: order.balanceAmount, payments: order.paymentSettlements.filter((settlement) => !settlement.reversal).flatMap((settlement) => settlement.payments.map((payment) => ({ method: payment.method, amount: payment.amount })) ) };
+  return { displayTime: tehranDisplayTime(order.createdAt), items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), lineTotalAmount: item.lineTotalAmount })), totalAmount: order.totalAmount };
 }
 
 export async function settlementReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string) {
@@ -1049,5 +1049,5 @@ export async function settlementReceipt(prisma: PrismaClient, actor: Authenticat
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
   const settlement = order.paymentSettlements.find((candidate) => candidate.id === settlementId);
   if (!settlement) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested settlement was not found.");
-  return { displayTime: tehranDisplayTime(settlement.recordedAt), items: settlement.allocations.map((allocation) => ({ productName: allocation.orderItem.productNameSnapshot, quantity: allocation.quantity, options: allocation.orderItem.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), lineTotalAmount: allocation.amount })), totalAmount: settlement.totalAmount, payments: settlement.payments.map((payment) => ({ method: payment.method, amount: payment.amount })) };
+  return { displayTime: tehranDisplayTime(settlement.recordedAt), items: settlement.allocations.map((allocation) => ({ productName: allocation.orderItem.productNameSnapshot, quantity: allocation.quantity, options: allocation.orderItem.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), lineTotalAmount: allocation.amount })), totalAmount: settlement.totalAmount };
 }
