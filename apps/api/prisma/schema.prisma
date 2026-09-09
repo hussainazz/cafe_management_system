@@ -199,6 +199,7 @@ model CafeTable {
   orders        Order[]
   qrCredentials TableQrCredential[]
   waiterCalls   WaiterCall[]
+  customerTableVisits CustomerTableVisit[]
 
   @@index([isActive, displayOrder])
   @@index([waiterCallEnabled, occupancyState])
@@ -219,6 +220,8 @@ model TableQrCredential {
   rotatedAt DateTime?
 
   table CafeTable @relation(fields: [tableId], references: [id])
+  customerTableVisits CustomerTableVisit[]
+  otpChallenges CustomerOtpChallenge[]
 
   @@index([tableId])
   @@map("table_qr_credentials")
@@ -232,12 +235,86 @@ model WaiterCall {
   requestedAt    DateTime         @default(now())
   acknowledgedAt DateTime?
   resolvedAt     DateTime?
+  customerTableVisitId String?
 
   table CafeTable @relation(fields: [tableId], references: [id])
+  customerTableVisit CustomerTableVisit? @relation(fields: [customerTableVisitId], references: [id], onDelete: SetNull)
 
   @@index([status, requestedAt])
   @@index([tableId, requestedAt])
+  @@index([customerTableVisitId])
   @@map("waiter_calls")
+}
+
+enum CustomerOtpPurpose {
+  TABLE_WAITER_CALL
+}
+
+model Customer {
+  id              String   @id @default(uuid())
+  fullName        String
+  phoneLookupHash String   @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  authSessions CustomerAuthSession[]
+  tableVisits  CustomerTableVisit[]
+
+  @@map("customers")
+}
+
+model CustomerOtpChallenge {
+  id                String             @id @default(uuid())
+  fullName          String
+  phoneLookupHash   String
+  tableCredentialId String
+  purpose           CustomerOtpPurpose
+  codeHash          String
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  attemptCount      Int                @default(0)
+  resendAvailableAt DateTime
+  createdAt         DateTime           @default(now())
+
+  tableCredential TableQrCredential @relation(fields: [tableCredentialId], references: [id], onDelete: Restrict)
+
+  @@index([phoneLookupHash, purpose, createdAt])
+  @@index([tableCredentialId, expiresAt])
+  @@map("customer_otp_challenges")
+}
+
+model CustomerAuthSession {
+  id        String    @id @default(uuid())
+  customerId String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, expiresAt])
+  @@map("customer_auth_sessions")
+}
+
+model CustomerTableVisit {
+  id                String    @id @default(uuid())
+  customerId        String
+  tableId           String
+  tableCredentialId String
+  expiresAt         DateTime
+  invalidatedAt     DateTime?
+  lastActivityAt    DateTime?
+  createdAt         DateTime  @default(now())
+
+  customer        Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  table           CafeTable          @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  tableCredential TableQrCredential  @relation(fields: [tableCredentialId], references: [id], onDelete: Restrict)
+  waiterCalls     WaiterCall[]
+
+  @@index([tableId, expiresAt])
+  @@index([tableCredentialId, expiresAt])
+  @@map("customer_table_visits")
 }
 
 model Order {
