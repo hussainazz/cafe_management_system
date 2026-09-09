@@ -97,7 +97,8 @@ single product image metadata, and final Toman prices required for browsing.
 The public catalog is one shared `/menu`. An eligible-table `/t/:token` entry
 exchanges the printed credential for a signed, HttpOnly 12-hour context cookie,
 records the available-table scan reminder, and redirects to `/menu`. A
-waiter-call can be submitted only from an eligible occupied context. Commands
+waiter-call can be submitted only from an eligible context with an authenticated
+customer table visit. Commands
 are rate-limited and duplicate-safe, and grant no order, payment, receipt,
 tracking, identity, or catalog authority.
 
@@ -108,7 +109,10 @@ tracking, identity, or catalog authority.
 | `GET`  | `/t/:token`                           | Public | 5     | Web entrypoint: exchange an eligible active printed token, set table context, record an available-table reminder, and redirect to the same `/menu`. Invalid links redirect with a safe warning. |
 | `POST` | `/api/v1/public/table-context/exchange` | Public QR bearer | 5 | Hash and resolve the raw QR token without logging it, set the signed context cookie, and return only the safe table label; the web `/t/:token` entrypoint is its intended caller. |
 | `GET`  | `/api/v1/public/table-context`        | Public cookie | 5 | Return safe table label, occupancy, call eligibility, and pending state for a current context; generic menu visits return inactive context. |
-| `POST` | `/api/v1/public/waiter-calls`         | Public cookie | 5 | Create or return the one pending waiter-call for the eligible occupied table represented by the current context cookie. |
+| `POST` | `/api/v1/public/customer-otp/request` | Public table context | 7 | Start development/test OTP verification for submitted full name and phone. |
+| `POST` | `/api/v1/public/customer-otp/verify` | Public table context | 7 | Verify one OTP and create the remembered customer session plus credential-bound table visit. |
+| `GET`/`DELETE` | `/api/v1/public/customer-auth` | Public cookie | 7 | Read customer-auth visit state or revoke the remembered session. |
+| `POST` | `/api/v1/public/waiter-calls`         | Customer table visit | 7 | Create or return the one pending waiter-call for the credential-bound table visit. |
 
 There are no public cart, order, payment, receipt, tracking, session, or
 Staff-metadata routes in v1. The waiter-call response contains only safe call
