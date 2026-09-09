@@ -261,3 +261,21 @@ item snapshots rather than a total-only payload.
 Contracts, focused API integration tests, POS tests, and typechecks pass.
 Actual browser print output and physical 80 mm printer/paper-advance evidence
 remain required before this print workflow is recorded as complete.
+
+## Waiter-Call Handling Pass — 9 September 2026
+
+Pending waiter calls remain inside the shared Table Board rather than creating a
+separate queue or drawer. Each highlighted RTL card now gives the table label,
+non-color-only request status, elapsed request time, and an explicit
+touch/keyboard-safe `رسیدگی و باز کردن میز` action. The action submits the
+current call version, remains single-flight for that card, reconciles the board,
+and opens the acknowledged table through its ordinary workflow. A failed or
+stale acknowledgement preserves the card and refreshes current server truth.
+
+Visible POS tabs refresh the existing table, active-order, and pending-call
+reads every 15 seconds and immediately on returning to the tab; partial refresh
+failure preserves the last-known calls. This is polling only: WebSocket
+delivery, connection state, and reconnect recovery remain the separate Stage 7
+recovery pass. Focused POS tests, typecheck, production build, and
+`git diff --check` pass; authenticated browser/device validation remains
+required.
