@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import {
   AuthRequestHeadersSchema,
+  CreateOrderRequestHeadersSchema,
   CreateOrderRequestSchema,
   CreateOrderResponseSchema,
   DeleteOrderRequestSchema,
@@ -31,6 +32,7 @@ import {
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { requireStaff } from "../auth/authorization.js";
+import { ApplicationError } from "../../errors/application-error.js";
 import { barTicket, createOrder, deleteOrder, listOrders, orderReceipt, readOrder, recordSettlement, reverseSettlementById, settlementReceipt, transferOrderTable, updateOrder } from "./orders.service.js";
 
 export const ordersRoutes: FastifyPluginAsync = async (app) => {
@@ -61,7 +63,7 @@ export const ordersRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ["Orders"],
         summary: "Create an open table or takeaway order",
-        headers: zodToJsonSchema(IdempotencyRequestHeadersSchema),
+        headers: zodToJsonSchema(CreateOrderRequestHeadersSchema),
         body: zodToJsonSchema(CreateOrderRequestSchema),
         response: {
           201: zodToJsonSchema(CreateOrderResponseSchema),
@@ -74,18 +76,55 @@ export const ordersRoutes: FastifyPluginAsync = async (app) => {
       },
     },
     async (request, reply) => {
+      // Prevent an incomplete table request from reaching Prisma as an undefined filter.
+      const parsedBody = CreateOrderRequestSchema.parse(request.body) as CreateOrderRequest;
       const idempotencyKey = request.headers["idempotency-key"];
-      const result = await createOrder(
-        app.prisma,
-        request.authenticatedUser!,
-        request.body,
-        typeof idempotencyKey === "string" ? idempotencyKey : "",
-        request.id,
-      );
-      if (result.replayed) {
-        reply.header("idempotency-replayed", "true");
+      const clientTableName = request.headers["x-pos-table-name"];
+      const trace = {
+        requestId: request.id,
+        actorId: request.authenticatedUser!.id,
+        channel: parsedBody.channel,
+        requestedTableId: parsedBody.channel === "TABLE" ? parsedBody.tableId : null,
+        clientTableName: typeof clientTableName === "string" ? clientTableName : null,
+        itemCount: parsedBody.items.length,
+      };
+      request.log.info({ event: "order.create.received", ...trace }, "Order create received");
+      try {
+        const result = await createOrder(
+          app.prisma,
+          request.authenticatedUser!,
+          parsedBody,
+          typeof idempotencyKey === "string" ? idempotencyKey : "",
+          request.id,
+          typeof clientTableName === "string" ? clientTableName : undefined,
+        );
+        request.log.info(
+          {
+            event: result.replayed ? "order.create.replayed" : "order.create.persisted",
+            ...trace,
+            orderId: result.order.id,
+            orderNumber: result.order.orderNumber,
+            persistedTableId: result.order.tableId,
+            resolvedTableName: result.resolvedTable?.name ?? null,
+          },
+          result.replayed ? "Order create replayed" : "Order create persisted",
+        );
+        if (result.replayed) {
+          reply.header("idempotency-replayed", "true");
+        }
+        return reply.status(201).send({ data: result.order, meta: { requestId: request.id } });
+      } catch (error) {
+        request.log.warn(
+          {
+            event: "order.create.rejected",
+            ...trace,
+            errorCode: error instanceof ApplicationError ? error.code : "INTERNAL_ERROR",
+            statusCode: error instanceof ApplicationError ? error.statusCode : 500,
+          },
+          "Order create rejected",
+        );
+        throw error;
       }
-      return reply.status(201).send({ data: result.order, meta: { requestId: request.id } });
     },
   );
 };
