@@ -1519,3 +1519,105 @@ svg {
     font-size: 20px;
   }
 }
+
+.thermal-print,
+.thermal-loading,
+.thermal-error {
+  width: 80mm;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 4mm 4.5mm;
+  background: #fff;
+  color: #000;
+  font-family: Tahoma, Arial, "Noto Sans Arabic", sans-serif;
+  font-size: 11px;
+  line-height: 1.42;
+}
+.thermal-loading,
+.thermal-error {
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+.thermal-error { color: #9c231c; }
+.thermal-context,
+.thermal-time {
+  margin: 0 0 3mm;
+  font-size: 12px;
+  font-weight: 700;
+}
+.thermal-time { font-weight: 400; }
+.thermal-items {
+  border-top: 1px dashed #000;
+}
+.thermal-item {
+  padding: 2.5mm 0;
+  border-bottom: 1px dashed #000;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.thermal-item__main,
+.thermal-summary p,
+.thermal-payments p {
+  display: flex;
+  justify-content: space-between;
+  gap: 3mm;
+  margin: 0;
+}
+.thermal-item__main b { font-size: 12px; }
+.thermal-item__main span,
+.thermal-item strong,
+.thermal-summary strong,
+.thermal-payments strong {
+  direction: ltr;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.thermal-item small {
+  display: block;
+  margin-top: 1mm;
+  color: #222;
+}
+.thermal-item > strong {
+  display: block;
+  margin-top: 1mm;
+  text-align: left;
+}
+.thermal-note {
+  margin: 1.5mm 0 0;
+  padding: 1.5mm 2mm;
+  border-right: 2px solid #000;
+  font-weight: 700;
+}
+.thermal-summary,
+.thermal-payments {
+  margin-top: 3mm;
+}
+.thermal-summary p,
+.thermal-payments p { margin-top: 1.5mm; }
+.thermal-summary--total {
+  padding-top: 2mm;
+  border-top: 1px solid #000;
+  font-size: 13px;
+}
+.thermal-summary--balance {
+  padding-top: 2mm;
+  border-top: 1px dashed #000;
+}
+@media print {
+  @page { size: 80mm auto; margin: 0; }
+  html,
+  body {
+    width: 80mm;
+    min-width: 80mm;
+    min-height: auto;
+    background: #fff;
+    padding: 0;
+  }
+  .thermal-print {
+    min-height: 0;
+    margin: 0;
+  }
+  .thermal-loading,
+  .thermal-error { display: none; }
+}
