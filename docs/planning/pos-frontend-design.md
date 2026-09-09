@@ -251,10 +251,11 @@ pending.
 The shared POS now opens dedicated authenticated print documents instead of
 printing the operational workspace. The minimal 80 mm RTL bar ticket contains
 only table/takeaway context, quantities, product/option snapshots, and notes.
-Whole-order and individual-settlement customer receipts retain their compact
-Tehran timestamp, itemized financial rows, totals, and payment-method amounts;
-they omit café identity, order/table identifiers, card-transfer references,
-and footer copy. The settlement receipt is now backed by immutable allocated
+Whole-order and individual-settlement customer receipts contain itemized
+financial rows and one total only; their compact Persian-calendar Tehran
+timestamp appears in the footer. They omit café identity, order/table
+identifiers, subtotal/discount/balance breakdowns, payment-method and
+card-transfer data, and footer copy beyond the timestamp. The settlement receipt is now backed by immutable allocated
 item snapshots rather than a total-only payload.
 
 Contracts, focused API integration tests, POS tests, and typechecks pass.
