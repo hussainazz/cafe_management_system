@@ -1,8 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { AuthRequestHeadersSchema, ErrorResponseSchema, PaymentHistoryQuerySchema, PaymentHistoryResponseSchema, type PaymentHistoryQuery } from "@cafe/contracts";
 import { hashPassword } from "../../auth/password.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
+import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { requireManagerRoute } from "../auth/authorization.js";
+import { listPaymentHistory } from "./payment-history.service.js";
 
 const category = z.object({ name: z.string().trim().min(1).max(120), displayOrder: z.number().int().min(0), isActive: z.boolean().optional() }).strict();
 const product = z.object({ categoryId: z.uuid(), name: z.string().trim().min(1).max(120), priceAmount: z.number().int().nonnegative(), preparationDeadlineMinutes: z.number().int().positive(), displayOrder: z.number().int().min(0), isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroupIds: z.array(z.uuid()).max(30).optional() }).strict();
@@ -20,6 +23,8 @@ async function audit(app: Parameters<FastifyPluginAsync>[0], request: any, opera
 
 export const adminRoutes: FastifyPluginAsync = async (app) => {
   const manager = { preHandler: requireManagerRoute, schema: { tags: ["Manager administration"] } };
+  const headers = zodToJsonSchema(AuthRequestHeadersSchema);
+  const errors = { 400: zodToJsonSchema(ErrorResponseSchema), 401: zodToJsonSchema(ErrorResponseSchema), 403: zodToJsonSchema(ErrorResponseSchema) };
   const list = (model: "category" | "product" | "optionGroup" | "cafeTable" | "user") => async () => ({ data: await (app.prisma[model] as any).findMany({ orderBy: model === "user" ? { username: "asc" } : { displayOrder: "asc" }, ...(model === "user" ? { select: { id: true, username: true, role: true, isActive: true, createdAt: true, updatedAt: true } } : {}) }) });
   app.get("/admin/categories", manager, list("category"));
   app.post("/admin/categories", manager, async (request: any) => { const data = parsed(category, request.body); const row = await app.prisma.category.create({ data: defined(data) as any }); await audit(app, request, "CREATE_CATEGORY", "CATEGORY", row.id, row); return { data: row }; });
@@ -46,4 +51,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.post("/admin/users/:userId/reactivate", manager, async (request: any) => { const target = await app.prisma.user.findFirst({ where: { id: entityId(request.params), role: "STAFF" } }); if (!target) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested Staff account was not found."); const row = await app.prisma.user.update({ where: { id: target.id }, data: { isActive: true }, select: { id: true, username: true, role: true, isActive: true } }); await audit(app, request, "REACTIVATE_STAFF", "USER", row.id, row); return { data: row }; });
   app.get("/admin/settings", manager, async () => ({ data: await app.prisma.cafeSettings.findFirstOrThrow() }));
   app.patch("/admin/settings", manager, async (request: any) => { const row = await app.prisma.cafeSettings.update({ where: { singletonKey: true }, data: { ...parsed(settings, request.body), updatedById: request.authenticatedUser.id } }); await audit(app, request, "UPDATE_CAFE_SETTINGS", "CAFE_SETTINGS", row.id, row); return { data: row }; });
+  app.get<{ Querystring: PaymentHistoryQuery }>("/admin/payments", { preHandler: requireManagerRoute, schema: { tags: ["Manager administration"], summary: "List retained payment settlements", headers, querystring: zodToJsonSchema(PaymentHistoryQuerySchema), response: { 200: zodToJsonSchema(PaymentHistoryResponseSchema), ...errors } } }, async (request) => {
+    const result = await listPaymentHistory(app.prisma, request.query);
+    return { data: { payments: result.payments }, meta: { requestId: request.id, page: result.page } };
+  });
 };
