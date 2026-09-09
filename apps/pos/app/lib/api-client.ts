@@ -168,17 +168,40 @@ export async function markTableOccupied(tableId: string): Promise<ApiResult<PosT
 export async function createOpenOrder(
   input: CreateOrderRequest,
   idempotencyKey: string,
+  trace: { requestId: string; tableName?: string },
 ): Promise<ApiResult<CreatedOrder>> {
+  console.info("POS order create submitted", {
+    requestId: trace.requestId,
+    channel: input.channel,
+    tableId: input.channel === "TABLE" ? input.tableId : null,
+    tableName: trace.tableName ?? null,
+    itemCount: input.items.length,
+  });
   const parsed = parseResponse(
     await request<unknown>("/orders", {
       method: "POST",
-      headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": idempotencyKey,
+        "x-request-id": trace.requestId,
+        ...(trace.tableName ? { "x-pos-table-name": trace.tableName } : {}),
+      },
       body: JSON.stringify(input),
     }),
     CreateOrderResponseSchema,
     "پاسخ ثبت سفارش معتبر نیست.",
   );
-  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+  const result = parsed.ok ? { ok: true as const, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+  console.info(result.ok ? "POS order create completed" : "POS order create failed", {
+    requestId: trace.requestId,
+    channel: input.channel,
+    tableId: input.channel === "TABLE" ? input.tableId : null,
+    tableName: trace.tableName ?? null,
+    ...(result.ok
+      ? { orderId: result.data.id, replayed: result.replayed }
+      : { errorCode: result.error.code ?? null, status: result.error.status ?? null }),
+  });
+  return result;
 }
 
 export async function readOrder(orderId: string): Promise<ApiResult<PosOrderDetail>> {
