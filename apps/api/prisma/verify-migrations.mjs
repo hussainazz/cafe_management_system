@@ -285,9 +285,11 @@ async function verifyExistingDataUpgrade(files) {
 async function verifyFailedUpgradeIsAtomic(files) {
   const name = databaseNames.failure;
   const url = databaseUrl(name);
-  const previous = files.slice(0, -1);
-  const latest = files.at(-1);
-  if (!latest) throw new Error("No migrations found");
+  const constraintMigrationIndex = files.findIndex((file) => file.sql.includes("categories_name_non_empty_check"));
+  if (constraintMigrationIndex === -1) throw new Error("The category constraint migration was not found");
+  const previous = files.slice(0, constraintMigrationIndex);
+  const constraintMigration = files[constraintMigrationIndex];
+  if (!constraintMigration) throw new Error("The category constraint migration was not found");
 
   await recreateDatabase(name);
   await applySqlFiles(url, previous);
@@ -298,7 +300,7 @@ async function verifyFailedUpgradeIsAtomic(files) {
     );
     let failed = false;
     try {
-      await client.query(latest.sql);
+      await client.query(constraintMigration.sql);
     } catch (error) {
       failed = error?.code === "23514" && error?.constraint === "categories_name_non_empty_check";
     }
