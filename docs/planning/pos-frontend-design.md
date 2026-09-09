@@ -245,3 +245,18 @@ settled-note immutability. A channel switch with unsaved work offers submit,
 discard, or continue editing. POS tests, typecheck, production build, and
 `git diff --check` pass; authenticated browser/device interaction proof remains
 pending.
+
+## Print Documents Pass — 9 September 2026
+
+The shared POS now opens dedicated authenticated print documents instead of
+printing the operational workspace. The minimal 80 mm RTL bar ticket contains
+only table/takeaway context, quantities, product/option snapshots, and notes.
+Whole-order and individual-settlement customer receipts retain their compact
+Tehran timestamp, itemized financial rows, totals, and payment-method amounts;
+they omit café identity, order/table identifiers, card-transfer references,
+and footer copy. The settlement receipt is now backed by immutable allocated
+item snapshots rather than a total-only payload.
+
+Contracts, focused API integration tests, POS tests, and typechecks pass.
+Actual browser print output and physical 80 mm printer/paper-advance evidence
+remain required before this print workflow is recorded as complete.
