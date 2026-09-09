@@ -14,12 +14,6 @@ import { englishNumber, formatToman } from "../lib/pos-utils";
 type PrintKind = "bar-ticket" | "receipt" | "settlement";
 type Receipt = OrderReceipt | SettlementReceipt;
 
-const paymentLabel = {
-  CASH: "نقدی",
-  CARD_TERMINAL: "کارت‌خوان",
-  CARD_TRANSFER: "کارت‌به‌کارت",
-} as const;
-
 function ReceiptItems({ receipt }: { receipt: Receipt }) {
   return (
     <div className="thermal-items">
@@ -62,31 +56,13 @@ function BarTicket({ ticket }: { ticket: BarTicket }) {
 }
 
 function ReceiptDocument({ receipt }: { receipt: Receipt }) {
-  const wholeOrder = "subtotalAmount" in receipt;
   return (
     <main className="thermal-print thermal-print--receipt">
-      <p className="thermal-time">{receipt.displayTime}</p>
       <ReceiptItems receipt={receipt} />
-      {wholeOrder && (
-        <section className="thermal-summary">
-          <p><span>جمع اقلام</span><strong>{formatToman(receipt.subtotalAmount)}</strong></p>
-          {receipt.discountAmount > 0 && <p><span>تخفیف</span><strong>−{formatToman(receipt.discountAmount)}</strong></p>}
-        </section>
-      )}
       <section className="thermal-summary thermal-summary--total">
-        <p><span>{wholeOrder ? "مبلغ نهایی" : "مبلغ پرداخت"}</span><strong>{formatToman(receipt.totalAmount)}</strong></p>
+        <strong>{formatToman(receipt.totalAmount)}</strong>
       </section>
-      <section className="thermal-payments" aria-label="روش‌های پرداخت">
-        {receipt.payments.map((payment, index) => (
-          <p key={`${payment.method}-${index}`}><span>{paymentLabel[payment.method]}</span><strong>{formatToman(payment.amount)}</strong></p>
-        ))}
-      </section>
-      {wholeOrder && (
-        <section className="thermal-summary thermal-summary--balance">
-          <p><span>پرداخت‌شده</span><strong>{formatToman(receipt.paidAmount)}</strong></p>
-          {receipt.balanceAmount > 0 && <p><span>مانده</span><strong>{formatToman(receipt.balanceAmount)}</strong></p>}
-        </section>
-      )}
+      <p className="thermal-time thermal-time--footer">{receipt.displayTime}</p>
     </main>
   );
 }
