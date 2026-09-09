@@ -192,9 +192,10 @@ This file is the active completion checklist and current stage status for the ba
   5. Complete: Manager-only safe audit history has cursor/filter queries, and
      measured payment-history, daily-report, and audit indexes retain all
      historical financial and audit rows.
-  6. Implement permissioned full-settlement reversal with a required reason,
-     immutable posted tenders/allocations, recalculated balances, and audit
-     history.
+  6. Complete: Manager-only full-settlement reversal requires a non-empty
+     reason, preserves posted tenders and allocations, recalculates order
+     balances/status atomically, restores a fully settled table order to
+     occupied work, and records audit history.
   7. Verify today/yesterday report fixtures, permission boundaries, API/OpenAPI
      contracts, query plans, and focused integration coverage.
 
