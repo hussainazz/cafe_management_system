@@ -132,14 +132,19 @@ This file is the active completion checklist and current stage status for the ba
     query. The deterministic UUID regression test and API/POS typechecks pass.
     A final authenticated browser retry remains item 8 because the dev API
     watcher restart expired the local browser session.
-  4. Implement reasoned item- and order-level discounts in the POS.
-  5. Add API-backed bar-ticket and receipt views/printing for whole orders and
+  - Print implementation is complete in code: dedicated authenticated 80 mm
+    browser-print documents now render the minimal bar ticket, whole-order
+    customer receipt, and itemized settlement receipt from immutable API
+    snapshots. Contract/API tests, POS tests, and typechecks pass. Actual
+    browser print and physical 80 mm printer/paper-advance validation remain
+    required before marking item 4 complete.
+  4. Add API-backed bar-ticket and receipt views/printing for whole orders and
      individual settlements.
-  6. Complete waiter-call handling in the UI; acknowledgement/occupancy is
+  5. Complete waiter-call handling in the UI; acknowledgement/occupancy is
      present, but the full operational handling pass remains.
-  7. Add explicit stale-version conflict, API-failure, connection-status,
+  6. Add explicit stale-version conflict, API-failure, connection-status,
      retry, and reconnect/refetch recovery UX.
-  8. Validate all POS journeys with an attached browser and actual café
+  7. Validate all POS journeys with an attached browser and actual café
      devices: desktop/mobile interaction, keyboard operation, touch targets,
      and real receipt-printer/paper-size behavior.
 
@@ -147,6 +152,9 @@ This file is the active completion checklist and current stage status for the ba
   ensure draft submission and controlled `OPEN`-order editing are available,
   because settlement operates on an authoritative active order. The checklist
   order above remains the requested tracking order.
+- Moved to Stage 8: implement the shared POS interface for reasoned item- and
+  order-level discounts, preserving the existing server authority,
+  settlement-immutability rules, required reason, and Staff/Manager access.
 - Left for Stage 8 after the shared POS foundation: Manager-only payment
   history, catalog/users/settings/audit APIs, and one daily accounting report
   limited to the current or previous `Asia/Tehran` day. The full historical
