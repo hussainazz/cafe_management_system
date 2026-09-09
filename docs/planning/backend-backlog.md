@@ -320,9 +320,10 @@ Acceptance criteria:
   context for at most 12 hours and redirects there; generic visits have no call
   control, and table clearing or credential rotation invalidates old contexts.
 - Staff and Manager have equal authority to mark a table `OCCUPIED` or
-  `AVAILABLE`. Only an eligible occupied table may submit a waiter-call; the
-  public command creates or returns that table's one pending call and grants no
-  order, payment, receipt, tracking, or catalog authority.
+  `AVAILABLE`. A public waiter call requires an eligible QR context plus the
+  customer full-name/phone OTP session and its unexpired credential-bound visit;
+  it does not require occupancy and grants no order, payment, receipt, tracking,
+  or catalog authority.
 - The POS table card is highlighted while its call is `PENDING`. Opening that
   card acknowledges and resolves the call in one version-checked action, then
   returns the card to its normal occupied state. No acknowledgement/resolution
