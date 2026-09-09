@@ -182,8 +182,9 @@ This file is the active completion checklist and current stage status for the ba
      availability, display-order, preparation-deadline, table seating-limit,
      Staff-account, and café-settings APIs are present with audit coverage and
      self-hosted image delivery.
-  3. Implement permissioned Manager-only cursor-paginated payment history while
-     retaining Staff access to individual order and settlement receipts.
+  3. Complete: Manager-only cursor-paginated payment history retains all
+     settlements/tenders, surfaces reversal state and settlement-receipt paths,
+     and preserves Staff access to individual order and settlement receipts.
   4. Implement the bounded daily accounting report for only the current or
      immediately previous `Asia/Tehran` day, including totals, order count,
      payment-method totals, discounts, reversals, and logically deleted orders.
