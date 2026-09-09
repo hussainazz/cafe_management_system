@@ -233,3 +233,15 @@ browser, then separately decide whether to connect draft submission/active
 order editing. Settlement, payment, printing, transfer, discounts,
 waiter-call UI, QR management, logical deletion, and Manager-only surfaces
 remain outside this pass.
+
+## Draft Submission And Controlled Editing Pass — 8 September 2026
+
+The order desk now submits table and takeaway drafts through the existing
+server-authoritative API, retaining the creation idempotency key for a retry.
+Before payment, saved lines can be revised (quantity, note, removal, and
+additions) as one version-checked replacement. After payment, the desk exposes
+only additions and quantity increases, preserving posted allocations and
+settled-note immutability. A channel switch with unsaved work offers submit,
+discard, or continue editing. POS tests, typecheck, production build, and
+`git diff --check` pass; authenticated browser/device interaction proof remains
+pending.
