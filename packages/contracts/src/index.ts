@@ -373,6 +373,42 @@ export const OrderListResponseSchema = z.object({
   }),
 });
 
+export const PaymentHistoryQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    cursor: z.string().min(1).max(512).optional(),
+  })
+  .strict();
+export type PaymentHistoryQuery = z.infer<typeof PaymentHistoryQuerySchema>;
+
+export const PaymentHistoryEntrySchema = z.object({
+  id: z.uuid(),
+  orderId: z.uuid(),
+  orderNumber: z.string(),
+  channel: OrderChannelSchema,
+  table: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  totalAmount: z.number().int().nonnegative(),
+  recordedAt: z.iso.datetime(),
+  recordedBy: z.object({ id: z.uuid(), username: z.string(), role: UserRoleSchema }),
+  reversedAt: z.iso.datetime().nullable(),
+  payments: z.array(
+    z.object({
+      method: z.enum(["CASH", "CARD_TERMINAL", "CARD_TRANSFER"]),
+      amount: z.number().int().positive(),
+      reference: z.string().nullable(),
+    }),
+  ),
+  settlementReceiptPath: z.string(),
+});
+
+export const PaymentHistoryResponseSchema = z.object({
+  data: z.object({ payments: z.array(PaymentHistoryEntrySchema) }),
+  meta: z.object({
+    requestId: z.string(),
+    page: z.object({ limit: z.number().int(), nextCursor: z.string().nullable(), hasMore: z.boolean() }),
+  }),
+});
+
 export const ExistingOrderItemUpdateSchema = z
   .object({
     orderItemId: z.uuid(),
