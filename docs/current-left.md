@@ -143,8 +143,21 @@ This file is the active completion checklist and current stage status for the ba
     required before marking item 4 complete.
   4. Add API-backed bar-ticket and receipt views/printing for whole orders and
      individual settlements.
-  5. Complete waiter-call handling in the UI; acknowledgement/occupancy is
-     present, but the full operational handling pass remains.
+  5. Waiter-call handling is complete in code: pending cards show a
+     privacy-safe elapsed request time and an explicit, single-flight
+     acknowledgement action that opens the table after reconciliation. Visible
+     POS tabs refresh tables, open orders, and calls every 15 seconds and on
+     return to the tab without clearing last-known calls on a partial refresh
+     failure. Focused POS tests, typecheck, production build, and `git diff
+     --check` pass; attached browser/device validation remains required before
+     this item is marked fully verified.
+  - Customer-authenticated waiter calls are implemented in code: table QR
+    visitors verify full name, phone, and development/test OTP before a
+    credential-bound four-hour visit may call a waiter; generic `/menu` remains
+    anonymous. The forward migration, focused isolated API integration test,
+    API/web/POS typechecks, POS tests, and `git diff --check` pass; authenticated
+    browser/device proof remains before this replacement authorization model is
+    considered fully verified.
   6. Add explicit stale-version conflict, API-failure, connection-status,
      retry, and reconnect/refetch recovery UX.
   7. Validate all POS journeys with an attached browser and actual café
