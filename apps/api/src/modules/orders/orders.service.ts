@@ -64,7 +64,7 @@ type CreatedOrder = {
   orderNumber: string;
   channel: "TABLE" | "TAKEAWAY";
   tableId: string | null;
-  state: "OPEN" | "DELETED";
+  state: "OPEN" | "CLOSED" | "DELETED";
   paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID";
   version: number;
   discountAmount: number;
@@ -101,7 +101,8 @@ type CreatedOrder = {
   }>;
 };
 
-type OrderCreationResult = { order: CreatedOrder; replayed: boolean };
+type OrderTraceTable = { id: string; name: string };
+type OrderCreationResult = { order: CreatedOrder; replayed: boolean; resolvedTable: OrderTraceTable | null };
 
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") {
@@ -227,13 +228,13 @@ function toCreatedOrder(order: {
     discountValue: order.discountValue,
     discountReason: order.discountReason,
     paidAmount: order.paidAmount,
-    state: order.state as "OPEN" | "DELETED",
+    state: order.state as "OPEN" | "CLOSED" | "DELETED",
     paymentStatus: order.paymentStatus as "UNPAID" | "PARTIALLY_PAID" | "PAID",
     tableSeatingLimitSnapshotMinutes: order.tableSeatingLimitSnapshotMinutes,
     estimatedTableReleaseAt: order.estimatedTableReleaseAt?.toISOString() ?? null,
     createdAt: order.createdAt.toISOString(),
     items: order.items.map((item) => ({ ...item, options: item.options })),
-  };
+  } as CreatedOrder;
 }
 
 export async function createOrder(
@@ -242,17 +243,21 @@ export async function createOrder(
   input: CreateOrderRequest,
   idempotencyKey: string,
   requestId: string,
+  clientTableName?: string,
 ): Promise<OrderCreationResult> {
   requireRole(actor, ["STAFF", "MANAGER"]);
 
   const fingerprint = requestFingerprint(input);
   const previous = await existingIdempotencyResult<CreatedOrder>(prisma, actor.id, idempotencyKey, fingerprint, CREATE_ORDER_OPERATION);
   if (previous) {
-    return { order: previous, replayed: true };
+    const resolvedTable = previous.tableId
+      ? await prisma.cafeTable.findUnique({ where: { id: previous.tableId }, select: { id: true, name: true } })
+      : null;
+    return { order: previous, replayed: true, resolvedTable };
   }
 
   try {
-    const order = await prisma.$transaction(async (transaction) => {
+    const creation = await prisma.$transaction(async (transaction) => {
       if (input.channel === "TABLE") {
         await lockOperationalKeys(transaction, [`table:${input.tableId}`]);
       }
@@ -321,7 +326,7 @@ export async function createOrder(
         input.channel === "TABLE"
           ? await transaction.cafeTable.findFirst({
               where: { id: input.tableId, isActive: true, archivedAt: null },
-              select: { id: true, seatingLimitMinutes: true },
+              select: { id: true, name: true, seatingLimitMinutes: true },
             })
           : null;
       if (input.channel === "TABLE" && !table) {
@@ -444,6 +449,12 @@ export async function createOrder(
             orderNumber: result.orderNumber,
             channel: result.channel,
             tableId: result.tableId,
+            ...(input.channel === "TABLE"
+              ? {
+                  clientTableName: clientTableName ?? null,
+                  resolvedTableName: table?.name ?? null,
+                }
+              : {}),
             subtotalAmount: result.subtotalAmount,
             totalAmount: result.totalAmount,
             itemCount: result.items.length,
@@ -461,14 +472,17 @@ export async function createOrder(
           expiresAt: new Date(createdAt.getTime() + IDEMPOTENCY_RETENTION_MS),
         },
       });
-      return result;
+      return { order: result, resolvedTable: table ? { id: table.id, name: table.name } : null };
     });
-    return { order, replayed: false };
+    return { ...creation, replayed: false };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const replay = await existingIdempotencyResult<CreatedOrder>(prisma, actor.id, idempotencyKey, fingerprint, CREATE_ORDER_OPERATION);
       if (replay) {
-        return { order: replay, replayed: true };
+        const resolvedTable = replay.tableId
+          ? await prisma.cafeTable.findUnique({ where: { id: replay.tableId }, select: { id: true, name: true } })
+          : null;
+        return { order: replay, replayed: true, resolvedTable };
       }
     }
     throw error;
@@ -676,6 +690,11 @@ export async function updateOrder(
         };
       });
       if (input.items) {
+        // Option snapshots are dependent rows with a restrictive foreign key.
+        // Remove them before replacing unpaid order items as one transaction.
+        await transaction.orderItemOption.deleteMany({
+          where: { orderItem: { orderId } },
+        });
         await transaction.orderItem.deleteMany({ where: { orderId } });
       }
       await transaction.orderItem.createMany({ data: prepared.map(({ options, ...item }) => ({ ...item, orderId })) });
@@ -904,11 +923,22 @@ export async function recordSettlement(
       const paidAmount = current.paidAmount + totalAmount;
       const balanceAmount = current.totalAmount - paidAmount;
       const paymentStatus = balanceAmount === 0 ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
+      const closesOrder = balanceAmount === 0;
       const updated = await transaction.order.updateMany({
         where: { id: orderId, state: OrderState.OPEN, version: input.expectedVersion },
-        data: { paidAmount, balanceAmount, paymentStatus, version: { increment: 1 } },
+        data: { paidAmount, balanceAmount, paymentStatus, ...(closesOrder ? { state: OrderState.CLOSED } : {}), version: { increment: 1 } },
       });
       if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+      if (closesOrder && current.channel === OrderChannel.TABLE && current.tableId) {
+        await transaction.cafeTable.update({
+          where: { id: current.tableId },
+          data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, tableContextInvalidBefore: recordedAt },
+        });
+        await transaction.waiterCall.updateMany({
+          where: { tableId: current.tableId, status: "PENDING" },
+          data: { status: "RESOLVED", acknowledgedAt: recordedAt, resolvedAt: recordedAt, version: { increment: 1 } },
+        });
+      }
       const result = orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
       await transaction.auditLog.create({
         data: {
@@ -962,8 +992,15 @@ export async function reverseSettlement(prisma: PrismaClient, actor: Authenticat
     const paidAmount = order.paidAmount - settlement.totalAmount;
     const balanceAmount = order.totalAmount - paidAmount;
     const paymentStatus = paidAmount === 0 ? PaymentStatus.UNPAID : PaymentStatus.PARTIALLY_PAID;
-    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion }, data: { paidAmount, balanceAmount, paymentStatus, version: { increment: 1 } } });
+    const reopensOrder = order.state === OrderState.CLOSED;
+    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion }, data: { paidAmount, balanceAmount, paymentStatus, ...(reopensOrder ? { state: OrderState.OPEN } : {}), version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    if (reopensOrder && order.channel === OrderChannel.TABLE && order.tableId) {
+      await transaction.cafeTable.update({
+        where: { id: order.tableId },
+        data: { occupancyState: "OCCUPIED", occupiedAt: new Date(), occupancyReminderAt: null },
+      });
+    }
     await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "REVERSE_SETTLEMENT", entityType: "PAYMENT_SETTLEMENT", entityId: settlementId, reason: input.reason, afterSnapshot: { orderId, paidAmount, balanceAmount, version: input.expectedVersion + 1 } } });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
