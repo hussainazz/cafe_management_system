@@ -158,8 +158,13 @@ This file is the active completion checklist and current stage status for the ba
     API/web/POS typechecks, POS tests, and `git diff --check` pass; authenticated
     browser/device proof remains before this replacement authorization model is
     considered fully verified.
-  6. Add explicit stale-version conflict, API-failure, connection-status,
-     retry, and reconnect/refetch recovery UX.
+  - Recovery UX is complete in code: every POS API failure now classifies into
+    an explicit stale-version conflict, network/offline, or service-failure
+    recovery state. The status indicator follows browser online/offline events;
+    cached workspace data stays visible, and recovery refetches the operational
+    board plus the inspected order before clearing the warning. Focused POS
+    tests, typecheck, and `git diff --check` pass; attached-browser/device
+    validation remains item 7.
   7. Validate all POS journeys with an attached browser and actual café
      devices: desktop/mobile interaction, keyboard operation, touch targets,
      and real receipt-printer/paper-size behavior.
