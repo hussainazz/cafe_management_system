@@ -425,6 +425,7 @@ svg {
   background: transparent;
   text-align: right;
 }
+.table-tile__main:disabled { cursor: default; opacity: 1; }
 .table-tile__top,
 .table-tile__details {
   display: flex;
@@ -461,6 +462,19 @@ svg {
   font-size: 1rem;
   font-variant-numeric: tabular-nums;
 }
+.table-tile__call-action {
+  min-height: 40px;
+  margin: 0 12px 12px;
+  padding: 0 12px;
+  border: 1px solid #c2433a;
+  border-radius: 10px;
+  background: #c2433a;
+  color: #fff;
+  font: inherit;
+  font-size: var(--text-label);
+  font-weight: 800;
+}
+.table-tile__call-action:disabled { cursor: wait; opacity: 0.65; }
 .occupied-panel {
   position: sticky;
   top: clamp(18px, 3vw, 42px);
@@ -1345,6 +1359,7 @@ svg {
   .quantity {
     min-height: 52px;
   }
+  .table-tile__call-action { min-height: 44px; }
 }
 @media (hover: hover) {
   .table-tile:hover { border-color: #98c7ba; box-shadow: 0 9px 20px rgba(22, 35, 30, 0.08); transform: translateY(-2px); }
