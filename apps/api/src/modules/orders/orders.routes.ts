@@ -31,7 +31,7 @@ import {
   type UpdateOrderRequest,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
-import { requireStaff } from "../auth/authorization.js";
+import { requireManagerRoute, requireStaff } from "../auth/authorization.js";
 import { ApplicationError } from "../../errors/application-error.js";
 import { barTicket, createOrder, deleteOrder, listOrders, orderReceipt, readOrder, recordSettlement, reverseSettlementById, settlementReceipt, transferOrderTable, updateOrder } from "./orders.service.js";
 
@@ -52,7 +52,7 @@ export const ordersRoutes: FastifyPluginAsync = async (app) => {
     if (result.replayed) reply.header("idempotency-replayed", "true");
     return reply.status(201).send({ data: result.order, meta: { requestId: request.id } });
   });
-  app.post<{ Params: { settlementId: string }; Body: ReverseSettlementRequest }>("/admin/settlements/:settlementId/reverse", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Reverse a settlement", headers, params: settlementOnlyParams, body: zodToJsonSchema(ReverseSettlementRequestSchema), response: { 200: zodToJsonSchema(ReverseSettlementResponseSchema), ...errors } } }, async (request) => ({ data: await reverseSettlementById(app.prisma, request.authenticatedUser!, request.params.settlementId, request.body, request.id), meta: { requestId: request.id } }));
+  app.post<{ Params: { settlementId: string }; Body: ReverseSettlementRequest }>("/admin/settlements/:settlementId/reverse", { preHandler: requireManagerRoute, schema: { tags: ["Orders"], summary: "Reverse a settlement", headers, params: settlementOnlyParams, body: zodToJsonSchema(ReverseSettlementRequestSchema), response: { 200: zodToJsonSchema(ReverseSettlementResponseSchema), ...errors } } }, async (request) => ({ data: await reverseSettlementById(app.prisma, request.authenticatedUser!, request.params.settlementId, request.body, request.id), meta: { requestId: request.id } }));
   app.get<{ Params: { orderId: string } }>("/orders/:orderId/bar-ticket", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Read print-ready bar ticket data", headers, params: orderParams, response: { 200: zodToJsonSchema(BarTicketResponseSchema), ...errors } } }, async (request) => ({ data: await barTicket(app.prisma, request.authenticatedUser!, request.params.orderId), meta: { requestId: request.id } }));
   app.get<{ Params: { orderId: string } }>("/orders/:orderId/receipt", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Read whole-order receipt data", headers, params: orderParams, response: { 200: zodToJsonSchema(OrderReceiptResponseSchema), ...errors } } }, async (request) => ({ data: await orderReceipt(app.prisma, request.authenticatedUser!, request.params.orderId), meta: { requestId: request.id } }));
   app.get<{ Params: { orderId: string; settlementId: string } }>("/orders/:orderId/settlements/:settlementId/receipt", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Read payer-settlement receipt data", headers, params: settlementParams, response: { 200: zodToJsonSchema(SettlementReceiptResponseSchema), ...errors } } }, async (request) => ({ data: await settlementReceipt(app.prisma, request.authenticatedUser!, request.params.orderId, request.params.settlementId), meta: { requestId: request.id } }));
