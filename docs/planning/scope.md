@@ -39,7 +39,7 @@ v1 success criteria:
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                                                                                                                     |
 | Roles          | Only Manager and Staff exist. Both use one POS application and one table dashboard; Manager-only capabilities are revealed by authorization rather than a separate application.                                                      |
-| Customers      | Customers are anonymous menu viewers in v1. A table-scoped QR credential may authorize only a waiter-call for an eligible, occupied table; there are no customer accounts, guest-order sessions, or self-ordering endpoints. |
+| Customers      | Customers browse the generic menu anonymously. A table-scoped QR credential requires full-name/phone OTP verification to create a short table visit that authorizes only a waiter-call; there are no order, payment, tracking, loyalty, or marketing capabilities. |
 | Currency       | Every amount is an integer count of **Toman**. Floating-point values and Rial conversion are forbidden.                                                                                                                                |
 | Time           | Store timestamps in UTC. Display timestamps and calculate calendar-day reports in `Asia/Tehran`.                                                                                                                                       |
 | Ordering       | Every v1 order is created by a logged-in Staff user through POS.                                                                                                                                                                       |
@@ -57,7 +57,7 @@ User-facing surfaces:
 
 Explicit non-goals for v1:
 
-- Customer self-ordering, customer carts submitted to the café, table-order authority, guest order tracking, customer accounts, loyalty, wallets, coupons, and marketing automation. The table-scoped waiter-call credential is not order or payment authority.
+- Customer self-ordering, customer carts submitted to the café, table-order authority, guest order tracking, loyalty, wallets, coupons, and marketing automation. The OTP-backed customer identity exists only to authorize a table-scoped waiter call and is not order or payment authority.
 - Inventory, recipes, ingredient deduction, waste, suppliers, and purchase orders.
 - Reservations, multi-branch management, multi-tenancy, franchise reporting, and third-party delivery synchronization.
 - Online payments, direct card-terminal control, automatic refunds, and accounting integrations.
@@ -222,7 +222,7 @@ Waiter-call rules:
   generic menu QR without a waiter-call action.
 - A table has the operational states `AVAILABLE` and `OCCUPIED`. Staff and Manager have the same authority to mark either state; the system does not assign acknowledgement or resolution to a particular person.
 - When a customer scans an eligible table QR while that table is `AVAILABLE`, the dashboard receives a non-blocking occupancy reminder. The scan does not create an order, change the table to occupied, or expose any customer identity. Staff or Manager must explicitly mark the table `OCCUPIED`.
-- A waiter-call may be submitted only from an eligible, occupied table. Submission creates or returns that table's one `PENDING` call and highlights the table in the shared POS dashboard. This is the customer's terminal state: the customer sees only that the request was sent.
+- A waiter-call may be submitted only from an eligible QR context with a remembered customer session and unexpired visit bound to that exact table credential. Occupancy remains a Staff/Manager operational state, not a public-call prerequisite. Submission creates or returns that table's one `PENDING` call and highlights the table in the shared POS dashboard.
 - Opening/clicking the highlighted table in the shared POS acknowledges and resolves the pending call in one staff action, returns the table card to its normal `OCCUPIED` state, and retains the call as history. The acknowledgement/resolution records timestamps but no responsible-user foreign keys.
 - The opaque QR credential is stored only as a hash and is never emitted by API,
   audit, application, or proxy logs. The provisioning command intentionally
