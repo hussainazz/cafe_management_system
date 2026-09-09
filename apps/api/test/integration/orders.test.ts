@@ -59,12 +59,17 @@ async function sellableProduct() {
   return { product, option };
 }
 
-async function createOrderRequest(cookies: Record<string, string>, payload: unknown, key: string) {
+async function createOrderRequest(
+  cookies: Record<string, string>,
+  payload: unknown,
+  key: string,
+  headers: Record<string, string> = {},
+) {
   return app.inject({
     method: "POST",
     url: "/api/v1/orders",
     cookies,
-    headers: { "idempotency-key": key },
+    headers: { "idempotency-key": key, ...headers },
     payload: payload as never,
   });
 }
@@ -85,7 +90,12 @@ describe("Staff order creation", () => {
     const cookies = await staffSession();
     const { product, option } = await sellableProduct();
     const table = await app.prisma.cafeTable.create({
-      data: { name: "Table 4", seatingLimitMinutes: 45, displayOrder: 4 },
+      data: {
+        id: "40000000-0000-4000-8000-000000000004",
+        name: "Table 4",
+        seatingLimitMinutes: 45,
+        displayOrder: 4,
+      },
     });
 
     const response = await createOrderRequest(
@@ -103,6 +113,7 @@ describe("Staff order creation", () => {
         ],
       },
       "create-table-order-0001",
+      { "x-request-id": "pos-table-trace-0001", "x-pos-table-name": "Table 4 displayed" },
     );
 
     expect(response.statusCode).toBe(201);
@@ -143,6 +154,14 @@ describe("Staff order creation", () => {
     expect(new Date(body.data.estimatedTableReleaseAt).getTime()).toBe(
       new Date(body.data.createdAt).getTime() + 53 * 60_000,
     );
+    const settled = await app.inject({
+      method: "POST", url: `/api/v1/orders/${body.data.id}/record-settlement`, cookies,
+      headers: { "idempotency-key": "close-table-order-0001" },
+      payload: { expectedVersion: 1, allocations: [{ orderItemId: body.data.items[0].id, quantity: 2 }], payments: [{ method: "CASH", amount: 110_000 }] },
+    });
+    expect(settled.statusCode).toBe(201);
+    expect(settled.json().data).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", balanceAmount: 0 });
+    await expect(app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).resolves.toMatchObject({ occupancyState: "AVAILABLE", occupiedAt: null });
 
     await app.prisma.product.update({
       where: { id: product.id },
@@ -206,6 +225,15 @@ describe("Staff order creation", () => {
         where: { entityId: stored.id, operation: "CREATE_ORDER" },
       }),
     ).toBe(1);
+    const audit = await app.prisma.auditLog.findFirstOrThrow({
+      where: { entityId: stored.id, operation: "CREATE_ORDER" },
+    });
+    expect(audit.requestId).toBe("pos-table-trace-0001");
+    expect(audit.afterSnapshot).toMatchObject({
+      tableId: table.id,
+      clientTableName: "Table 4 displayed",
+      resolvedTableName: "Table 4",
+    });
   });
 
   it("creates takeaway orders without a table timing snapshot", async () => {
@@ -282,6 +310,34 @@ describe("Staff order creation", () => {
 });
 
 describe("order reads, edits, and discounts", () => {
+  it("replaces an unpaid option-bearing order without violating option snapshot foreign keys", async () => {
+    const cookies = await userSession(UserRole.STAFF, "replace-options.staff");
+    const { product, option } = await sellableProduct();
+    const created = await createOrderRequest(
+      cookies,
+      {
+        channel: "TAKEAWAY",
+        items: [{ productId: product.id, quantity: 1, options: [{ optionId: option.id, quantity: 1 }] }],
+      },
+      "replace-options-create-0001",
+    );
+    expect(created.statusCode).toBe(201);
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/orders/${created.json().data.id}`,
+      cookies,
+      payload: {
+        expectedVersion: created.json().data.version,
+        items: [{ productId: product.id, quantity: 2, options: [{ optionId: option.id, quantity: 2 }] }],
+      },
+    });
+
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().data).toMatchObject({ version: 2, items: [{ quantity: 2, options: [{ optionId: option.id, quantity: 2 }] }] });
+    expect(await app.prisma.orderItemOption.count({ where: { orderItem: { orderId: created.json().data.id } } })).toBe(1);
+  });
+
   it("lists and reads orders, then adds items and applies reasoned item and order discounts", async () => {
     const cookies = await userSession(UserRole.STAFF, "edit.staff");
     const { product: first } = await sellableProduct();
@@ -520,17 +576,17 @@ describe("settlement recording", () => {
 
     const secondSettlement = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "settlement-record-0002" }, payload: { expectedVersion: 3, allocations: [{ orderItemId: order.items[1].id, quantity: 1 }, { orderItemId: addedItem.id, quantity: 1 }], payments: [{ method: "CASH", amount: 20_000 }, { method: "CARD_TRANSFER", amount: 80_000, reference: "TRX-123" }] } });
     expect(secondSettlement.statusCode).toBe(201);
-    expect(secondSettlement.json().data).toMatchObject({ paymentStatus: "PAID", paidAmount: 150_000, balanceAmount: 0, version: 4 });
+    expect(secondSettlement.json().data).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", paidAmount: 150_000, balanceAmount: 0, version: 4 });
     expect(await app.prisma.payment.count()).toBe(3);
     expect(await app.prisma.auditLog.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(2);
 
     const { product: addedProduct } = await sellableProduct();
     const added = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: 4, addItems: [{ productId: addedProduct.id, quantity: 1, options: [] }] } });
-    expect(added.statusCode).toBe(200);
-    expect(added.json().data).toMatchObject({ paymentStatus: "PARTIALLY_PAID", paidAmount: 150_000, balanceAmount: 50_000, version: 5 });
+    expect(added.statusCode).toBe(409);
+    expect(added.json().error.code).toBe("INVALID_STATE");
   });
 
-  it("preserves settled quantities and posted data while allowing additive quantity edits", async () => {
+  it("closes a fully paid order and preserves its posted data from later edits", async () => {
     const cookies = await userSession(UserRole.STAFF, "settled.edit.staff");
     const { product } = await sellableProduct();
     const created = await createOrderRequest(
@@ -607,20 +663,8 @@ describe("settlement recording", () => {
         itemUpdates: [{ orderItemId: order.items[0].id, quantity: 3 }],
       },
     });
-    expect(increased.statusCode).toBe(200);
-    expect(increased.json().data).toMatchObject({
-      paymentStatus: "PARTIALLY_PAID",
-      totalAmount: 150_000,
-      paidAmount: 100_000,
-      balanceAmount: 50_000,
-      version: 3,
-      items: [{ quantity: 3 }],
-      settlements: [{
-        totalAmount: 100_000,
-        allocations: [{ quantity: 2, amount: 100_000 }],
-        payments: [{ method: "CARD_TRANSFER", amount: 100_000, reference: null }],
-      }],
-    });
+    expect(increased.statusCode).toBe(409);
+    expect(increased.json().error.code).toBe("INVALID_STATE");
   });
 
   it("rejects over-allocation and tender mismatches without partial writes", async () => {
