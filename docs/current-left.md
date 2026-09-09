@@ -96,6 +96,10 @@ This file is the active completion checklist and current stage status for the ba
   production build, and `git diff --check` pass; rendered browser/device proof
   remains left.
 - Stage 7 remaining implementation checklist (recorded 8 September 2026):
+  - 8 September 2026 operational-rule update: a final settlement closes the
+    order; for table orders it atomically frees the table and invalidates the
+    prior table context. The implementation and integration proof are in
+    progress.
   - Logical deletion and table clearing are complete as a controlled POS
     workflow: clear confirmation, retained-history notice, table-context
     cleanup when the deleted order is the table's final active order, and
@@ -109,8 +113,25 @@ This file is the active completion checklist and current stage status for the ba
     updated partial/paid balances. Focused POS tests, typecheck, production
     build, and `git diff --check` pass; attached-browser/device validation
     remains item 8.
-  3. Complete the current draft flow: submit drafts and support controlled
-     editing of `OPEN` orders, including safe additions after partial payment.
+  3. Current draft flow is complete: table/takeaway drafts submit with a
+     retained create idempotency key; `UNPAID` `OPEN` orders support item,
+     quantity, and note replacement; partially paid/paid orders allow only
+     additions or quantity increases. Leaving unsaved work prompts to submit,
+     discard, or continue editing. POS tests, typecheck, production build, and
+     `git diff --check` pass; attached-browser/device validation remains item 8.
+  - Order-create trace diagnostics are complete: the POS creates one request ID
+    per submit and records its selected table UUID/name in the browser console;
+    the API logs received, persisted/replayed, and rejected safe trace fields,
+    and the existing `CREATE_ORDER` audit snapshot preserves the client name
+    beside the server-resolved table name. API/POS typechecks and API
+    integration tests pass; attached-browser incident reproduction remains
+    item 8.
+  - Table-order request validation now preserves the selected deterministic
+    table UUID through Fastify validation and reparses it before service use;
+    an absent table ID is rejected before it can become an unconstrained Prisma
+    query. The deterministic UUID regression test and API/POS typechecks pass.
+    A final authenticated browser retry remains item 8 because the dev API
+    watcher restart expired the local browser session.
   4. Implement reasoned item- and order-level discounts in the POS.
   5. Add API-backed bar-ticket and receipt views/printing for whole orders and
      individual settlements.
