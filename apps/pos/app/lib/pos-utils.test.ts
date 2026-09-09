@@ -17,6 +17,7 @@ describe("POS display utilities", () => {
     const now = Date.parse("2026-09-05T12:30:00.000Z");
     expect(elapsedLabel("2026-09-05T11:05:00.000Z", now)).toBe("1 ساعت و 25 دقیقه");
     expect(elapsedLabel("2026-09-05T12:35:00.000Z", now)).toBe("0 دقیقه");
+    expect(elapsedLabel("2026-09-05T12:24:00.000Z", now)).toBe("6 دقیقه");
   });
 
   it("sums table and draft amounts without currency conversion", () => {
