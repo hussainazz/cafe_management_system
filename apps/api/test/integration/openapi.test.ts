@@ -53,6 +53,7 @@ describe("OpenAPI contract", () => {
     expect(document.paths).toHaveProperty("/api/v1/admin/option-groups/{optionGroupId}");
     expect(document.paths).toHaveProperty("/api/v1/admin/tables/{tableId}");
     expect(document.paths).toHaveProperty("/api/v1/admin/users/{userId}");
+    expect(document.paths).toHaveProperty("/api/v1/admin/payments");
     expect(document.paths).toHaveProperty("/api/v1/product-images/{storageKey}");
   });
 });
