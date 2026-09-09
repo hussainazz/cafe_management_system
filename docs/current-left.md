@@ -7,8 +7,9 @@ This file is the active completion checklist and current stage status for the ba
 - Stages 5 and 6 (public-menu deployment preparation and public-menu VPS
   deployment/pilot) were deliberately brought forward after the completed
   QR-menu stages for the release deadline. Its limited browse-only pilot
-  evidence remains in progress; Stage 7 (shared POS foundation) is the next
-  development stage. Staff and Manager will use one POS
+  evidence remains in progress; Stage 7 implementation is complete and Stage
+  8 (Manager capability backend) is now the active development stage. Staff and
+  Manager will use one POS
   application and one table dashboard; Manager-only capabilities are role-gated
   panels/actions rather than a separate application.
 - Stage 7 preparation completed: the forward migration seeds the requested
@@ -165,10 +166,6 @@ This file is the active completion checklist and current stage status for the ba
     board plus the inspected order before clearing the warning. Focused POS
     tests, typecheck, and `git diff --check` pass; attached-browser/device
     validation remains item 7.
-  7. Validate all POS journeys with an attached browser and actual café
-     devices: desktop/mobile interaction, keyboard operation, touch targets,
-     and real receipt-printer/paper-size behavior.
-
   Implementation dependency note: before completing selected-item settlement,
   ensure draft submission and controlled `OPEN`-order editing are available,
   because settlement operates on an authoritative active order. The checklist
@@ -176,10 +173,32 @@ This file is the active completion checklist and current stage status for the ba
 - Moved to Stage 8: implement the shared POS interface for reasoned item- and
   order-level discounts, preserving the existing server authority,
   settlement-immutability rules, required reason, and Staff/Manager access.
-- Left for Stage 8 after the shared POS foundation: Manager-only payment
-  history, catalog/users/settings/audit APIs, and one daily accounting report
-  limited to the current or previous `Asia/Tehran` day. The full historical
-  order/payment/audit data must remain retained regardless of this report limit.
+- Stage 8 ordered implementation checklist:
+  1. Carry forward the shared POS interface for reasoned item- and order-level
+     discounts, with required non-empty reason, server-calculated snapshots,
+     Staff/Manager access, and settlement immutability.
+  2. Implement and document Manager-only catalog, product options, images,
+     prices, availability, display order, preparation deadlines, table seating
+     limits, Staff accounts, and café settings APIs.
+  3. Implement permissioned Manager-only cursor-paginated payment history while
+     retaining Staff access to individual order and settlement receipts.
+  4. Implement the bounded daily accounting report for only the current or
+     immediately previous `Asia/Tehran` day, including totals, order count,
+     payment-method totals, discounts, reversals, and logically deleted orders.
+  5. Add audit queries and measured indexes for payment history and the
+     two-day accounting report; retain all historical financial and audit rows.
+  6. Implement permissioned full-settlement reversal with a required reason,
+     immutable posted tenders/allocations, recalculated balances, and audit
+     history.
+  7. Verify today/yesterday report fixtures, permission boundaries, API/OpenAPI
+     contracts, query plans, and focused integration coverage.
+
+## Future Validation Work
+
+- Stage 7 POS browser/device validation remains intentionally deferred: validate
+  desktop/mobile interaction, keyboard operation, touch targets, and actual
+  café receipt-printer/paper-size behavior after the Manager backend work is
+  ready for an end-to-end pass.
 - Target GHCR release machinery is now scaffolded: API and menu images have
   independent version tracks, production Compose uses exact image references,
   and the release runbook records pull, migration, digest, and rollback rules.
