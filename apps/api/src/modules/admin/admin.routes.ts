@@ -1,11 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { AuthRequestHeadersSchema, ErrorResponseSchema, PaymentHistoryQuerySchema, PaymentHistoryResponseSchema, type PaymentHistoryQuery } from "@cafe/contracts";
+import { AuthRequestHeadersSchema, DailyReportQuerySchema, DailyReportResponseSchema, ErrorResponseSchema, PaymentHistoryQuerySchema, PaymentHistoryResponseSchema, type DailyReportQuery, type PaymentHistoryQuery } from "@cafe/contracts";
 import { hashPassword } from "../../auth/password.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { requireManagerRoute } from "../auth/authorization.js";
 import { listPaymentHistory } from "./payment-history.service.js";
+import { dailyAccountingReport } from "./daily-report.service.js";
 
 const category = z.object({ name: z.string().trim().min(1).max(120), displayOrder: z.number().int().min(0), isActive: z.boolean().optional() }).strict();
 const product = z.object({ categoryId: z.uuid(), name: z.string().trim().min(1).max(120), priceAmount: z.number().int().nonnegative(), preparationDeadlineMinutes: z.number().int().positive(), displayOrder: z.number().int().min(0), isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroupIds: z.array(z.uuid()).max(30).optional() }).strict();
@@ -54,5 +55,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: PaymentHistoryQuery }>("/admin/payments", { preHandler: requireManagerRoute, schema: { tags: ["Manager administration"], summary: "List retained payment settlements", headers, querystring: zodToJsonSchema(PaymentHistoryQuerySchema), response: { 200: zodToJsonSchema(PaymentHistoryResponseSchema), ...errors } } }, async (request) => {
     const result = await listPaymentHistory(app.prisma, request.query);
     return { data: { payments: result.payments }, meta: { requestId: request.id, page: result.page } };
+  });
+  app.get<{ Querystring: DailyReportQuery }>("/admin/reports/daily", { preHandler: requireManagerRoute, schema: { tags: ["Manager administration"], summary: "Read the bounded daily accounting report", headers, querystring: zodToJsonSchema(DailyReportQuerySchema), response: { 200: zodToJsonSchema(DailyReportResponseSchema), ...errors } } }, async (request) => {
+    const result = await dailyAccountingReport(app.prisma, request.query);
+    return { data: result.report, meta: { requestId: request.id, period: request.query.period, range: { from: result.range.from.toISOString(), to: result.range.to.toISOString() } } };
   });
 };
