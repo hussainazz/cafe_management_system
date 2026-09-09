@@ -32,7 +32,8 @@ import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIco
 type Channel = "TABLE" | "TAKEAWAY";
 type OrderDetail = PosOrderDetail;
 type Option = PosCatalogProduct["optionGroups"][number]["options"][number];
-type Draft = { key: string; product: PosCatalogProduct; options: Option[]; quantity: number };
+type Draft = { key: string; product: PosCatalogProduct; options: Option[]; quantity: number; note: string };
+type SavedDraft = { id: string; productId: string; name: string; quantity: number; originalQuantity: number; note: string; originalNote: string | null; options: Array<{ optionId: string; quantity: number }>; lineTotalAmount: number };
 type ProductCard = { key: string; name: string; products: PosCatalogProduct[] };
 type Data = {
   catalog: PosCatalogCategory[];
@@ -62,6 +63,16 @@ function productCards(products: PosCatalogProduct[]): ProductCard[] {
   }));
 }
 
+function savedDrafts(order: OrderDetail | null): SavedDraft[] {
+  return (order?.items ?? []).map((item) => ({
+    id: item.id, productId: item.productId, name: item.productNameSnapshot,
+    quantity: item.quantity, originalQuantity: item.quantity,
+    note: item.note ?? "", originalNote: item.note,
+    options: item.options.map((option) => ({ optionId: option.optionId, quantity: option.quantity })),
+    lineTotalAmount: item.lineTotalAmount,
+  }));
+}
+
 export function OrdersWorkspace({
   refreshing,
   onOpenMenu,
@@ -83,6 +94,9 @@ export function OrdersWorkspace({
   const [pendingTransfer, setPendingTransfer] = useState<PendingTransfer | null>(null);
   const [transferring, setTransferring] = useState(false);
   const [retryingTableClear, setRetryingTableClear] = useState(false);
+  const [deskDirty, setDeskDirty] = useState(false);
+  const [pendingChannel, setPendingChannel] = useState<Channel | null>(null);
+  const submitDeskRef = useRef<(() => void) | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     setMessage(null);
@@ -174,6 +188,7 @@ export function OrdersWorkspace({
           <button
             className={channel === "TABLE" ? "active" : ""}
             onClick={() => {
+              if (deskDirty) { setPendingChannel("TABLE"); return; }
               setChannel("TABLE");
               close();
             }}
@@ -183,6 +198,7 @@ export function OrdersWorkspace({
           <button
             className={channel === "TAKEAWAY" ? "active" : ""}
             onClick={() => {
+              if (deskDirty) { setPendingChannel("TAKEAWAY"); return; }
               setChannel("TAKEAWAY");
               setSelected(null);
               setOrder(null);
@@ -233,11 +249,15 @@ export function OrdersWorkspace({
       )}
       {editingOrder || (selected && !order) || channel === "TAKEAWAY" ? (
         <OrderDesk
+          key={`${channel}:${selected?.id ?? "takeaway"}:${order?.id ?? "new"}`}
           catalog={data.catalog}
           table={selected}
           channel={channel}
           initialOrder={order}
-          onOrder={setOrder}
+          onOrder={async (updated) => {
+            setOrder(updated);
+            await load();
+          }}
           onDone={async (notice) => {
             close();
             await load();
@@ -247,6 +267,13 @@ export function OrdersWorkspace({
             setPendingTableClear(clear);
             close();
           }}
+          onCreateFailure={async (error) => {
+            close();
+            await load();
+            setMessage({ tone: "error", text: error });
+          }}
+          onDirtyChange={setDeskDirty}
+          onSubmitReady={(submit) => { submitDeskRef.current = submit; }}
         />
       ) : (
         <TableBoard
@@ -301,13 +328,21 @@ export function OrdersWorkspace({
           }}
         />
       )}
+      {pendingChannel && (
+        <LeaveDraftDialog
+          busy={false}
+          onContinue={() => setPendingChannel(null)}
+          onDiscard={() => { setDeskDirty(false); setChannel(pendingChannel); setSelected(null); setOrder(null); setEditingOrder(false); setPendingChannel(null); }}
+          onSubmit={() => { submitDeskRef.current?.(); setPendingChannel(null); }}
+        />
+      )}
       {checkout && order && (
         <SettlementSheet
           order={order}
           onClose={() => setCheckout(false)}
           onSuccess={async (updated) => {
             setCheckout(false);
-            if (updated.state === "DELETED") {
+            if (updated.state === "CLOSED") {
               setMessage({ tone: "notice", text: "پرداخت ثبت شد و میز آزاد شد." });
               close();
               await load();
@@ -461,14 +496,20 @@ function OrderDesk({
   onOrder,
   onDone,
   onTableClearNeeded,
+  onCreateFailure,
+  onDirtyChange,
+  onSubmitReady,
 }: {
   catalog: PosCatalogCategory[];
   table: PosTable | null;
   channel: Channel;
   initialOrder: OrderDetail | null;
-  onOrder: (order: OrderDetail | null) => void;
+  onOrder: (order: OrderDetail | null) => Promise<void>;
   onDone: (message: string) => void;
   onTableClearNeeded: (clear: PendingTableClear) => void;
+  onCreateFailure: (error: string) => Promise<void>;
+  onDirtyChange: (dirty: boolean) => void;
+  onSubmitReady: (submit: () => void) => void;
 }) {
   const posCatalog = useMemo(
     () => catalog.filter((item) => item.name !== "ویژه و جدید"),
@@ -476,12 +517,19 @@ function OrderDesk({
   );
   const [categoryId, setCategoryId] = useState("");
   const [draft, setDraft] = useState<Draft[]>([]);
+  const [saved, setSaved] = useState<SavedDraft[]>(() => savedDrafts(initialOrder));
+  const [createAttemptKey, setCreateAttemptKey] = useState(requestKey);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<PosCatalogProduct | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkout, setCheckout] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  useEffect(() => {
+    setSaved(savedDrafts(initialOrder));
+    setDraft([]);
+    setCreateAttemptKey(requestKey());
+  }, [initialOrder?.id, initialOrder?.version]);
   const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
   const cards = productCards(category?.products ?? []);
   const draftTotal = sumAmounts(
@@ -498,7 +546,7 @@ function OrderDesk({
       const found = current.find((x) => x.key === signature);
       return found
         ? current.map((x) => (x.key === signature ? { ...x, quantity: x.quantity + 1 } : x))
-        : [...current, { key: signature, product, options, quantity: 1 }];
+        : [...current, { key: signature, product, options, quantity: 1, note: "" }];
     });
     setExpandedCard(null);
     setSelectedProduct(null);
@@ -507,33 +555,50 @@ function OrderDesk({
     draft.map((item) => ({
       productId: item.product.id,
       quantity: item.quantity,
+      ...(item.note.trim() ? { note: item.note.trim() } : {}),
       options: item.options.map((option) => ({ optionId: option.id, quantity: 1 })),
     }));
+  const replacementItems = () => [
+    ...saved.filter((item) => item.quantity > 0).map((item) => ({
+      productId: item.productId, quantity: item.quantity,
+      ...(item.note.trim() ? { note: item.note.trim() } : {}), options: item.options,
+    })),
+    ...payloadItems(),
+  ];
+  const dirty = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   const save = async () => {
-    if (!draft.length) return;
+    if (!draft.length && !saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""))) return;
     setBusy(true);
     setError(null);
     if (initialOrder) {
-      const result = await updateOpenOrder(initialOrder.id, {
-        expectedVersion: initialOrder.version,
-        addItems: payloadItems(),
-      });
+      const isUnpaid = initialOrder.paymentStatus === "UNPAID";
+      const changedSaved = saved.filter((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+      const result = await updateOpenOrder(initialOrder.id, isUnpaid
+        ? { expectedVersion: initialOrder.version, items: replacementItems() }
+        : {
+            expectedVersion: initialOrder.version,
+            ...(draft.length ? { addItems: payloadItems() } : {}),
+            ...(changedSaved.length ? { itemUpdates: changedSaved.map((item) => ({ orderItemId: item.id, quantity: item.quantity })) } : {}),
+          });
       setBusy(false);
       if (!result.ok) {
         setError(result.error.message);
         return;
       }
-      onOrder(result.data);
+      await onOrder(result.data);
     } else {
       const result = await createOpenOrder(
         channel === "TABLE"
           ? { channel, tableId: table!.id, items: payloadItems() }
           : { channel, items: payloadItems() },
-        requestKey(),
+        createAttemptKey,
+        { requestId: requestKey(), ...(channel === "TABLE" ? { tableName: table!.name } : {}) },
       );
       setBusy(false);
       if (!result.ok) {
         setError(result.error.message);
+        if (channel === "TABLE") await onCreateFailure(result.error.message);
         return;
       }
       const detail = await readOrder(result.data.id);
@@ -541,10 +606,13 @@ function OrderDesk({
         setError(detail.error.message);
         return;
       }
-      onOrder(detail.data);
+      await onOrder(detail.data);
     }
     setDraft([]);
+    setSaved(savedDrafts(initialOrder));
+    setCreateAttemptKey(requestKey());
   };
+  useEffect(() => { onSubmitReady(() => void save()); }, [onSubmitReady, save]);
   const remove = async () => {
     if (!initialOrder) return;
     const clearsTable = channel === "TABLE" && canClearTableAfterDeletion(table?.activeOrders.length);
@@ -652,6 +720,8 @@ function OrderDesk({
           <OrderSummary
             order={initialOrder}
             draft={draft}
+            saved={saved}
+            canEditSaved={initialOrder?.paymentStatus === "UNPAID"}
             total={draftTotal}
             onQuantity={(key, value) =>
               setDraft((items) =>
@@ -664,6 +734,9 @@ function OrderDesk({
                 ),
               )
             }
+            onSavedQuantity={(id, delta) => setSaved((items) => items.map((item) => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item))}
+            onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
+            onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
             onSave={() => void save()}
             onCheckout={() => setCheckout(true)}
             onRequestDelete={() => setDeleteDialogOpen(true)}
@@ -677,11 +750,11 @@ function OrderDesk({
           onClose={() => setCheckout(false)}
           onSuccess={(updated) => {
             setCheckout(false);
-            if (updated.state === "DELETED" && channel === "TABLE") {
+            if (updated.state === "CLOSED" && channel === "TABLE") {
               onDone("پرداخت ثبت شد و میز آزاد شد.");
               return;
             }
-            onOrder(updated);
+            void onOrder(updated);
           }}
         />
       )}
@@ -702,8 +775,13 @@ function OrderDesk({
 function OrderSummary({
   order,
   draft,
+  saved,
+  canEditSaved,
   total,
   onQuantity,
+  onSavedQuantity,
+  onSavedNote,
+  onDraftNote,
   onSave,
   onCheckout,
   onRequestDelete,
@@ -711,8 +789,13 @@ function OrderSummary({
 }: {
   order: OrderDetail | null;
   draft: Draft[];
+  saved: SavedDraft[];
+  canEditSaved: boolean;
   total: number;
   onQuantity: (key: string, delta: number) => void;
+  onSavedQuantity: (id: string, delta: number) => void;
+  onSavedNote: (id: string, note: string) => void;
+  onDraftNote: (key: string, note: string) => void;
   onSave: () => void;
   onCheckout: () => void;
   onRequestDelete: () => void;
@@ -733,14 +816,14 @@ function OrderSummary({
         </div>
       )}
       <div className="order-lines">
-        {order?.items.map((item) => (
-          <div className="order-line order-line--saved" key={item.id}>
-            <b>
-              {item.productNameSnapshot} × {englishNumber.format(item.quantity)}
-            </b>
+        {order?.items.map((item) => {
+          const edit = saved.find((candidate) => candidate.id === item.id)!;
+          return edit.quantity > 0 && <article className="order-line order-line--saved" key={item.id}>
+            <div><b>{edit.name} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></div>
             <span>{formatToman(item.lineTotalAmount)}</span>
-          </div>
-        ))}
+            <div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <input aria-label={`یادداشت ${edit.name}`} value={edit.note} onChange={(event) => onSavedNote(edit.id, event.target.value)} placeholder="یادداشت" /> : <small className="saved-lock">پس از پرداخت فقط افزایش تعداد مجاز است</small>}</div>
+          </article>;
+        })}
         {draft.map((item) => {
           const expanded = expandedDraftKey === item.key;
           const unitPrice =
@@ -796,6 +879,7 @@ function OrderSummary({
                   <strong className="quantity__total">
                     {formatToman(unitPrice * item.quantity)}
                   </strong>
+                  <input className="order-note" aria-label={`یادداشت ${item.product.name}`} value={item.note} onChange={(event) => onDraftNote(item.key, event.target.value)} placeholder="یادداشت" />
                 </div>
               )}
             </article>
@@ -812,7 +896,7 @@ function OrderSummary({
         <span>{order ? "مانده پرداخت" : "جمع پیش‌نویس"}</span>
         <strong>{formatToman(order ? order.balanceAmount : total)}</strong>
       </div>
-      {draft.length > 0 && (
+      {(draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""))) && (
         <button className="button button--primary button--wide" disabled={busy} onClick={onSave}>
           {busy ? "در حال ثبت…" : order ? "افزودن به سفارش" : "ثبت سفارش"}
         </button>
@@ -868,6 +952,12 @@ function DeleteOrderDialog({ order, table, clearsTable, busy, onCancel, onConfir
       </section>
     </div>
   );
+}
+
+function LeaveDraftDialog({ busy, onContinue, onDiscard, onSubmit }: { busy: boolean; onContinue: () => void; onDiscard: () => void; onSubmit: () => void }) {
+  const continueRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { continueRef.current?.focus(); }, []);
+  return <div className="modal-backdrop"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="leave-draft-title"><div className="modal-header"><h2 id="leave-draft-title">تغییرات ثبت نشده است</h2><button className="icon-button" type="button" onClick={onContinue} aria-label="ادامه ویرایش"><CloseIcon /></button></div><p>برای خروج، سفارش را ثبت کنید یا تغییرات محلی را دور بریزید.</p><div className="modal-actions"><button className="button button--quiet" type="button" ref={continueRef} onClick={onContinue}>ادامه ویرایش</button><button className="button button--danger" type="button" disabled={busy} onClick={onDiscard}>دور ریختن</button><button className="button button--primary" type="button" disabled={busy} onClick={onSubmit}>ثبت تغییرات</button></div></section></div>;
 }
 
 function TransferTableDialog({ transfer, busy, onCancel, onConfirm }: { transfer: PendingTransfer; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
