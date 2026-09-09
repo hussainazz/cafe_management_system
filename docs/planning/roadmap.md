@@ -164,16 +164,19 @@ Exit gate:
   state, QR-scan reminders, prior-occupancy invalidation, one pending call per
   eligible occupied table, common table-opening resolution, refetch behavior,
   constraints, safe logs, and tests.
-- Preserve the existing discount boundary: Staff and Manager may apply reasoned item/order discounts, while only Manager may configure catalog product sale discounts.
 - Handle idempotent retry results, stale-version conflicts, API failures, connection state, and reconnect refetch.
 - Validate touch targets, keyboard operation, actual café devices, and the real receipt printer/paper size.
 
 Exit gate:
 
-- Staff and Manager can complete the same basic POS operational journeys—including reasoned item/order discounts—through one shared interface, a table waiter-call can be received and resolved, and Staff cannot access Manager-only product sale-discount configuration, accounting, payment-history, catalog, settings, or audit capabilities.
+- Staff and Manager can complete the same basic POS operational journeys through one shared interface, a table waiter-call can be received and resolved, and Staff cannot access Manager-only product sale-discount configuration, accounting, payment-history, catalog, settings, or audit capabilities. The shared POS discount interface is scheduled for Stage 8.
 
 ### Stage 8 — Manager Capability Backend
 
+- Carry forward the shared POS interface pass for reasoned item- and order-level
+  discounts. Preserve the Stage 2 server rules: a non-empty reason, server-
+  calculated and snapshotted totals, Staff/Manager access, and settlement
+  immutability.
 - Implement complete Manager-only catalog, product option, image, price, availability, display-order, Staff account, and settings APIs.
 - Implement Manager-only cursor-paginated payment history while keeping Staff access to individual order and settlement receipts.
 - Implement one bounded daily accounting report whose only valid period is the current or immediately previous `Asia/Tehran` calendar day.
