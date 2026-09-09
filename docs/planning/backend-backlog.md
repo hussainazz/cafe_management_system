@@ -248,8 +248,11 @@ Acceptance criteria:
 - The server calculates settlement amount from immutable snapshots and rejects
   over-allocation or tender totals that do not match.
 - Settlement recording requires idempotency and `expectedVersion`.
-- Settlement, allocations, tenders, paid/balance/status updates, version
-  increment, idempotency, and audit rows commit atomically.
+- Settlement, allocations, tenders, paid/balance/status updates, `CLOSED`
+  transition on full payment, version increment, idempotency, and audit rows
+  commit atomically. A fully paid table order also frees the table, invalidates
+  its prior guest context, and resolves any pending waiter call in that same
+  transaction.
 - Adding items to a previously `PAID` open order recalculates the order payment
   status to `PARTIALLY_PAID` until the new balance is settled.
 
@@ -438,6 +441,7 @@ Done:
 - Fastify API skeleton.
 - Environment validation.
 - Request IDs and basic logging.
+- Order-create trace logging that records safe client selection and server resolution fields, including a client-generated request ID, so a table-selection incident can be correlated across the POS browser, API log, audit row, and persisted order without logging secrets or raw request bodies.
 - CORS, Helmet, and Sensible registration.
 - Swagger/OpenAPI plugin registration.
 - PostgreSQL Docker Compose service.
