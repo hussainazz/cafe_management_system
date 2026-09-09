@@ -185,9 +185,10 @@ This file is the active completion checklist and current stage status for the ba
   3. Complete: Manager-only cursor-paginated payment history retains all
      settlements/tenders, surfaces reversal state and settlement-receipt paths,
      and preserves Staff access to individual order and settlement receipts.
-  4. Implement the bounded daily accounting report for only the current or
-     immediately previous `Asia/Tehran` day, including totals, order count,
-     payment-method totals, discounts, reversals, and logically deleted orders.
+  4. Complete: Manager-only daily accounting accepts only `today` or
+     `yesterday` in `Asia/Tehran`, reports resolved UTC bounds, sales/paid
+     totals, payment-method totals, discounts, reversals, and retained deleted
+     orders.
   5. Add audit queries and measured indexes for payment history and the
      two-day accounting report; retain all historical financial and audit rows.
   6. Implement permissioned full-settlement reversal with a required reason,
