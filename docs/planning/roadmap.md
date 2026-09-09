@@ -50,7 +50,7 @@ Current implementation status as of 3 September 2026:
 | 4     | QR-menu frontend                | Mobile-first browse-only public menu with categories, search/filtering, priced product selections, images, and final Toman prices               |
 | 5     | Public-menu deployment preparation | Production web/API release baseline, backup/restore, monitoring, log rotation, release procedure, and public-menu fallback runbook          |
 | 6     | Public-menu VPS deployment and pilot | Iranian VPS public-menu deployment, HTTPS, production secrets, restore drill, CDN measurement, and limited browse-only pilot               |
-| 7     | Shared POS foundation           | One Staff/Manager POS shell and table dashboard: basic order/payment/receipt workflows, ordered physical tables, occupancy/reminder flow, and table-scoped waiter-call |
+| 7     | Shared POS foundation           | One Staff/Manager POS shell and table dashboard: basic order/payment/receipt workflows, ordered physical tables, occupancy/reminder flow, and OTP-authenticated table-scoped waiter-call |
 | 8     | Manager capability backend      | Manager catalog/user/settings, payment history, discounts, audit queries, and today/yesterday daily accounting report                           |
 | 9     | Manager panels in shared POS    | Role-gated catalog, Staff-account, settings, payment-history, audit, and daily-report panels inside the existing POS application                 |
 | 10    | Full-system hardening and POS pilot | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, POS stabilization, and limited live shift      |
