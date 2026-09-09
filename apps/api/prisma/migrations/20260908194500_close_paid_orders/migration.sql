@@ -1,0 +1,1 @@
+ALTER TYPE "OrderState" ADD VALUE 'CLOSED';
