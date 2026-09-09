@@ -131,6 +131,9 @@ svg {
 .connection--busy {
   color: var(--orange);
 }
+.connection--offline {
+  color: var(--red);
+}
 .text-button,
 .back-button {
   border: 0;
@@ -350,6 +353,27 @@ svg {
   background: #eff9f6;
   color: var(--teal-dark);
 }
+.recovery-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  max-width: 860px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  font-size: var(--text-label);
+  line-height: 1.55;
+}
+.recovery-banner > svg { width: 20px; height: 20px; }
+.recovery-banner b, .recovery-banner span { display: block; }
+.recovery-banner span { color: var(--muted); font-size: var(--text-meta); }
+.recovery-banner--offline { border-color: #ecd19d; background: #fffaf0; color: #805b12; }
+.recovery-banner--conflict { border-color: #efc6c2; background: var(--red-soft); color: #8f302a; }
+.recovery-banner--failure { border-color: #c7d8e9; background: #f4f8fc; color: #315876; }
+.recovery-banner__close { border: 0; background: transparent; color: currentColor; font-size: 20px; }
 .table-board {
   padding: 0;
   background: transparent;
@@ -1318,6 +1342,8 @@ svg {
   }
 }
 @media (max-width: 1000px) {
+  .recovery-banner { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .recovery-banner .button { grid-column: 2 / -1; width: 100%; }
   .table-board--inspecting {
     grid-template-columns: minmax(340px, 390px) minmax(0, 1fr);
     gap: 16px;
