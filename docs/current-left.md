@@ -189,8 +189,9 @@ This file is the active completion checklist and current stage status for the ba
      `yesterday` in `Asia/Tehran`, reports resolved UTC bounds, sales/paid
      totals, payment-method totals, discounts, reversals, and retained deleted
      orders.
-  5. Add audit queries and measured indexes for payment history and the
-     two-day accounting report; retain all historical financial and audit rows.
+  5. Complete: Manager-only safe audit history has cursor/filter queries, and
+     measured payment-history, daily-report, and audit indexes retain all
+     historical financial and audit rows.
   6. Implement permissioned full-settlement reversal with a required reason,
      immutable posted tenders/allocations, recalculated balances, and audit
      history.
