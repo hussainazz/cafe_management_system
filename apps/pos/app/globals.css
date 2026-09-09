@@ -1556,9 +1556,7 @@ svg {
   break-inside: avoid;
   page-break-inside: avoid;
 }
-.thermal-item__main,
-.thermal-summary p,
-.thermal-payments p {
+.thermal-item__main {
   display: flex;
   justify-content: space-between;
   gap: 3mm;
@@ -1567,8 +1565,7 @@ svg {
 .thermal-item__main b { font-size: 12px; }
 .thermal-item__main span,
 .thermal-item strong,
-.thermal-summary strong,
-.thermal-payments strong {
+.thermal-summary strong {
   direction: ltr;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1589,21 +1586,17 @@ svg {
   border-right: 2px solid #000;
   font-weight: 700;
 }
-.thermal-summary,
-.thermal-payments {
+.thermal-summary {
   margin-top: 3mm;
 }
-.thermal-summary p,
-.thermal-payments p { margin-top: 1.5mm; }
 .thermal-summary--total {
+  display: flex;
+  justify-content: flex-end;
   padding-top: 2mm;
   border-top: 1px solid #000;
   font-size: 13px;
 }
-.thermal-summary--balance {
-  padding-top: 2mm;
-  border-top: 1px dashed #000;
-}
+.thermal-time--footer { margin: 3mm 0 0; text-align: center; }
 @media print {
   @page { size: 80mm auto; margin: 0; }
   html,
