@@ -64,6 +64,10 @@ export const IdempotencyRequestHeadersSchema = AuthRequestHeadersSchema.extend({
   "idempotency-key": IdempotencyKeySchema,
 });
 
+export const CreateOrderRequestHeadersSchema = IdempotencyRequestHeadersSchema.extend({
+  "x-pos-table-name": z.string().trim().min(1).max(120).optional(),
+});
+
 export const ErrorResponseSchema = z.object({
   error: z.object({
     code: z.string(),
@@ -209,12 +213,23 @@ const CreateOrderBaseSchema = z.object({
   items: z.array(CreateOrderItemSchema).min(1).max(100),
 });
 
-export const CreateOrderRequestSchema = z.discriminatedUnion("channel", [
-  CreateOrderBaseSchema.extend({ channel: z.literal("TABLE"), tableId: z.uuid() }).strict(),
-  CreateOrderBaseSchema.extend({ channel: z.literal("TAKEAWAY") }).strict(),
-]);
+export const CreateOrderRequestSchema = CreateOrderBaseSchema.extend({
+  channel: z.enum(["TABLE", "TAKEAWAY"]),
+  tableId: z.uuid().optional(),
+})
+  .strict()
+  .superRefine((value, context) => {
+    if (value.channel === "TABLE" && !value.tableId) {
+      context.addIssue({ code: "custom", path: ["tableId"], message: "tableId is required for table orders." });
+    }
+    if (value.channel === "TAKEAWAY" && value.tableId) {
+      context.addIssue({ code: "custom", path: ["tableId"], message: "tableId is not allowed for takeaway orders." });
+    }
+  });
 
-export type CreateOrderRequest = z.infer<typeof CreateOrderRequestSchema>;
+export type CreateOrderRequest =
+  | { channel: "TABLE"; tableId: string; items: z.infer<typeof CreateOrderBaseSchema>["items"] }
+  | { channel: "TAKEAWAY"; items: z.infer<typeof CreateOrderBaseSchema>["items"] };
 
 export const CreatedOrderItemOptionSchema = z.object({
   optionId: z.uuid(),
@@ -272,7 +287,7 @@ export const OrderIdPathSchema = z.object({ orderId: z.uuid() });
 export const SettlementIdPathSchema = z.object({ orderId: z.uuid(), settlementId: z.uuid() });
 export const SettlementPathSchema = z.object({ settlementId: z.uuid() });
 
-export const OrderStateSchema = z.enum(["OPEN", "DELETED"]);
+export const OrderStateSchema = z.enum(["OPEN", "CLOSED", "DELETED"]);
 export const PaymentStatusSchema = z.enum(["UNPAID", "PARTIALLY_PAID", "PAID"]);
 export const OrderChannelSchema = z.enum(["TABLE", "TAKEAWAY"]);
 
