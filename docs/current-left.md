@@ -174,12 +174,14 @@ This file is the active completion checklist and current stage status for the ba
   order-level discounts, preserving the existing server authority,
   settlement-immutability rules, required reason, and Staff/Manager access.
 - Stage 8 ordered implementation checklist:
-  1. Carry forward the shared POS interface for reasoned item- and order-level
-     discounts, with required non-empty reason, server-calculated snapshots,
-     Staff/Manager access, and settlement immutability.
-  2. Implement and document Manager-only catalog, product options, images,
-     prices, availability, display order, preparation deadlines, table seating
-     limits, Staff accounts, and café settings APIs.
+  1. Complete: the shared POS now exposes reasoned fixed/percentage item- and
+     order-level discounts with required non-empty reason, server-calculated
+     snapshots, Staff/Manager access, keyboard recovery, and settlement
+     immutability.
+  2. Complete: documented Manager-only catalog, option, image, price,
+     availability, display-order, preparation-deadline, table seating-limit,
+     Staff-account, and café-settings APIs are present with audit coverage and
+     self-hosted image delivery.
   3. Implement permissioned Manager-only cursor-paginated payment history while
      retaining Staff access to individual order and settlement receipts.
   4. Implement the bounded daily accounting report for only the current or

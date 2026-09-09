@@ -136,6 +136,7 @@ Operating rules:
 
 - Do not make production operation depend on Vercel, a foreign CDN, Google Fonts, foreign object storage, external authentication, or foreign runtime APIs.
 - Bundle/self-host application assets, fonts, product images, Docker images needed for rollback, dependency lockfiles, migrations, and deployment scripts.
+- Product-image uploads use the API `PRODUCT_IMAGE_STORAGE_DIR` persistent runtime directory. Set the menu's `NEXT_PUBLIC_PRODUCT_IMAGE_BASE_URL=/api/v1/product-images` so opaque storage keys are delivered only through the API image route; preserve that directory during artifact deployment and rollback.
 - A CDN is not required for one café. Optimize images, serve them with cache headers, and check whether an Iranian CDN is needed only after the VPS deployment is running and real measurements show a need.
 - Docker Compose runs web, API, PostgreSQL, and required image storage. Caddy or Nginx handles HTTPS and WebSockets.
 - Validate production configuration at startup. Inject secrets; never commit or bake them into images.

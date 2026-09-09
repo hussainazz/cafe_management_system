@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { PosCatalogCategory, PosCatalogProduct, PosTable } from "@cafe/contracts";
 import {
   acknowledgeWaiterCall,
@@ -23,6 +23,7 @@ import { recoveryStateFor, type RecoveryState } from "../lib/recovery-state";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
 import { printRoute, type PrintKind } from "../lib/print-routes";
 import { acknowledgeAndOpenWaiterCall } from "../lib/waiter-call-workflow";
+import { canChangeDiscount, discountPayload } from "../lib/discount-workflow";
 import {
   elapsedLabel,
   englishNumber,
@@ -50,6 +51,7 @@ type PendingTableClear = { tableId: string; tableName: string; orderNumber: stri
 type PendingTransfer = { order: OrderDetail; source: PosTable; destination: PosTable; swaps: boolean };
 type TenderMethod = "CASH" | "CARD_TERMINAL" | "CARD_TRANSFER";
 type TenderDraft = { id: string; method: TenderMethod; amount: string; reference: string };
+type DiscountTarget = { type: "order" } | { type: "item"; id: string; name: string };
 const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const shotName = /^(.*)\s(سینگل|دبل)$/;
 const coffeeRatio = (name: string) => name.replace(/\s*(روبوستا|عربیکا)/g, "").replace("٪", "%");
@@ -670,6 +672,8 @@ function OrderDesk({
   const [error, setError] = useState<string | null>(null);
   const [checkout, setCheckout] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [discountTarget, setDiscountTarget] = useState<DiscountTarget | null>(null);
+  const discountTriggerRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     setSaved(savedDrafts(initialOrder));
     setDraft([]);
@@ -889,6 +893,7 @@ function OrderDesk({
               window.open(printRoute(initialOrder.id, kind, settlementId), "run-cafe-print", "popup=yes");
             }}
             onRequestDelete={() => setDeleteDialogOpen(true)}
+            onRequestDiscount={(target) => { discountTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setDiscountTarget(target); }}
             busy={busy}
           />
         </aside>
@@ -917,6 +922,17 @@ function OrderDesk({
           onConfirm={() => void remove()}
         />
       )}
+      {discountTarget && initialOrder && (
+        <DiscountDialog
+          order={initialOrder}
+          target={discountTarget}
+          onCancel={() => { setDiscountTarget(null); discountTriggerRef.current?.focus(); }}
+          onSuccess={async (updated) => {
+            setDiscountTarget(null); discountTriggerRef.current?.focus();
+            await onOrder(updated);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -935,6 +951,7 @@ function OrderSummary({
   onCheckout,
   onPrint,
   onRequestDelete,
+  onRequestDiscount,
   busy,
 }: {
   order: OrderDetail | null;
@@ -950,6 +967,7 @@ function OrderSummary({
   onCheckout: () => void;
   onPrint: (kind: PrintKind, settlementId?: string) => void;
   onRequestDelete: () => void;
+  onRequestDiscount: (target: DiscountTarget) => void;
   busy: boolean;
 }) {
   const [expandedDraftKey, setExpandedDraftKey] = useState<string | null>(null);
@@ -970,9 +988,10 @@ function OrderSummary({
         {order?.items.map((item) => {
           const edit = saved.find((candidate) => candidate.id === item.id)!;
           return edit.quantity > 0 && <article className="order-line order-line--saved" key={item.id}>
-            <div><b>{edit.name} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></div>
+            <div><b>{edit.name} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small>{item.discountAmount > 0 && <small>تخفیف: {formatToman(item.discountAmount)}{item.discountReason ? ` · ${item.discountReason}` : ""}</small>}</div>
             <span>{formatToman(item.lineTotalAmount)}</span>
             <div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <input aria-label={`یادداشت ${edit.name}`} value={edit.note} onChange={(event) => onSavedNote(edit.id, event.target.value)} placeholder="یادداشت" /> : <small className="saved-lock">پس از پرداخت فقط افزایش تعداد مجاز است</small>}</div>
+            <button className="button button--quiet" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} title={!canChangeDiscount(order!.paymentStatus, "item") ? "پس از اولین پرداخت، تخفیف کالا قابل تغییر نیست." : undefined} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button>
           </article>;
         })}
         {draft.map((item) => {
@@ -1047,6 +1066,7 @@ function OrderSummary({
         <span>{order ? "مانده پرداخت" : "جمع پیش‌نویس"}</span>
         <strong>{formatToman(order ? order.balanceAmount : total)}</strong>
       </div>
+      {order && order.discountAmount > 0 && <div className="order-discount-summary">تخفیف سفارش: {formatToman(order.discountAmount)}{order.discountReason ? ` · ${order.discountReason}` : ""}</div>}
       {(draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""))) && (
         <button className="button button--primary button--wide" disabled={busy} onClick={onSave}>
           {busy ? "در حال ثبت…" : order ? "افزودن به سفارش" : "ثبت سفارش"}
@@ -1067,6 +1087,9 @@ function OrderSummary({
           <button className="button button--quiet" onClick={() => onPrint("receipt")}>
             چاپ رسید
           </button>
+          <button className="button button--quiet" disabled={!canChangeDiscount(order.paymentStatus, "order") || busy} title={!canChangeDiscount(order.paymentStatus, "order") ? "پس از اولین پرداخت، تخفیف سفارش قابل تغییر نیست." : undefined} onClick={() => onRequestDiscount({ type: "order" })}>
+            تخفیف سفارش
+          </button>
           <button className="text-danger" disabled={busy} onClick={onRequestDelete}>
             حذف سفارش
           </button>
@@ -1079,6 +1102,36 @@ function OrderSummary({
       )}
     </>
   );
+}
+
+function DiscountDialog({ order, target, onCancel, onSuccess }: { order: OrderDetail; target: DiscountTarget; onCancel: () => void; onSuccess: (order: OrderDetail) => Promise<void> }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const [kind, setKind] = useState<"FIXED" | "PERCENTAGE">("FIXED");
+  const [value, setValue] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { closeRef.current?.focus(); const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onCancel(); }; document.addEventListener("keydown", closeOnEscape); return () => document.removeEventListener("keydown", closeOnEscape); }, [busy, onCancel]);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const discount = discountPayload({ kind, value, reason });
+    if (!discount) { setError("مبلغ یا درصد و دلیل تخفیف را وارد کنید."); return; }
+    setBusy(true); setError(null);
+    const result = await updateOpenOrder(order.id, target.type === "order"
+      ? { expectedVersion: order.version, orderDiscount: discount }
+      : { expectedVersion: order.version, itemUpdates: [{ orderItemId: target.id, discount }] });
+    setBusy(false);
+    if (!result.ok) { setError(result.error.message); return; }
+    await onSuccess(result.data);
+  };
+  return <div className="modal-backdrop"><form className="modal-card" role="dialog" aria-modal="true" aria-labelledby="discount-title" onSubmit={submit}>
+    <div className="modal-header"><div><h2 id="discount-title">{target.type === "order" ? "تخفیف سفارش" : `تخفیف ${target.name}`}</h2><p>مبلغ نهایی فقط توسط سرور محاسبه می‌شود.</p></div><button ref={closeRef} type="button" className="icon-button" onClick={onCancel} aria-label="بستن"><CloseIcon /></button></div>
+    <fieldset disabled={busy}><legend>نوع تخفیف</legend><label><input type="radio" checked={kind === "FIXED"} onChange={() => setKind("FIXED")} /> مبلغ (تومان)</label><label><input type="radio" checked={kind === "PERCENTAGE"} onChange={() => setKind("PERCENTAGE")} /> درصد</label></fieldset>
+    <label> {kind === "FIXED" ? "مبلغ تومان" : "درصد"}<input inputMode="numeric" value={value} onChange={(event) => setValue(event.target.value.replace(/\D/g, ""))} required /></label>
+    <label>دلیل تخفیف<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} required /></label>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="modal-actions"><button className="button button--quiet" type="button" onClick={onCancel} disabled={busy}>انصراف</button><button className="button button--primary" type="submit" disabled={busy}>{busy ? "در حال ثبت…" : "ثبت تخفیف"}</button></div>
+  </form></div>;
 }
 
 function DeleteOrderDialog({ order, table, clearsTable, busy, onCancel, onConfirm }: { order: OrderDetail; table: PosTable | null; clearsTable: boolean; busy: boolean; onCancel: () => void; onConfirm: () => void }) {

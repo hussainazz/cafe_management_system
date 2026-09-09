@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import helmet from "@fastify/helmet";
 import sensible from "@fastify/sensible";
 import swagger from "@fastify/swagger";
@@ -14,6 +15,8 @@ import { ordersRoutes } from "./modules/orders/orders.routes.js";
 import { catalogRoutes } from "./modules/catalog/catalog.routes.js";
 import { publicMenuRoutes } from "./modules/public-menu/public-menu.routes.js";
 import { waiterCallRoutes } from "./modules/waiter-calls/waiter-calls.routes.js";
+import { adminRoutes } from "./modules/admin/admin.routes.js";
+import { imageRoutes } from "./modules/images/image.routes.js";
 import { databasePlugin } from "./plugins/database.js";
 
 export function buildApp() {
@@ -38,6 +41,7 @@ export function buildApp() {
   });
 
   app.register(sensible);
+  app.register(multipart, { limits: { files: 1, fileSize: 5 * 1024 * 1024 } });
 
   app.register(swagger, {
     openapi: {
@@ -65,6 +69,8 @@ export function buildApp() {
       api.register(catalogRoutes);
       api.register(publicMenuRoutes);
       api.register(waiterCallRoutes);
+      api.register(adminRoutes);
+      api.register(imageRoutes);
     },
     {
       prefix: "/api/v1",

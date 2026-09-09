@@ -1061,6 +1061,12 @@ svg {
   font-size: 1.125rem;
   font-variant-numeric: tabular-nums;
 }
+
+.order-discount-summary {
+  color: var(--ink-muted);
+  font-size: .82rem;
+  padding: .4rem 0;
+}
 .order-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

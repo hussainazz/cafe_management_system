@@ -48,5 +48,11 @@ describe("OpenAPI contract", () => {
     expect(document.paths).toHaveProperty("/api/v1/tables/{tableId}/occupy");
     expect(document.paths).toHaveProperty("/api/v1/tables/{tableId}/make-available");
     expect(document.paths).toHaveProperty("/api/v1/tables/{tableId}/acknowledge-waiter-call");
+    expect(document.paths).toHaveProperty("/api/v1/admin/categories");
+    expect(document.paths).toHaveProperty("/api/v1/admin/products/{productId}");
+    expect(document.paths).toHaveProperty("/api/v1/admin/option-groups/{optionGroupId}");
+    expect(document.paths).toHaveProperty("/api/v1/admin/tables/{tableId}");
+    expect(document.paths).toHaveProperty("/api/v1/admin/users/{userId}");
+    expect(document.paths).toHaveProperty("/api/v1/product-images/{storageKey}");
   });
 });

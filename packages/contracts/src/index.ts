@@ -481,6 +481,21 @@ export const ProductSaleDiscountRequestSchema = z
 
 export type ProductSaleDiscountRequest = z.infer<typeof ProductSaleDiscountRequestSchema>;
 
+// Manager administration contracts. These intentionally expose safe DTOs rather than Prisma models.
+const AdminNameSchema = z.string().trim().min(1).max(120);
+const AdminDisplayOrderSchema = z.number().int().min(0).max(10_000);
+const AdminMoneySchema = z.number().int().nonnegative();
+export const AdminCategoryInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional() }).strict();
+export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroupIds: z.array(z.uuid()).max(30).optional() }).strict();
+export const AdminOptionGroupInputSchema = z.object({ name: AdminNameSchema, isActive: z.boolean().optional() }).strict();
+export const AdminOptionInputSchema = z.object({ name: AdminNameSchema, priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), isAvailable: z.boolean().optional() }).strict();
+export const AdminTableInputSchema = z.object({ name: AdminNameSchema, seatingLimitMinutes: TableSeatingLimitMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), waiterCallEnabled: z.boolean().optional() }).strict();
+export const AdminStaffInputSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/), password: z.string().min(12).max(128) }).strict();
+export const AdminStaffUpdateSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/).optional(), password: z.string().min(12).max(128).optional() }).strict().refine((input) => input.username !== undefined || input.password !== undefined);
+export const AdminSettingsUpdateSchema = z.object({ defaultTableSeatingLimitMinutes: TableSeatingLimitMinutesSchema }).strict();
+export const AdminImageMetadataSchema = z.object({ altText: z.string().trim().min(1).max(500) }).strict();
+export const AdminIdPathSchema = z.object({ id: z.uuid() });
+
 export const ProductSaleDiscountResponseSchema = z.object({
   data: z.object({
     id: z.uuid(),

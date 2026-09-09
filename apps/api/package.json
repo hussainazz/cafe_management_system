@@ -31,6 +31,7 @@
     "@cafe/contracts": "workspace:*",
     "@fastify/cors": "^11",
     "@fastify/helmet": "^13",
+    "@fastify/multipart": "^9.4.0",
     "@fastify/sensible": "^6",
     "@fastify/swagger": "^9",
     "@fastify/swagger-ui": "^5",
