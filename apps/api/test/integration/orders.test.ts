@@ -722,4 +722,36 @@ describe("settlement reversal and print data", () => {
     expect(payerReceipt.json().data).not.toHaveProperty("payments");
     expect(JSON.stringify(payerReceipt.json().data)).not.toContain("REF-55");
   });
+
+  it("reopens a fully settled table order atomically without rewriting the posted settlement", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "reverse.table.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "reverse.table.manager");
+    const { product } = await sellableProduct();
+    const table = await app.prisma.cafeTable.create({ data: { name: "Reverse table", seatingLimitMinutes: 45, displayOrder: 101 } });
+    const created = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-table-order-001");
+    expect(created.statusCode).toBe(201);
+    const order = created.json().data;
+    const settled = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies: staffCookies,
+      headers: { "idempotency-key": "reverse-table-settlement-001" },
+      payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] },
+    });
+    expect(settled.statusCode).toBe(201);
+    const settlementId = settled.json().data.settlements[0].id;
+    expect((await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).occupancyState).toBe("AVAILABLE");
+
+    const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: 2, reason: "Cash entry was incorrect" } });
+    expect(reversed.statusCode).toBe(200);
+    expect(reversed.json().data).toMatchObject({ state: "OPEN", paymentStatus: "UNPAID", paidAmount: 0, balanceAmount: 50_000, version: 3, settlements: [{ id: settlementId, totalAmount: 50_000, reversedAt: expect.any(String) }] });
+    expect((await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).occupancyState).toBe("OCCUPIED");
+    expect(await app.prisma.payment.findMany({ where: { settlementId }, select: { method: true, amount: true } })).toEqual([{ method: "CASH", amount: 50_000 }]);
+    expect(await app.prisma.settlementAllocation.count({ where: { settlementId } })).toBe(1);
+    expect(await app.prisma.auditLog.findFirst({ where: { operation: "REVERSE_SETTLEMENT", entityId: settlementId, reason: "Cash entry was incorrect" } })).toBeTruthy();
+
+    const repeated = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: 3, reason: "Repeated request" } });
+    expect(repeated.statusCode).toBe(409);
+    expect(repeated.json().error.code).toBe("INVALID_STATE");
+  });
 });
