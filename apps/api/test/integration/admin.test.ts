@@ -53,6 +53,48 @@ async function recordedSettlement(input: {
   return { order, settlement };
 }
 
+async function reportOrder(input: {
+  orderNumber: string;
+  actorId: string;
+  productId: string;
+  createdAt: Date;
+  subtotalAmount: number;
+  totalAmount: number;
+  paidAmount: number;
+  orderDiscountAmount?: number;
+  itemDiscountAmount?: number;
+  deleted?: boolean;
+}) {
+  return app.prisma.order.create({
+    data: {
+      orderNumber: input.orderNumber,
+      createdById: input.actorId,
+      channel: "TAKEAWAY",
+      state: input.deleted ? "DELETED" : input.paidAmount === input.totalAmount ? "CLOSED" : "OPEN",
+      paymentStatus: input.paidAmount === 0 ? "UNPAID" : input.paidAmount === input.totalAmount ? "PAID" : "PARTIALLY_PAID",
+      subtotalAmount: input.subtotalAmount,
+      discountAmount: input.orderDiscountAmount ?? 0,
+      totalAmount: input.totalAmount,
+      paidAmount: input.paidAmount,
+      balanceAmount: input.totalAmount - input.paidAmount,
+      createdAt: input.createdAt,
+      ...(input.deleted ? { deletedAt: input.createdAt, deletedById: input.actorId } : {}),
+      items: {
+        create: {
+          productId: input.productId,
+          productNameSnapshot: "Report coffee",
+          basePriceSnapshot: 100_000,
+          preparationDeadlineSnapshotMinutes: 5,
+          quantity: 1,
+          discountAmount: input.itemDiscountAmount ?? 0,
+          lineTotalAmount: input.subtotalAmount,
+          displayOrder: 0,
+        },
+      },
+    },
+  });
+}
+
 describe("Manager administration", () => {
   it("rejects anonymous and Staff catalog writes, then audits Manager catalog lifecycle", async () => {
     const payload = { name: "مدیریت", displayOrder: 1 };
@@ -142,5 +184,47 @@ describe("Manager administration", () => {
     const invalidCursor = await app.inject({ method: "GET", url: "/api/v1/admin/payments?cursor=not-a-cursor", cookies: manager });
     expect(invalidCursor.statusCode).toBe(400);
     expect(invalidCursor.json().error.code).toBe("BAD_REQUEST");
+  });
+
+  it("returns only the requested Tehran day with sales, tenders, discounts, reversals, and deleted-order treatment", async () => {
+    const staff = await session(UserRole.STAFF, "report.staff");
+    const manager = await session(UserRole.MANAGER, "report.manager");
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily", cookies: manager })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=week", cookies: manager })).statusCode).toBe(400);
+    const todayEmpty = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: manager });
+    const yesterdayEmpty = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
+    const todayStart = new Date(todayEmpty.json().meta.range.from);
+    const yesterdayStart = new Date(yesterdayEmpty.json().meta.range.from);
+    const category = await app.prisma.category.create({ data: { name: "Report category", displayOrder: 1 } });
+    const product = await app.prisma.product.create({ data: { categoryId: category.id, name: "Report coffee", priceAmount: 100_000, preparationDeadlineMinutes: 5, displayOrder: 1 } });
+    const staffUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "report.staff" } });
+    const managerUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "report.manager" } });
+    const activeOrder = await reportOrder({ orderNumber: "RPT-001", actorId: staffUser.id, productId: product.id, createdAt: new Date(todayStart.getTime() + 60 * 60_000), subtotalAmount: 90_000, totalAmount: 80_000, paidAmount: 80_000, orderDiscountAmount: 10_000, itemDiscountAmount: 10_000 });
+    const reversedOrder = await reportOrder({ orderNumber: "RPT-002", actorId: staffUser.id, productId: product.id, createdAt: new Date(todayStart.getTime() + 2 * 60 * 60_000), subtotalAmount: 20_000, totalAmount: 20_000, paidAmount: 0 });
+    await reportOrder({ orderNumber: "RPT-003", actorId: staffUser.id, productId: product.id, createdAt: new Date(todayStart.getTime() + 3 * 60 * 60_000), subtotalAmount: 40_000, totalAmount: 40_000, paidAmount: 40_000, deleted: true });
+    const yesterdayOrder = await reportOrder({ orderNumber: "RPT-004", actorId: staffUser.id, productId: product.id, createdAt: new Date(yesterdayStart.getTime() + 60 * 60_000), subtotalAmount: 70_000, totalAmount: 70_000, paidAmount: 70_000 });
+    await app.prisma.paymentSettlement.create({ data: { orderId: activeOrder.id, recordedById: staffUser.id, idempotencyKey: "report-active", totalAmount: 80_000, recordedAt: new Date(todayStart.getTime() + 4 * 60 * 60_000), payments: { create: [{ method: "CASH", amount: 30_000 }, { method: "CARD_TERMINAL", amount: 50_000 }] } } });
+    const reversedSettlement = await app.prisma.paymentSettlement.create({ data: { orderId: reversedOrder.id, recordedById: staffUser.id, idempotencyKey: "report-reversed", totalAmount: 20_000, recordedAt: new Date(todayStart.getTime() + 5 * 60 * 60_000), payments: { create: { method: "CARD_TRANSFER", amount: 20_000, reference: "REPORT-REVERSAL" } } } });
+    await app.prisma.settlementReversal.create({ data: { settlementId: reversedSettlement.id, recordedById: managerUser.id, reason: "Report fixture", recordedAt: new Date(todayStart.getTime() + 6 * 60 * 60_000) } });
+    await app.prisma.paymentSettlement.create({ data: { orderId: yesterdayOrder.id, recordedById: staffUser.id, idempotencyKey: "report-yesterday", totalAmount: 70_000, recordedAt: new Date(yesterdayStart.getTime() + 2 * 60 * 60_000), payments: { create: { method: "CASH", amount: 70_000 } } } });
+
+    const today = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: manager });
+    expect(today.statusCode).toBe(200);
+    expect(today.json()).toMatchObject({
+      data: {
+        salesAmount: 140_000,
+        paidAmount: 80_000,
+        orderCount: 3,
+        paymentMethodTotals: { cashAmount: 30_000, cardTerminalAmount: 50_000, cardTransferAmount: 0 },
+        discounts: { orderAmount: 10_000, itemAmount: 10_000, totalAmount: 20_000 },
+        reversals: { count: 1, amount: 20_000 },
+        deletedOrders: { count: 1, totalAmount: 40_000, paidAmount: 40_000 },
+      },
+      meta: { period: "today", range: { from: todayEmpty.json().meta.range.from, to: todayEmpty.json().meta.range.to } },
+    });
+    const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
+    expect(yesterday.statusCode).toBe(200);
+    expect(yesterday.json().data).toMatchObject({ salesAmount: 70_000, paidAmount: 70_000, orderCount: 1, paymentMethodTotals: { cashAmount: 70_000, cardTerminalAmount: 0, cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 }, deletedOrders: { count: 0, totalAmount: 0, paidAmount: 0 } });
   });
 });
