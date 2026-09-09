@@ -17,7 +17,9 @@ import {
   makeTableAvailable,
   updateOpenOrder,
   type PosOrderDetail,
+  posApiFailureEvent,
 } from "../lib/api-client";
+import { recoveryStateFor, type RecoveryState } from "../lib/recovery-state";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
 import { printRoute, type PrintKind } from "../lib/print-routes";
 import { acknowledgeAndOpenWaiterCall } from "../lib/waiter-call-workflow";
@@ -100,8 +102,12 @@ export function OrdersWorkspace({
   const [deskDirty, setDeskDirty] = useState(false);
   const [pendingChannel, setPendingChannel] = useState<Channel | null>(null);
   const [acknowledgingTableId, setAcknowledgingTableId] = useState<string | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryState | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const [online, setOnline] = useState(true);
+  const [liveDataLimited, setLiveDataLimited] = useState(false);
   const submitDeskRef = useRef<(() => void) | null>(null);
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     setMessage(null);
     const [catalog, tables, calls, orders] = await Promise.all([
@@ -114,7 +120,7 @@ export function OrdersWorkspace({
       const failure = !catalog.ok ? catalog.error : !tables.ok ? tables.error : null;
       setMessage({ tone: "error", text: failure?.message ?? "اطلاعات صندوق آماده نشد." });
       setLoading(false);
-      return;
+      return false;
     }
     setData((current) => ({
       catalog: catalog.data,
@@ -122,19 +128,42 @@ export function OrdersWorkspace({
       calls: calls.ok ? calls.data : current?.calls ?? [],
       openOrders: orders.ok ? orders.data : current?.openOrders ?? [],
     }));
-    if (!calls.ok || !orders.ok)
-      setMessage({
-        tone: "notice",
-        text: "بخشی از وضعیت زنده صندوق در دسترس نیست؛ برای تازه‌سازی دوباره تلاش کنید.",
-      });
+    setLiveDataLimited(!calls.ok || !orders.ok);
     setLoading(false);
+    return true;
   }, []);
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const offline = () => {
+      setOnline(false);
+      setRecovery(recoveryStateFor({ kind: "network", message: "ارتباط با سرویس برقرار نشد." }));
+    };
+    const online = () => {
+      setOnline(true);
+      setRecovery((current) => current?.kind === "offline" ? {
+        kind: "offline",
+        title: "اتصال بازگشته است",
+        detail: "برای اطمینان، وضعیت میزها و سفارش‌ها را از سرویس دوباره دریافت کنید.",
+        action: "بازخوانی وضعیت",
+      } : current);
+    };
+    const failure = (event: Event) => setRecovery(recoveryStateFor((event as CustomEvent<Parameters<typeof recoveryStateFor>[0]>).detail));
+    window.addEventListener("offline", offline);
+    window.addEventListener("online", online);
+    window.addEventListener(posApiFailureEvent, failure);
+    return () => {
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("online", online);
+      window.removeEventListener(posApiFailureEvent, failure);
+    };
+  }, []);
   const refreshOperationalData = useCallback(async () => {
     const [tables, calls, orders] = await Promise.all([readPosTables(), readWaiterCalls(), readOpenOrders()]);
     if (!tables.ok) {
+      setLiveDataLimited(true);
       setMessage({ tone: "notice", text: "وضعیت زنده میزها در دسترس نیست؛ برای تازه‌سازی دوباره تلاش کنید." });
       return;
     }
@@ -144,9 +173,7 @@ export function OrdersWorkspace({
       calls: calls.ok ? calls.data : current.calls,
       openOrders: orders.ok ? orders.data : current.openOrders,
     });
-    if (!calls.ok || !orders.ok) {
-      setMessage({ tone: "notice", text: "بخشی از وضعیت زنده صندوق در دسترس نیست؛ برای تازه‌سازی دوباره تلاش کنید." });
-    }
+    setLiveDataLimited(!calls.ok || !orders.ok);
   }, []);
   useEffect(() => {
     const refreshIfVisible = () => {
@@ -196,16 +223,33 @@ export function OrdersWorkspace({
     setOrder(null);
     setEditingOrder(false);
   };
+  const recover = async () => {
+    setRecovering(true);
+    const loaded = await load();
+    let orderLoaded = true;
+    if (loaded && order) {
+      const latest = await readOrder(order.id);
+      if (latest.ok) setOrder(latest.data);
+      else if (latest.error.status === 404 || latest.error.code === "NOT_FOUND") close();
+      else orderLoaded = false;
+    }
+    setRecovering(false);
+    if (loaded && orderLoaded) {
+      setOnline(true);
+      setRecovery(null);
+      setMessage({ tone: "notice", text: "وضعیت صندوق از سرویس دوباره دریافت شد." });
+    }
+  };
   if (loading) return <Loading />;
   if (!data) return <Failure onRetry={load} message={message?.text ?? "صندوق آماده نشد."} />;
   return (
     <section className="pos-workspace">
       <header className="workspace-header">
         <div className="header-actions">
-          <span className={`connection ${refreshing ? "connection--busy" : ""}`}>
+          <span className={`connection ${!online ? "connection--offline" : liveDataLimited || refreshing ? "connection--busy" : ""}`}>
             <i aria-hidden="true" />
-            <span title={refreshing ? "در حال بازخوانی وضعیت" : "اتصال برقرار است"}>
-              {refreshing ? "در حال بازخوانی" : "متصل"}
+            <span title={!online ? "اتصال شبکه در دسترس نیست" : liveDataLimited ? "بخشی از داده زنده تازه نشده است؛ با دکمه تازه‌سازی دوباره تلاش کنید." : refreshing ? "در حال بازخوانی وضعیت" : "اتصال برقرار است"}>
+              {!online ? "قطع ارتباط" : liveDataLimited ? "داده زنده ناقص" : refreshing ? "در حال بازخوانی" : "متصل"}
             </span>
           </span>
           <button className="icon-button" onClick={() => void load()} aria-label="تازه‌سازی">
@@ -254,6 +298,19 @@ export function OrdersWorkspace({
           {message.text}
           <button onClick={() => setMessage(null)}>×</button>
         </div>
+      )}
+      {recovery && (
+        <section className={`recovery-banner recovery-banner--${recovery.kind}`} role={recovery.kind === "conflict" ? "alert" : "status"} aria-live="polite">
+          <AlertIcon />
+          <div>
+            <b>{recovery.title}</b>
+            <span>{recovery.detail}</span>
+          </div>
+          <button className="button button--quiet" type="button" disabled={recovering || (!online && recovery.kind === "offline")} onClick={() => void recover()}>
+            {recovering ? "در حال بازخوانی…" : recovery.action}
+          </button>
+          <button className="recovery-banner__close" type="button" aria-label="بستن پیام بازیابی" onClick={() => setRecovery(null)}>×</button>
+        </section>
       )}
       {pendingTableClear && (
         <section className="clear-retry" role="alert" aria-live="assertive">
