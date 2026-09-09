@@ -45,8 +45,16 @@ async function tableCredential(name = "1") {
   return { table, token, credential };
 }
 
+async function authenticateTableCustomer(contextCookies: Record<string, string>) {
+  const requested = await app.inject({ method: "POST", url: "/api/v1/public/customer-otp/request", cookies: contextCookies, payload: { fullName: "مینا رضایی", phoneNumber: "09121234567" } });
+  expect(requested.statusCode).toBe(200);
+  const verified = await app.inject({ method: "POST", url: "/api/v1/public/customer-otp/verify", cookies: contextCookies, payload: { challengeId: requested.json().data.challengeId, code: "111111" } });
+  expect(verified.statusCode).toBe(200);
+  return { ...contextCookies, ...cookies(verified) };
+}
+
 describe("public table context and waiter-calls", () => {
-  it("records a scan reminder, requires occupancy, deduplicates calls, and resolves on table open", async () => {
+  it("records a scan reminder, requires an authenticated visit, deduplicates calls, and resolves on table open", async () => {
     const staff = await staffCookies();
     const { table, token } = await tableCredential();
     const exchange = await app.inject({
@@ -65,18 +73,16 @@ describe("public table context and waiter-calls", () => {
     expect(await app.prisma.waiterCall.count()).toBe(0);
 
     const availableContext = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: contextCookies });
-    expect(availableContext.json().data).toEqual({ active: true, tableName: "1", occupancyState: "AVAILABLE", waiterCallStatus: null, canCallWaiter: false });
+    expect(availableContext.json().data).toMatchObject({ active: true, tableName: "1", occupancyState: "AVAILABLE", waiterCallStatus: null, canCallWaiter: false, authenticationRequired: true });
     const prematureCall = await app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: contextCookies });
-    expect(prematureCall.statusCode).toBe(409);
-    expect(prematureCall.json().error.code).toBe("TABLE_NOT_OCCUPIED");
-
-    const occupied = await app.inject({ method: "POST", url: `/api/v1/tables/${table.id}/occupy`, cookies: staff, payload: {} });
-    expect(occupied.statusCode).toBe(200);
-    expect(occupied.json().data).toMatchObject({ occupancyState: "OCCUPIED", occupancyReminderAt: null });
+    expect(prematureCall.statusCode).toBe(401);
+    expect(prematureCall.json().error.code).toBe("CUSTOMER_AUTH_REQUIRED");
+    const customer = await authenticateTableCustomer(contextCookies);
+    await expect(app.prisma.customer.findFirstOrThrow()).resolves.toMatchObject({ fullName: "مینا رضایی" });
 
     const [firstCall, secondCall] = await Promise.all([
-      app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: contextCookies }),
-      app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: contextCookies }),
+      app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: customer }),
+      app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: customer }),
     ]);
     expect(firstCall.statusCode).toBe(201);
     expect(secondCall.statusCode).toBe(201);
