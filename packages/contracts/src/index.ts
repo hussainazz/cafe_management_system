@@ -409,6 +409,36 @@ export const PaymentHistoryResponseSchema = z.object({
   }),
 });
 
+export const DailyReportQuerySchema = z.object({ period: z.enum(["today", "yesterday"]) }).strict();
+export type DailyReportQuery = z.infer<typeof DailyReportQuerySchema>;
+
+export const DailyAccountingReportSchema = z.object({
+  salesAmount: z.number().int().nonnegative(),
+  paidAmount: z.number().int().nonnegative(),
+  orderCount: z.number().int().nonnegative(),
+  paymentMethodTotals: z.object({
+    cashAmount: z.number().int().nonnegative(),
+    cardTerminalAmount: z.number().int().nonnegative(),
+    cardTransferAmount: z.number().int().nonnegative(),
+  }),
+  discounts: z.object({
+    orderAmount: z.number().int().nonnegative(),
+    itemAmount: z.number().int().nonnegative(),
+    totalAmount: z.number().int().nonnegative(),
+  }),
+  reversals: z.object({ count: z.number().int().nonnegative(), amount: z.number().int().nonnegative() }),
+  deletedOrders: z.object({ count: z.number().int().nonnegative(), totalAmount: z.number().int().nonnegative(), paidAmount: z.number().int().nonnegative() }),
+});
+
+export const DailyReportResponseSchema = z.object({
+  data: DailyAccountingReportSchema,
+  meta: z.object({
+    requestId: z.string(),
+    period: z.enum(["today", "yesterday"]),
+    range: z.object({ from: z.iso.datetime(), to: z.iso.datetime() }),
+  }),
+});
+
 export const ExistingOrderItemUpdateSchema = z
   .object({
     orderItemId: z.uuid(),
