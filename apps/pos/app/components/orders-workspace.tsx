@@ -6,6 +6,7 @@ import {
   acknowledgeWaiterCall,
   createOpenOrder,
   deleteOpenOrder,
+  markTableOccupied,
   readOpenOrders,
   readOrder,
   readPosCatalog,
@@ -19,6 +20,7 @@ import {
 } from "../lib/api-client";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
 import { printRoute, type PrintKind } from "../lib/print-routes";
+import { acknowledgeAndOpenWaiterCall } from "../lib/waiter-call-workflow";
 import {
   elapsedLabel,
   englishNumber,
@@ -39,7 +41,7 @@ type ProductCard = { key: string; name: string; products: PosCatalogProduct[] };
 type Data = {
   catalog: PosCatalogCategory[];
   tables: PosTable[];
-  calls: Array<{ tableId: string; version: number }>;
+  calls: Array<{ tableId: string; tableName: string; version: number; requestedAt: string }>;
   openOrders: Array<{ id: string; tableId: string | null; totalAmount: number }>;
 };
 type PendingTableClear = { tableId: string; tableName: string; orderNumber: string; error: string };
@@ -97,6 +99,7 @@ export function OrdersWorkspace({
   const [retryingTableClear, setRetryingTableClear] = useState(false);
   const [deskDirty, setDeskDirty] = useState(false);
   const [pendingChannel, setPendingChannel] = useState<Channel | null>(null);
+  const [acknowledgingTableId, setAcknowledgingTableId] = useState<string | null>(null);
   const submitDeskRef = useRef<(() => void) | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
@@ -113,12 +116,12 @@ export function OrdersWorkspace({
       setLoading(false);
       return;
     }
-    setData({
+    setData((current) => ({
       catalog: catalog.data,
       tables: tables.data,
-      calls: calls.ok ? calls.data : [],
-      openOrders: orders.ok ? orders.data : [],
-    });
+      calls: calls.ok ? calls.data : current?.calls ?? [],
+      openOrders: orders.ok ? orders.data : current?.openOrders ?? [],
+    }));
     if (!calls.ok || !orders.ok)
       setMessage({
         tone: "notice",
@@ -129,19 +132,34 @@ export function OrdersWorkspace({
   useEffect(() => {
     void load();
   }, [load]);
-  const selectTable = async (table: PosTable) => {
-    setMessage(null);
-    const call = data?.calls.find((item) => item.tableId === table.id);
-    if (call) {
-      const result = await acknowledgeWaiterCall(table.id, call.version);
-      if (!result.ok) {
-        setMessage({ tone: "error", text: result.error.message });
-        return;
-      }
-      setMessage({ tone: "notice", text: `درخواست میز ${result.data.name} پذیرفته شد.` });
-      await load();
+  const refreshOperationalData = useCallback(async () => {
+    const [tables, calls, orders] = await Promise.all([readPosTables(), readWaiterCalls(), readOpenOrders()]);
+    if (!tables.ok) {
+      setMessage({ tone: "notice", text: "وضعیت زنده میزها در دسترس نیست؛ برای تازه‌سازی دوباره تلاش کنید." });
       return;
     }
+    setData((current) => current && {
+      ...current,
+      tables: tables.data,
+      calls: calls.ok ? calls.data : current.calls,
+      openOrders: orders.ok ? orders.data : current.openOrders,
+    });
+    if (!calls.ok || !orders.ok) {
+      setMessage({ tone: "notice", text: "بخشی از وضعیت زنده صندوق در دسترس نیست؛ برای تازه‌سازی دوباره تلاش کنید." });
+    }
+  }, []);
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") void refreshOperationalData();
+    };
+    const interval = window.setInterval(refreshIfVisible, 15_000);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [refreshOperationalData]);
+  const openTable = async (table: PosTable) => {
     const summary = data?.openOrders.find((item) => item.tableId === table.id);
     if (summary) {
       const result = await readOrder(summary.id);
@@ -154,6 +172,24 @@ export function OrdersWorkspace({
     setSelected(table);
     setEditingOrder(false);
     setChannel("TABLE");
+  };
+  const handleWaiterCall = async (table: PosTable, call: Data["calls"][number]) => {
+    setAcknowledgingTableId(table.id);
+    setMessage(null);
+    const result = await acknowledgeAndOpenWaiterCall({
+      call,
+      table,
+      acknowledge: acknowledgeWaiterCall,
+      refresh: refreshOperationalData,
+      openTable,
+    });
+    setAcknowledgingTableId(null);
+    if (result.status === "failed") {
+      setMessage({ tone: "error", text: result.error.message });
+      await refreshOperationalData();
+      return;
+    }
+    setMessage({ tone: "notice", text: `درخواست میز ${result.table.name} پذیرفته شد.` });
   };
   const close = () => {
     setSelected(null);
@@ -283,7 +319,18 @@ export function OrdersWorkspace({
           orders={data.openOrders}
           selectedTableId={selected?.id ?? null}
           selectedOrder={order}
-          onSelect={selectTable}
+          onSelect={openTable}
+          onAcknowledgeWaiterCall={handleWaiterCall}
+          acknowledgingTableId={acknowledgingTableId}
+          onOccupy={async (table) => {
+            const result = await markTableOccupied(table.id);
+            if (!result.ok) {
+              setMessage({ tone: "error", text: result.error.message });
+              return;
+            }
+            await refreshOperationalData();
+            setMessage({ tone: "notice", text: `میز ${result.data.name} اشغال شد.` });
+          }}
           onClosePanel={close}
           onEditOrder={() => setEditingOrder(true)}
           onCheckout={() => setCheckout(true)}
@@ -365,6 +412,9 @@ function TableBoard({
   selectedTableId,
   selectedOrder,
   onSelect,
+  onAcknowledgeWaiterCall,
+  acknowledgingTableId,
+  onOccupy,
   onClosePanel,
   onEditOrder,
   onCheckout,
@@ -377,6 +427,9 @@ function TableBoard({
   selectedTableId: string | null;
   selectedOrder: OrderDetail | null;
   onSelect: (table: PosTable) => void;
+  onAcknowledgeWaiterCall: (table: PosTable, call: Data["calls"][number]) => void;
+  acknowledgingTableId: string | null;
+  onOccupy: (table: PosTable) => Promise<void>;
   onClosePanel: () => void;
   onEditOrder: () => void;
   onCheckout: () => void;
@@ -384,6 +437,12 @@ function TableBoard({
   onRequestTransfer: (source: PosTable, destination: PosTable) => Promise<void>;
 }) {
   const [transferSourceId, setTransferSourceId] = useState<string | null>(null);
+  const occupyTimer = useRef<number | null>(null);
+  const heldTableId = useRef<string | null>(null);
+  const cancelOccupy = () => {
+    if (occupyTimer.current !== null) window.clearTimeout(occupyTimer.current);
+    occupyTimer.current = null;
+  };
   const totals = new Map(orders.filter((x) => x.tableId).map((x) => [x.tableId!, x.totalAmount]));
   return (
     <div className={selectedOrder ? "table-board table-board--inspecting" : "table-board"}>
@@ -419,7 +478,7 @@ function TableBoard({
       <div className="table-grid" id="table-transfer-targets" tabIndex={-1}>
         {tables.map((table) => {
           const hasOrder = table.activeOrders.length > 0;
-          const call = calls.some((x) => x.tableId === table.id);
+          const call = calls.find((item) => item.tableId === table.id);
           const state = call
             ? "call"
             : hasOrder
@@ -443,7 +502,18 @@ function TableBoard({
               }}
               className={`table-tile table-tile--${state}${selectedTableId === table.id ? " is-selected" : ""}`}
             >
-              <button className="table-tile__main" onClick={() => {
+              <button className="table-tile__main" disabled={Boolean(call)} onPointerDown={() => {
+                if (call || hasOrder || table.occupancyState !== "AVAILABLE") return;
+                heldTableId.current = null;
+                occupyTimer.current = window.setTimeout(() => {
+                  heldTableId.current = table.id;
+                  void onOccupy(table);
+                }, 700);
+              }} onPointerUp={cancelOccupy} onPointerLeave={cancelOccupy} onPointerMove={cancelOccupy} onClick={() => {
+                if (heldTableId.current === table.id) {
+                  heldTableId.current = null;
+                  return;
+                }
                 const source = tables.find((item) => item.id === transferSourceId);
                 if (source && source.id !== table.id && !call) {
                   setTransferSourceId(null);
@@ -459,11 +529,22 @@ function TableBoard({
                 <span className="table-tile__details">
                   <span className="table-status"><i />{call ? "درخواست گارسون" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال" : "آماده"}</span>
                   {hasOrder && <span className="table-tile__meta">{elapsedLabel(table.activeOrders[0]!.createdAt)}</span>}
-                  {call && <span className="table-tile__meta">نیاز به رسیدگی</span>}
+                  {call && <span className="table-tile__meta">{elapsedLabel(call.requestedAt)} پیش درخواست شده</span>}
                   {!hasOrder && !call && <span className="table-tile__meta">{table.occupiedAt ? elapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>}
                   {hasOrder && <b>{formatToman(totals.get(table.id) ?? 0)}</b>}
                 </span>
               </button>
+              {call && (
+                <button
+                  className="table-tile__call-action"
+                  type="button"
+                  disabled={acknowledgingTableId === table.id}
+                  aria-label={`رسیدگی و باز کردن میز ${table.name}`}
+                  onClick={() => void onAcknowledgeWaiterCall(table, call)}
+                >
+                  {acknowledgingTableId === table.id ? "در حال رسیدگی…" : "رسیدگی و باز کردن میز"}
+                </button>
+              )}
             </article>
           );
         })}
