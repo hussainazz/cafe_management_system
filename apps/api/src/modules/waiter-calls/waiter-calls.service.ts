@@ -7,6 +7,8 @@ import {
   readTableContextCookieValue,
   tableContextCookieName,
 } from "../../table-context/table-context.js";
+import { readCustomerAuth } from "../../customer-auth/customer-auth.service.js";
+import { createVisitForAuthenticatedCustomer } from "../../customer-auth/customer-auth.service.js";
 
 const inactiveContext = {
   active: false,
@@ -16,7 +18,7 @@ const inactiveContext = {
   canCallWaiter: false,
 } as const;
 
-async function credentialFromCookie(prisma: PrismaClient, cookieHeader: string | undefined) {
+export async function credentialFromCookie(prisma: PrismaClient, cookieHeader: string | undefined) {
   const payload = readTableContextCookieValue(readCookie(cookieHeader, tableContextCookieName));
   if (!payload) return null;
 
@@ -47,18 +49,25 @@ async function credentialFromCookie(prisma: PrismaClient, cookieHeader: string |
   return { credential, payload };
 }
 
-function contextDto(credential: NonNullable<Awaited<ReturnType<typeof credentialFromCookie>>>) {
+async function contextDto(prisma: PrismaClient, cookieHeader: string | undefined, credential: NonNullable<Awaited<ReturnType<typeof credentialFromCookie>>>) {
   const { table } = credential.credential;
+  const auth = await readCustomerAuth(prisma, cookieHeader);
+  const visit = auth ? await prisma.customerTableVisit.findFirst({
+    where: { customerId: auth.customerId, tableId: table.id, tableCredentialId: credential.credential.id, invalidatedAt: null, expiresAt: { gt: new Date() } },
+  }) : null;
   return {
     active: true,
     tableName: table.name,
     occupancyState: table.occupancyState,
     waiterCallStatus: table.waiterCalls.length > 0 ? ("PENDING" as const) : null,
-    canCallWaiter: table.occupancyState === "OCCUPIED",
+    canCallWaiter: Boolean(visit),
+    authenticationRequired: !auth,
+    customerAuthenticated: Boolean(auth),
+    visitActive: Boolean(visit),
   };
 }
 
-export async function exchangeTableQrToken(prisma: PrismaClient, token: string) {
+export async function exchangeTableQrToken(prisma: PrismaClient, token: string, cookieHeader?: string) {
   const tokenHash = hashTableQrToken(token);
   const credential = await prisma.tableQrCredential.findUnique({
     where: { tokenHash },
@@ -91,6 +100,9 @@ export async function exchangeTableQrToken(prisma: PrismaClient, token: string) 
     });
   }
 
+  const auth = await readCustomerAuth(prisma, cookieHeader);
+  if (auth) await createVisitForAuthenticatedCustomer(prisma, auth.customerId, credential.id);
+
   return {
     cookieValue: createTableContextCookieValue(credential.id, now),
     tableName: credential.table.name,
@@ -102,7 +114,7 @@ export async function readPublicTableContext(
   cookieHeader: string | undefined,
 ) {
   const credential = await credentialFromCookie(prisma, cookieHeader);
-  return credential ? contextDto(credential) : inactiveContext;
+  return credential ? contextDto(prisma, cookieHeader, credential) : inactiveContext;
 }
 
 export async function createWaiterCall(prisma: PrismaClient, cookieHeader: string | undefined) {
@@ -114,13 +126,12 @@ export async function createWaiterCall(prisma: PrismaClient, cookieHeader: strin
       "Table context is invalid or expired.",
     );
   }
-  if (context.credential.table.occupancyState !== "OCCUPIED") {
-    throw new ApplicationError(
-      409,
-      ErrorCodes.TABLE_NOT_OCCUPIED,
-      "The table is not marked occupied yet.",
-    );
-  }
+  const auth = await readCustomerAuth(prisma, cookieHeader);
+  if (!auth) throw new ApplicationError(401, ErrorCodes.CUSTOMER_AUTH_REQUIRED, "Customer authentication is required.");
+  const visit = await prisma.customerTableVisit.findFirst({
+    where: { customerId: auth.customerId, tableId: context.credential.tableId, tableCredentialId: context.credential.id, invalidatedAt: null, expiresAt: { gt: new Date() } },
+  });
+  if (!visit) throw new ApplicationError(401, ErrorCodes.CUSTOMER_AUTH_REQUIRED, "A valid table visit is required.");
 
   try {
     return await prisma.$transaction(async (transaction) => {
@@ -133,12 +144,11 @@ export async function createWaiterCall(prisma: PrismaClient, cookieHeader: strin
         !current.table.isActive ||
         current.table.archivedAt ||
         !current.table.waiterCallEnabled ||
-        current.table.occupancyState !== "OCCUPIED" ||
         (current.table.tableContextInvalidBefore?.getTime() ?? 0) >= context.payload.issuedAt
       ) {
         throw new ApplicationError(
           409,
-          ErrorCodes.TABLE_NOT_OCCUPIED,
+          ErrorCodes.TABLE_CONTEXT_INVALID,
           "The table cannot request a waiter.",
         );
       }
@@ -146,7 +156,7 @@ export async function createWaiterCall(prisma: PrismaClient, cookieHeader: strin
         where: { tableId: current.tableId, status: "PENDING" },
       });
       const call =
-        existing ?? (await transaction.waiterCall.create({ data: { tableId: current.tableId } }));
+        existing ?? (await transaction.waiterCall.create({ data: { tableId: current.tableId, customerTableVisitId: visit.id } }));
       return {
         status: "PENDING" as const,
         tableName: current.table.name,
