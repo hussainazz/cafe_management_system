@@ -18,6 +18,7 @@ import {
   type PosOrderDetail,
 } from "../lib/api-client";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
+import { printRoute, type PrintKind } from "../lib/print-routes";
 import {
   elapsedLabel,
   englishNumber,
@@ -739,6 +740,10 @@ function OrderDesk({
             onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
             onSave={() => void save()}
             onCheckout={() => setCheckout(true)}
+            onPrint={(kind, settlementId) => {
+              if (!initialOrder) return;
+              window.open(printRoute(initialOrder.id, kind, settlementId), "run-cafe-print", "popup=yes");
+            }}
             onRequestDelete={() => setDeleteDialogOpen(true)}
             busy={busy}
           />
@@ -784,6 +789,7 @@ function OrderSummary({
   onDraftNote,
   onSave,
   onCheckout,
+  onPrint,
   onRequestDelete,
   busy,
 }: {
@@ -798,6 +804,7 @@ function OrderSummary({
   onDraftNote: (key: string, note: string) => void;
   onSave: () => void;
   onCheckout: () => void;
+  onPrint: (kind: PrintKind, settlementId?: string) => void;
   onRequestDelete: () => void;
   busy: boolean;
 }) {
@@ -910,12 +917,20 @@ function OrderSummary({
           >
             تسویه حساب
           </button>
-          <button className="button button--quiet" onClick={() => window.print()}>
+          <button className="button button--quiet" onClick={() => onPrint("bar-ticket")}>
+            چاپ فیش بار
+          </button>
+          <button className="button button--quiet" onClick={() => onPrint("receipt")}>
             چاپ رسید
           </button>
           <button className="text-danger" disabled={busy} onClick={onRequestDelete}>
             حذف سفارش
           </button>
+          {order.settlements.filter((settlement) => !settlement.reversedAt).map((settlement) => (
+            <button className="button button--quiet order-actions__settlement" key={settlement.id} onClick={() => onPrint("settlement", settlement.id)}>
+              رسید پرداخت {formatToman(settlement.totalAmount)}
+            </button>
+          ))}
         </div>
       )}
     </>
