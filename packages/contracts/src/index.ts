@@ -439,6 +439,37 @@ export const DailyReportResponseSchema = z.object({
   }),
 });
 
+export const AuditLogQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    cursor: z.string().min(1).max(512).optional(),
+    actorId: z.uuid().optional(),
+    operation: z.string().trim().min(1).max(120).optional(),
+    entityType: z.string().trim().min(1).max(120).optional(),
+    entityId: z.uuid().optional(),
+    from: z.iso.datetime().optional(),
+    to: z.iso.datetime().optional(),
+  })
+  .strict()
+  .refine((query) => !query.from || !query.to || query.from <= query.to, { message: "from must not be later than to.", path: ["to"] });
+export type AuditLogQuery = z.infer<typeof AuditLogQuerySchema>;
+
+export const AuditLogEntrySchema = z.object({
+  id: z.uuid(),
+  actor: z.object({ id: z.uuid(), username: z.string(), role: UserRoleSchema }).nullable(),
+  requestId: z.string(),
+  operation: z.string(),
+  entityType: z.string(),
+  entityId: z.uuid(),
+  reason: z.string().nullable(),
+  occurredAt: z.iso.datetime(),
+});
+
+export const AuditLogResponseSchema = z.object({
+  data: z.object({ entries: z.array(AuditLogEntrySchema) }),
+  meta: z.object({ requestId: z.string(), page: z.object({ limit: z.number().int(), nextCursor: z.string().nullable(), hasMore: z.boolean() }) }),
+});
+
 export const ExistingOrderItemUpdateSchema = z
   .object({
     orderItemId: z.uuid(),
