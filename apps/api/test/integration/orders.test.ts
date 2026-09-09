@@ -206,9 +206,12 @@ describe("Staff order creation", () => {
     });
     expect(barTicket.statusCode).toBe(200);
     expect(barTicket.json().data).toMatchObject({
-      estimatedPreparationMinutes: 8,
+      context: `میز ${table.name}`,
       items: [{ productName: "Latte", options: [{ name: "Oat milk" }] }],
     });
+    expect(barTicket.json().data).not.toHaveProperty("orderNumber");
+    expect(barTicket.json().data).not.toHaveProperty("displayTime");
+    expect(barTicket.json().data).not.toHaveProperty("estimatedPreparationMinutes");
 
     const receipt = await app.inject({
       method: "GET",
@@ -695,11 +698,14 @@ describe("settlement reversal and print data", () => {
     const settlementId = settled.json().data.settlements[0].id;
     const bar = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/bar-ticket`, cookies: staffCookies });
     expect(bar.statusCode).toBe(200);
-    expect(bar.json().data).toMatchObject({ orderNumber: order.orderNumber, context: "Takeaway", items: [{ productName: "Latte", note: "No foam" }] });
+    expect(bar.json().data).toMatchObject({ context: "بیرون‌بر", items: [{ productName: "Latte", note: "No foam" }] });
     expect(JSON.stringify(bar.json().data)).not.toContain("price");
+    expect(JSON.stringify(bar.json().data)).not.toContain("payment");
+    expect(JSON.stringify(bar.json().data)).not.toContain(order.orderNumber);
     const receipt = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/receipt`, cookies: staffCookies });
     expect(receipt.statusCode).toBe(200);
     expect(receipt.json().data).toMatchObject({ totalAmount: 55_000, payments: [{ method: "CARD_TRANSFER", amount: 55_000 }] });
+    expect(JSON.stringify(receipt.json().data)).not.toContain("REF-55");
     const forbidden = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: staffCookies, payload: { expectedVersion: 2, reason: "Wrong tender" } });
     expect(forbidden.statusCode).toBe(403);
     const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: 2, reason: "Wrong tender" } });
@@ -709,6 +715,7 @@ describe("settlement reversal and print data", () => {
     expect(await app.prisma.payment.count()).toBe(1);
     const payerReceipt = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/settlements/${settlementId}/receipt`, cookies: staffCookies });
     expect(payerReceipt.statusCode).toBe(200);
-    expect(payerReceipt.json().data).toMatchObject({ settlementId, totalAmount: 55_000 });
+    expect(payerReceipt.json().data).toMatchObject({ totalAmount: 55_000, items: [{ productName: "Latte", quantity: 1, lineTotalAmount: 55_000 }] });
+    expect(JSON.stringify(payerReceipt.json().data)).not.toContain("REF-55");
   });
 });
