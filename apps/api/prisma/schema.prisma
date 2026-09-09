@@ -412,6 +412,7 @@ model PaymentSettlement {
 
   @@unique([orderId, idempotencyKey])
   @@index([recordedById])
+  @@index([recordedAt, id])
   @@map("payment_settlements")
 }
 
@@ -454,6 +455,7 @@ model SettlementReversal {
   recordedBy User              @relation(fields: [recordedById], references: [id])
 
   @@index([recordedById])
+  @@index([recordedAt])
   @@map("settlement_reversals")
 }
 
@@ -490,7 +492,8 @@ model AuditLog {
   actor User? @relation(fields: [actorId], references: [id])
 
   @@index([entityType, entityId])
-  @@index([occurredAt])
+  @@index([occurredAt, id])
+  @@index([entityType, entityId, occurredAt, id])
   @@map("audit_logs")
 }
 
