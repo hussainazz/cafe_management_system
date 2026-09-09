@@ -1,5 +1,6 @@
 import {
   AuthenticationResponseSchema,
+  BarTicketResponseSchema,
   CreateOrderResponseSchema,
   OrderDetailResponseSchema,
   ErrorResponseSchema,
@@ -7,6 +8,8 @@ import {
   PosCatalogResponseSchema,
   PosTableResponseSchema,
   PosTablesResponseSchema,
+  OrderReceiptResponseSchema,
+  SettlementReceiptResponseSchema,
   ActiveWaiterCallsResponseSchema,
   type RecordSettlementRequest,
   type UpdateOrderRequest,
@@ -21,6 +24,9 @@ import {
 import type { z } from "zod";
 
 export type PosOrderDetail = z.infer<typeof OrderDetailResponseSchema>["data"];
+export type BarTicket = z.infer<typeof BarTicketResponseSchema>["data"];
+export type OrderReceipt = z.infer<typeof OrderReceiptResponseSchema>["data"];
+export type SettlementReceipt = z.infer<typeof SettlementReceiptResponseSchema>["data"];
 export type PosActiveWaiterCall = z.infer<
   typeof ActiveWaiterCallsResponseSchema
 >["data"]["calls"][number];
@@ -209,6 +215,33 @@ export async function readOrder(orderId: string): Promise<ApiResult<PosOrderDeta
     await request<unknown>(`/orders/${encodeURIComponent(orderId)}`),
     OrderDetailResponseSchema,
     "جزئیات سفارش معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function readBarTicket(orderId: string): Promise<ApiResult<BarTicket>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/bar-ticket`),
+    BarTicketResponseSchema,
+    "اطلاعات فیش بار معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function readOrderReceipt(orderId: string): Promise<ApiResult<OrderReceipt>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/receipt`),
+    OrderReceiptResponseSchema,
+    "اطلاعات رسید معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function readSettlementReceipt(orderId: string, settlementId: string): Promise<ApiResult<SettlementReceipt>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/settlements/${encodeURIComponent(settlementId)}/receipt`),
+    SettlementReceiptResponseSchema,
+    "اطلاعات رسید پرداخت معتبر نیست.",
   );
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
