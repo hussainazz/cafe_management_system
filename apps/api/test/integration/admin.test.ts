@@ -227,4 +227,33 @@ describe("Manager administration", () => {
     expect(yesterday.statusCode).toBe(200);
     expect(yesterday.json().data).toMatchObject({ salesAmount: 70_000, paidAmount: 70_000, orderCount: 1, paymentMethodTotals: { cashAmount: 70_000, cardTerminalAmount: 0, cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 }, deletedOrders: { count: 0, totalAmount: 0, paidAmount: 0 } });
   });
+
+  it("lists safe filtered audit history only for Managers with stable cursors", async () => {
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log" })).statusCode).toBe(401);
+    const staff = await session(UserRole.STAFF, "audit.staff");
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log", cookies: staff })).statusCode).toBe(403);
+    const manager = await session(UserRole.MANAGER, "audit.manager");
+    const staffUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "audit.staff" } });
+    const category = await app.prisma.category.create({ data: { name: "Audit category", displayOrder: 1 } });
+    const otherCategory = await app.prisma.category.create({ data: { name: "Other audit category", displayOrder: 2 } });
+    const sameTime = new Date("2026-09-09T12:00:00.000Z");
+    await app.prisma.auditLog.create({ data: { actorId: staffUser.id, requestId: "audit-event-0001", operation: "UPDATE_CATEGORY", entityType: "CATEGORY", entityId: category.id, reason: "Corrected name", afterSnapshot: { secret: "must-not-leak" }, occurredAt: new Date("2026-09-09T11:00:00.000Z") } });
+    await app.prisma.auditLog.create({ data: { actorId: staffUser.id, requestId: "audit-event-0002", operation: "ARCHIVE_CATEGORY", entityType: "CATEGORY", entityId: category.id, beforeSnapshot: { secret: "must-not-leak" }, occurredAt: sameTime } });
+    await app.prisma.auditLog.create({ data: { requestId: "audit-event-0003", operation: "CREATE_CATEGORY", entityType: "CATEGORY", entityId: otherCategory.id, occurredAt: sameTime } });
+    const expected = await app.prisma.auditLog.findMany({ orderBy: [{ occurredAt: "desc" }, { id: "desc" }], select: { id: true } });
+    const firstPage = await app.inject({ method: "GET", url: "/api/v1/admin/audit-log?limit=2", cookies: manager });
+    expect(firstPage.statusCode).toBe(200);
+    expect(firstPage.json().data.entries.map((entry: { id: string }) => entry.id)).toEqual(expected.slice(0, 2).map((entry) => entry.id));
+    expect(firstPage.json().data.entries).toEqual(expect.arrayContaining([expect.objectContaining({ actor: { id: staffUser.id, username: "audit.staff", role: "STAFF" }, operation: "ARCHIVE_CATEGORY", entityId: category.id, reason: null, occurredAt: sameTime.toISOString() })]));
+    expect(JSON.stringify(firstPage.json().data)).not.toContain("must-not-leak");
+    const secondPage = await app.inject({ method: "GET", url: `/api/v1/admin/audit-log?limit=2&cursor=${encodeURIComponent(firstPage.json().meta.page.nextCursor)}`, cookies: manager });
+    expect(secondPage.statusCode).toBe(200);
+    expect(secondPage.json().data.entries.map((entry: { id: string }) => entry.id)).toEqual(expected.slice(2).map((entry) => entry.id));
+    const filtered = await app.inject({ method: "GET", url: `/api/v1/admin/audit-log?entityType=CATEGORY&entityId=${category.id}&actorId=${staffUser.id}&operation=UPDATE_CATEGORY`, cookies: manager });
+    expect(filtered.statusCode).toBe(200);
+    expect(filtered.json().data.entries).toHaveLength(1);
+    expect(filtered.json().data.entries[0]).toMatchObject({ operation: "UPDATE_CATEGORY", entityId: category.id });
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log?cursor=not-a-cursor", cookies: manager })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log?from=2026-09-10T00:00:00.000Z&to=2026-09-09T00:00:00.000Z", cookies: manager })).statusCode).toBe(400);
+  });
 });
