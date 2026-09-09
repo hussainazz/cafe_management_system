@@ -287,6 +287,7 @@ export function OrdersWorkspace({
           onClosePanel={close}
           onEditOrder={() => setEditingOrder(true)}
           onCheckout={() => setCheckout(true)}
+          onPrint={(kind) => window.open(printRoute(order!.id, kind), "run-cafe-print", "popup=yes")}
           onRequestTransfer={async (source, destination) => {
             let sourceOrder: OrderDetail | null = order?.tableId === source.id ? order : null;
             if (!sourceOrder) {
@@ -367,6 +368,7 @@ function TableBoard({
   onClosePanel,
   onEditOrder,
   onCheckout,
+  onPrint,
   onRequestTransfer,
 }: {
   tables: PosTable[];
@@ -378,6 +380,7 @@ function TableBoard({
   onClosePanel: () => void;
   onEditOrder: () => void;
   onCheckout: () => void;
+  onPrint: (kind: Exclude<PrintKind, "settlement">) => void;
   onRequestTransfer: (source: PosTable, destination: PosTable) => Promise<void>;
 }) {
   const [transferSourceId, setTransferSourceId] = useState<string | null>(null);
@@ -398,6 +401,7 @@ function TableBoard({
             onClose={onClosePanel}
             onEdit={onEditOrder}
             onCheckout={onCheckout}
+            onPrint={onPrint}
             onTransfer={() => {
               setTransferSourceId(selectedOrder.tableId);
               requestAnimationFrame(() => document.getElementById("table-transfer-targets")?.focus());
@@ -469,7 +473,7 @@ function TableBoard({
   );
 }
 
-function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onTransfer }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void; onTransfer: () => void }) {
+function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint, onTransfer }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void; onPrint: (kind: Exclude<PrintKind, "settlement">) => void; onTransfer: () => void }) {
   const status = order.paymentStatus === "PAID" ? "تسویه شد" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت شد" : "بدون پرداخت";
   return <aside className="occupied-panel" aria-label={`جزئیات سفارش میز ${table?.name ?? ""}`}>
     <header className="occupied-panel__header">
@@ -483,6 +487,8 @@ function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onTrans
       <div className="occupied-panel__total"><span>جمع کل</span><strong>{formatToman(order.totalAmount)}</strong></div>
       {order.paidAmount > 0 && <div className="occupied-panel__balance">مانده: {formatToman(order.balanceAmount)}</div>}
       <button className="button button--primary button--wide" disabled={order.balanceAmount === 0} onClick={onCheckout}>تسویه و پرداخت</button>
+      <button className="button button--quiet button--wide" onClick={() => onPrint("bar-ticket")}>چاپ فیش بار</button>
+      <button className="button button--quiet button--wide" onClick={() => onPrint("receipt")}>چاپ رسید</button>
       <button className="button button--quiet button--wide" onClick={onEdit}>ویرایش سفارش</button>
       <button className="button button--quiet button--wide" onClick={onTransfer}>انتقال میز</button>
     </footer>
