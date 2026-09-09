@@ -196,8 +196,12 @@ This file is the active completion checklist and current stage status for the ba
      reason, preserves posted tenders and allocations, recalculates order
      balances/status atomically, restores a fully settled table order to
      occupied work, and records audit history.
-  7. Verify today/yesterday report fixtures, permission boundaries, API/OpenAPI
-     contracts, query plans, and focused integration coverage.
+  7. Complete: today/yesterday report fixtures, Manager/Staff permission
+     boundaries, API/OpenAPI contracts, and query-plan coverage pass. API
+     typecheck and the isolated migration/fresh-deploy/restore rehearsal pass,
+     and all 14 deterministic integration files pass (63 tests). The
+     shared-database suite runs each integration file in a separate sequential
+     Vitest process to prevent cross-file fixture interference.
 
 ## Future Validation Work
 
