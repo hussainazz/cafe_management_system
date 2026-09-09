@@ -136,8 +136,9 @@ This file is the active completion checklist and current stage status for the ba
     browser-print documents now render the minimal bar ticket, whole-order
     customer receipt, and itemized settlement receipt from immutable API
     snapshots. Customer receipts now print one total only and put their
-    Persian-calendar Tehran timestamp in the footer. Contract/API tests, POS
-    tests, and typechecks pass. Actual
+    Persian-calendar Tehran timestamp in the footer. The table-board active
+    order panel exposes both bar-ticket and receipt actions. Contract/API
+    tests, POS tests, and typechecks pass. Actual
     browser print and physical 80 mm printer/paper-advance validation remain
     required before marking item 4 complete.
   4. Add API-backed bar-ticket and receipt views/printing for whole orders and
