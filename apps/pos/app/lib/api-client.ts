@@ -41,7 +41,16 @@ export type ApiFailure = {
 export type ApiResult<T> =
   { ok: true; data: T; replayed: boolean } | { ok: false; error: ApiFailure };
 
-async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
+export const posApiFailureEvent = "run-cafe:api-failure";
+
+function reportFailure(error: ApiFailure) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent<ApiFailure>(posApiFailureEvent, { detail: error }));
+  }
+  return error;
+}
+
+async function request<T>(path: string, init?: RequestInit, report = true): Promise<ApiResult<T>> {
   try {
     const headers = new Headers(init?.headers);
     if (!headers.has("accept")) headers.set("accept", "application/json");
@@ -57,7 +66,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T
       const parsed = ErrorResponseSchema.safeParse(payload);
       return {
         ok: false,
-        error: parsed.success
+        error: report ? reportFailure(parsed.success
           ? {
               kind: "response",
               status: response.status,
@@ -65,7 +74,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T
               message: parsed.data.error.message,
               requestId: parsed.data.error.requestId,
             }
-          : { kind: "response", status: response.status, message: "پاسخ سرویس قابل خواندن نیست." },
+          : { kind: "response", status: response.status, message: "پاسخ سرویس قابل خواندن نیست." }) : (parsed.success
+          ? {
+              kind: "response",
+              status: response.status,
+              code: parsed.data.error.code,
+              message: parsed.data.error.message,
+              requestId: parsed.data.error.requestId,
+            }
+          : { kind: "response", status: response.status, message: "پاسخ سرویس قابل خواندن نیست." }),
       };
     }
     return {
@@ -74,7 +91,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T
       replayed: response.headers.get("idempotency-replayed") === "true",
     };
   } catch {
-    return { ok: false, error: { kind: "network", message: "ارتباط با سرویس برقرار نشد." } };
+    const error = { kind: "network" as const, message: "ارتباط با سرویس برقرار نشد." };
+    return { ok: false, error: report ? reportFailure(error) : error };
   }
 }
 
@@ -90,7 +108,7 @@ function parseAuthentication(
 }
 
 export async function currentSession() {
-  return parseAuthentication(await request<unknown>("/auth/me"), "پاسخ نشست معتبر نیست.");
+  return parseAuthentication(await request<unknown>("/auth/me", undefined, false), "پاسخ نشست معتبر نیست.");
 }
 export async function signIn(input: { username: string; password: string }) {
   return parseAuthentication(
@@ -127,7 +145,7 @@ function parseResponse<T>(
 
 export async function readPosCatalog(): Promise<ApiResult<PosCatalogCategory[]>> {
   const parsed = parseResponse(
-    await request<unknown>("/pos/catalog"),
+    await request<unknown>("/pos/catalog", undefined, false),
     PosCatalogResponseSchema,
     "فهرست محصولات معتبر نیست.",
   );
@@ -138,7 +156,7 @@ export async function readPosCatalog(): Promise<ApiResult<PosCatalogCategory[]>>
 
 export async function readPosTables(): Promise<ApiResult<PosTable[]>> {
   const parsed = parseResponse(
-    await request<unknown>("/tables"),
+    await request<unknown>("/tables", undefined, false),
     PosTablesResponseSchema,
     "فهرست میزها معتبر نیست.",
   );
@@ -149,7 +167,7 @@ export async function readPosTables(): Promise<ApiResult<PosTable[]>> {
 
 export async function readOpenOrders() {
   const parsed = parseResponse(
-    await request<unknown>("/orders?state=OPEN&limit=100"),
+    await request<unknown>("/orders?state=OPEN&limit=100", undefined, false),
     OrderListResponseSchema,
     "فهرست سفارش‌های باز معتبر نیست.",
   );
@@ -212,7 +230,7 @@ export async function createOpenOrder(
 
 export async function readOrder(orderId: string): Promise<ApiResult<PosOrderDetail>> {
   const parsed = parseResponse(
-    await request<unknown>(`/orders/${encodeURIComponent(orderId)}`),
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}`, undefined, false),
     OrderDetailResponseSchema,
     "جزئیات سفارش معتبر نیست.",
   );
@@ -221,7 +239,7 @@ export async function readOrder(orderId: string): Promise<ApiResult<PosOrderDeta
 
 export async function readBarTicket(orderId: string): Promise<ApiResult<BarTicket>> {
   const parsed = parseResponse(
-    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/bar-ticket`),
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/bar-ticket`, undefined, false),
     BarTicketResponseSchema,
     "اطلاعات فیش بار معتبر نیست.",
   );
@@ -230,7 +248,7 @@ export async function readBarTicket(orderId: string): Promise<ApiResult<BarTicke
 
 export async function readOrderReceipt(orderId: string): Promise<ApiResult<OrderReceipt>> {
   const parsed = parseResponse(
-    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/receipt`),
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/receipt`, undefined, false),
     OrderReceiptResponseSchema,
     "اطلاعات رسید معتبر نیست.",
   );
@@ -239,7 +257,7 @@ export async function readOrderReceipt(orderId: string): Promise<ApiResult<Order
 
 export async function readSettlementReceipt(orderId: string, settlementId: string): Promise<ApiResult<SettlementReceipt>> {
   const parsed = parseResponse(
-    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/settlements/${encodeURIComponent(settlementId)}/receipt`),
+    await request<unknown>(`/orders/${encodeURIComponent(orderId)}/settlements/${encodeURIComponent(settlementId)}/receipt`, undefined, false),
     SettlementReceiptResponseSchema,
     "اطلاعات رسید پرداخت معتبر نیست.",
   );
@@ -326,7 +344,7 @@ export async function makeTableAvailable(tableId: string): Promise<ApiResult<Pos
 
 export async function readWaiterCalls(): Promise<ApiResult<PosActiveWaiterCall[]>> {
   const parsed = parseResponse(
-    await request<unknown>("/waiter-calls"),
+    await request<unknown>("/waiter-calls", undefined, false),
     ActiveWaiterCallsResponseSchema,
     "فهرست درخواست‌ها معتبر نیست.",
   );
