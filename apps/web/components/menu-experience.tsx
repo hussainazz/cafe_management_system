@@ -126,7 +126,15 @@ function CategoryMark({
   return <span className={`category-mark category-mark--${tone} ${className}`}>{icon[tone]}</span>;
 }
 
-function ProductVisual({ product, category }: { product: MenuProduct; category: MenuCategory }) {
+function ProductVisual({
+  product,
+  category,
+  presentation = "card",
+}: {
+  product: MenuProduct;
+  category: MenuCategory;
+  presentation?: "card" | "dialog";
+}) {
   const [imageIndex, setImageIndex] = useState(0);
   const localPictureUrl = localProductPictureUrl(product, category);
   const imageSources = [
@@ -137,10 +145,16 @@ function ProductVisual({ product, category }: { product: MenuProduct; category: 
 
   if (imageSource) {
     return (
-      <span className="product-visual product-visual--image">
+      <span className={`product-visual product-visual--image product-visual--${presentation}`}>
         {/* Product files are self-hosted; dimensions and lazy decoding keep the grid stable. */}
+        {presentation === "dialog" ? (
+          // Decorative blurred copy fills the contain-image letterboxing in the product sheet.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="product-visual-image-backdrop" src={imageSource} alt="" aria-hidden="true" />
+        ) : null}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          className="product-visual-image-main"
           src={imageSource}
           alt={product.image?.altText ?? product.name}
           loading="lazy"
@@ -164,7 +178,15 @@ function ProductVisual({ product, category }: { product: MenuProduct; category: 
   );
 }
 
-function Price({ product, language }: { product: MenuProduct; language: Language }) {
+function Price({
+  product,
+  language,
+  showFrom = false,
+}: {
+  product: MenuProduct;
+  language: Language;
+  showFrom?: boolean;
+}) {
   const text = copy[language];
   return (
     <span className="price-block">
@@ -172,6 +194,7 @@ function Price({ product, language }: { product: MenuProduct; language: Language
         <span className="old-price">{formatCompactToman(product.basePriceAmount, language)}</span>
       ) : null}
       <span className="price-line">
+        {showFrom ? <small>{text.from}</small> : null}
         <strong>{formatCompactToman(product.finalPriceAmount, language)}</strong>
         <small>{text.toman}</small>
       </span>
@@ -193,15 +216,19 @@ function ProductCard({
   const text = copy[language];
   const detail = secondaryName(product, language);
   const optionCount = product.optionGroups.reduce((count, group) => count + group.options.length, 0);
+  const hasVariableOptionPrice = product.optionGroups.some(
+    (group) => new Set(group.options.map((option) => option.priceAmount)).size > 1,
+  );
   const availabilityDescription = product.isAvailable ? "" : `، ${text.unavailable}`;
   const optionsDescription = optionCount > 0 ? `، ${optionCount} ${text.optionCount}` : "";
+  const startingPriceDescription = hasVariableOptionPrice ? `${text.from} ` : "";
 
   return (
     <button
       className={`product-card${product.isAvailable ? "" : " is-unavailable"}`}
       type="button"
       onClick={(event) => onSelect(event.currentTarget)}
-      aria-label={`${localizedName(product, language)}، ${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
+      aria-label={`${localizedName(product, language)}، ${startingPriceDescription}${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
     >
       <ProductVisual product={product} category={category} />
       <span className="product-card-body">
@@ -223,7 +250,7 @@ function ProductCard({
         ) : null}
 
         <span className="product-card-bottom">
-          <Price product={product} language={language} />
+          <Price product={product} language={language} showFrom={hasVariableOptionPrice} />
           {product.saleDiscount ? (
             <span className="discount-badge">
               {product.saleDiscount.kind === "PERCENTAGE"
@@ -309,7 +336,7 @@ function ProductDialog({
 
         <div className="dialog-scroll-content">
           <div className="dialog-visual-wrap">
-            <ProductVisual product={product} category={category} />
+            <ProductVisual product={product} category={category} presentation="dialog" />
             {!product.isAvailable ? (
               <span className="dialog-unavailable">{text.unavailable}</span>
             ) : null}
