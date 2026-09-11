@@ -9,11 +9,13 @@ const files = [
   "test/integration/health.test.ts",
   "test/integration/manager-query-plans.test.ts",
   "test/integration/orders.test.ts",
+  "test/integration/openapi.test.ts",
   "test/integration/pos-reads.test.ts",
   "test/integration/product-images.test.ts",
   "test/integration/public-menu.test.ts",
   "test/integration/table-qr-provisioning.test.ts",
   "test/integration/waiter-calls.test.ts",
+  "test/unit/password.test.ts",
 ];
 
 const selectedFiles = process.argv.slice(2);
