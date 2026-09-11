@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type SyntheticEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { AuthenticatedUser } from "@cafe/contracts";
 import {
   currentSession,
@@ -11,6 +11,7 @@ import {
 } from "../lib/api-client";
 import { OrdersIcon } from "./icons";
 import { OrdersWorkspace } from "./orders-workspace";
+import { ManagerWorkspace } from "./manager-workspace";
 
 type SessionState =
   | { kind: "loading" }
@@ -34,6 +35,8 @@ function failureState(error: ApiFailure): SessionState {
 export function PosSessionBoundary() {
   const [session, setSession] = useState<SessionState>({ kind: "loading" });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [workspace, setWorkspace] = useState<"orders" | "manager">("orders");
+  const opener = useRef<HTMLButtonElement | null>(null);
 
   const loadSession = useCallback(async (allowRefresh: boolean) => {
     setSession((current) =>
@@ -83,9 +86,7 @@ export function PosSessionBoundary() {
         type="button"
         aria-label="بستن منو"
         tabIndex={drawerOpen ? 0 : -1}
-        onClick={() => {
-          setDrawerOpen(false);
-        }}
+        onClick={() => { setDrawerOpen(false); opener.current?.focus(); }}
       />
       <aside
         className={`side-drawer ${drawerOpen ? "is-open" : ""}`}
@@ -104,9 +105,7 @@ export function PosSessionBoundary() {
           </div>
           <button
             type="button"
-            onClick={() => {
-              setDrawerOpen(false);
-            }}
+            onClick={() => { setDrawerOpen(false); opener.current?.focus(); }}
             aria-label="بستن منو"
           >
             ×
@@ -131,26 +130,19 @@ export function PosSessionBoundary() {
         </div>
         <nav>
           <button
-            className="nav-item is-active"
+            className={`nav-item ${workspace === "orders" ? "is-active" : ""}`}
             type="button"
-            onClick={() => {
-              setDrawerOpen(false);
-            }}
+            onClick={() => { setWorkspace("orders"); setDrawerOpen(false); opener.current?.focus(); }}
           >
             <OrdersIcon />
             <span>سفارش</span>
           </button>
+          {session.user.role === "MANAGER" && <button className={`nav-item ${workspace === "manager" ? "is-active" : ""}`} type="button" onClick={() => { setWorkspace("manager"); setDrawerOpen(false); opener.current?.focus(); }}><span aria-hidden="true">⚙</span><span>مدیریت</span></button>}
         </nav>
       </aside>
 
       <main className="pos-main">
-        <OrdersWorkspace
-          refreshing={session.refreshing}
-          onOpenMenu={() => {
-            setDrawerOpen(true);
-          }}
-          menuOpen={drawerOpen}
-        />
+        {workspace === "orders" ? <OrdersWorkspace refreshing={session.refreshing} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
       </main>
     </div>
   );
