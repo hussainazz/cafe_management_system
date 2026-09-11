@@ -754,4 +754,38 @@ describe("settlement reversal and print data", () => {
     expect(repeated.statusCode).toBe(409);
     expect(repeated.json().error.code).toBe("INVALID_STATE");
   });
+
+  it("rejects reversal of an old table settlement after the table has been reused", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "reverse.reuse.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "reverse.reuse.manager");
+    const { product } = await sellableProduct();
+    const table = await app.prisma.cafeTable.create({ data: { name: "Reversal reuse", seatingLimitMinutes: 45, displayOrder: 155 } });
+    const first = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-reuse-first-0001");
+    const original = first.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${original.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "reverse-reuse-settlement-1" }, payload: { expectedVersion: original.version, allocations: [{ orderItemId: original.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
+    expect(settled.statusCode).toBe(201);
+    expect((await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-reuse-second-0001")).statusCode).toBe(201);
+    const settlementId = settled.json().data.settlements[0].id;
+    const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: settled.json().data.version, reason: "Original table has been reused" } });
+    expect(reversed.statusCode).toBe(409);
+    expect(await app.prisma.order.count({ where: { tableId: table.id, channel: "TABLE", state: "OPEN" } })).toBe(1);
+    expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(0);
+  });
+
+  it("keeps one open table order when reversal races table reuse", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "reverse.race.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "reverse.race.manager");
+    const { product } = await sellableProduct();
+    const table = await app.prisma.cafeTable.create({ data: { name: "Reversal race", seatingLimitMinutes: 45, displayOrder: 156 } });
+    const original = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-race-original-001");
+    const order = original.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "reverse-race-settlement-1" }, payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
+    const settlementId = settled.json().data.settlements[0].id;
+    const [reversal, reuse] = await Promise.all([
+      app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: settled.json().data.version, reason: "Concurrent correction" } }),
+      createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-race-reuse-0001"),
+    ]);
+    expect([[200, 409], [409, 201]]).toContainEqual([reversal.statusCode, reuse.statusCode]);
+    expect(await app.prisma.order.count({ where: { tableId: table.id, channel: "TABLE", state: "OPEN" } })).toBe(1);
+  });
 });
