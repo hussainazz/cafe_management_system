@@ -33,6 +33,7 @@ import {
   type PosOrderDetail,
 } from "../lib/api-client";
 import { formatToman } from "../lib/pos-utils";
+import { printRoute } from "../lib/print-routes";
 
 type Panel = "catalog" | "staff" | "finance" | "settings";
 type Confirm = {
@@ -565,7 +566,7 @@ function FinancePanel({
                 type="button"
                 onClick={() =>
                   window.open(
-                    `/print/${item.orderId}/settlements/${item.id}/receipt`,
+                    printRoute(item.orderId, "settlement", item.id),
                     "_blank",
                     "noopener,noreferrer",
                   )
