@@ -187,6 +187,6 @@ Definition of done for a feature:
 | Business day/timezone | Store UTC; display/report using `Asia/Tehran` calendar boundaries. The cafe is always open, so v1 has no configurable business-day cut-off.         |
 | Customer submission   | Not in v1. QR menu is browse-only.                                                                                                                  |
 | Roles                 | Manager and Staff only; POS uses Staff.                                                                                                             |
-| Deployment            | One Iranian VPS, self-hosted stack, one writable PostgreSQL database. API release artifacts must include the Prisma `debian-openssl-3.0.x` engine for the current Debian-family VPS OS.                 |
+| Deployment            | One Iranian VPS, self-hosted stack, one writable PostgreSQL database. The public menu and table QR links remain at the root domain; the shared POS is served at `/pos`. API release artifacts must include the Prisma `debian-openssl-3.0.x` engine for the current Debian-family VPS OS. |
 | Receipt integration   | Browser print through Chrome on the café's Windows POS computer for v1; no VPS-side browser, `lp`, silent ESC/POS, or printer-routing integration. |
 | Table cleanup         | `DELETED` is logical deletion with an audit record; no deletion reason is required, including for paid orders. It never physically removes records. |
