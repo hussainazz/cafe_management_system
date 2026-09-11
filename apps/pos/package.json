@@ -23,9 +23,12 @@
   "devDependencies": {
     "@cafe/config": "workspace:*",
     "@playwright/test": "^1.62.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "jsdom": "^30.0.1",
     "typescript": "~5.9.0",
     "vitest": "^4.1.10"
   }
