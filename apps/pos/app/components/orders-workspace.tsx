@@ -390,6 +390,15 @@ export function OrdersWorkspace({
             await refreshOperationalData();
             setMessage({ tone: "notice", text: `میز ${result.data.name} اشغال شد.` });
           }}
+          onMakeAvailable={async (table) => {
+            const result = await makeTableAvailable(table.id);
+            if (!result.ok) {
+              setMessage({ tone: "error", text: result.error.message });
+              return;
+            }
+            await refreshOperationalData();
+            setMessage({ tone: "notice", text: `میز ${result.data.name} آزاد شد.` });
+          }}
           onClosePanel={close}
           onEditOrder={() => setEditingOrder(true)}
           onCheckout={() => setCheckout(true)}
@@ -474,6 +483,7 @@ function TableBoard({
   onAcknowledgeWaiterCall,
   acknowledgingTableId,
   onOccupy,
+  onMakeAvailable,
   onClosePanel,
   onEditOrder,
   onCheckout,
@@ -489,6 +499,7 @@ function TableBoard({
   onAcknowledgeWaiterCall: (table: PosTable, call: Data["calls"][number]) => void;
   acknowledgingTableId: string | null;
   onOccupy: (table: PosTable) => Promise<void>;
+  onMakeAvailable: (table: PosTable) => Promise<void>;
   onClosePanel: () => void;
   onEditOrder: () => void;
   onCheckout: () => void;
@@ -602,6 +613,16 @@ function TableBoard({
                   onClick={() => void onAcknowledgeWaiterCall(table, call)}
                 >
                   {acknowledgingTableId === table.id ? "در حال رسیدگی…" : "رسیدگی و باز کردن میز"}
+                </button>
+              )}
+              {!call && !hasOrder && table.occupancyState === "OCCUPIED" && (
+                <button
+                  className="table-tile__call-action"
+                  type="button"
+                  aria-label={`آزاد کردن میز ${table.name}`}
+                  onClick={() => void onMakeAvailable(table)}
+                >
+                  آزاد کردن میز
                 </button>
               )}
             </article>
