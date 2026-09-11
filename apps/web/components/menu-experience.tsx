@@ -7,9 +7,8 @@ import {
   formatCompactToman,
   filterMenu,
   formatToman,
-  localProductPictureUrl,
   localizedName,
-  productImageUrl,
+  productImageSources,
   secondaryName,
   type Language,
 } from "../lib/menu-utils";
@@ -136,11 +135,7 @@ function ProductVisual({
   presentation?: "card" | "dialog";
 }) {
   const [imageIndex, setImageIndex] = useState(0);
-  const localPictureUrl = localProductPictureUrl(product, category);
-  const imageSources = [
-    localPictureUrl,
-    product.image ? productImageUrl(product.image.storageKey) : null,
-  ].filter((source, index, sources): source is string => Boolean(source) && sources.indexOf(source) === index);
+  const imageSources = productImageSources(product, category);
   const imageSource = imageSources[imageIndex];
 
   if (imageSource) {
