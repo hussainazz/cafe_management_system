@@ -11,6 +11,24 @@ import {
   OrderReceiptResponseSchema,
   SettlementReceiptResponseSchema,
   ActiveWaiterCallsResponseSchema,
+  AdminCategoriesResponseSchema,
+  AdminCategoryResponseSchema,
+  AdminOptionGroupsResponseSchema,
+  AdminOptionGroupResponseSchema,
+  AdminOptionResponseSchema,
+  AdminProductsResponseSchema,
+  AdminProductResponseSchema,
+  AdminTablesResponseSchema,
+  AdminTableResponseSchema,
+  AdminStaffResponseSchema,
+  AdminStaffSingleResponseSchema,
+  AdminSettingsResponseSchema,
+  AdminImageResponseSchema,
+  AdminImageArchiveResponseSchema,
+  PaymentHistoryResponseSchema,
+  DailyReportResponseSchema,
+  AuditLogResponseSchema,
+  ReverseSettlementResponseSchema,
   type RecordSettlementRequest,
   type UpdateOrderRequest,
   type DeleteOrderRequest,
@@ -30,6 +48,18 @@ export type SettlementReceipt = z.infer<typeof SettlementReceiptResponseSchema>[
 export type PosActiveWaiterCall = z.infer<
   typeof ActiveWaiterCallsResponseSchema
 >["data"]["calls"][number];
+export type ManagerCatalog = {
+  categories: z.infer<typeof AdminCategoriesResponseSchema>["data"]["categories"];
+  products: z.infer<typeof AdminProductsResponseSchema>["data"]["products"];
+  optionGroups: z.infer<typeof AdminOptionGroupsResponseSchema>["data"]["optionGroups"];
+  tables: z.infer<typeof AdminTablesResponseSchema>["data"]["tables"];
+};
+export type ManagerStaff = z.infer<typeof AdminStaffResponseSchema>["data"]["staff"];
+export type ManagerSettings = z.infer<typeof AdminSettingsResponseSchema>["data"];
+export type PaymentHistory = z.infer<typeof PaymentHistoryResponseSchema>["data"]["payments"];
+export type Page = z.infer<typeof PaymentHistoryResponseSchema>["meta"]["page"];
+export type DailyReport = z.infer<typeof DailyReportResponseSchema>;
+export type AuditLog = z.infer<typeof AuditLogResponseSchema>;
 
 export type ApiFailure = {
   kind: "network" | "response" | "invalid-response";
@@ -366,3 +396,111 @@ export async function acknowledgeWaiterCall(
   );
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
+
+async function managerResponse<T>(path: string, schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, message: string) {
+  return parseResponse(await request<unknown>(path, undefined, false), schema, message);
+}
+
+export async function readManagerCatalog(): Promise<ApiResult<ManagerCatalog>> {
+  const [categories, products, optionGroups, tables] = await Promise.all([
+    managerResponse("/admin/categories", AdminCategoriesResponseSchema, "فهرست دسته‌ها معتبر نیست."),
+    managerResponse("/admin/products", AdminProductsResponseSchema, "فهرست محصولات معتبر نیست."),
+    managerResponse("/admin/option-groups", AdminOptionGroupsResponseSchema, "فهرست گزینه‌ها معتبر نیست."),
+    managerResponse("/admin/tables", AdminTablesResponseSchema, "فهرست میزهای مدیریت معتبر نیست."),
+  ]);
+  if (!categories.ok) return categories;
+  if (!products.ok) return products;
+  if (!optionGroups.ok) return optionGroups;
+  if (!tables.ok) return tables;
+  return { ok: true, replayed: false, data: { categories: categories.data.data.categories, products: products.data.data.products, optionGroups: optionGroups.data.data.optionGroups, tables: tables.data.data.tables } };
+}
+
+export async function readManagerStaff(): Promise<ApiResult<ManagerStaff>> {
+  const parsed = await managerResponse("/admin/users", AdminStaffResponseSchema, "فهرست پرسنل معتبر نیست.");
+  return parsed.ok ? { ok: true, data: parsed.data.data.staff, replayed: parsed.replayed } : parsed;
+}
+export async function readManagerSettings(): Promise<ApiResult<ManagerSettings>> {
+  const parsed = await managerResponse("/admin/settings", AdminSettingsResponseSchema, "تنظیمات کافه معتبر نیست.");
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+export async function readPaymentHistory(cursor?: string): Promise<ApiResult<{ payments: PaymentHistory; page: Page }>> {
+  const query = new URLSearchParams({ limit: "50", ...(cursor ? { cursor } : {}) });
+  const parsed = await managerResponse(`/admin/payments?${query}`, PaymentHistoryResponseSchema, "تاریخچه پرداخت معتبر نیست.");
+  return parsed.ok ? { ok: true, data: { payments: parsed.data.data.payments, page: parsed.data.meta.page }, replayed: parsed.replayed } : parsed;
+}
+export async function readDailyReport(period: "today" | "yesterday"): Promise<ApiResult<DailyReport>> {
+  return managerResponse(`/admin/reports/daily?period=${period}`, DailyReportResponseSchema, "گزارش روزانه معتبر نیست.");
+}
+export async function readAuditLog(cursor?: string, filters: Record<string, string> = {}): Promise<ApiResult<AuditLog>> {
+  const query = new URLSearchParams({ limit: "50", ...filters, ...(cursor ? { cursor } : {}) });
+  return managerResponse(`/admin/audit-log?${query}`, AuditLogResponseSchema, "تاریخچه حسابرسی معتبر نیست.");
+}
+
+async function managerMutation<T>(path: string, method: "POST" | "PATCH", body: unknown, schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, message: string): Promise<ApiResult<T>> {
+  return parseResponse(await request<unknown>(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), schema, message);
+}
+export const saveCategory = (id: string | null, body: unknown) => managerMutation(id ? `/admin/categories/${id}` : "/admin/categories", id ? "PATCH" : "POST", body, id ? AdminCategoryResponseSchema : AdminCategoryResponseSchema, "پاسخ دسته معتبر نیست.");
+export const archiveCategory = (id: string) => managerMutation(`/admin/categories/${id}/archive`, "POST", {}, AdminCategoryResponseSchema, "پاسخ بایگانی دسته معتبر نیست.");
+export const saveProduct = (id: string | null, body: unknown) => managerMutation(id ? `/admin/products/${id}` : "/admin/products", id ? "PATCH" : "POST", body, AdminProductResponseSchema, "پاسخ محصول معتبر نیست.");
+export const archiveProduct = (id: string) => managerMutation(`/admin/products/${id}/archive`, "POST", {}, AdminProductResponseSchema, "پاسخ بایگانی محصول معتبر نیست.");
+export const saveOptionGroup = (id: string | null, body: unknown) => managerMutation(id ? `/admin/option-groups/${id}` : "/admin/option-groups", id ? "PATCH" : "POST", body, AdminOptionGroupResponseSchema, "پاسخ گروه گزینه معتبر نیست.");
+export const saveOption = (groupId: string, id: string | null, body: unknown) => managerMutation(id ? `/admin/option-groups/${groupId}/options/${id}` : `/admin/option-groups/${groupId}/options`, id ? "PATCH" : "POST", body, AdminOptionResponseSchema, "پاسخ گزینه معتبر نیست.");
+export const archiveOption = (groupId: string, id: string) => managerMutation(`/admin/option-groups/${groupId}/options/${id}/archive`, "POST", {}, AdminOptionResponseSchema, "پاسخ بایگانی گزینه معتبر نیست.");
+export const saveTable = (id: string | null, body: unknown) => managerMutation(id ? `/admin/tables/${id}` : "/admin/tables", id ? "PATCH" : "POST", body, AdminTableResponseSchema, "پاسخ میز معتبر نیست.");
+export const archiveTable = (id: string) => managerMutation(`/admin/tables/${id}/archive`, "POST", {}, AdminTableResponseSchema, "پاسخ بایگانی میز معتبر نیست.");
+export const saveStaff = (id: string | null, body: unknown) => managerMutation(id ? `/admin/users/${id}` : "/admin/users", id ? "PATCH" : "POST", body, AdminStaffSingleResponseSchema, "پاسخ پرسنل معتبر نیست.");
+export const deactivateStaff = (id: string) => managerMutation(`/admin/users/${id}/deactivate`, "POST", {}, AdminStaffSingleResponseSchema, "پاسخ غیرفعال‌سازی معتبر نیست.");
+export const reactivateStaff = (id: string) => managerMutation(`/admin/users/${id}/reactivate`, "POST", {}, AdminStaffSingleResponseSchema, "پاسخ فعال‌سازی معتبر نیست.");
+export const saveSettings = (body: unknown) => managerMutation("/admin/settings", "PATCH", body, AdminSettingsResponseSchema, "پاسخ تنظیمات معتبر نیست.");
+export const reverseSettlement = (settlementId: string, body: { expectedVersion: number; reason: string }) => managerMutation(`/admin/settlements/${settlementId}/reverse`, "POST", body, ReverseSettlementResponseSchema, "پاسخ برگشت تسویه معتبر نیست.");
+function uploadRequest(
+  path: string,
+  form: FormData,
+  onProgress?: (percentage: number | null) => void,
+): Promise<ApiResult<unknown>> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", `/api/v1${path}`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("accept", "application/json");
+    xhr.upload.onprogress = (event) => {
+      onProgress?.(event.lengthComputable ? Math.round((event.loaded / event.total) * 100) : null);
+    };
+    xhr.onerror = () => {
+      const error = reportFailure({ kind: "network", message: "ارتباط با سرویس برقرار نشد." });
+      resolve({ ok: false, error });
+    };
+    xhr.onload = () => {
+      const payload: unknown = xhr.status === 204 ? null : (() => {
+        try { return JSON.parse(xhr.responseText); } catch { return null; }
+      })();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({ ok: true, data: payload, replayed: xhr.getResponseHeader("idempotency-replayed") === "true" });
+        return;
+      }
+      const parsed = ErrorResponseSchema.safeParse(payload);
+      const error = reportFailure(parsed.success
+        ? {
+            kind: "response" as const,
+            status: xhr.status,
+            code: parsed.data.error.code,
+            message: parsed.data.error.message,
+            requestId: parsed.data.error.requestId,
+          }
+        : { kind: "response" as const, status: xhr.status, message: "پاسخ سرویس قابل خواندن نیست." });
+      resolve({ ok: false, error });
+    };
+    xhr.send(form);
+  });
+}
+
+export async function uploadProductImage(
+  productId: string,
+  file: File,
+  altText: string,
+  onProgress?: (percentage: number | null) => void,
+) {
+  const form = new FormData(); form.set("file", file); form.set("altText", altText);
+  return parseResponse(await uploadRequest(`/admin/products/${productId}/image`, form, onProgress), AdminImageResponseSchema, "پاسخ تصویر معتبر نیست.");
+}
+export const archiveProductImage = (productId: string) => managerMutation(`/admin/products/${productId}/image/archive`, "POST", {}, AdminImageArchiveResponseSchema, "پاسخ حذف تصویر معتبر نیست.");
