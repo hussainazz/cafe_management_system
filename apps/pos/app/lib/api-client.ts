@@ -292,15 +292,6 @@ export async function readSettlementReceipt(orderId: string, settlementId: strin
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
 
-export async function directPrint(input: { orderId: string; kind: "receipt" | "bar-ticket" | "settlement"; settlementId?: string }): Promise<ApiResult<null>> {
-  try {
-    const response = await fetch("/api/v1/print", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(input) });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) return { ok: false, error: { kind: "response", status: response.status, code: payload?.error?.code, message: payload?.error?.message ?? "چاپ انجام نشد." } };
-    return { ok: true, data: null, replayed: false };
-  } catch { return { ok: false, error: { kind: "network", message: "ارتباط با سرویس چاپ برقرار نشد." } }; }
-}
-
 export async function updateOpenOrder(
   orderId: string,
   input: UpdateOrderRequest,
