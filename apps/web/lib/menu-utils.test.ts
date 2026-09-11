@@ -7,6 +7,7 @@ import {
   formatToman,
   localProductPictureUrl,
   normalizeSearch,
+  productImageSources,
 } from "./menu-utils";
 
 const menu: PublicMenu = {
@@ -141,5 +142,18 @@ describe("menu utilities", () => {
       "/items_pictures/nescafe.webp",
     );
     expect(localProductPictureUrl({ name: "نسکافه" }, { name: "شیک" })).toBeNull();
+  });
+
+  it("prefers a Manager-uploaded image and retains the local picture as a fallback", () => {
+    const product = {
+      ...menu.categories[0]!.products[0]!,
+      name: "ترک",
+      image: { storageKey: "00000000-0000-4000-8000-000000000001.webp", altText: "ترک جدید" },
+    };
+
+    expect(productImageSources(product, { name: "بار گرم قهوه" })).toEqual([
+      "/product-images/00000000-0000-4000-8000-000000000001.webp",
+      "/items_pictures/turkish.webp",
+    ]);
   });
 });
