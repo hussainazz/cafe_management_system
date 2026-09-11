@@ -37,44 +37,34 @@ export function tehranReportRange(period: DailyReportQuery["period"], now = new 
   return { from, to };
 }
 
-const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
-
 export async function dailyAccountingReport(prisma: PrismaClient, query: DailyReportQuery) {
   const range = tehranReportRange(query.period);
   const withinRange = { gte: range.from, lt: range.to };
-  const [orders, settlements, reversals] = await Promise.all([
-    prisma.order.findMany({
-      where: { createdAt: withinRange },
-      select: { state: true, totalAmount: true, paidAmount: true, discountAmount: true, items: { select: { discountAmount: true } } },
-    }),
-    prisma.paymentSettlement.findMany({
-      where: { recordedAt: withinRange },
-      include: { payments: { select: { method: true, amount: true } }, reversal: { select: { id: true } } },
-    }),
+  const [orders, itemDiscounts, settlements, paymentMethods, reversals, deletedOrders] = await Promise.all([
+    prisma.order.aggregate({ where: { createdAt: withinRange }, _count: { _all: true }, _sum: { totalAmount: true, discountAmount: true } }),
+    prisma.orderItem.aggregate({ where: { order: { createdAt: withinRange } }, _sum: { discountAmount: true } }),
+    // Accounting is event-based: a tender belongs to the day it was recorded,
+    // even when a later-day reversal changes the order's current balance.
+    prisma.paymentSettlement.aggregate({ where: { recordedAt: withinRange }, _sum: { totalAmount: true } }),
+    prisma.payment.groupBy({ by: ["method"], where: { settlement: { recordedAt: withinRange } }, _sum: { amount: true } }),
     prisma.settlementReversal.findMany({ where: { recordedAt: withinRange }, select: { settlement: { select: { totalAmount: true } } } }),
+    prisma.order.aggregate({ where: { createdAt: withinRange, state: "DELETED" }, _count: { _all: true }, _sum: { totalAmount: true, paidAmount: true } }),
   ]);
-  const activeSettlements = settlements.filter((settlement) => !settlement.reversal);
-  const paymentMethodTotals = activeSettlements.flatMap((settlement) => settlement.payments).reduce(
-    (totals, payment) => {
-      if (payment.method === "CASH") totals.cashAmount += payment.amount;
-      if (payment.method === "CARD_TERMINAL") totals.cardTerminalAmount += payment.amount;
-      if (payment.method === "CARD_TRANSFER") totals.cardTransferAmount += payment.amount;
-      return totals;
-    },
-    { cashAmount: 0, cardTerminalAmount: 0, cardTransferAmount: 0 },
-  );
-  const orderDiscountAmount = sum(orders.map((order) => order.discountAmount));
-  const itemDiscountAmount = sum(orders.flatMap((order) => order.items.map((item) => item.discountAmount)));
-  const deletedOrders = orders.filter((order) => order.state === "DELETED");
+  const paymentMethodTotals = { cashAmount: 0, cardTerminalAmount: 0, cardTransferAmount: 0 };
+  for (const row of paymentMethods) {
+    if (row.method === "CASH") paymentMethodTotals.cashAmount = row._sum.amount ?? 0;
+    if (row.method === "CARD_TERMINAL") paymentMethodTotals.cardTerminalAmount = row._sum.amount ?? 0;
+    if (row.method === "CARD_TRANSFER") paymentMethodTotals.cardTransferAmount = row._sum.amount ?? 0;
+  }
   return {
     report: {
-      salesAmount: sum(orders.map((order) => order.totalAmount)),
-      paidAmount: sum(activeSettlements.map((settlement) => settlement.totalAmount)),
-      orderCount: orders.length,
+      salesAmount: orders._sum.totalAmount ?? 0,
+      paidAmount: settlements._sum.totalAmount ?? 0,
+      orderCount: orders._count._all,
       paymentMethodTotals,
-      discounts: { orderAmount: orderDiscountAmount, itemAmount: itemDiscountAmount, totalAmount: orderDiscountAmount + itemDiscountAmount },
-      reversals: { count: reversals.length, amount: sum(reversals.map((reversal) => reversal.settlement.totalAmount)) },
-      deletedOrders: { count: deletedOrders.length, totalAmount: sum(deletedOrders.map((order) => order.totalAmount)), paidAmount: sum(deletedOrders.map((order) => order.paidAmount)) },
+      discounts: { orderAmount: orders._sum.discountAmount ?? 0, itemAmount: itemDiscounts._sum.discountAmount ?? 0, totalAmount: (orders._sum.discountAmount ?? 0) + (itemDiscounts._sum.discountAmount ?? 0) },
+      reversals: { count: reversals.length, amount: reversals.reduce((total, reversal) => total + reversal.settlement.totalAmount, 0) },
+      deletedOrders: { count: deletedOrders._count._all, totalAmount: deletedOrders._sum.totalAmount ?? 0, paidAmount: deletedOrders._sum.paidAmount ?? 0 },
     },
     range,
   };
