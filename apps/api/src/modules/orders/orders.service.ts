@@ -744,7 +744,10 @@ export async function updateOrder(
 export async function transferOrderTable(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, input: TransferOrderTableRequest, requestId: string) {
   requireRole(actor, ["STAFF", "MANAGER"]);
   return prisma.$transaction(async (transaction) => {
-    await lockOperationalKeys(transaction, [`order:${orderId}`]);
+    const lockKeys = [`order:${orderId}`];
+    const orderForLock = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
+    if (orderForLock?.channel === OrderChannel.TABLE && orderForLock.tableId) lockKeys.push(`table:${orderForLock.tableId}`);
+    await lockOperationalKeys(transaction, lockKeys);
     const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.state !== OrderState.OPEN || order.channel !== OrderChannel.TABLE) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open table orders can be transferred.");
@@ -765,11 +768,14 @@ export async function transferOrderTable(prisma: PrismaClient, actor: Authentica
     });
     const now = new Date();
     const destinationTiming = calculateTableEta({ seatedAt: order.createdAt, seatingLimitMinutes: destinationTable.seatingLimitMinutes, itemPreparationDeadlineMinutes: [order.estimatedPreparationMinutes] });
+    // PostgreSQL checks partial unique indexes per row, so briefly remove the
+    // displaced order from the TABLE predicate inside this transaction.
+    if (destinationOrder) await transaction.order.update({ where: { id: destinationOrder.id }, data: { channel: OrderChannel.TAKEAWAY, tableId: null, tableSeatingLimitSnapshotMinutes: null, estimatedTableReleaseAt: null } });
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { tableId: destinationTable.id, tableSeatingLimitSnapshotMinutes: destinationTable.seatingLimitMinutes, estimatedTableReleaseAt: destinationTiming.estimatedReleaseAt, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     if (destinationOrder) {
       const sourceTiming = calculateTableEta({ seatedAt: destinationOrder.createdAt, seatingLimitMinutes: sourceTable.seatingLimitMinutes, itemPreparationDeadlineMinutes: [destinationOrder.estimatedPreparationMinutes] });
-      await transaction.order.update({ where: { id: destinationOrder.id }, data: { tableId: sourceTable.id, tableSeatingLimitSnapshotMinutes: sourceTable.seatingLimitMinutes, estimatedTableReleaseAt: sourceTiming.estimatedReleaseAt, version: { increment: 1 } } });
+      await transaction.order.update({ where: { id: destinationOrder.id }, data: { channel: OrderChannel.TABLE, tableId: sourceTable.id, tableSeatingLimitSnapshotMinutes: sourceTable.seatingLimitMinutes, estimatedTableReleaseAt: sourceTiming.estimatedReleaseAt, version: { increment: 1 } } });
       await transaction.cafeTable.update({ where: { id: sourceTable.id }, data: { occupancyState: "OCCUPIED", occupiedAt: sourceTable.occupiedAt ?? now, occupancyReminderAt: null } });
       await transaction.cafeTable.update({ where: { id: destinationTable.id }, data: { occupancyState: "OCCUPIED", occupiedAt: destinationTable.occupiedAt ?? now, occupancyReminderAt: null } });
       await transaction.auditLog.createMany({ data: [
@@ -982,7 +988,8 @@ export async function recordSettlement(
 export async function reverseSettlement(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string, input: ReverseSettlementRequest, requestId: string) {
   requireRole(actor, ["MANAGER"]);
   return prisma.$transaction(async (transaction) => {
-    await lockOperationalKeys(transaction, [`order:${orderId}`]);
+    const tableAssignment = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
+    await lockOperationalKeys(transaction, ["order:" + orderId, ...(tableAssignment?.channel === OrderChannel.TABLE && tableAssignment.tableId ? ["table:" + tableAssignment.tableId] : [])]);
     const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
@@ -994,6 +1001,10 @@ export async function reverseSettlement(prisma: PrismaClient, actor: Authenticat
     const balanceAmount = order.totalAmount - paidAmount;
     const paymentStatus = paidAmount === 0 ? PaymentStatus.UNPAID : PaymentStatus.PARTIALLY_PAID;
     const reopensOrder = order.state === OrderState.CLOSED;
+    if (reopensOrder && order.channel === OrderChannel.TABLE && order.tableId) {
+      const conflict = await transaction.order.findFirst({ where: { tableId: order.tableId, channel: OrderChannel.TABLE, state: OrderState.OPEN, id: { not: orderId } }, select: { id: true } });
+      if (conflict) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The table has another open order; reassign it before reversing this settlement.");
+    }
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion }, data: { paidAmount, balanceAmount, paymentStatus, ...(reopensOrder ? { state: OrderState.OPEN } : {}), version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     if (reopensOrder && order.channel === OrderChannel.TABLE && order.tableId) {
