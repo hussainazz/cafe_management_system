@@ -175,7 +175,7 @@ Definition of done for a feature:
 | Data safety          | Migration test, automated backup, successful clean restore, explicit full order/payment-history retention despite the two-day report window, retention policy, disk monitoring.                           |
 | Reliability          | Restart recovery, readiness checks, stale-client conflicts, idempotent retries, and café-internet-loss/manual-fallback behavior tested.                                                                  |
 | Operations           | Versioned release, rollback/forward-fix procedure, log access, alerts, Manager recovery, operator runbook.                                                                                               |
-| Hardware and UX      | Actual POS device, shared Staff/Manager dashboard, waiter-call alert, browser, network, receipt printer, paper size, both print layouts, touch targets, and busy-hour workflow tested.                    |
+| Hardware and UX      | Actual POS device, shared Staff/Manager dashboard, waiter-call alert, Chrome on the café's Windows POS computer, network, receipt printer, paper size, both print layouts, touch targets, and busy-hour workflow tested.                    |
 | Pilot                | A limited live shift runs with the fallback procedure; issues are recorded and no unreconciled financial difference remains.                                                                             |
 
 ## Decisions Fixed Before Implementation
@@ -187,6 +187,6 @@ Definition of done for a feature:
 | Business day/timezone | Store UTC; display/report using `Asia/Tehran` calendar boundaries. The cafe is always open, so v1 has no configurable business-day cut-off.         |
 | Customer submission   | Not in v1. QR menu is browse-only.                                                                                                                  |
 | Roles                 | Manager and Staff only; POS uses Staff.                                                                                                             |
-| Deployment            | One Iranian VPS, self-hosted stack, one writable PostgreSQL database.                                                                               |
-| Receipt integration   | Browser print for v1.                                                                                                                               |
+| Deployment            | One Iranian VPS, self-hosted stack, one writable PostgreSQL database. API release artifacts must include the Prisma `debian-openssl-3.0.x` engine for the current Debian-family VPS OS.                 |
+| Receipt integration   | Browser print through Chrome on the café's Windows POS computer for v1; no VPS-side browser, `lp`, silent ESC/POS, or printer-routing integration. |
 | Table cleanup         | `DELETED` is logical deletion with an audit record; no deletion reason is required, including for paid orders. It never physically removes records. |
