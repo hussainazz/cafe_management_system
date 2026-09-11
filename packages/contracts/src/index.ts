@@ -593,6 +593,30 @@ export const AdminSettingsUpdateSchema = z.object({ defaultTableSeatingLimitMinu
 export const AdminImageMetadataSchema = z.object({ altText: z.string().trim().min(1).max(500) }).strict();
 export const AdminIdPathSchema = z.object({ id: z.uuid() });
 
+const AdminMetaSchema = z.object({ requestId: z.string() });
+export const AdminCategorySchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), archivedAt: z.iso.datetime().nullable() });
+export const AdminProductImageSchema = z.object({ storageKey: z.string(), altText: z.string() });
+export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroupIds: z.array(z.uuid()) });
+export const AdminOptionSchema = z.object({ id: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable() });
+export const AdminOptionGroupSchema = z.object({ id: z.uuid(), name: z.string(), isActive: z.boolean(), options: z.array(AdminOptionSchema) });
+export const AdminTableSchema = z.object({ id: z.uuid(), name: z.string(), seatingLimitMinutes: TableSeatingLimitMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), waiterCallEnabled: z.boolean(), archivedAt: z.iso.datetime().nullable() });
+export const AdminStaffSchema = z.object({ id: z.uuid(), username: z.string(), role: z.literal("STAFF"), isActive: z.boolean(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
+export const AdminSettingsSchema = z.object({ id: z.uuid(), defaultTableSeatingLimitMinutes: TableSeatingLimitMinutesSchema, updatedAt: z.iso.datetime() });
+export const AdminImageResponseSchema = z.object({ data: AdminProductImageSchema, meta: AdminMetaSchema });
+export const AdminImageArchiveResponseSchema = z.object({ data: z.object({ productId: z.uuid() }), meta: AdminMetaSchema });
+export const AdminCategoriesResponseSchema = z.object({ data: z.object({ categories: z.array(AdminCategorySchema) }), meta: AdminMetaSchema });
+export const AdminProductsResponseSchema = z.object({ data: z.object({ products: z.array(AdminProductSchema) }), meta: AdminMetaSchema });
+export const AdminOptionGroupsResponseSchema = z.object({ data: z.object({ optionGroups: z.array(AdminOptionGroupSchema) }), meta: AdminMetaSchema });
+export const AdminTablesResponseSchema = z.object({ data: z.object({ tables: z.array(AdminTableSchema) }), meta: AdminMetaSchema });
+export const AdminStaffResponseSchema = z.object({ data: z.object({ staff: z.array(AdminStaffSchema) }), meta: AdminMetaSchema });
+export const AdminSettingsResponseSchema = z.object({ data: AdminSettingsSchema, meta: AdminMetaSchema });
+export const AdminCategoryResponseSchema = z.object({ data: AdminCategorySchema, meta: AdminMetaSchema });
+export const AdminProductResponseSchema = z.object({ data: AdminProductSchema, meta: AdminMetaSchema });
+export const AdminOptionGroupResponseSchema = z.object({ data: AdminOptionGroupSchema, meta: AdminMetaSchema });
+export const AdminOptionResponseSchema = z.object({ data: AdminOptionSchema, meta: AdminMetaSchema });
+export const AdminTableResponseSchema = z.object({ data: AdminTableSchema, meta: AdminMetaSchema });
+export const AdminStaffSingleResponseSchema = z.object({ data: AdminStaffSchema, meta: AdminMetaSchema });
+
 export const ProductSaleDiscountResponseSchema = z.object({
   data: z.object({
     id: z.uuid(),
