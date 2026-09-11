@@ -172,7 +172,13 @@ This file is the active completion checklist and current stage status for the ba
     attached-browser verification completed on 11 September 2026 using a newly
     provisioned private Table 1 QR and the development OTP: verification,
     request submission, POS visibility, acknowledgement, and table occupancy
-    all completed successfully.
+    all completed successfully. A LAN QR regression found that the menu could
+    fall back to anonymous rendering after a valid context exchange; the menu
+    now resolves table context server-side before first render. The Table 8
+    LAN QR flow was rechecked in an attached browser: it displays the OTP gate
+    and enables verification submission after the form is completed. The web
+    development server explicitly allows full private-LAN IPv4 host patterns
+    so its client JavaScript hydrates on phone testing addresses.
   - Recovery UX is complete in code: every POS API failure now classifies into
     an explicit stale-version conflict, network/offline, or service-failure
     recovery state. The status indicator follows browser online/offline events;
