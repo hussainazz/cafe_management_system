@@ -24,22 +24,13 @@ import {
   SearchIcon,
   SparkIcon,
 } from "./icons";
+import type { PublicTableContext } from "../lib/public-table-context";
 
 type MenuExperienceProps = {
   initialMenu: PublicMenu | null;
   initialRequestFailed: boolean;
   invalidTableContext: boolean;
-};
-
-type PublicTableContext = {
-  active: boolean;
-  tableName: string | null;
-  occupancyState: "AVAILABLE" | "OCCUPIED" | null;
-  waiterCallStatus: "PENDING" | null;
-  canCallWaiter: boolean;
-  authenticationRequired?: boolean;
-  customerAuthenticated?: boolean;
-  visitActive?: boolean;
+  initialTableContext: PublicTableContext | null;
 };
 
 const copy = {
@@ -400,11 +391,11 @@ function LoadingMenu() {
   );
 }
 
-export function MenuExperience({ initialMenu, initialRequestFailed, invalidTableContext }: MenuExperienceProps) {
+export function MenuExperience({ initialMenu, initialRequestFailed, invalidTableContext, initialTableContext }: MenuExperienceProps) {
   const [menu, setMenu] = useState(initialMenu);
   const [requestFailed, setRequestFailed] = useState(initialRequestFailed);
   const [retrying, setRetrying] = useState(false);
-  const [tableContext, setTableContext] = useState<PublicTableContext | null>(null);
+  const [tableContext, setTableContext] = useState<PublicTableContext | null>(initialTableContext);
   const [callingWaiter, setCallingWaiter] = useState(false);
   const [waiterCallFailed, setWaiterCallFailed] = useState(false);
   const [fullName, setFullName] = useState("");
