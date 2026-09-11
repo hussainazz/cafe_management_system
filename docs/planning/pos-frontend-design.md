@@ -279,3 +279,22 @@ delivery, connection state, and reconnect recovery remain the separate Stage 7
 recovery pass. Focused POS tests, typecheck, production build, and
 `git diff --check` pass; authenticated browser/device validation remains
 required.
+
+## Manager Panels Pass — 9 September 2026
+
+The existing shared drawer now reveals a single-page `مدیریت` workspace only
+after the signed-in user is confirmed as a Manager. The Staff POS remains the
+same `سفارش` workspace and does not start any Manager reads. Manager panels
+cover catalog/table configuration, reusable product options and images, Staff
+accounts, café settings, retained payment history and settlement receipts,
+today/yesterday Tehran accounting, settlement reversal, and safe audit history.
+
+Destructive archive/deactivation actions use explicit Persian confirmation
+dialogs that state the retained-history effect. Manager mutations remain
+server-authorized and response-validated; passive reads retain their prior
+content and surface one compact retryable degraded-data state. Typed Manager
+response DTOs prevent persistence-shaped records from reaching the POS.
+Contracts/API/POS typechecks, focused Manager API integration tests, POS tests,
+the production POS build, and `git diff --check` pass. Authenticated desktop
+and normal-mobile browser validation remains pending before the Stage 9 exit
+gate is fully verified.
