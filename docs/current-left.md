@@ -161,15 +161,18 @@ This file is the active completion checklist and current stage status for the ba
      POS tabs refresh tables, open orders, and calls every 15 seconds and on
      return to the tab without clearing last-known calls on a partial refresh
      failure. Focused POS tests, typecheck, production build, and `git diff
-     --check` pass; attached browser/device validation remains required before
-     this item is marked fully verified.
-  - Customer-authenticated waiter calls are implemented in code: table QR
+     --check` pass. Local attached-browser validation completed on 11 September
+     2026: a verified Table 1 call appeared in the shared POS, acknowledgement
+     opened that table, and the user-facing request showed as sent.
+  - Customer-authenticated waiter calls are implemented: table QR
     visitors verify full name, phone, and development/test OTP before a
     credential-bound four-hour visit may call a waiter; generic `/menu` remains
     anonymous. The forward migration, focused isolated API integration test,
-    API/web/POS typechecks, POS tests, and `git diff --check` pass; authenticated
-    browser/device proof remains before this replacement authorization model is
-    considered fully verified.
+    API/web/POS typechecks, POS tests, and `git diff --check` pass. Local
+    attached-browser verification completed on 11 September 2026 using a newly
+    provisioned private Table 1 QR and the development OTP: verification,
+    request submission, POS visibility, acknowledgement, and table occupancy
+    all completed successfully.
   - Recovery UX is complete in code: every POS API failure now classifies into
     an explicit stale-version conflict, network/offline, or service-failure
     recovery state. The status indicator follows browser online/offline events;
