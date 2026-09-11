@@ -8,9 +8,9 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: [
     "127.0.0.1",
     "localhost",
-    "192.168.*",
-    "10.*",
-    "172.16.*",
+    "192.168.*.*",
+    "10.*.*.*",
+    "172.16.*.*",
   ],
   experimental: {
     // The repository uses the stable TypeScript compiler API. This also keeps
