@@ -8,7 +8,7 @@ import {
   deleteOpenOrder,
   markTableOccupied,
   readOpenOrders,
-  readOrder,
+  readOrder, directPrint,
   readPosCatalog,
   readPosTables,
   readWaiterCalls,
@@ -21,7 +21,7 @@ import {
 } from "../lib/api-client";
 import { recoveryStateFor, type RecoveryState } from "../lib/recovery-state";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
-import { printRoute, type PrintKind } from "../lib/print-routes";
+import { type PrintKind } from "../lib/print-routes";
 import { acknowledgeAndOpenWaiterCall } from "../lib/waiter-call-workflow";
 import { canChangeDiscount, discountPayload } from "../lib/discount-workflow";
 import {
@@ -98,6 +98,7 @@ export function OrdersWorkspace({
   const [checkout, setCheckout] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ tone: "error" | "notice"; text: string } | null>(null);
+  const [printing, setPrinting] = useState(false);
   const [pendingTableClear, setPendingTableClear] = useState<PendingTableClear | null>(null);
   const [pendingTransfer, setPendingTransfer] = useState<PendingTransfer | null>(null);
   const [transferring, setTransferring] = useState(false);
@@ -109,6 +110,15 @@ export function OrdersWorkspace({
   const [recovering, setRecovering] = useState(false);
   const [online, setOnline] = useState(true);
   const [liveDataLimited, setLiveDataLimited] = useState(false);
+  const printOrder = useCallback(async (orderId: string, kind: PrintKind, settlementId?: string) => {
+    if (printing) return;
+    setPrinting(true);
+    const result = await directPrint({ orderId, kind, ...(settlementId ? { settlementId } : {}) });
+    setMessage(result.ok
+      ? { tone: "notice", text: kind === "bar-ticket" ? "فیش بار چاپ شد." : "رسید چاپ شد." }
+      : { tone: "error", text: result.error.message || "چاپ انجام نشد. اتصال چاپگر را بررسی کنید." });
+    setPrinting(false);
+  }, [printing]);
   const submitDeskRef = useRef<(() => void) | null>(null);
   const load = useCallback(async (): Promise<boolean> => {
     setLoading(true);
@@ -373,6 +383,8 @@ export function OrdersWorkspace({
           }}
           onDirtyChange={setDeskDirty}
           onSubmitReady={(submit) => { submitDeskRef.current = submit; }}
+          onPrint={printOrder}
+          printing={printing}
         />
       ) : (
         <TableBoard
@@ -406,7 +418,8 @@ export function OrdersWorkspace({
           onClosePanel={close}
           onEditOrder={() => setEditingOrder(true)}
           onCheckout={() => setCheckout(true)}
-          onPrint={(kind) => window.open(printRoute(order!.id, kind), "run-cafe-print", "popup=yes")}
+          onPrint={(kind) => void printOrder(order!.id, kind)}
+          printing={printing}
           onRequestTransfer={async (source, destination) => {
             let sourceOrder: OrderDetail | null = order?.tableId === source.id ? order : null;
             if (!sourceOrder) {
@@ -493,6 +506,7 @@ function TableBoard({
   onEditOrder,
   onCheckout,
   onPrint,
+  printing,
   onRequestTransfer,
 }: {
   tables: PosTable[];
@@ -510,6 +524,7 @@ function TableBoard({
   onEditOrder: () => void;
   onCheckout: () => void;
   onPrint: (kind: Exclude<PrintKind, "settlement">) => void;
+  printing: boolean;
   onRequestTransfer: (source: PosTable, destination: PosTable) => Promise<void>;
 }) {
   const [transferSourceId, setTransferSourceId] = useState<string | null>(null);
@@ -548,6 +563,7 @@ function TableBoard({
             onEdit={onEditOrder}
             onCheckout={onCheckout}
             onPrint={onPrint}
+            printing={printing}
             onTransfer={() => {
               setTransferSourceId(selectedOrder.tableId);
               requestAnimationFrame(() => document.getElementById("table-transfer-targets")?.focus());
@@ -651,7 +667,7 @@ function TableBoard({
   );
 }
 
-function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint, onTransfer }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void; onPrint: (kind: Exclude<PrintKind, "settlement">) => void; onTransfer: () => void }) {
+function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint, onTransfer, printing }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void; onPrint: (kind: Exclude<PrintKind, "settlement">) => void; onTransfer: () => void; printing: boolean }) {
   const status = order.paymentStatus === "PAID" ? "تسویه شد" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت شد" : "بدون پرداخت";
   return <aside className="occupied-panel" aria-label={`جزئیات سفارش میز ${table?.name ?? ""}`}>
     <header className="occupied-panel__header">
@@ -665,8 +681,8 @@ function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint
       <div className="occupied-panel__total"><span>جمع کل</span><strong>{formatToman(order.totalAmount)}</strong></div>
       {order.paidAmount > 0 && <div className="occupied-panel__balance">مانده: {formatToman(order.balanceAmount)}</div>}
       <button className="button button--primary button--wide" disabled={order.balanceAmount === 0} onClick={onCheckout}>تسویه و پرداخت</button>
-      <button className="button button--quiet button--wide" onClick={() => onPrint("bar-ticket")}>چاپ فیش بار</button>
-      <button className="button button--quiet button--wide" onClick={() => onPrint("receipt")}>چاپ رسید</button>
+      <button className="button button--quiet button--wide" disabled={printing} onClick={() => onPrint("bar-ticket")}>{printing ? "در حال چاپ…" : "چاپ فیش بار"}</button>
+      <button className="button button--quiet button--wide" disabled={printing} onClick={() => onPrint("receipt")}>چاپ رسید</button>
       <button className="button button--quiet button--wide" onClick={onEdit}>ویرایش سفارش</button>
       <button className="button button--quiet button--wide" onClick={onTransfer}>انتقال میز</button>
     </footer>
@@ -684,6 +700,8 @@ function OrderDesk({
   onCreateFailure,
   onDirtyChange,
   onSubmitReady,
+  onPrint,
+  printing,
 }: {
   catalog: PosCatalogCategory[];
   table: PosTable | null;
@@ -695,6 +713,8 @@ function OrderDesk({
   onCreateFailure: (error: string) => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
   onSubmitReady: (submit: () => void) => void;
+  onPrint: (orderId: string, kind: PrintKind, settlementId?: string) => Promise<void>;
+  printing: boolean;
 }) {
   const posCatalog = useMemo(
     () => catalog.filter((item) => item.name !== "ویژه و جدید"),
@@ -928,11 +948,11 @@ function OrderDesk({
             onCheckout={() => setCheckout(true)}
             onPrint={(kind, settlementId) => {
               if (!initialOrder) return;
-              window.open(printRoute(initialOrder.id, kind, settlementId), "run-cafe-print", "popup=yes");
+              void onPrint(initialOrder.id, kind, ...(settlementId ? [settlementId] : []));
             }}
             onRequestDelete={() => setDeleteDialogOpen(true)}
             onRequestDiscount={(target) => { discountTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setDiscountTarget(target); }}
-            busy={busy}
+            busy={busy || printing}
           />
         </aside>
       </div>
