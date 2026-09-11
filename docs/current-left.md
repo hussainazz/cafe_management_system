@@ -1,5 +1,16 @@
 # Current Backend Stage Status
 
+## 11 September 2026 deployment and printer targets
+
+- The production API artifact remains built for the current Debian-family VPS
+  OS and must include Prisma's `debian-openssl-3.0.x` engine alongside matching
+  contracts.
+- Receipt and bar-ticket printing remains a browser-print workflow. The café
+  POS uses Google Chrome on its Windows computer; no VPS-side print renderer,
+  Linux printer queue, silent ESC/POS path, or printer-routing integration is
+  part of v1. Physical Chrome/Windows/printer/paper validation remains required
+  before POS activation.
+
 ## 11 September 2026 timing-rule update
 
 - Seating and preparation timing is display-only. Orders no longer persist
