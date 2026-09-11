@@ -9,6 +9,7 @@ const EnvironmentSchema = z.object({
   DATABASE_URL: z.string().min(1),
   ACCESS_TOKEN_SECRET: z.string().min(32),
   REFRESH_TOKEN_SECRET: z.string().min(32),
+  AUTH_COOKIE_BASE_PATH: z.string().regex(/^\/(?:[a-z0-9-]+\/)*api(?:\/[^/]+)*$/).default("/api/v1"),
   TABLE_QR_TOKEN_SECRET: z.string().min(32).optional(),
   TABLE_CONTEXT_COOKIE_SECRET: z.string().min(32).optional(),
   CUSTOMER_PHONE_LOOKUP_SECRET: z.string().min(32).optional(),
