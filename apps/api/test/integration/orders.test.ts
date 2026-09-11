@@ -78,7 +78,7 @@ describe("Staff order creation", () => {
   it("rejects a second open table order for the same physical table", async () => {
     const cookies = await userSession(UserRole.STAFF, "single-order.staff");
     const { product } = await sellableProduct();
-    const table = await app.prisma.cafeTable.create({ data: { name: "Single order table", seatingLimitMinutes: 45, displayOrder: 91 } });
+    const table = await app.prisma.cafeTable.create({ data: { name: "Single order table", displayOrder: 91 } });
     const first = await createOrderRequest(cookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "single-table-first-0001");
     expect(first.statusCode).toBe(201);
     const second = await createOrderRequest(cookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "single-table-second-0001");
@@ -93,7 +93,6 @@ describe("Staff order creation", () => {
       data: {
         id: "40000000-0000-4000-8000-000000000004",
         name: "Table 4",
-        seatingLimitMinutes: 45,
         displayOrder: 4,
       },
     });
@@ -128,14 +127,11 @@ describe("Staff order creation", () => {
       totalAmount: 110_000,
       paidAmount: 0,
       balanceAmount: 110_000,
-      estimatedPreparationMinutes: 8,
-      tableSeatingLimitSnapshotMinutes: 45,
       items: [
         {
           productId: product.id,
           productNameSnapshot: "Latte",
           basePriceSnapshot: 50_000,
-          preparationDeadlineSnapshotMinutes: 8,
           quantity: 2,
           note: "Less foam",
           lineTotalAmount: 110_000,
@@ -178,7 +174,6 @@ describe("Staff order creation", () => {
     expect(stored.items[0]!).toMatchObject({
       productNameSnapshot: "Latte",
       basePriceSnapshot: 50_000,
-      preparationDeadlineSnapshotMinutes: 8,
       lineTotalAmount: 110_000,
     });
     expect(stored.items[0]!.options[0]).toMatchObject({
@@ -195,7 +190,6 @@ describe("Staff order creation", () => {
     expect(historical.json().data.items[0]).toMatchObject({
       productNameSnapshot: "Latte",
       basePriceSnapshot: 50_000,
-      preparationDeadlineSnapshotMinutes: 8,
       options: [{ optionNameSnapshot: "Oat milk", priceSnapshot: 5_000 }],
     });
 
@@ -255,9 +249,6 @@ describe("Staff order creation", () => {
     expect(response.json().data).toMatchObject({
       channel: "TAKEAWAY",
       tableId: null,
-      estimatedPreparationMinutes: 8,
-      tableSeatingLimitSnapshotMinutes: null,
-      estimatedTableReleaseAt: null,
       subtotalAmount: 50_000,
       totalAmount: 50_000,
     });
@@ -399,8 +390,8 @@ describe("order reads, edits, and discounts", () => {
   it("moves a table order to an empty table, frees its source context, and rejects a stale edit", async () => {
     const cookies = await userSession(UserRole.STAFF, "transfer.staff");
     const { product } = await sellableProduct();
-    const firstTable = await app.prisma.cafeTable.create({ data: { name: "Table 1", seatingLimitMinutes: 45, displayOrder: 1 } });
-    const secondTable = await app.prisma.cafeTable.create({ data: { name: "Table 2", seatingLimitMinutes: 60, displayOrder: 2 } });
+    const firstTable = await app.prisma.cafeTable.create({ data: { name: "Table 1", displayOrder: 1 } });
+    const secondTable = await app.prisma.cafeTable.create({ data: { name: "Table 2", displayOrder: 2 } });
     const created = await createOrderRequest(cookies, { channel: "TABLE", tableId: firstTable.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "transfer-order-create-1");
     const order = created.json().data;
     const transferred = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/transfer-table`, cookies, payload: { expectedVersion: order.version, tableId: secondTable.id } });
@@ -418,8 +409,8 @@ describe("order reads, edits, and discounts", () => {
   it("swaps two open table orders and recalculates their table timing", async () => {
     const cookies = await userSession(UserRole.MANAGER, "swap.manager");
     const { product } = await sellableProduct();
-    const firstTable = await app.prisma.cafeTable.create({ data: { name: "Swap 1", seatingLimitMinutes: 45, displayOrder: 101 } });
-    const secondTable = await app.prisma.cafeTable.create({ data: { name: "Swap 2", seatingLimitMinutes: 75, displayOrder: 102 } });
+    const firstTable = await app.prisma.cafeTable.create({ data: { name: "Swap 1", displayOrder: 101 } });
+    const secondTable = await app.prisma.cafeTable.create({ data: { name: "Swap 2", displayOrder: 102 } });
     const first = await createOrderRequest(cookies, { channel: "TABLE", tableId: firstTable.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "swap-first-order-0001");
     expect(first.statusCode).toBe(201);
     expect(first.json().data.tableId).toBe(firstTable.id);
@@ -431,8 +422,6 @@ describe("order reads, edits, and discounts", () => {
       data: {
         channel: "TABLE",
         tableId: secondTable.id,
-        tableSeatingLimitSnapshotMinutes: secondTable.seatingLimitMinutes,
-        estimatedTableReleaseAt: new Date(new Date(second.json().data.createdAt).getTime() + (secondTable.seatingLimitMinutes + second.json().data.estimatedPreparationMinutes) * 60_000),
       },
     });
     const moved = await app.inject({ method: "POST", url: `/api/v1/orders/${first.json().data.id}/transfer-table`, cookies, payload: { expectedVersion: first.json().data.version, tableId: secondTable.id } });
@@ -727,7 +716,7 @@ describe("settlement reversal and print data", () => {
     const staffCookies = await userSession(UserRole.STAFF, "reverse.table.staff");
     const managerCookies = await userSession(UserRole.MANAGER, "reverse.table.manager");
     const { product } = await sellableProduct();
-    const table = await app.prisma.cafeTable.create({ data: { name: "Reverse table", seatingLimitMinutes: 45, displayOrder: 101 } });
+    const table = await app.prisma.cafeTable.create({ data: { name: "Reverse table", displayOrder: 101 } });
     const created = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-table-order-001");
     expect(created.statusCode).toBe(201);
     const order = created.json().data;
@@ -759,7 +748,7 @@ describe("settlement reversal and print data", () => {
     const staffCookies = await userSession(UserRole.STAFF, "reverse.reuse.staff");
     const managerCookies = await userSession(UserRole.MANAGER, "reverse.reuse.manager");
     const { product } = await sellableProduct();
-    const table = await app.prisma.cafeTable.create({ data: { name: "Reversal reuse", seatingLimitMinutes: 45, displayOrder: 155 } });
+    const table = await app.prisma.cafeTable.create({ data: { name: "Reversal reuse", displayOrder: 155 } });
     const first = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-reuse-first-0001");
     const original = first.json().data;
     const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${original.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "reverse-reuse-settlement-1" }, payload: { expectedVersion: original.version, allocations: [{ orderItemId: original.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
@@ -776,7 +765,7 @@ describe("settlement reversal and print data", () => {
     const staffCookies = await userSession(UserRole.STAFF, "reverse.race.staff");
     const managerCookies = await userSession(UserRole.MANAGER, "reverse.race.manager");
     const { product } = await sellableProduct();
-    const table = await app.prisma.cafeTable.create({ data: { name: "Reversal race", seatingLimitMinutes: 45, displayOrder: 156 } });
+    const table = await app.prisma.cafeTable.create({ data: { name: "Reversal race", displayOrder: 156 } });
     const original = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-race-original-001");
     const order = original.json().data;
     const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "reverse-race-settlement-1" }, payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });

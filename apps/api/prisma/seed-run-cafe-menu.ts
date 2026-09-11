@@ -35,14 +35,14 @@ type ProductConfiguration = {
   productName: string;
   basePriceAmount: number;
   isAvailable: boolean;
-  optionGroup: { name: string; options: OptionConfiguration[] } | null;
+  optionGroup: { name: string; options: OptionConfiguration[]; minSelections: number; maxSelections: number } | null;
 };
 
 function configureProduct(
   categoryName: string,
   productName: string,
   basePrice: number,
-  optionGroup: { name: string; options: Array<[name: string, totalPrice: number]> } | null = null,
+  optionGroup: { name: string; options: Array<[name: string, totalPrice: number]>; minSelections?: number; maxSelections?: number } | null = null,
   isAvailable = true,
 ): ProductConfiguration {
   return {
@@ -53,6 +53,8 @@ function configureProduct(
     optionGroup: optionGroup
       ? {
         name: optionGroup.name,
+        minSelections: optionGroup.minSelections ?? 1,
+        maxSelections: optionGroup.maxSelections ?? 1,
         options: optionGroup.options.map(([name, totalPrice]) => ({
           name,
           totalPriceAmount: totalPrice * 1_000,
@@ -103,19 +105,19 @@ const productConfigurations: ProductConfiguration[] = [
   coffeeBlend("بار سرد قهوه", "آیس کارامل ماکیاتو", 285, 295, 335),
   coffeeBlend("بار سرد قهوه", "آیس موکا", 285, 295, 335),
   configureProduct("بار سرد قهوه", "آفوگاتو", 255, {
-    name: "مقدار قهوه",
+    name: "شات",
     options: [["سینگل", 255], ["دبل", 275]],
   }),
   configureProduct("بار سرد قهوه", "آیس اورنج", 285, {
-    name: "مقدار قهوه",
+    name: "شات",
     options: [["سینگل", 285], ["دبل", 295]],
   }),
   configureProduct("بار سرد قهوه", "تونیک اسپرسو", 285, {
-    name: "مقدار قهوه",
+    name: "شات",
     options: [["سینگل", 285], ["دبل", 295]],
   }),
   configureProduct("بار سرد قهوه", "کوک اسپرسو", 285, {
-    name: "مقدار قهوه",
+    name: "شات",
     options: [["سینگل", 285], ["دبل", 295]],
   }),
   configureProduct("بار سرد قهوه", "دالگونیا", 255),
@@ -123,7 +125,7 @@ const productConfigurations: ProductConfiguration[] = [
   configureProduct("بار سرد قهوه", "شیر کاکائو سرد", 215),
 
   ...["V 60", "Aeropress", "Siphone", "فرانسه"].map((productName) => configureProduct("قهوه دمی", productName, 345, {
-    name: "دو کاپ",
+    name: "کاپ",
     options: [["۱ کاپ", 345], ["۲ کاپ", 405]],
   })),
 
@@ -137,19 +139,19 @@ const productConfigurations: ProductConfiguration[] = [
   })),
 
   configureProduct("شیک", "قهوه", 375, {
-    name: "طعم",
+    name: "بستنی",
     options: [["قهوه شکلات", 375], ["قهوه وانیل", 375]],
   }),
   configureProduct("شیک", "اسپرسو گردویی", 375),
   configureProduct("شیک", "نسکافه", 375),
   configureProduct("شیک", "فراپاچینو", 355, {
-    name: "سیروپ",
-    options: [["کارامل", 355], ["شکلات", 355], ["وانیل", 355]],
+    name: "بستنی",
+    options: [["وانیل", 355], ["شکلات", 355], ["قهوه", 355]],
   }),
 
   configureProduct("دسر", "کوکی کره ای", 20, {
-    name: "طعم",
-    options: [["شکلات", 20], ["زعفران", 20]],
+    name: "کوکی",
+    options: [["شکلاتی", 20], ["زعفرانی", 20]],
   }),
   configureProduct("دسر", "کروسان نوتلا توت فرنگی", 230),
   configureProduct("دسر", "کروسان ویژه", 280),
@@ -159,23 +161,23 @@ const productConfigurations: ProductConfiguration[] = [
   configureProduct("دسر", "چیز کیک لوتوس", 320),
 
   configureProduct("تست بار", "کره بادوم زمینی", 185, {
-    name: "طعم",
-    options: [["ساده", 185], ["کره بادوم زمینی و موز", 215]],
+    name: "تست",
+    options: [["موز", 215]], minSelections: 0,
   }),
   configureProduct("تست بار", "شکلات", 185, {
-    name: "طعم",
-    options: [["ساده", 185], ["شکلات و موز", 215]],
+    name: "تست",
+    options: [["موز", 215]], minSelections: 0,
   }),
   configureProduct("تست بار", "پنیر گردو", 175),
 
   configureProduct("افزودنی", "اسکپ بستنی", 85, {
-    name: "طعم",
+    name: "بستنی",
     options: [["وانیل", 85], ["شکلات", 85]],
   }),
   configureProduct("افزودنی", "دلستر لیوانی", 90),
   configureProduct("افزودنی", "ابجو بدون الکل با دورچین", 190),
   configureProduct("افزودنی", "سیروپ", 45, {
-    name: "طعم",
+    name: "سیروپ",
     options: [["کارامل", 45], ["فندق", 45], ["وانیل", 45], ["نارگیل", 45], ["دارچین", 45], ["شکلات", 45], ["آیریش", 45], ["رز", 45], ["اسطوخودوس", 45]],
   }),
   configureProduct("افزودنی", "شات شیر", 35),
@@ -303,6 +305,8 @@ async function main() {
       }
     }
 
+    await tx.productOptionGroupOption.deleteMany({});
+    await tx.productOptionGroup.deleteMany({});
     for (const configuration of productConfigurations) {
       const productKey = `${configuration.categoryName}|${configuration.productName}`;
       const productId = productIdsByCatalogKey.get(productKey);
@@ -318,47 +322,18 @@ async function main() {
         },
       });
 
-      const linkedGroups = configuration.optionGroup
-        ? await tx.productOptionGroup.findMany({
-          where: { productId, optionGroup: { name: configuration.optionGroup.name } },
-          orderBy: { displayOrder: "asc" },
-          include: {
-            optionGroup: {
-              include: { _count: { select: { productOptionGroups: true } } },
-            },
-          },
-        })
-        : [];
-      const reusableGroup = linkedGroups.find(
-        ({ optionGroup }) => optionGroup._count.productOptionGroups === 1,
-      )?.optionGroup;
-
-      await tx.productOptionGroup.deleteMany({ where: { productId } });
       if (!configuration.optionGroup) continue;
-
-      const optionGroup = reusableGroup
+      const optionGroup = await tx.optionGroup.findFirst({ where: { name: configuration.optionGroup.name, archivedAt: null } })
         ?? await tx.optionGroup.create({ data: { name: configuration.optionGroup.name } });
-      await tx.optionGroup.update({
-        where: { id: optionGroup.id },
-        data: { name: configuration.optionGroup.name, isActive: true },
-      });
-
-      const desiredOptionIds: string[] = [];
+      await tx.optionGroup.update({ where: { id: optionGroup.id }, data: { isActive: true, archivedAt: null } });
+      const allowedOptions: Array<{ optionId: string; displayOrder: number; priceAmountOverride: number | null }> = [];
       for (const [optionOrder, desiredOption] of configuration.optionGroup.options.entries()) {
         const optionPriceAmount = desiredOption.totalPriceAmount - configuration.basePriceAmount;
         if (optionPriceAmount < 0) {
           throw new Error(`Option total is below base price: ${productKey}|${desiredOption.name}`);
         }
 
-        const matchingOptions = await tx.option.findMany({
-          where: {
-            optionGroupId: optionGroup.id,
-            name: desiredOption.name,
-            archivedAt: null,
-          },
-          orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
-        });
-        const option = matchingOptions[0]
+        const option = await tx.option.findFirst({ where: { optionGroupId: optionGroup.id, name: desiredOption.name } })
           ?? await tx.option.create({
             data: {
               optionGroupId: optionGroup.id,
@@ -367,36 +342,11 @@ async function main() {
               displayOrder: optionOrder + 1,
             },
           });
-        await tx.option.update({
-          where: { id: option.id },
-          data: {
-            priceAmount: optionPriceAmount,
-            displayOrder: optionOrder + 1,
-            isActive: true,
-            isAvailable: true,
-          },
-        });
-        desiredOptionIds.push(option.id);
-
-        const duplicateOptionIds = matchingOptions.slice(1).map(({ id }) => id);
-        if (duplicateOptionIds.length > 0) {
-          await tx.option.updateMany({
-            where: { id: { in: duplicateOptionIds } },
-            data: { isActive: false, isAvailable: false, archivedAt: synchronizedAt },
-          });
-        }
+        await tx.option.update({ where: { id: option.id }, data: { displayOrder: optionOrder + 1, isActive: true, isAvailable: true, archivedAt: null } });
+        allowedOptions.push({ optionId: option.id, displayOrder: optionOrder + 1, priceAmountOverride: option.priceAmount === optionPriceAmount ? null : optionPriceAmount });
       }
-
-      await tx.option.updateMany({
-        where: {
-          optionGroupId: optionGroup.id,
-          archivedAt: null,
-          id: { notIn: desiredOptionIds },
-        },
-        data: { isActive: false, isAvailable: false, archivedAt: synchronizedAt },
-      });
       await tx.productOptionGroup.create({
-        data: { productId, optionGroupId: optionGroup.id, displayOrder: 1 },
+        data: { productId, optionGroupId: optionGroup.id, displayOrder: 1, minSelections: configuration.optionGroup.minSelections, maxSelections: configuration.optionGroup.maxSelections, allowedOptions: { create: allowedOptions } },
       });
     }
 

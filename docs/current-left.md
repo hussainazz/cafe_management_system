@@ -1,5 +1,16 @@
 # Current Backend Stage Status
 
+## 11 September 2026 timing-rule update
+
+- Seating and preparation timing is display-only. Orders no longer persist
+  preparation or seating-limit snapshots or a calculated release timestamp.
+  The POS receives the optional café seating setting and raw active-item
+  preparation deadlines, then calculates the remaining table timer locally
+  only when the Manager has enabled a seating limit.
+- Historical order totals, item prices, option snapshots, payments, and audit
+  records remain immutable; the removed timing columns are intentionally not
+  part of the archived order model.
+
 This file is the active completion checklist and current stage status for the backend phase. Check it for every related request.
 
 ## In Progress Stages
@@ -241,6 +252,12 @@ This file is the active completion checklist and current stage status for the ba
     reversal.
     Authenticated desktop/mobile browser validation remains required before
     Stage 9 can be called fully verified.
+  - 11 September 2026 canonical-catalog redesign is in progress: active option
+    groups become unique shared catalogs with product-specific allowed-option
+    subsets, selection ranges, and optional price overrides. Legacy duplicate
+    groups and `طعم` remain archived for immutable order history only. Seating
+    duration moves from physical tables to the café-settings singleton while
+    each existing/new table order retains its own timing snapshot.
 
 ## Future Validation Work
 

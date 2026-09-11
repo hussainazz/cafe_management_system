@@ -181,7 +181,7 @@ Acceptance criteria:
 
 - POS catalog reads return active categories, sellable products, options,
   availability, final Toman prices, image metadata, and preparation deadlines.
-- Table reads return active tables, seating limits, active order summaries,
+- Table reads return active tables, the optional café seating limit, active order summaries,
   estimated preparation minutes, and estimated release times.
 - Inactive or archived data is hidden unless a documented Staff use case
   requires it.

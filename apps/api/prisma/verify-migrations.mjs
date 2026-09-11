@@ -256,7 +256,7 @@ async function verifyExistingDataUpgrade(files) {
       INSERT INTO "orders" (
         "id", "orderNumber", "createdById", "channel", "state", "paymentStatus", "version",
         "discountAmount", "subtotalAmount", "totalAmount", "paidAmount", "balanceAmount",
-        "estimatedPreparationMinutes", "createdAt", "updatedAt"
+        "createdAt", "updatedAt"
       ) VALUES (
         '50000000-0000-4000-8000-000000000001', 'MIGRATION-ORDER-1',
         '10000000-0000-4000-8000-000000000001', 'TAKEAWAY', 'OPEN', 'UNPAID', 1,
@@ -264,7 +264,7 @@ async function verifyExistingDataUpgrade(files) {
       );
       INSERT INTO "order_items" (
         "id", "orderId", "productId", "productNameSnapshot", "basePriceSnapshot",
-        "preparationDeadlineSnapshotMinutes", "quantity", "discountAmount", "lineTotalAmount", "displayOrder"
+        "quantity", "discountAmount", "lineTotalAmount", "displayOrder"
       ) VALUES (
         '60000000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001',
         '30000000-0000-4000-8000-000000000001', 'Existing product', 100000, 5, 1, 0, 100000, 1

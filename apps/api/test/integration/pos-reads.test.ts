@@ -130,10 +130,10 @@ describe("POS catalog and table reads", () => {
     const cookies = await createStaffSession();
     const staff = await app.prisma.user.findUniqueOrThrow({ where: { username: "pos.reader" } });
     const table = await app.prisma.cafeTable.create({
-      data: { name: "Table 1", seatingLimitMinutes: 45, displayOrder: 1 },
+      data: { name: "Table 1", displayOrder: 1 },
     });
     await app.prisma.cafeTable.create({
-      data: { name: "Hidden table", seatingLimitMinutes: 30, displayOrder: 2, isActive: false },
+      data: { name: "Hidden table", displayOrder: 2, isActive: false },
     });
     const createdAt = new Date("2026-08-14T08:00:00.000Z");
     const releaseAt = new Date("2026-08-14T08:55:00.000Z");
@@ -148,20 +148,17 @@ describe("POS catalog and table reads", () => {
         subtotalAmount: 85_000,
         totalAmount: 85_000,
         balanceAmount: 85_000,
-        estimatedPreparationMinutes: 10,
-        tableSeatingLimitSnapshotMinutes: 45,
-        estimatedTableReleaseAt: releaseAt,
         createdAt,
       },
     });
 
     const listResponse = await app.inject({ method: "GET", url: "/api/v1/tables", cookies });
     expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().data.tableSeatingLimitMinutes).toBeNull();
     expect(listResponse.json().data.tables).toEqual([
       {
         id: table.id,
         name: "Table 1",
-        seatingLimitMinutes: 45,
         waiterCallEnabled: false,
         occupancyState: "AVAILABLE",
         occupiedAt: null,
@@ -171,9 +168,8 @@ describe("POS catalog and table reads", () => {
             id: order.id,
             orderNumber: "POS-READ-001",
             paymentStatus: "UNPAID",
-            estimatedPreparationMinutes: 10,
-            estimatedTableReleaseAt: releaseAt.toISOString(),
             createdAt: createdAt.toISOString(),
+            itemPreparationDeadlineMinutes: [],
           },
         ],
       },

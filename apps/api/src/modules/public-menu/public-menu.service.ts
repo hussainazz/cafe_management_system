@@ -11,12 +11,12 @@ const publicCatalogInclude = {
           id: true,
           name: true,
           isActive: true,
-          options: {
-            where: { isActive: true, archivedAt: null },
-            orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
-            select: { id: true, name: true, priceAmount: true, isAvailable: true },
-          },
+          archivedAt: true,
         },
+      },
+      allowedOptions: {
+        orderBy: { displayOrder: "asc" },
+        include: { option: { select: { id: true, name: true, priceAmount: true, isAvailable: true, isActive: true, archivedAt: true } } },
       },
     },
   },
@@ -40,8 +40,8 @@ function toPublicProduct(product: PublicCatalogProduct) {
     isAvailable: product.isAvailable,
     image: product.image,
     optionGroups: product.productOptionGroups
-      .filter(({ optionGroup }) => optionGroup.isActive)
-      .map(({ optionGroup }) => ({ id: optionGroup.id, name: optionGroup.name, options: optionGroup.options })),
+      .filter(({ optionGroup }) => optionGroup.isActive && optionGroup.archivedAt === null)
+      .map(({ optionGroup, minSelections, maxSelections, allowedOptions }) => ({ id: optionGroup.id, name: optionGroup.name, minSelections, maxSelections, options: allowedOptions.filter(({ option }) => option.isActive && option.isAvailable && !option.archivedAt).map(({ option, priceAmountOverride }) => ({ ...option, priceAmount: priceAmountOverride ?? option.priceAmount })) })),
   };
 }
 

@@ -20,7 +20,7 @@ describe("ManagerWorkspace", () => {
     vi.clearAllMocks();
     api.readManagerCatalog.mockResolvedValue({ ok: true, data: catalog });
     api.readManagerStaff.mockResolvedValue({ ok: true, data: [] });
-    api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "00000000-0000-4000-8000-000000000001", defaultTableSeatingLimitMinutes: 45, updatedAt: new Date().toISOString() } });
+    api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "00000000-0000-4000-8000-000000000001", tableSeatingLimitMinutes: null, updatedAt: new Date().toISOString() } });
     api.readPaymentHistory.mockResolvedValue({ ok: true, data: { payments: [], page: { nextCursor: null } } });
     api.readDailyReport.mockResolvedValue({ ok: true, data: null });
     api.readAuditLog.mockResolvedValue({ ok: true, data: { data: { entries: [] }, meta: { page: { nextCursor: null } } } });

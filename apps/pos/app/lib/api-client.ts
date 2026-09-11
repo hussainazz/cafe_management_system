@@ -184,15 +184,13 @@ export async function readPosCatalog(): Promise<ApiResult<PosCatalogCategory[]>>
     : parsed;
 }
 
-export async function readPosTables(): Promise<ApiResult<PosTable[]>> {
+export async function readPosTables(): Promise<ApiResult<{ tableSeatingLimitMinutes: number | null; tables: PosTable[] }>> {
   const parsed = parseResponse(
     await request<unknown>("/tables", undefined, false),
     PosTablesResponseSchema,
     "فهرست میزها معتبر نیست.",
   );
-  return parsed.ok
-    ? { ok: true, data: parsed.data.data.tables, replayed: parsed.replayed }
-    : parsed;
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
 
 export async function readOpenOrders() {

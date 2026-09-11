@@ -8,7 +8,6 @@ import {
   type PrismaClient,
 } from "../../../generated/prisma/client.js";
 import {
-  calculateTableEta,
   type CreateOrderRequest,
   type DeleteOrderRequest,
   type RecordSettlementRequest,
@@ -44,20 +43,40 @@ type ProductForOrder = {
   archivedAt: Date | null;
   category: { isActive: boolean; archivedAt: Date | null };
   productOptionGroups: Array<{
+    minSelections: number;
+    maxSelections: number;
+    allowedOptions: Array<{ priceAmountOverride: number | null; option: {
+      id: string; name: string; priceAmount: number; isActive: boolean; isAvailable: boolean; archivedAt: Date | null;
+    } }>;
     optionGroup: {
       id: string;
       isActive: boolean;
-      options: Array<{
-        id: string;
-        name: string;
-        priceAmount: number;
-        isActive: boolean;
-        isAvailable: boolean;
-        archivedAt: Date | null;
-      }>;
+      archivedAt: Date | null;
     };
   }>;
 };
+
+function catalogOptions(product: ProductForOrder) {
+  return new Map(product.productOptionGroups
+    .filter(({ optionGroup }) => optionGroup.isActive && !optionGroup.archivedAt)
+    .flatMap((group) => group.allowedOptions.map(({ option, priceAmountOverride }) => [option.id, { ...option, priceAmount: priceAmountOverride ?? option.priceAmount, optionGroupId: group.optionGroup.id }] as const)));
+}
+
+function validateOptionSelections(product: ProductForOrder, selected: Array<{ optionId: string; quantity: number }>, itemQuantity: number) {
+  const options = catalogOptions(product);
+  const perGroup = new Map<string, number>();
+  for (const choice of selected) {
+    const option = options.get(choice.optionId);
+    if (!option || !option.isActive || !option.isAvailable || option.archivedAt) throw new ApplicationError(422, ErrorCodes.UNAVAILABLE_PRODUCT, "One or more selected options are unavailable.");
+    if (choice.quantity > itemQuantity) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An option quantity cannot exceed its order item quantity.");
+    perGroup.set(option.optionGroupId, (perGroup.get(option.optionGroupId) ?? 0) + 1);
+  }
+  for (const group of product.productOptionGroups) {
+    const count = perGroup.get(group.optionGroup.id) ?? 0;
+    if (count < group.minSelections || count > group.maxSelections) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Selected options do not satisfy the product option group.");
+  }
+  return options;
+}
 
 type CreatedOrder = {
   id: string;
@@ -75,16 +94,12 @@ type CreatedOrder = {
   totalAmount: number;
   paidAmount: number;
   balanceAmount: number;
-  estimatedPreparationMinutes: number;
-  tableSeatingLimitSnapshotMinutes: number | null;
-  estimatedTableReleaseAt: string | null;
   createdAt: string;
   items: Array<{
     id: string;
     productId: string;
     productNameSnapshot: string;
     basePriceSnapshot: number;
-    preparationDeadlineSnapshotMinutes: number;
     quantity: number;
     note: string | null;
     discountKind: "FIXED" | "PERCENTAGE" | null;
@@ -194,16 +209,12 @@ function toCreatedOrder(order: {
   totalAmount: number;
   paidAmount: number;
   balanceAmount: number;
-  estimatedPreparationMinutes: number;
-  tableSeatingLimitSnapshotMinutes: number | null;
-  estimatedTableReleaseAt: Date | null;
   createdAt: Date;
   items: Array<{
     id: string;
     productId: string;
     productNameSnapshot: string;
     basePriceSnapshot: number;
-    preparationDeadlineSnapshotMinutes: number;
     quantity: number;
     note: string | null;
     discountKind: DiscountKind | null;
@@ -230,8 +241,6 @@ function toCreatedOrder(order: {
     paidAmount: order.paidAmount,
     state: order.state as "OPEN" | "CLOSED" | "DELETED",
     paymentStatus: order.paymentStatus as "UNPAID" | "PARTIALLY_PAID" | "PAID",
-    tableSeatingLimitSnapshotMinutes: order.tableSeatingLimitSnapshotMinutes,
-    estimatedTableReleaseAt: order.estimatedTableReleaseAt?.toISOString() ?? null,
     createdAt: order.createdAt.toISOString(),
     items: order.items.map((item) => ({ ...item, options: item.options })),
   } as CreatedOrder;
@@ -269,19 +278,9 @@ export async function createOrder(
           productOptionGroups: {
             include: {
               optionGroup: {
-                include: {
-                  options: {
-                    select: {
-                      id: true,
-                      name: true,
-                      priceAmount: true,
-                      isActive: true,
-                      isAvailable: true,
-                      archivedAt: true,
-                    },
-                  },
-                },
+                select: { id: true, isActive: true, archivedAt: true },
               },
+              allowedOptions: { include: { option: true } },
             },
           },
         },
@@ -297,36 +296,14 @@ export async function createOrder(
             "One or more selected products are unavailable.",
           );
         }
-        const allowedOptions = new Map(
-          product.productOptionGroups
-            .filter(({ optionGroup }) => optionGroup.isActive)
-            .flatMap(({ optionGroup }) => optionGroup.options)
-            .map((option) => [option.id, option]),
-        );
-        for (const selectedOption of item.options) {
-          const option = allowedOptions.get(selectedOption.optionId);
-          if (!option || !option.isActive || !option.isAvailable || option.archivedAt) {
-            throw new ApplicationError(
-              422,
-              ErrorCodes.UNAVAILABLE_PRODUCT,
-              "One or more selected options are unavailable.",
-            );
-          }
-          if (selectedOption.quantity > item.quantity) {
-            throw new ApplicationError(
-              422,
-              ErrorCodes.BUSINESS_RULE_VIOLATION,
-              "An option quantity cannot exceed its order item quantity.",
-            );
-          }
-        }
+        validateOptionSelections(product as ProductForOrder, item.options, item.quantity);
       }
 
       const table =
         input.channel === "TABLE"
           ? await transaction.cafeTable.findFirst({
               where: { id: input.tableId, isActive: true, archivedAt: null },
-              select: { id: true, name: true, seatingLimitMinutes: true },
+            select: { id: true, name: true },
             })
           : null;
       if (input.channel === "TABLE" && !table) {
@@ -349,15 +326,9 @@ export async function createOrder(
           );
         }
       }
-
       const preparedItems = input.items.map((item, displayOrder) => {
         const product = productById.get(item.productId)!;
-        const optionById = new Map(
-          product.productOptionGroups
-            .filter(({ optionGroup }) => optionGroup.isActive)
-            .flatMap(({ optionGroup }) => optionGroup.options)
-            .map((option) => [option.id, option]),
-        );
+        const optionById = validateOptionSelections(product as ProductForOrder, item.options, item.quantity);
         const options = item.options.map((selectedOption) => {
           const option = optionById.get(selectedOption.optionId)!;
           return {
@@ -375,7 +346,6 @@ export async function createOrder(
           productId: product.id,
           productNameSnapshot: product.name,
           basePriceSnapshot: product.priceAmount,
-          preparationDeadlineSnapshotMinutes: product.preparationDeadlineMinutes,
           quantity: item.quantity,
           note: item.note ?? null,
           discountKind: saleDiscount?.kind ?? null,
@@ -389,15 +359,6 @@ export async function createOrder(
       });
       const subtotalAmount = preparedItems.reduce((total, item) => total + item.lineTotalAmount, 0);
       const createdAt = new Date();
-      const timing = table
-        ? calculateTableEta({
-            seatedAt: createdAt,
-            seatingLimitMinutes: table.seatingLimitMinutes,
-            itemPreparationDeadlineMinutes: preparedItems.map(
-              (item) => item.preparationDeadlineSnapshotMinutes,
-            ),
-          })
-        : null;
 
       const created = await transaction.order.create({
         data: {
@@ -408,11 +369,6 @@ export async function createOrder(
           subtotalAmount,
           totalAmount: subtotalAmount,
           balanceAmount: subtotalAmount,
-          estimatedPreparationMinutes:
-            timing?.estimatedPreparationMinutes ??
-            Math.max(...preparedItems.map((item) => item.preparationDeadlineSnapshotMinutes)),
-          tableSeatingLimitSnapshotMinutes: table?.seatingLimitMinutes ?? null,
-          estimatedTableReleaseAt: timing?.estimatedReleaseAt ?? null,
           createdAt,
           items: {
             create: preparedItems.map((item) => ({
@@ -490,6 +446,7 @@ export async function createOrder(
 }
 
 const orderDetailInclude = {
+  table: { select: { name: true } },
   items: {
     orderBy: { displayOrder: "asc" },
     include: { options: { orderBy: { id: "asc" } } },
@@ -512,6 +469,7 @@ function orderDetailDto(order: OrderDetailRecord) {
     orderNumber: order.orderNumber,
     channel: order.channel,
     tableId: order.tableId,
+    tableName: order.table?.name ?? null,
     state: order.state,
     paymentStatus: order.paymentStatus,
     version: order.version,
@@ -523,16 +481,12 @@ function orderDetailDto(order: OrderDetailRecord) {
     totalAmount: order.totalAmount,
     paidAmount: order.paidAmount,
     balanceAmount: order.balanceAmount,
-    estimatedPreparationMinutes: order.estimatedPreparationMinutes,
-    tableSeatingLimitSnapshotMinutes: order.tableSeatingLimitSnapshotMinutes,
-    estimatedTableReleaseAt: order.estimatedTableReleaseAt?.toISOString() ?? null,
     createdAt: order.createdAt.toISOString(),
     items: order.items.map((item) => ({
       id: item.id,
       productId: item.productId,
       productNameSnapshot: item.productNameSnapshot,
       basePriceSnapshot: item.basePriceSnapshot,
-      preparationDeadlineSnapshotMinutes: item.preparationDeadlineSnapshotMinutes,
       quantity: item.quantity,
       note: item.note,
       discountKind: item.discountKind,
@@ -626,8 +580,6 @@ export async function listOrders(prisma: PrismaClient, actor: AuthenticatedUser,
       version: order.version,
       totalAmount: order.totalAmount,
       balanceAmount: order.balanceAmount,
-      estimatedPreparationMinutes: order.estimatedPreparationMinutes,
-      estimatedTableReleaseAt: order.estimatedTableReleaseAt?.toISOString() ?? null,
       createdAt: order.createdAt.toISOString(),
     })),
     page: {
@@ -663,14 +615,14 @@ export async function updateOrder(
         where: { id: { in: productIds } },
         include: {
           category: { select: { isActive: true, archivedAt: true } },
-          productOptionGroups: { include: { optionGroup: { include: { options: true } } } },
+          productOptionGroups: { include: { optionGroup: true, allowedOptions: { include: { option: true } } } },
         },
       });
       const productById = new Map(products.map((product) => [product.id, product as ProductForOrder]));
       const prepared = catalogItems.map((requested, index) => {
         const product = productById.get(requested.productId);
         if (!product || !isAvailableProduct(product)) throw new ApplicationError(422, ErrorCodes.UNAVAILABLE_PRODUCT, "One or more selected products are unavailable.");
-        const allowedOptions = new Map(product.productOptionGroups.filter(({ optionGroup }) => optionGroup.isActive).flatMap(({ optionGroup }) => optionGroup.options).map((option) => [option.id, option]));
+        const allowedOptions = validateOptionSelections(product as ProductForOrder, requested.options, requested.quantity);
         const options = requested.options.map((selected) => {
           const option = allowedOptions.get(selected.optionId);
           if (!option || !option.isActive || !option.isAvailable || option.archivedAt) throw new ApplicationError(422, ErrorCodes.UNAVAILABLE_PRODUCT, "One or more selected options are unavailable.");
@@ -683,7 +635,7 @@ export async function updateOrder(
         const discountAmount = saleDiscount ? calculatedDiscount(productAmount, saleDiscount) : 0;
         return {
           productId: product.id, productNameSnapshot: product.name, basePriceSnapshot: product.priceAmount,
-          preparationDeadlineSnapshotMinutes: product.preparationDeadlineMinutes, quantity: requested.quantity,
+          quantity: requested.quantity,
           note: requested.note ?? null, discountKind: saleDiscount?.kind ?? null, discountValue: saleDiscount?.value ?? null,
           discountAmount, discountReason: null, lineTotalAmount: grossLineAmount - discountAmount,
           displayOrder: input.items ? index : order.items.length + index, options,
@@ -730,11 +682,10 @@ export async function updateOrder(
     if (input.orderDiscount !== undefined && activeAllocations.size > 0) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The order discount cannot change after settlement.");
     const orderDiscountAmount = input.orderDiscount === undefined ? order.discountAmount : input.orderDiscount === null ? 0 : calculatedDiscount(subtotalAmount, input.orderDiscount);
     if (orderDiscountAmount > subtotalAmount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The existing order discount exceeds the updated order amount.");
-    const estimatedPreparationMinutes = Math.max(...items.map((item) => item.preparationDeadlineSnapshotMinutes));
     const totalAmount = subtotalAmount - orderDiscountAmount;
     const balanceAmount = totalAmount - order.paidAmount;
     const paymentStatus = order.paidAmount === 0 ? PaymentStatus.UNPAID : balanceAmount === 0 ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
-    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, estimatedPreparationMinutes, version: { increment: 1 } } });
+    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, afterSnapshot: { version: input.expectedVersion + 1 } } });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
@@ -767,15 +718,13 @@ export async function transferOrderTable(prisma: PrismaClient, actor: Authentica
       include: orderDetailInclude,
     });
     const now = new Date();
-    const destinationTiming = calculateTableEta({ seatedAt: order.createdAt, seatingLimitMinutes: destinationTable.seatingLimitMinutes, itemPreparationDeadlineMinutes: [order.estimatedPreparationMinutes] });
     // PostgreSQL checks partial unique indexes per row, so briefly remove the
     // displaced order from the TABLE predicate inside this transaction.
-    if (destinationOrder) await transaction.order.update({ where: { id: destinationOrder.id }, data: { channel: OrderChannel.TAKEAWAY, tableId: null, tableSeatingLimitSnapshotMinutes: null, estimatedTableReleaseAt: null } });
-    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { tableId: destinationTable.id, tableSeatingLimitSnapshotMinutes: destinationTable.seatingLimitMinutes, estimatedTableReleaseAt: destinationTiming.estimatedReleaseAt, version: { increment: 1 } } });
+    if (destinationOrder) await transaction.order.update({ where: { id: destinationOrder.id }, data: { channel: OrderChannel.TAKEAWAY, tableId: null } });
+    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { tableId: destinationTable.id, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     if (destinationOrder) {
-      const sourceTiming = calculateTableEta({ seatedAt: destinationOrder.createdAt, seatingLimitMinutes: sourceTable.seatingLimitMinutes, itemPreparationDeadlineMinutes: [destinationOrder.estimatedPreparationMinutes] });
-      await transaction.order.update({ where: { id: destinationOrder.id }, data: { channel: OrderChannel.TABLE, tableId: sourceTable.id, tableSeatingLimitSnapshotMinutes: sourceTable.seatingLimitMinutes, estimatedTableReleaseAt: sourceTiming.estimatedReleaseAt, version: { increment: 1 } } });
+      await transaction.order.update({ where: { id: destinationOrder.id }, data: { channel: OrderChannel.TABLE, tableId: sourceTable.id, version: { increment: 1 } } });
       await transaction.cafeTable.update({ where: { id: sourceTable.id }, data: { occupancyState: "OCCUPIED", occupiedAt: sourceTable.occupiedAt ?? now, occupancyReminderAt: null } });
       await transaction.cafeTable.update({ where: { id: destinationTable.id }, data: { occupancyState: "OCCUPIED", occupiedAt: destinationTable.occupiedAt ?? now, occupancyReminderAt: null } });
       await transaction.auditLog.createMany({ data: [

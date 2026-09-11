@@ -44,6 +44,7 @@ type ProductCard = { key: string; name: string; products: PosCatalogProduct[] };
 type Data = {
   catalog: PosCatalogCategory[];
   tables: PosTable[];
+  tableSeatingLimitMinutes: number | null;
   calls: Array<{ tableId: string; tableName: string; version: number; requestedAt: string }>;
   openOrders: Array<{ id: string; tableId: string | null; totalAmount: number }>;
 };
@@ -126,7 +127,8 @@ export function OrdersWorkspace({
     }
     setData((current) => ({
       catalog: catalog.data,
-      tables: tables.data,
+      tables: tables.data.tables,
+      tableSeatingLimitMinutes: tables.data.tableSeatingLimitMinutes,
       calls: calls.ok ? calls.data : current?.calls ?? [],
       openOrders: orders.ok ? orders.data : current?.openOrders ?? [],
     }));
@@ -171,7 +173,8 @@ export function OrdersWorkspace({
     }
     setData((current) => current && {
       ...current,
-      tables: tables.data,
+      tables: tables.data.tables,
+      tableSeatingLimitMinutes: tables.data.tableSeatingLimitMinutes,
       calls: calls.ok ? calls.data : current.calls,
       openOrders: orders.ok ? orders.data : current.openOrders,
     });
@@ -374,6 +377,7 @@ export function OrdersWorkspace({
       ) : (
         <TableBoard
           tables={data.tables}
+          tableSeatingLimitMinutes={data.tableSeatingLimitMinutes}
           calls={data.calls}
           orders={data.openOrders}
           selectedTableId={selected?.id ?? null}
@@ -475,6 +479,7 @@ export function OrdersWorkspace({
 
 function TableBoard({
   tables,
+  tableSeatingLimitMinutes,
   calls,
   orders,
   selectedTableId,
@@ -491,6 +496,7 @@ function TableBoard({
   onRequestTransfer,
 }: {
   tables: PosTable[];
+  tableSeatingLimitMinutes: number | null;
   calls: Data["calls"];
   orders: Data["openOrders"];
   selectedTableId: string | null;
@@ -507,11 +513,22 @@ function TableBoard({
   onRequestTransfer: (source: PosTable, destination: PosTable) => Promise<void>;
 }) {
   const [transferSourceId, setTransferSourceId] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const occupyTimer = useRef<number | null>(null);
   const heldTableId = useRef<string | null>(null);
   const cancelOccupy = () => {
     if (occupyTimer.current !== null) window.clearTimeout(occupyTimer.current);
     occupyTimer.current = null;
+  };
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const remainingLabel = (order: PosTable["activeOrders"][number]) => {
+    if (tableSeatingLimitMinutes === null) return null;
+    const preparation = Math.max(0, ...order.itemPreparationDeadlineMinutes);
+    const elapsed = Math.max(0, (now - Date.parse(order.createdAt)) / 60_000);
+    return `${Math.max(0, Math.ceil(tableSeatingLimitMinutes + preparation - elapsed))} دقیقه باقی‌مانده`;
   };
   const totals = new Map(orders.filter((x) => x.tableId).map((x) => [x.tableId!, x.totalAmount]));
   return (
@@ -598,7 +615,7 @@ function TableBoard({
                 </span>
                 <span className="table-tile__details">
                   <span className="table-status"><i />{call ? "درخواست گارسون" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال" : "آماده"}</span>
-                  {hasOrder && <span className="table-tile__meta">{elapsedLabel(table.activeOrders[0]!.createdAt)}</span>}
+                  {hasOrder && <span className="table-tile__meta">{[remainingLabel(table.activeOrders[0]!), elapsedLabel(table.activeOrders[0]!.createdAt)].filter(Boolean).join(" · ")}</span>}
                   {call && <span className="table-tile__meta">{elapsedLabel(call.requestedAt)} پیش درخواست شده</span>}
                   {!hasOrder && !call && <span className="table-tile__meta">{table.occupiedAt ? elapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>}
                   {hasOrder && <b>{formatToman(totals.get(table.id) ?? 0)}</b>}
@@ -1264,7 +1281,7 @@ function ProductPicker({
     const selectedOptions = groups
       .map((group) => next[group.id])
       .filter((candidate): candidate is Option => candidate !== undefined);
-    if (selectedOptions.length === groups.length) onSelectOptions(selectedProduct, selectedOptions);
+    if (groups.every((group) => (next[group.id] ? 1 : 0) >= group.minSelections)) onSelectOptions(selectedProduct, selectedOptions);
   };
   const isAvailable = card.products.some((product) => product.isAvailable);
   const showSizeChoices = card.products.length > 1;
@@ -1307,6 +1324,11 @@ function ProductPicker({
               {groups.map((group) => (
                 <section className="product-option-group" key={group.id}>
                   <div>
+                    {group.minSelections === 0 && (
+                      <button type="button" onClick={() => onSelectOptions(selectedProduct, groups.map((candidate) => picked[candidate.id]).filter((candidate): candidate is Option => candidate !== undefined))}>
+                        بدون افزودنی
+                      </button>
+                    )}
                     {group.options.map((option) => (
                       <button
                         key={option.id}

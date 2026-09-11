@@ -27,8 +27,6 @@ async function recordedSettlement(input: {
       createdById: input.actorId,
       channel: input.tableId ? "TABLE" : "TAKEAWAY",
       tableId: input.tableId ?? null,
-      tableSeatingLimitSnapshotMinutes: input.tableId ? 45 : null,
-      estimatedTableReleaseAt: input.tableId ? new Date(input.recordedAt.getTime() + 45 * 60_000) : null,
       state: "CLOSED",
       paymentStatus: "PAID",
       subtotalAmount: input.amount,
@@ -84,7 +82,6 @@ async function reportOrder(input: {
           productId: input.productId,
           productNameSnapshot: "Report coffee",
           basePriceSnapshot: 100_000,
-          preparationDeadlineSnapshotMinutes: 5,
           quantity: 1,
           discountAmount: input.itemDiscountAmount ?? 0,
           lineTotalAmount: input.subtotalAmount,
@@ -140,22 +137,25 @@ describe("Manager administration", () => {
     const manager = await session(UserRole.MANAGER, "catalog.manager");
     const defaults = await app.inject({ method: "GET", url: "/api/v1/admin/settings", cookies: manager });
     expect(defaults.statusCode).toBe(200);
-    expect(defaults.json().data.defaultTableSeatingLimitMinutes).toBe(45);
+    expect(defaults.json().data.tableSeatingLimitMinutes).toBeNull();
     const category = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "نوشیدنی", displayOrder: 2 } });
     const group = await app.inject({ method: "POST", url: "/api/v1/admin/option-groups", cookies: manager, payload: { name: "سایز" } });
     const groupId = group.json().data.id;
     const option = await app.inject({ method: "POST", url: `/api/v1/admin/option-groups/${groupId}/options`, cookies: manager, payload: { name: "بزرگ", priceAmount: 5_000, displayOrder: 1 } });
     expect(option.statusCode).toBe(200);
-    const product = await app.inject({ method: "POST", url: "/api/v1/admin/products", cookies: manager, payload: { categoryId: category.json().data.id, name: "لاته", priceAmount: 10_000, preparationDeadlineMinutes: 5, displayOrder: 1, optionGroupIds: [groupId] } });
+    const product = await app.inject({ method: "POST", url: "/api/v1/admin/products", cookies: manager, payload: { categoryId: category.json().data.id, name: "لاته", priceAmount: 10_000, preparationDeadlineMinutes: 5, displayOrder: 1, optionGroups: [{ optionGroupId: groupId, displayOrder: 1, minSelections: 1, maxSelections: 1, options: [{ optionId: option.json().data.id, displayOrder: 1 }] }] } });
     expect(product.statusCode).toBe(200);
     const productId = product.json().data.id;
     expect((await app.prisma.productOptionGroup.findUnique({ where: { productId_optionGroupId: { productId, optionGroupId: groupId } } }))).not.toBeNull();
-    const table = await app.inject({ method: "POST", url: "/api/v1/admin/tables", cookies: manager, payload: { name: "۱۴", seatingLimitMinutes: 55, displayOrder: 14 } });
+    const table = await app.inject({ method: "POST", url: "/api/v1/admin/tables", cookies: manager, payload: { name: "۱۴", displayOrder: 14 } });
     expect(table.statusCode).toBe(200);
     expect((await app.inject({ method: "POST", url: `/api/v1/admin/tables/${table.json().data.id}/archive`, cookies: manager })).json().data).toMatchObject({ isActive: false });
-    const setting = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: manager, payload: { defaultTableSeatingLimitMinutes: 60 } });
+    const setting = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: manager, payload: { tableSeatingLimitMinutes: 60 } });
     expect(setting.statusCode).toBe(200);
-    expect(setting.json().data.defaultTableSeatingLimitMinutes).toBe(60);
+    expect(setting.json().data.tableSeatingLimitMinutes).toBe(60);
+    const disabled = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: manager, payload: { tableSeatingLimitMinutes: null } });
+    expect(disabled.statusCode).toBe(200);
+    expect(disabled.json().data.tableSeatingLimitMinutes).toBeNull();
   });
 
   it("refuses to archive a table with an open table order", async () => {
@@ -164,7 +164,7 @@ describe("Manager administration", () => {
     const category = await app.prisma.category.create({ data: { name: "Archive guard", displayOrder: 90 } });
     const product = await app.prisma.product.create({ data: { categoryId: category.id, name: "Archive guard coffee", priceAmount: 10_000, preparationDeadlineMinutes: 5, displayOrder: 90 } });
     const table = await app.prisma.cafeTable.create({ data: { name: "Archive guard table", displayOrder: 90, occupancyState: "OCCUPIED", occupiedAt: new Date() } });
-    await app.prisma.order.create({ data: { orderNumber: "ARCHIVE-GUARD-001", createdById: staffUser.id, channel: "TABLE", tableId: table.id, state: "OPEN", paymentStatus: "UNPAID", subtotalAmount: 10_000, totalAmount: 10_000, balanceAmount: 10_000, tableSeatingLimitSnapshotMinutes: 45, estimatedTableReleaseAt: new Date(), items: { create: { productId: product.id, productNameSnapshot: product.name, basePriceSnapshot: 10_000, preparationDeadlineSnapshotMinutes: 5, quantity: 1, lineTotalAmount: 10_000, displayOrder: 1 } } } });
+    await app.prisma.order.create({ data: { orderNumber: "ARCHIVE-GUARD-001", createdById: staffUser.id, channel: "TABLE", tableId: table.id, state: "OPEN", paymentStatus: "UNPAID", subtotalAmount: 10_000, totalAmount: 10_000, balanceAmount: 10_000, items: { create: { productId: product.id, productNameSnapshot: product.name, basePriceSnapshot: 10_000, quantity: 1, lineTotalAmount: 10_000, displayOrder: 1 } } } });
     const archived = await app.inject({ method: "POST", url: `/api/v1/admin/tables/${table.id}/archive`, cookies: manager });
     expect(archived.statusCode).toBe(409);
     expect((await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).isActive).toBe(true);

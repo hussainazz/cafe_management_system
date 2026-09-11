@@ -107,6 +107,8 @@ export const PosCatalogOptionSchema = z.object({
 export const PosCatalogOptionGroupSchema = z.object({
   id: z.uuid(),
   name: z.string(),
+  minSelections: z.number().int().nonnegative(),
+  maxSelections: z.number().int().positive(),
   options: z.array(PosCatalogOptionSchema),
 });
 
@@ -137,27 +139,28 @@ export const ActiveTableOrderSchema = z.object({
   id: z.uuid(),
   orderNumber: z.string(),
   paymentStatus: z.enum(["UNPAID", "PARTIALLY_PAID", "PAID"]),
-  estimatedPreparationMinutes: z.number().int().nonnegative(),
-  estimatedTableReleaseAt: z.iso.datetime(),
+  itemPreparationDeadlineMinutes: z.array(ProductPreparationDeadlineMinutesSchema),
   createdAt: z.iso.datetime(),
 });
 
 export const PosTableSchema = z.object({
   id: z.uuid(),
   name: z.string(),
-  seatingLimitMinutes: TableSeatingLimitMinutesSchema,
   waiterCallEnabled: z.boolean(),
   occupancyState: z.enum(["AVAILABLE", "OCCUPIED"]),
   occupiedAt: z.iso.datetime().nullable(),
   occupancyReminderAt: z.iso.datetime().nullable(),
   activeOrders: z.array(ActiveTableOrderSchema),
 });
-export type PosTable = z.infer<typeof PosTableSchema>;
 
 export const PosTablesResponseSchema = z.object({
-  data: z.object({ tables: z.array(PosTableSchema) }),
+  data: z.object({
+    tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable(),
+    tables: z.array(PosTableSchema),
+  }),
   meta: z.object({ requestId: z.string() }),
 });
+export type PosTable = z.infer<typeof PosTableSchema>;
 
 export const PosTableResponseSchema = z.object({
   data: PosTableSchema,
@@ -243,7 +246,6 @@ export const CreatedOrderItemSchema = z.object({
   productId: z.uuid(),
   productNameSnapshot: z.string(),
   basePriceSnapshot: z.number().int().nonnegative(),
-  preparationDeadlineSnapshotMinutes: ProductPreparationDeadlineMinutesSchema,
   quantity: z.number().int().positive(),
   note: z.string().nullable(),
   discountKind: z.enum(["FIXED", "PERCENTAGE"]).nullable(),
@@ -270,9 +272,6 @@ export const CreatedOrderSchema = z.object({
   totalAmount: z.number().int().nonnegative(),
   paidAmount: z.literal(0),
   balanceAmount: z.number().int().nonnegative(),
-  estimatedPreparationMinutes: z.number().int().nonnegative(),
-  tableSeatingLimitSnapshotMinutes: z.number().int().positive().nullable(),
-  estimatedTableReleaseAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   items: z.array(CreatedOrderItemSchema),
 });
@@ -313,6 +312,7 @@ export const SettlementSummarySchema = z.object({
 });
 
 export const OrderDetailSchema = CreatedOrderSchema.extend({
+  tableName: z.string().nullable(),
   channel: OrderChannelSchema,
   state: OrderStateSchema,
   paymentStatus: PaymentStatusSchema,
@@ -340,8 +340,6 @@ export const OrderSummarySchema = z.object({
   version: z.number().int().positive(),
   totalAmount: z.number().int().nonnegative(),
   balanceAmount: z.number().int().nonnegative(),
-  estimatedPreparationMinutes: z.number().int().nonnegative(),
-  estimatedTableReleaseAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
 });
 
@@ -583,25 +581,27 @@ const AdminNameSchema = z.string().trim().min(1).max(120);
 const AdminDisplayOrderSchema = z.number().int().min(0).max(10_000);
 const AdminMoneySchema = z.number().int().nonnegative();
 export const AdminCategoryInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional() }).strict();
-export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroupIds: z.array(z.uuid()).max(30).optional() }).strict();
+const AdminProductOptionGroupInputSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative().default(1), maxSelections: z.number().int().positive().default(1), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable().optional() }).strict()).max(100) }).strict().refine((value) => value.minSelections <= value.maxSelections);
+export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroups: z.array(AdminProductOptionGroupInputSchema).max(30).optional() }).strict();
 export const AdminOptionGroupInputSchema = z.object({ name: AdminNameSchema, isActive: z.boolean().optional() }).strict();
 export const AdminOptionInputSchema = z.object({ name: AdminNameSchema, priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), isAvailable: z.boolean().optional() }).strict();
-export const AdminTableInputSchema = z.object({ name: AdminNameSchema, seatingLimitMinutes: TableSeatingLimitMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), waiterCallEnabled: z.boolean().optional() }).strict();
+export const AdminTableInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), waiterCallEnabled: z.boolean().optional() }).strict();
 export const AdminStaffInputSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/), password: z.string().min(12).max(128) }).strict();
 export const AdminStaffUpdateSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/).optional(), password: z.string().min(12).max(128).optional() }).strict().refine((input) => input.username !== undefined || input.password !== undefined);
-export const AdminSettingsUpdateSchema = z.object({ defaultTableSeatingLimitMinutes: TableSeatingLimitMinutesSchema }).strict();
+export const AdminSettingsUpdateSchema = z.object({ tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable() }).strict();
 export const AdminImageMetadataSchema = z.object({ altText: z.string().trim().min(1).max(500) }).strict();
 export const AdminIdPathSchema = z.object({ id: z.uuid() });
 
 const AdminMetaSchema = z.object({ requestId: z.string() });
 export const AdminCategorySchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminProductImageSchema = z.object({ storageKey: z.string(), altText: z.string() });
-export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroupIds: z.array(z.uuid()) });
+const AdminProductOptionGroupSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative(), maxSelections: z.number().int().positive(), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable() })) });
+export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroups: z.array(AdminProductOptionGroupSchema) });
 export const AdminOptionSchema = z.object({ id: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminOptionGroupSchema = z.object({ id: z.uuid(), name: z.string(), isActive: z.boolean(), options: z.array(AdminOptionSchema) });
-export const AdminTableSchema = z.object({ id: z.uuid(), name: z.string(), seatingLimitMinutes: TableSeatingLimitMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), waiterCallEnabled: z.boolean(), archivedAt: z.iso.datetime().nullable() });
+export const AdminTableSchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), waiterCallEnabled: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminStaffSchema = z.object({ id: z.uuid(), username: z.string(), role: z.literal("STAFF"), isActive: z.boolean(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
-export const AdminSettingsSchema = z.object({ id: z.uuid(), defaultTableSeatingLimitMinutes: TableSeatingLimitMinutesSchema, updatedAt: z.iso.datetime() });
+export const AdminSettingsSchema = z.object({ id: z.uuid(), tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable(), updatedAt: z.iso.datetime() });
 export const AdminImageResponseSchema = z.object({ data: AdminProductImageSchema, meta: AdminMetaSchema });
 export const AdminImageArchiveResponseSchema = z.object({ data: z.object({ productId: z.uuid() }), meta: AdminMetaSchema });
 export const AdminCategoriesResponseSchema = z.object({ data: z.object({ categories: z.array(AdminCategorySchema) }), meta: AdminMetaSchema });
@@ -645,6 +645,8 @@ export const PublicMenuOptionSchema = z.object({
 export const PublicMenuOptionGroupSchema = z.object({
   id: z.uuid(),
   name: z.string(),
+  minSelections: z.number().int().nonnegative(),
+  maxSelections: z.number().int().positive(),
   options: z.array(PublicMenuOptionSchema),
 });
 

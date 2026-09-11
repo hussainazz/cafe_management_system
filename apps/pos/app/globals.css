@@ -430,8 +430,10 @@ svg {
 .report-grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; margin: 0; }
 .report-grid dt { color: var(--muted); }
 .report-grid dd { margin: 0; font-variant-numeric: tabular-nums; }
+.manager-dialog-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(15, 28, 24, 0.4); }
 .manager-dialog { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(15, 28, 24, 0.4); }
 .manager-dialog > div { width: min(460px, 100%); padding: 22px; border-radius: var(--radius-panel); background: #fff; box-shadow: var(--shadow); }
+.manager-dialog-backdrop > .manager-dialog { position: static; inset: auto; width: min(560px, 100%); max-height: min(720px, calc(100dvh - 40px)); overflow: auto; padding: 22px; border-radius: var(--radius-panel); background: var(--surface, #fff); box-shadow: var(--shadow); }
 .manager-dialog h2 { margin-top: 0; }
 .manager-dialog p { color: var(--muted); }
 .manager-dialog__reason { display: grid; gap: 6px; margin: 16px 0; color: var(--ink); font-size: var(--text-label); font-weight: 700; }

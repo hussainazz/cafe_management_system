@@ -89,7 +89,7 @@ Exit gate:
 
 - Implement login, logout, access/refresh session rotation, revocation, and account deactivation. The first Manager is created by the Stage 1 operations-only bootstrap command.
 - Enforce the two application roles, Manager and Staff, inside routes and service methods.
-- Implement the catalog, product option, availability, image metadata, product preparation-deadline, physical-table seating-limit, and active table ETA reads required for POS order entry.
+- Implement the catalog, canonical product-option subsets, availability, image metadata, product preparation-deadline, optional café-wide seating-limit, and active table ETA reads required for POS order entry.
 - Implement table and takeaway order creation by Staff.
 - Calculate all prices, totals, estimated preparation minutes, and table release estimates on the server and persist immutable item/option/timing snapshots.
 - Implement controlled edits to `OPEN` orders, table assignment/transfer, and order history; after the first settlement, allow only additive/unsettled-quantity edits and reject rewrites to settled quantities, posted allocations, tenders, or settlement receipts.
@@ -193,7 +193,7 @@ Exit gate:
 ### Stage 9 — Manager Panels In Shared POS
 
 - Extend the existing POS shell and navigation according to the authenticated role; do not create a separate Manager application or duplicate the table dashboard.
-- Build category, product, option, image, price, product preparation-deadline, table seating-limit, availability, and display-order management.
+- Build category, product, canonical option/subset/override, image, price, product preparation-deadline, optional café-wide seating-limit, availability, and display-order management.
 - Build Staff account creation, deactivation, and session-management interfaces.
 - Build settings, Manager-only payment history, today/yesterday daily accounting, settlement-reversal, and audit-history interfaces.
 - Add confirmation, permission, validation, loading, error, and empty states for every Manager action.

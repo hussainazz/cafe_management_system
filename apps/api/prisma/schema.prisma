@@ -144,9 +144,10 @@ model ProductImage {
 }
 
 model OptionGroup {
-  id       String  @id @default(uuid())
-  name     String
-  isActive Boolean @default(true)
+  id         String    @id @default(uuid())
+  name       String
+  isActive   Boolean   @default(true)
+  archivedAt DateTime?
 
   productOptionGroups ProductOptionGroup[]
   options             Option[]
@@ -158,12 +159,30 @@ model ProductOptionGroup {
   productId     String
   optionGroupId String
   displayOrder  Int
+  minSelections Int @default(1)
+  maxSelections Int @default(1)
 
-  product     Product     @relation(fields: [productId], references: [id])
-  optionGroup OptionGroup @relation(fields: [optionGroupId], references: [id])
+  product        Product                   @relation(fields: [productId], references: [id])
+  optionGroup    OptionGroup               @relation(fields: [optionGroupId], references: [id])
+  allowedOptions ProductOptionGroupOption[]
 
   @@id([productId, optionGroupId])
   @@map("product_option_groups")
+}
+
+model ProductOptionGroupOption {
+  productId           String
+  optionGroupId       String
+  optionId            String
+  displayOrder        Int
+  priceAmountOverride Int?
+
+  productOptionGroup ProductOptionGroup @relation(fields: [productId, optionGroupId], references: [productId, optionGroupId])
+  option             Option             @relation(fields: [optionId, optionGroupId], references: [id, optionGroupId])
+
+  @@id([productId, optionGroupId, optionId])
+  @@index([optionId, optionGroupId])
+  @@map("product_option_group_options")
 }
 
 model Option {
@@ -177,8 +196,11 @@ model Option {
   archivedAt    DateTime?
 
   optionGroup      OptionGroup       @relation(fields: [optionGroupId], references: [id])
+  productLinks     ProductOptionGroupOption[]
   orderItemOptions OrderItemOption[]
 
+  @@unique([optionGroupId, name])
+  @@unique([id, optionGroupId])
   @@index([optionGroupId, isActive, isAvailable, displayOrder])
   @@map("options")
 }
@@ -186,7 +208,6 @@ model Option {
 model CafeTable {
   id                        String              @id @default(uuid())
   name                      String
-  seatingLimitMinutes       Int                 @default(45)
   displayOrder              Int
   isActive                  Boolean             @default(true)
   waiterCallEnabled         Boolean             @default(false)
@@ -334,9 +355,6 @@ model Order {
   totalAmount                      Int
   paidAmount                       Int           @default(0)
   balanceAmount                    Int
-  estimatedPreparationMinutes      Int           @default(0)
-  tableSeatingLimitSnapshotMinutes Int?
-  estimatedTableReleaseAt          DateTime?
   deletedById                      String?
   deletedAt                        DateTime?
   deletionReason                   String?
@@ -361,7 +379,6 @@ model OrderItem {
   productId                          String
   productNameSnapshot                String
   basePriceSnapshot                  Int
-  preparationDeadlineSnapshotMinutes Int
   quantity                           Int
   note                               String?
   discountKind                       DiscountKind?
@@ -500,7 +517,7 @@ model AuditLog {
 model CafeSettings {
   id                              String   @id @default(uuid())
   singletonKey                    Boolean  @unique @default(true)
-  defaultTableSeatingLimitMinutes Int      @default(45)
+  tableSeatingLimitMinutes        Int?
   updatedById                     String?
   updatedAt                       DateTime @updatedAt
 

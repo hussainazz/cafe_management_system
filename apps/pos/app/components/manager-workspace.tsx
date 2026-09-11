@@ -30,6 +30,7 @@ import {
   type ManagerSettings,
   type ManagerStaff,
   type PaymentHistory,
+  type PosOrderDetail,
 } from "../lib/api-client";
 import { formatToman } from "../lib/pos-utils";
 
@@ -372,7 +373,7 @@ function CatalogPanel({
                 <summary>
                   {row.name}{" "}
                   <small>
-                    {row.seatingLimitMinutes} دقیقه · {row.isActive ? "فعال" : "غیرفعال"}
+                    {row.isActive ? "فعال" : "غیرفعال"}
                   </small>
                 </summary>
                 <TableForm
@@ -498,6 +499,7 @@ function FinancePanel({
   const [report, setReport] = useState<any>(null);
   const [audit, setAudit] = useState<any>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<PosOrderDetail | null>(null);
   const [auditFilters, setAuditFilters] = useState({
     operation: "",
     entityType: "",
@@ -571,6 +573,17 @@ function FinancePanel({
               >
                 رسید تسویه
               </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={async () => {
+                  const result = await readOrder(item.orderId);
+                  if (result.ok) setSelectedOrder(result.data);
+                  else setMessage(result.error.message);
+                }}
+              >
+                جزئیات سفارش
+              </button>
               {!item.reversedAt && (
                 <button
                   className="danger-button"
@@ -616,6 +629,35 @@ function FinancePanel({
           </button>
         )}
       </ManagerCard>
+      {selectedOrder && (
+        <div className="manager-dialog-backdrop" role="presentation" onClick={() => setSelectedOrder(null)}>
+          <section className="manager-dialog" role="dialog" aria-modal="true" aria-labelledby="historical-order-title" onClick={(event) => event.stopPropagation()}>
+            <header className="manager-dialog__header">
+              <div>
+                <p className="kicker">سفارش ذخیره‌شده</p>
+                <h2 id="historical-order-title">{selectedOrder.orderNumber}</h2>
+              </div>
+              <button className="text-button" type="button" onClick={() => setSelectedOrder(null)}>بستن</button>
+            </header>
+            <p>{selectedOrder.channel === "TABLE" ? `میز: ${selectedOrder.tableName ?? "-"}` : "نوع سفارش: بیرون‌بر"}</p>
+            <p>زمان ثبت: {new Date(selectedOrder.createdAt).toLocaleString("fa-IR")}</p>
+            <ul className="manager-list">
+              {selectedOrder.items.map((orderItem) => (
+                <li key={orderItem.id}>
+                  <strong>{orderItem.productNameSnapshot} × {orderItem.quantity}</strong>
+                  <small>{orderItem.options.length ? orderItem.options.map((option) => `${option.optionNameSnapshot} × ${option.quantity}`).join("، ") : "بدون گزینه"}</small>
+                  <span>{formatToman(orderItem.lineTotalAmount)}</span>
+                </li>
+              ))}
+            </ul>
+            <dl className="report-grid">
+              <dt>مجموع سفارش</dt><dd>{formatToman(selectedOrder.totalAmount)}</dd>
+              <dt>پرداخت‌شده</dt><dd>{formatToman(selectedOrder.paidAmount)}</dd>
+              <dt>باقی‌مانده</dt><dd>{formatToman(selectedOrder.balanceAmount)}</dd>
+            </dl>
+          </section>
+        </div>
+      )}
       <ManagerCard title="گزارش روزانه" hint="تنها امروز و دیروز در تقویم تهران قابل مشاهده‌اند.">
         <div className="manager-actions">
           <button type="button" onClick={() => void loadReport("today")}>
@@ -712,25 +754,48 @@ function SettingsPanel({
   mutate: (action: () => Promise<any>, reload: () => Promise<any>) => Promise<void>;
   reload: () => Promise<any>;
 }) {
+  const [seatingLimitEnabled, setSeatingLimitEnabled] = useState(
+    settings.tableSeatingLimitMinutes !== null,
+  );
   return (
-    <ManagerCard title="تنظیمات کافه" hint="تنها تنظیم فعال v1، زمان پیش‌فرض نشستن میز است.">
-      <EntityForm
-        submit={(data) =>
-          mutate(
-            () => saveSettings({ defaultTableSeatingLimitMinutes: number(data.get("minutes")) }),
+    <ManagerCard title="تنظیمات کافه" hint="نمایش زمان نشستن میز اختیاری است و فقط با فعال‌سازی مدیر استفاده می‌شود.">
+      <form
+        className="manager-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          void mutate(
+            () => saveSettings({
+              tableSeatingLimitMinutes: seatingLimitEnabled ? number(data.get("minutes")) : null,
+            }),
             reload,
-          )
-        }
-        fields={[
-          [
-            "minutes",
-            "زمان پیش‌فرض میز (دقیقه)",
-            "number",
-            settings.defaultTableSeatingLimitMinutes,
-          ],
-        ]}
-        action="ذخیره تنظیمات"
-      />
+          );
+        }}
+      >
+        <div className="manager-fields">
+          <label>
+            <input
+              name="seatingLimitEnabled"
+              type="checkbox"
+              checked={seatingLimitEnabled}
+              onChange={(event) => setSeatingLimitEnabled(event.target.checked)}
+            />{" "}
+            نمایش زمان نشستن میز
+          </label>
+          <label>
+            <span>زمان نشستن میز (دقیقه)</span>
+            <input
+              name="minutes"
+              type="number"
+              min="1"
+              required={seatingLimitEnabled}
+              disabled={!seatingLimitEnabled}
+              defaultValue={settings.tableSeatingLimitMinutes ?? ""}
+            />
+          </label>
+        </div>
+        <button type="submit">ذخیره تنظیمات</button>
+      </form>
     </ManagerCard>
   );
 }
@@ -831,7 +896,7 @@ function ProductForm({
           displayOrder: number(data.get("displayOrder")),
           isActive: data.get("isActive") === "on",
           isAvailable: data.get("isAvailable") === "on",
-          optionGroupIds: data.getAll("optionGroupIds"),
+          optionGroups: catalog.optionGroups.filter((group) => data.getAll("optionGroupIds").includes(group.id)).map((group, displayOrder) => ({ optionGroupId: group.id, displayOrder, minSelections: number(data.get(`min-${group.id}`)), maxSelections: number(data.get(`max-${group.id}`)), options: group.options.filter((option) => data.getAll(`optionIds-${group.id}`).includes(option.id)).map((option, optionOrder) => { const raw = data.get(`override-${group.id}-${option.id}`); return { optionId: option.id, displayOrder: optionOrder, priceAmountOverride: raw === "" ? null : number(raw) }; }) })),
         })
           .catch(() => undefined)
           .finally(() => setBusy(false));
@@ -892,17 +957,18 @@ function ProductForm({
       </div>
       <fieldset>
         <legend>گروه‌های گزینه</legend>
-        {catalog.optionGroups.map((item) => (
-          <label key={item.id}>
-            <input
-              name="optionGroupIds"
-              type="checkbox"
-              value={item.id}
-              defaultChecked={initial?.optionGroupIds?.includes(item.id)}
-            />{" "}
-            {item.name}
-          </label>
-        ))}
+        {catalog.optionGroups.map((item) => {
+          const configured = initial?.optionGroups?.find((group: any) => group.optionGroupId === item.id);
+          return <details key={item.id}>
+            <summary><input name="optionGroupIds" type="checkbox" value={item.id} defaultChecked={Boolean(configured)} /> {item.name}</summary>
+            <label>حداقل <input name={`min-${item.id}`} type="number" min="0" defaultValue={configured?.minSelections ?? 1} /></label>
+            <label>حداکثر <input name={`max-${item.id}`} type="number" min="1" defaultValue={configured?.maxSelections ?? 1} /></label>
+            {item.options.map((option) => {
+              const selected = configured?.options?.find((entry: any) => entry.optionId === option.id);
+              return <label key={option.id}><input name={`optionIds-${item.id}`} type="checkbox" value={option.id} defaultChecked={Boolean(selected)} /> {option.name} <input name={`override-${item.id}-${option.id}`} type="number" min="0" placeholder={`پیش‌فرض ${option.priceAmount}`} defaultValue={selected?.priceAmountOverride ?? ""} /></label>;
+            })}
+          </details>;
+        })}
       </fieldset>
       <button type="submit" disabled={busy}>
         {busy ? "در حال ثبت…" : action}
@@ -957,7 +1023,6 @@ function TableForm({
       submit={(data) =>
         submit({
           name: text(data.get("name")),
-          seatingLimitMinutes: number(data.get("seatingLimitMinutes")),
           displayOrder: number(data.get("displayOrder")),
           isActive: data.get("isActive") === "on",
           waiterCallEnabled: data.get("waiterCallEnabled") === "on",
@@ -965,7 +1030,6 @@ function TableForm({
       }
       fields={[
         ["name", "نام میز", "text", initial?.name],
-        ["seatingLimitMinutes", "زمان نشستن (دقیقه)", "number", initial?.seatingLimitMinutes ?? 45],
         ["displayOrder", "ترتیب", "number", initial?.displayOrder ?? 0],
         ["isActive", "فعال", "checkbox", initial?.isActive ?? true],
         ["waiterCallEnabled", "فراخوان گارسون", "checkbox", initial?.waiterCallEnabled ?? false],

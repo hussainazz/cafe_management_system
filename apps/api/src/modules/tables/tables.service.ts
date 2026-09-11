@@ -8,16 +8,14 @@ const activeOrders = {
     id: true,
     orderNumber: true,
     paymentStatus: true,
-    estimatedPreparationMinutes: true,
-    estimatedTableReleaseAt: true,
     createdAt: true,
+    items: { select: { product: { select: { preparationDeadlineMinutes: true } } } },
   },
 };
 
 function tableDto(table: {
   id: string;
   name: string;
-  seatingLimitMinutes: number;
   waiterCallEnabled: boolean;
   occupancyState: "AVAILABLE" | "OCCUPIED";
   occupiedAt: Date | null;
@@ -26,24 +24,23 @@ function tableDto(table: {
     id: string;
     orderNumber: string;
     paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID";
-    estimatedPreparationMinutes: number;
-    estimatedTableReleaseAt: Date | null;
     createdAt: Date;
+    items: Array<{ product: { preparationDeadlineMinutes: number } }>;
   }>;
 }) {
   return {
     id: table.id,
     name: table.name,
-    seatingLimitMinutes: table.seatingLimitMinutes,
     waiterCallEnabled: table.waiterCallEnabled,
     occupancyState: table.occupancyState,
     occupiedAt: table.occupiedAt?.toISOString() ?? null,
     occupancyReminderAt: table.occupancyReminderAt?.toISOString() ?? null,
     activeOrders: table.orders.map((order) => ({
-      ...order,
-      // The database constraint requires this timestamp for every table order.
-      estimatedTableReleaseAt: order.estimatedTableReleaseAt!.toISOString(),
+      id: order.id,
+      orderNumber: order.orderNumber,
+      paymentStatus: order.paymentStatus,
       createdAt: order.createdAt.toISOString(),
+      itemPreparationDeadlineMinutes: order.items.map((item) => item.product.preparationDeadlineMinutes),
     })),
   };
 }
@@ -55,7 +52,8 @@ export async function listPosTables(prisma: PrismaClient) {
     include: { orders: activeOrders },
   });
 
-  return { tables: tables.map(tableDto) };
+  const settings = await prisma.cafeSettings.upsert({ where: { singletonKey: true }, create: { tableSeatingLimitMinutes: null }, update: {}, select: { tableSeatingLimitMinutes: true } });
+  return { tableSeatingLimitMinutes: settings.tableSeatingLimitMinutes, tables: tables.map(tableDto) };
 }
 
 export async function readPosTable(prisma: PrismaClient, tableId: string) {
@@ -68,7 +66,8 @@ export async function readPosTable(prisma: PrismaClient, tableId: string) {
     throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested table was not found.");
   }
 
-  return tableDto(table);
+  const settings = await prisma.cafeSettings.upsert({ where: { singletonKey: true }, create: { tableSeatingLimitMinutes: null }, update: {}, select: { tableSeatingLimitMinutes: true } });
+  return { tableSeatingLimitMinutes: settings.tableSeatingLimitMinutes, ...tableDto(table) };
 }
 
 export async function occupyTable(prisma: PrismaClient, tableId: string) {
