@@ -4,6 +4,7 @@ const apiBaseUrl = process.env.API_BASE_URL ?? "http://127.0.0.1:3001";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  basePath: "/pos",
   poweredByHeader: false,
   agentRules: false,
   allowedDevOrigins: ["127.0.0.1", "localhost", "192.168.*", "10.*", "172.16.*"],
