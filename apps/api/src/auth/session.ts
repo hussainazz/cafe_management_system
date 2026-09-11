@@ -94,19 +94,19 @@ function cookieAttributes(path: string, maxAge: number): string {
 }
 
 export function accessCookie(token: string): string {
-  return `${accessCookieName}=${token}; ${cookieAttributes("/api/v1", accessSessionLifetimeSeconds)}`;
+  return `${accessCookieName}=${token}; ${cookieAttributes(env.AUTH_COOKIE_BASE_PATH, accessSessionLifetimeSeconds)}`;
 }
 
 export function refreshCookie(token: string): string {
-  return `${refreshCookieName}=${token}; ${cookieAttributes("/api/v1/auth", refreshSessionLifetimeMilliseconds / 1_000)}`;
+  return `${refreshCookieName}=${token}; ${cookieAttributes(`${env.AUTH_COOKIE_BASE_PATH}/auth`, refreshSessionLifetimeMilliseconds / 1_000)}`;
 }
 
 export function clearAccessCookie(): string {
-  return `${accessCookieName}=; ${cookieAttributes("/api/v1", 0)}`;
+  return `${accessCookieName}=; ${cookieAttributes(env.AUTH_COOKIE_BASE_PATH, 0)}`;
 }
 
 export function clearRefreshCookie(): string {
-  return `${refreshCookieName}=; ${cookieAttributes("/api/v1/auth", 0)}`;
+  return `${refreshCookieName}=; ${cookieAttributes(`${env.AUTH_COOKIE_BASE_PATH}/auth`, 0)}`;
 }
 
 export function readCookie(header: string | undefined, name: string): string | undefined {
