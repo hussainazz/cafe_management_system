@@ -85,6 +85,13 @@ export async function occupyTable(prisma: PrismaClient, tableId: string) {
 export async function makeTableAvailable(prisma: PrismaClient, tableId: string) {
   const now = new Date();
   await prisma.$transaction(async (transaction) => {
+    const activeOrder = await transaction.order.findFirst({
+      where: { tableId, channel: "TABLE", state: OrderState.OPEN },
+      select: { id: true },
+    });
+    if (activeOrder) {
+      throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "A table with an open order cannot be made available.");
+    }
     const updated = await transaction.cafeTable.updateMany({
       where: { id: tableId, isActive: true, archivedAt: null },
       data: {
