@@ -72,6 +72,7 @@ export type ApiResult<T> =
   { ok: true; data: T; replayed: boolean } | { ok: false; error: ApiFailure };
 
 export const posApiFailureEvent = "run-cafe:api-failure";
+const posBasePath = "/pos";
 
 function reportFailure(error: ApiFailure) {
   if (typeof window !== "undefined") {
@@ -84,7 +85,7 @@ async function request<T>(path: string, init?: RequestInit, report = true): Prom
   try {
     const headers = new Headers(init?.headers);
     if (!headers.has("accept")) headers.set("accept", "application/json");
-    const response = await fetch(`/api/v1${path}`, {
+    const response = await fetch(`${posBasePath}/api/v1${path}`, {
       ...init,
       headers,
       credentials: "same-origin",
@@ -458,7 +459,7 @@ function uploadRequest(
 ): Promise<ApiResult<unknown>> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", `/api/v1${path}`);
+    xhr.open("PUT", `${posBasePath}/api/v1${path}`);
     xhr.withCredentials = true;
     xhr.setRequestHeader("accept", "application/json");
     xhr.upload.onprogress = (event) => {
