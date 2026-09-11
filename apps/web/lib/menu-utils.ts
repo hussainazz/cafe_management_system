@@ -72,6 +72,16 @@ export function productImageUrl(storageKey: string) {
   return `${configuredBase ?? "/product-images"}/${safePath}`;
 }
 
+export function productImageSources(
+  product: Pick<MenuProduct, "image" | "name">,
+  category?: Pick<MenuCategory, "name">,
+) {
+  return [
+    product.image ? productImageUrl(product.image.storageKey) : null,
+    localProductPictureUrl(product, category),
+  ].filter((source, index, sources): source is string => Boolean(source) && sources.indexOf(source) === index);
+}
+
 export function localProductPictureUrl(
   product: Pick<MenuProduct, "name">,
   category?: Pick<MenuCategory, "name">,
