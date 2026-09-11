@@ -34,7 +34,7 @@ Override either username or password through the matching `DEV_POS_*`
 environment variable. These commands refuse production, remote-host, and
 `_test` databases.
 
-The browser calls `/api/v1/*` on the POS origin. Next.js rewrites those requests
+The browser calls `/pos/api/v1/*` on the POS origin. Next.js rewrites those requests
 to the server-only `API_BASE_URL`, which keeps session cookies on the POS origin.
 
 ## Guardrails
