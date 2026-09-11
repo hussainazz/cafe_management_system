@@ -202,6 +202,45 @@ This file is the active completion checklist and current stage status for the ba
      and all 14 deterministic integration files pass (63 tests). The
      shared-database suite runs each integration file in a separate sequential
      Vitest process to prevent cross-file fixture interference.
+- Stage 9 ordered implementation checklist:
+  1. Complete in code: the shared POS drawer exposes a client-side `مدیریت`
+     workspace only to the authenticated Manager role; Staff retains the
+     unchanged `سفارش` workspace and does not initiate Manager reads.
+  2. Complete in code: Manager panels provide typed category, product, option
+     group/option, product-image, price, preparation-deadline, availability,
+     display-order, and physical-table management, with explicit archive
+     confirmations that retain history.
+  3. Complete in code: Manager can create and edit Staff accounts, deactivate
+     them with an explicit session-revocation confirmation, and reactivate
+     them; role changes remain unavailable.
+  4. Complete in code: settings, cursor-based payment history, today/yesterday
+     Tehran accounting, confirmed reasoned settlement reversal, and safe audit
+     history panels use the existing Manager-authorized API contracts.
+  5. Complete in code: Manager actions have loading, empty/degraded-data,
+     validation, confirmation, retry, and single-flight states. Shared
+     contract/API/POS typechecks, focused API Manager integration tests, POS
+    tests, production build, and `git diff --check` pass. Authenticated
+    desktop/mobile browser validation remains required before the stage exit
+    gate is treated as fully verified.
+  - 10 September 2026 release-correctness hardening: table-settlement reversal
+    now locks/checks the physical table and a partial unique index prevents more
+    than one open table order; swaps preserve that invariant transactionally.
+    Daily reports are event-dated (including cross-day reversal coverage) and
+    aggregate order/item/settlement/tender totals in PostgreSQL rather than
+    materializing their history in Node.js.
+    Product-image and Manager mutations/audits are atomic, shared Manager
+    input contracts govern category/product/table writes, and the isolated
+    runner includes OpenAPI and password tests. All Manager JSON CRUD routes
+    now have explicit request/response, path, auth-header, and error-envelope
+    OpenAPI schemas. Product-image endpoints retain their specialized multipart
+    transport and are covered by their isolated regression file.
+    Focused Manager/order regressions, API/POS typechecks, and
+    `git diff --check` pass. New Manager workspace DOM tests cover retained
+    partial-load failures, stable audit filtering while input changes, and
+    required-reason validation with an explicit cancel path for settlement
+    reversal.
+    Authenticated desktop/mobile browser validation remains required before
+    Stage 9 can be called fully verified.
 
 ## Future Validation Work
 
