@@ -10,6 +10,8 @@
   Linux printer queue, silent ESC/POS path, or printer-routing integration is
   part of v1. Physical Chrome/Windows/printer/paper validation remains required
   before POS activation.
+- Production routing keeps the public menu and table-specific QR links at the
+  root domain (`/menu` and `/t/:token`) and serves the shared POS at `/pos`.
 
 ## 11 September 2026 timing-rule update
 
