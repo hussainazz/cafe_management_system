@@ -125,9 +125,22 @@ describe("Manager administration", () => {
     expect((await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: "new.staff", password: "CafePassword2026" } })).statusCode).toBe(200);
   });
 
+  it("revokes an existing Staff session when a Manager resets its password", async () => {
+    const manager = await session(UserRole.MANAGER, "password-reset.manager");
+    const created = await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: manager, payload: { username: "password-reset.staff", password: "CafePassword2026" } });
+    const loggedIn = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: "password-reset.staff", password: "CafePassword2026" } });
+    const oldCookies = Object.fromEntries(loggedIn.cookies.map((cookie) => [cookie.name, cookie.value]));
+    const updated = await app.inject({ method: "PATCH", url: `/api/v1/admin/users/${created.json().data.id}`, cookies: manager, payload: { password: "DifferentPassword2026" } });
+    expect(updated.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", cookies: oldCookies })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: "password-reset.staff", password: "DifferentPassword2026" } })).statusCode).toBe(200);
+  });
+
   it("configures products, option groups, tables, and settings through Manager-only routes", async () => {
     const manager = await session(UserRole.MANAGER, "catalog.manager");
-    await app.prisma.cafeSettings.create({ data: { defaultTableSeatingLimitMinutes: 45 } });
+    const defaults = await app.inject({ method: "GET", url: "/api/v1/admin/settings", cookies: manager });
+    expect(defaults.statusCode).toBe(200);
+    expect(defaults.json().data.defaultTableSeatingLimitMinutes).toBe(45);
     const category = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "نوشیدنی", displayOrder: 2 } });
     const group = await app.inject({ method: "POST", url: "/api/v1/admin/option-groups", cookies: manager, payload: { name: "سایز" } });
     const groupId = group.json().data.id;
@@ -143,6 +156,18 @@ describe("Manager administration", () => {
     const setting = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: manager, payload: { defaultTableSeatingLimitMinutes: 60 } });
     expect(setting.statusCode).toBe(200);
     expect(setting.json().data.defaultTableSeatingLimitMinutes).toBe(60);
+  });
+
+  it("refuses to archive a table with an open table order", async () => {
+    const manager = await session(UserRole.MANAGER, "archive-table.manager");
+    const staffUser = await app.prisma.user.create({ data: { username: "archive-table.staff", passwordHash: await hashPassword("CafePassword2026"), role: "STAFF" } });
+    const category = await app.prisma.category.create({ data: { name: "Archive guard", displayOrder: 90 } });
+    const product = await app.prisma.product.create({ data: { categoryId: category.id, name: "Archive guard coffee", priceAmount: 10_000, preparationDeadlineMinutes: 5, displayOrder: 90 } });
+    const table = await app.prisma.cafeTable.create({ data: { name: "Archive guard table", displayOrder: 90, occupancyState: "OCCUPIED", occupiedAt: new Date() } });
+    await app.prisma.order.create({ data: { orderNumber: "ARCHIVE-GUARD-001", createdById: staffUser.id, channel: "TABLE", tableId: table.id, state: "OPEN", paymentStatus: "UNPAID", subtotalAmount: 10_000, totalAmount: 10_000, balanceAmount: 10_000, tableSeatingLimitSnapshotMinutes: 45, estimatedTableReleaseAt: new Date(), items: { create: { productId: product.id, productNameSnapshot: product.name, basePriceSnapshot: 10_000, preparationDeadlineSnapshotMinutes: 5, quantity: 1, lineTotalAmount: 10_000, displayOrder: 1 } } } });
+    const archived = await app.inject({ method: "POST", url: `/api/v1/admin/tables/${table.id}/archive`, cookies: manager });
+    expect(archived.statusCode).toBe(409);
+    expect((await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).isActive).toBe(true);
   });
 
   it("lists retained payment settlements only for Managers with stable cursor pagination", async () => {
@@ -214,9 +239,9 @@ describe("Manager administration", () => {
     expect(today.json()).toMatchObject({
       data: {
         salesAmount: 140_000,
-        paidAmount: 80_000,
+        paidAmount: 100_000,
         orderCount: 3,
-        paymentMethodTotals: { cashAmount: 30_000, cardTerminalAmount: 50_000, cardTransferAmount: 0 },
+        paymentMethodTotals: { cashAmount: 30_000, cardTerminalAmount: 50_000, cardTransferAmount: 20_000 },
         discounts: { orderAmount: 10_000, itemAmount: 10_000, totalAmount: 20_000 },
         reversals: { count: 1, amount: 20_000 },
         deletedOrders: { count: 1, totalAmount: 40_000, paidAmount: 40_000 },
@@ -226,6 +251,20 @@ describe("Manager administration", () => {
     const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
     expect(yesterday.statusCode).toBe(200);
     expect(yesterday.json().data).toMatchObject({ salesAmount: 70_000, paidAmount: 70_000, orderCount: 1, paymentMethodTotals: { cashAmount: 70_000, cardTerminalAmount: 0, cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 }, deletedOrders: { count: 0, totalAmount: 0, paidAmount: 0 } });
+  });
+
+  it("keeps yesterday's tender while reporting its reversal today", async () => {
+    const manager = await session(UserRole.MANAGER, "cross-day.manager");
+    const staffUser = await app.prisma.user.create({ data: { username: "cross-day.staff", passwordHash: await hashPassword("CafePassword2026"), role: "STAFF" } });
+    const managerUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "cross-day.manager" } });
+    const emptyToday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: manager });
+    const emptyYesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
+    const settlement = await recordedSettlement({ orderNumber: "CROSS-DAY-001", actorId: staffUser.id, recordedAt: new Date(new Date(emptyYesterday.json().meta.range.from).getTime() + 3_600_000), amount: 12_000 });
+    await app.prisma.settlementReversal.create({ data: { settlementId: settlement.settlement.id, recordedById: managerUser.id, reason: "Next-day correction", recordedAt: new Date(new Date(emptyToday.json().meta.range.from).getTime() + 3_600_000) } });
+    const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
+    const today = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: manager });
+    expect(yesterday.json().data).toMatchObject({ paidAmount: 12_000, paymentMethodTotals: { cardTransferAmount: 12_000 }, reversals: { count: 0, amount: 0 } });
+    expect(today.json().data.reversals).toMatchObject({ count: 1, amount: 12_000 });
   });
 
   it("lists safe filtered audit history only for Managers with stable cursors", async () => {
