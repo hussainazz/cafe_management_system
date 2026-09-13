@@ -41,7 +41,7 @@ function toPublicProduct(product: PublicCatalogProduct) {
     image: product.image,
     optionGroups: product.productOptionGroups
       .filter(({ optionGroup }) => optionGroup.isActive && optionGroup.archivedAt === null)
-      .map(({ optionGroup, minSelections, maxSelections, allowedOptions }) => ({ id: optionGroup.id, name: optionGroup.name, minSelections, maxSelections, options: allowedOptions.filter(({ option }) => option.isActive && option.isAvailable && !option.archivedAt).map(({ option, priceAmountOverride }) => ({ ...option, priceAmount: priceAmountOverride ?? option.priceAmount })) })),
+      .map(({ optionGroup, minSelections, maxSelections, allowedOptions }) => ({ id: optionGroup.id, name: optionGroup.name, minSelections, maxSelections, options: allowedOptions.filter(({ option }) => option.isActive && !option.archivedAt).map(({ option, priceAmountOverride }) => ({ ...option, priceAmount: priceAmountOverride ?? option.priceAmount })) })),
   };
 }
 
