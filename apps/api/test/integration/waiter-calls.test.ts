@@ -155,4 +155,47 @@ describe("public table context and waiter-calls", () => {
     expect(await app.prisma.tableQrCredential.count()).toBe(1);
     expect(await app.prisma.waiterCall.count()).toBe(0);
   });
+
+  it("serializes OTP requests and permanently enforces the verification attempt limit", async () => {
+    const { token } = await tableCredential("3");
+    const exchange = await app.inject({
+      method: "POST",
+      url: "/api/v1/public/table-context/exchange",
+      payload: { token },
+    });
+    const contextCookies = cookies(exchange);
+    const request = () => app.inject({
+      method: "POST",
+      url: "/api/v1/public/customer-otp/request",
+      cookies: contextCookies,
+      payload: { fullName: "مینا رضایی", phoneNumber: "09121234567" },
+    });
+
+    const requested = await Promise.all([request(), request()]);
+    expect(requested.map((response) => response.statusCode).sort()).toEqual([200, 429]);
+    expect(await app.prisma.customerOtpChallenge.count()).toBe(1);
+    const challengeId = requested.find((response) => response.statusCode === 200)!.json().data.challengeId;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const invalid = await app.inject({
+        method: "POST",
+        url: "/api/v1/public/customer-otp/verify",
+        cookies: contextCookies,
+        payload: { challengeId, code: "000000" },
+      });
+      expect(invalid.statusCode).toBe(401);
+      expect(invalid.json().error.code).toBe("OTP_INVALID");
+    }
+
+    await expect(app.prisma.customerOtpChallenge.findUniqueOrThrow({ where: { id: challengeId } }))
+      .resolves.toMatchObject({ attemptCount: 5, consumedAt: null });
+    const locked = await app.inject({
+      method: "POST",
+      url: "/api/v1/public/customer-otp/verify",
+      cookies: contextCookies,
+      payload: { challengeId, code: "111111" },
+    });
+    expect(locked.statusCode).toBe(429);
+    expect(locked.json().error.code).toBe("OTP_ATTEMPTS_EXCEEDED");
+  });
 });
