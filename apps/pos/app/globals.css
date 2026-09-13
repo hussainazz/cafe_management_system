@@ -1796,6 +1796,30 @@ svg {
   text-align: center;
 }
 .thermal-error { color: #9c231c; }
+.manager-audit-table-wrap { overflow-x: auto; }
+.manager-audit-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 12px; }
+.manager-audit-table th, .manager-audit-table td { padding: 9px 8px; border-bottom: 1px solid var(--line, #d8d4cc); text-align: right; vertical-align: top; }
+.manager-audit-table th button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 800; cursor: pointer; }
+.manager-payment-table-wrap { overflow-x: auto; margin-top: 12px; }
+.manager-payment-table { width: 100%; min-width: 980px; border-collapse: collapse; font-size: var(--text-meta); }
+.manager-payment-table th, .manager-payment-table td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: middle; white-space: nowrap; }
+.manager-payment-table th { color: var(--muted); font-weight: 800; }
+.manager-payment-table th button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 800; cursor: pointer; }
+.manager-payment-table th button:hover { color: var(--teal-dark); }
+.manager-payment-table td:nth-child(4) { font-variant-numeric: tabular-nums; }
+.manager-payment-table__actions { display: flex; align-items: center; gap: 6px; }
+.manager-payment-table__actions button { min-height: 34px; padding: 5px 8px; font-size: var(--text-meta); }
+.manager-payment-table__empty { padding-block: 28px !important; color: var(--muted); text-align: center !important; }
+.thermal-ticket-number {
+  display: block;
+  direction: ltr;
+  margin: 0 0 2mm;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 .thermal-context,
 .thermal-time {
   margin: 0 0 3mm;
