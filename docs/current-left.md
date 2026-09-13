@@ -1,5 +1,36 @@
 # Current Backend Stage Status
 
+## 13 September 2026 API and migration audit
+
+- The 14-migration rehearsal is current again: its production-like upgrade
+  fixture matches the timing columns removed on 11 September, and fresh/repeat
+  deploy, existing-data upgrade, invalid-data atomic rollback, exact table seed,
+  and clean backup restore all pass.
+- The isolated API runner now discovers every integration and unit test instead
+  of relying on a hand-maintained manifest. Test cleanup includes the customer
+  OTP/session/visit tables and canonical product-option join, preventing state
+  leakage after newer migrations.
+- Customer OTP requests are serialized per table credential and phone. Invalid
+  attempt increments now commit before the safe error is returned, so the
+  five-attempt limit is enforceable; concurrent request/cooldown and lockout
+  scenarios have regression coverage.
+- Manager and image routes now validate path/body contracts and translate
+  routine Prisma missing, duplicate, and protected-reference failures into safe
+  404/409/422 envelopes. Image upload metadata/archive operations remain atomic
+  with audit writes, and missing-product uploads do not create orphan files.
+- Successful login/session issuance and product sale-discount changes are now
+  atomic with their audit events, with forced-audit-failure rollback tests.
+  Table archival shares the order/table advisory lock and distinguishes a
+  missing table from active-work conflicts.
+- Canonical allowed-option fixtures now exercise order, POS, and public-menu
+  flows. Active unavailable options remain visible with `isAvailable: false`,
+  while archived options stay hidden. The full isolated API suite passes 15
+  files and 75 tests.
+- Left for the wider Stage 10 gate: the planned security review and measured
+  response targets, plus the existing browser/device, printer, and production
+  operational evidence listed below. Those gates were not expanded into this
+  local API/migration audit.
+
 ## 11 September 2026 deployment and printer targets
 
 - The production API artifact remains built for the current Debian-family VPS
