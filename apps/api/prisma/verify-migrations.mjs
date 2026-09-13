@@ -260,14 +260,14 @@ async function verifyExistingDataUpgrade(files) {
       ) VALUES (
         '50000000-0000-4000-8000-000000000001', 'MIGRATION-ORDER-1',
         '10000000-0000-4000-8000-000000000001', 'TAKEAWAY', 'OPEN', 'UNPAID', 1,
-        0, 100000, 100000, 0, 100000, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        0, 100000, 100000, 0, 100000, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       );
       INSERT INTO "order_items" (
         "id", "orderId", "productId", "productNameSnapshot", "basePriceSnapshot",
         "quantity", "discountAmount", "lineTotalAmount", "displayOrder"
       ) VALUES (
         '60000000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001',
-        '30000000-0000-4000-8000-000000000001', 'Existing product', 100000, 5, 1, 0, 100000, 1
+        '30000000-0000-4000-8000-000000000001', 'Existing product', 100000, 1, 0, 100000, 1
       );
     `);
     await client.query(latest.sql);
