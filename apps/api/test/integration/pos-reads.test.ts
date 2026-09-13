@@ -46,6 +46,15 @@ describe("POS catalog and table reads", () => {
       data: { name: "Archived", displayOrder: 2, isActive: false, archivedAt: new Date() },
     });
     const optionGroup = await app.prisma.optionGroup.create({ data: { name: "Milk" } });
+    const oat = await app.prisma.option.create({
+      data: { optionGroupId: optionGroup.id, name: "Oat", priceAmount: 12_000, displayOrder: 1 },
+    });
+    const unavailableSoy = await app.prisma.option.create({
+      data: { optionGroupId: optionGroup.id, name: "Unavailable soy", priceAmount: 10_000, displayOrder: 2, isAvailable: false },
+    });
+    await app.prisma.option.create({
+      data: { optionGroupId: optionGroup.id, name: "Archived option", priceAmount: 10_000, displayOrder: 3, isActive: false, archivedAt: new Date() },
+    });
     const product = await app.prisma.product.create({
       data: {
         categoryId: category.id,
@@ -55,28 +64,19 @@ describe("POS catalog and table reads", () => {
         displayOrder: 1,
         isAvailable: false,
         image: { create: { storageKey: "products/latte.webp", altText: "Latte" } },
-        productOptionGroups: { create: { optionGroupId: optionGroup.id, displayOrder: 1 } },
+        productOptionGroups: {
+          create: {
+            optionGroupId: optionGroup.id,
+            displayOrder: 1,
+            allowedOptions: {
+              create: [
+                { optionId: oat.id, displayOrder: 1 },
+                { optionId: unavailableSoy.id, displayOrder: 2 },
+              ],
+            },
+          },
+        },
       },
-    });
-    await app.prisma.option.createMany({
-      data: [
-        { optionGroupId: optionGroup.id, name: "Oat", priceAmount: 12_000, displayOrder: 1 },
-        {
-          optionGroupId: optionGroup.id,
-          name: "Unavailable soy",
-          priceAmount: 10_000,
-          displayOrder: 2,
-          isAvailable: false,
-        },
-        {
-          optionGroupId: optionGroup.id,
-          name: "Archived option",
-          priceAmount: 10_000,
-          displayOrder: 3,
-          isActive: false,
-          archivedAt: new Date(),
-        },
-      ],
     });
     await app.prisma.product.create({
       data: {
@@ -107,6 +107,8 @@ describe("POS catalog and table reads", () => {
               {
                 id: optionGroup.id,
                 name: "Milk",
+                minSelections: 1,
+                maxSelections: 1,
                 options: [
                   { id: expect.any(String), name: "Oat", priceAmount: 12_000, isAvailable: true },
                   {
@@ -126,7 +128,7 @@ describe("POS catalog and table reads", () => {
     expect(response.body).not.toContain("archivedAt");
   });
 
-  it("returns active table timing summaries and hides inactive tables", async () => {
+  it("returns active table preparation inputs and hides inactive tables", async () => {
     const cookies = await createStaffSession();
     const staff = await app.prisma.user.findUniqueOrThrow({ where: { username: "pos.reader" } });
     const table = await app.prisma.cafeTable.create({
@@ -136,7 +138,6 @@ describe("POS catalog and table reads", () => {
       data: { name: "Hidden table", displayOrder: 2, isActive: false },
     });
     const createdAt = new Date("2026-08-14T08:00:00.000Z");
-    const releaseAt = new Date("2026-08-14T08:55:00.000Z");
     const order = await app.prisma.order.create({
       data: {
         orderNumber: "POS-READ-001",
