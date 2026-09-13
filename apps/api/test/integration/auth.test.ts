@@ -70,6 +70,38 @@ describe("authentication endpoints", () => {
     }
   });
 
+  it("rolls back a newly issued session when the successful-login audit write fails", async () => {
+    const user = await createUser("atomic-login.staff");
+    await app.prisma.$executeRawUnsafe(`
+      CREATE FUNCTION fail_login_audit() RETURNS trigger AS $$
+      BEGIN
+        IF NEW."eventType" = 'LOGIN_SUCCEEDED' THEN
+          RAISE EXCEPTION 'forced login audit failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_login_audit_trigger
+      BEFORE INSERT ON "auth_events"
+      FOR EACH ROW EXECUTE FUNCTION fail_login_audit();
+    `);
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { username: user.username, password: "CafePassword2026" },
+      });
+      expect(response.statusCode).toBe(500);
+      expect(response.json().error.code).toBe("INTERNAL_ERROR");
+      expect(await app.prisma.refreshSession.count({ where: { userId: user.id } })).toBe(0);
+    } finally {
+      await app.prisma.$executeRawUnsafe(`
+        DROP TRIGGER IF EXISTS fail_login_audit_trigger ON "auth_events";
+        DROP FUNCTION IF EXISTS fail_login_audit();
+      `);
+    }
+  });
+
   it("rotates refresh sessions and rejects the replaced token", async () => {
     await createUser("refresh.user");
     const loginResponse = await app.inject({
