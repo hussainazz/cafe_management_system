@@ -8,7 +8,6 @@ import {
   type ProductSaleDiscountRequest,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
-import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import { requireManagerRoute } from "../auth/authorization.js";
 
 const ProductIdPathSchema = z.object({ productId: z.uuid() });
@@ -30,18 +29,18 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
       },
     },
     async (request) => {
-      const product = await app.prisma.product.update({
-        where: { id: request.params.productId },
-        data: {
-          saleDiscountKind: request.body.saleDiscount?.kind ?? null,
-          saleDiscountValue: request.body.saleDiscount?.value ?? null,
-        },
-        select: { id: true, saleDiscountKind: true, saleDiscountValue: true },
-      }).catch((error: unknown) => {
-        if ((error as { code?: string }).code === "P2025") throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested product was not found.");
-        throw error;
+      const product = await app.prisma.$transaction(async (tx) => {
+        const updated = await tx.product.update({
+          where: { id: request.params.productId },
+          data: {
+            saleDiscountKind: request.body.saleDiscount?.kind ?? null,
+            saleDiscountValue: request.body.saleDiscount?.value ?? null,
+          },
+          select: { id: true, saleDiscountKind: true, saleDiscountValue: true },
+        });
+        await tx.auditLog.create({ data: { actorId: request.authenticatedUser!.id, requestId: request.id, operation: "UPDATE_PRODUCT_SALE_DISCOUNT", entityType: "PRODUCT", entityId: updated.id, afterSnapshot: updated } });
+        return updated;
       });
-      await app.prisma.auditLog.create({ data: { actorId: request.authenticatedUser!.id, requestId: request.id, operation: "UPDATE_PRODUCT_SALE_DISCOUNT", entityType: "PRODUCT", entityId: product.id, afterSnapshot: product } });
       return { data: product, meta: { requestId: request.id } };
     },
   );
