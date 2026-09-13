@@ -105,7 +105,7 @@ Create context-appropriate strategy:
 - Proper margins for binding
 
 **Content Strategy**:
-- Expand shortened content (show full URLs, hidden sections)
+- Expand shortened content (show full s, hidden sections)
 - Add page numbers, headers, footers
 - Include metadata (print date, page title)
 - Convert charts to print-friendly versions
