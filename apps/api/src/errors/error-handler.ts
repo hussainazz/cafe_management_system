@@ -1,4 +1,6 @@
 import type { FastifyError, FastifyInstance, FastifyRequest } from "fastify";
+import { Prisma } from "../../generated/prisma/client.js";
+import { ZodError } from "zod";
 import {
   ApplicationError,
   ErrorCodes,
@@ -59,6 +61,8 @@ function fallbackError(statusCode: number): Pick<ApplicationError, "code" | "mes
         code: ErrorCodes.CONFLICT,
         message: "The request conflicts with the current state.",
       };
+    case 413:
+      return { code: ErrorCodes.BAD_REQUEST, message: "The request payload is too large." };
     case 422:
       return {
         code: ErrorCodes.BUSINESS_RULE_VIOLATION,
@@ -111,6 +115,51 @@ export function registerErrorHandling(app: FastifyInstance): void {
       return reply
         .status(error.statusCode)
         .send(errorResponse(request, error.code, error.message, error.details));
+    }
+
+    if (error instanceof ZodError) {
+      return reply.status(400).send(
+        errorResponse(
+          request,
+          ErrorCodes.VALIDATION_ERROR,
+          "One or more fields are invalid.",
+          error.issues.map((issue) => ({
+            path: issue.path.map((segment) => String(segment)).join("."),
+            code: issue.code,
+            message: issue.message,
+          })),
+        ),
+      );
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2025") {
+        return reply.status(404).send(
+          errorResponse(
+            request,
+            ErrorCodes.NOT_FOUND,
+            "The requested resource was not found.",
+          ),
+        );
+      }
+      if (error.code === "P2002") {
+        return reply.status(409).send(
+          errorResponse(
+            request,
+            ErrorCodes.CONFLICT,
+            "A resource with the same unique value already exists.",
+          ),
+        );
+      }
+      if (error.code === "P2003" || error.code === "P2014") {
+        return reply.status(422).send(
+          errorResponse(
+            request,
+            ErrorCodes.BUSINESS_RULE_VIOLATION,
+            "The request references a missing or protected resource.",
+          ),
+        );
+      }
     }
 
     const fastifyError = error as FastifyError;
