@@ -19,11 +19,16 @@ describe("test database isolation", () => {
         displayOrder: 0,
       },
     });
+    await app.prisma.customer.create({
+      data: { fullName: "Test customer", phoneLookupHash: "test-phone-hash" },
+    });
 
     await expect(app.prisma.category.count()).resolves.toBe(1);
+    await expect(app.prisma.customer.count()).resolves.toBe(1);
   });
 
   it("clears data before the next test", async () => {
     await expect(app.prisma.category.count()).resolves.toBe(0);
+    await expect(app.prisma.customer.count()).resolves.toBe(0);
   });
 });
