@@ -57,5 +57,30 @@ describe("OpenAPI contract", () => {
     expect(document.paths).toHaveProperty("/api/v1/admin/reports/daily");
     expect(document.paths).toHaveProperty("/api/v1/admin/audit-log");
     expect(document.paths).toHaveProperty("/api/v1/product-images/{storageKey}");
+    expect(document.paths["/api/v1/admin/products/{productId}/image"]).toMatchObject({
+      put: {
+        parameters: expect.arrayContaining([
+          expect.objectContaining({ in: "path", name: "productId", required: true }),
+        ]),
+        requestBody: {
+          content: {
+            "multipart/form-data": {
+              schema: expect.objectContaining({ required: ["altText", "image"] }),
+            },
+          },
+        },
+        responses: { 200: expect.any(Object), 400: expect.any(Object), 404: expect.any(Object), 413: expect.any(Object) },
+      },
+      patch: {
+        requestBody: { content: { "application/json": { schema: expect.objectContaining({ required: ["altText"] }) } } },
+        responses: { 200: expect.any(Object), 400: expect.any(Object), 404: expect.any(Object) },
+      },
+    });
+    expect(document.paths["/api/v1/admin/products/{productId}/image/archive"].post.responses)
+      .toMatchObject({ 200: expect.any(Object), 404: expect.any(Object) });
+    expect(document.paths["/api/v1/product-images/{storageKey}"].get.responses).toMatchObject({
+      200: expect.any(Object),
+      404: expect.any(Object),
+    });
   });
 });
