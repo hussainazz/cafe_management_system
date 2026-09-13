@@ -158,6 +158,50 @@ describe("Manager administration", () => {
     expect(disabled.json().data.tableSeatingLimitMinutes).toBeNull();
   });
 
+  it("returns safe client errors for malformed paths, missing rows, duplicates, and foreign keys", async () => {
+    const manager = await session(UserRole.MANAGER, "errors.manager");
+    const malformed = await app.inject({
+      method: "PATCH",
+      url: "/api/v1/admin/categories/not-a-uuid",
+      cookies: manager,
+      payload: { name: "نام جدید" },
+    });
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.json().error.code).toBe("VALIDATION_ERROR");
+
+    const missing = await app.inject({
+      method: "PATCH",
+      url: "/api/v1/admin/categories/00000000-0000-4000-8000-000000000099",
+      cookies: manager,
+      payload: { name: "نام جدید" },
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error.code).toBe("NOT_FOUND");
+
+    const staffPayload = { username: "duplicate.staff", password: "CafePassword2026" };
+    expect((await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: manager, payload: staffPayload })).statusCode).toBe(200);
+    const duplicate = await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: manager, payload: staffPayload });
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.json().error.code).toBe("CONFLICT");
+    expect(duplicate.body).not.toContain("Unique constraint");
+
+    const invalidReference = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/products",
+      cookies: manager,
+      payload: {
+        categoryId: "00000000-0000-4000-8000-000000000098",
+        name: "محصول بدون دسته",
+        priceAmount: 10_000,
+        preparationDeadlineMinutes: 5,
+        displayOrder: 1,
+      },
+    });
+    expect(invalidReference.statusCode).toBe(422);
+    expect(invalidReference.json().error.code).toBe("BUSINESS_RULE_VIOLATION");
+    expect(await app.prisma.auditLog.count({ where: { requestId: invalidReference.json().error.requestId } })).toBe(0);
+  });
+
   it("refuses to archive a table with an open table order", async () => {
     const manager = await session(UserRole.MANAGER, "archive-table.manager");
     const staffUser = await app.prisma.user.create({ data: { username: "archive-table.staff", passwordHash: await hashPassword("CafePassword2026"), role: "STAFF" } });
