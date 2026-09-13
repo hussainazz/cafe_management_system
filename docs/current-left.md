@@ -1,5 +1,10 @@
 # Current Backend Stage Status
 
+## 14 September 2026 partial settlement and takeaway popup pass
+
+- Complete in code and automated verification: a settlement may allocate selected item quantities or an entered integer-Toman amount up to the remaining balance. Amount payments are allocated deterministically across immutable item snapshots; completed receipt lines are marked paid and print with a strike-through, while tender references remain private. The POS payment sheet offers both methods, and selecting an existing takeaway from its queue opens edit/payment/receipt actions in a modal instead of expanding the main takeaway workspace. Table-order behavior is unchanged.
+- Left: attached-browser and physical-receipt validation remain part of the existing Stage 7/10 operational gates.
+
 ## 13 September 2026 API and migration audit
 
 - Documented the mandatory Prisma synchronization rule: every schema change
