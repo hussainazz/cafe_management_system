@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   archiveCategory,
   archiveOption,
@@ -32,18 +32,33 @@ import {
   type PaymentHistory,
   type PosOrderDetail,
 } from "../lib/api-client";
-import { formatToman } from "../lib/pos-utils";
+import { formatOrderNumber, formatToman } from "../lib/pos-utils";
 import { printRoute } from "../lib/print-routes";
 
-type Panel = "catalog" | "staff" | "finance" | "settings";
+type Panel = "catalog" | "tables" | "finance" | "settings";
 type Confirm = {
   title: string;
   detail: string;
   reasonLabel?: string;
   run: (reason?: string) => Promise<void>;
 } | null;
+type PaymentSortKey = "order" | "recordedAt" | "context" | "amount" | "method" | "recordedBy" | "status";
 const number = (value: FormDataEntryValue | null) => Number(value ?? 0);
 const text = (value: FormDataEntryValue | null) => String(value ?? "").trim();
+
+const paymentMethodLabel = {
+  CASH: "نقدی",
+  CARD_TERMINAL: "کارت‌خوان",
+  CARD_TRANSFER: "کارت‌به‌کارت",
+} as const;
+
+function paymentContext(item: PaymentHistory[number]) {
+  return item.channel === "TABLE" ? `میز ${item.table?.name ?? "—"}` : "بیرون‌بر";
+}
+
+function paymentMethods(item: PaymentHistory[number]) {
+  return item.payments.map((payment) => paymentMethodLabel[payment.method]).join("، ") || "—";
+}
 
 export function ManagerWorkspace({
   onOpenMenu,
@@ -124,8 +139,8 @@ export function ManagerWorkspace({
       <nav className="manager-tabs" aria-label="بخش‌های مدیریت">
         {(
           [
-            ["catalog", "کاتالوگ و میزها"],
-            ["staff", "پرسنل"],
+            ["catalog", "کاتالوگ"],
+            ["tables", "میزها"],
             ["finance", "حسابداری"],
             ["settings", "تنظیمات"],
           ] as const
@@ -158,19 +173,12 @@ export function ManagerWorkspace({
           requestConfirm={setConfirm}
         />
       )}
-      {!loading && panel === "staff" && staff && (
-        <StaffPanel
-          staff={staff}
-          mutate={mutate}
-          reload={reloadStaff}
-          requestConfirm={setConfirm}
-        />
-      )}
+      {!loading && panel === "tables" && catalog && <TablesPanel catalog={catalog} mutate={mutate} reload={reloadCatalog} requestConfirm={setConfirm} />}
       {!loading && panel === "finance" && (
         <FinancePanel mutate={mutate} requestConfirm={setConfirm} />
       )}
       {!loading && panel === "settings" && settings && (
-        <SettingsPanel settings={settings} mutate={mutate} reload={reloadSettings} />
+        <SettingsPanel settings={settings} staff={staff} mutate={mutate} reload={reloadSettings} reloadStaff={reloadStaff} requestConfirm={setConfirm} />
       )}
       {confirm && <ConfirmDialog confirm={confirm} close={() => setConfirm(null)} />}
     </section>
@@ -362,6 +370,18 @@ function CatalogPanel({
           ))}
         </ul>
       </ManagerCard>
+      </div>
+  );
+}
+
+function TablesPanel({ catalog, mutate, reload, requestConfirm }: {
+  catalog: ManagerCatalog;
+  mutate: (action: () => Promise<any>, reload: () => Promise<any>) => Promise<void>;
+  reload: () => Promise<any>;
+  requestConfirm: (confirm: Confirm) => void;
+}) {
+  return (
+    <div className="manager-grid">
       <ManagerCard title="میزهای فیزیکی" hint="ظرفیت زمانی، ترتیب نمایش و مجوز فراخوان گارسون">
         <TableForm
           submit={(body) => mutate(() => saveTable(null, body), reload)}
@@ -501,11 +521,17 @@ function FinancePanel({
   const [audit, setAudit] = useState<any>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PosOrderDetail | null>(null);
+  const [paymentSort, setPaymentSort] = useState<{ key: PaymentSortKey; direction: "asc" | "desc" }>({
+    key: "recordedAt",
+    direction: "desc",
+  });
   const [auditFilters, setAuditFilters] = useState({
     operation: "",
     entityType: "",
     actorId: "",
     entityId: "",
+    sortBy: "occurredAt",
+    sortDirection: "desc",
   });
   const auditFiltersRef = useRef(auditFilters);
   useEffect(() => {
@@ -547,6 +573,33 @@ function FinancePanel({
   useEffect(() => {
     void Promise.all([loadPayments(), loadReport("today"), loadAudit()]);
   }, [loadAudit, loadPayments, loadReport]);
+  const sortedPayments = useMemo(() => {
+    const valueFor = (item: PaymentHistory[number]) => {
+      switch (paymentSort.key) {
+        case "order": return item.dailyOrderNumber;
+        case "recordedAt": return new Date(item.recordedAt).getTime();
+        case "context": return paymentContext(item);
+        case "amount": return item.totalAmount;
+        case "method": return paymentMethods(item);
+        case "recordedBy": return item.recordedBy.username;
+        case "status": return item.reversedAt ? "برگشت خورده" : "ثبت شده";
+      }
+    };
+    return [...payments].sort((left, right) => {
+      const leftValue = valueFor(left);
+      const rightValue = valueFor(right);
+      const compared = typeof leftValue === "number" && typeof rightValue === "number"
+        ? leftValue - rightValue
+        : String(leftValue).localeCompare(String(rightValue), "fa");
+      return paymentSort.direction === "asc" ? compared : -compared;
+    });
+  }, [paymentSort, payments]);
+  const changePaymentSort = (key: PaymentSortKey) => {
+    setPaymentSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "desc" ? "asc" : "desc",
+    }));
+  };
   return (
     <div className="manager-grid">
       <ManagerCard
@@ -554,14 +607,38 @@ function FinancePanel({
         hint="فقط تسویه‌های ثبت‌شده و نگهداری‌شده نمایش داده می‌شوند."
       >
         {message && <p className="form-error">{message}</p>}
-        <ul className="manager-list">
-          {payments.map((item) => (
-            <li key={item.id}>
-              <strong>{item.orderNumber}</strong>
-              <small>
-                {formatToman(item.totalAmount)} · {item.reversedAt ? "برگشت خورده" : "ثبت شده"}
-              </small>
-              <button
+        <div className="manager-payment-table-wrap">
+          <table className="manager-payment-table" aria-label="تاریخچه پرداخت‌ها">
+            <thead>
+              <tr>
+                {([
+                  ["order", "سفارش"], ["recordedAt", "زمان ثبت"], ["context", "موقعیت"],
+                  ["amount", "مبلغ"], ["method", "روش پرداخت"], ["recordedBy", "ثبت‌کننده"], ["status", "وضعیت"],
+                ] as const).map(([key, label]) => {
+                  const active = paymentSort.key === key;
+                  return (
+                    <th key={key} aria-sort={active ? (paymentSort.direction === "asc" ? "ascending" : "descending") : "none"}>
+                      <button type="button" onClick={() => changePaymentSort(key)}>
+                        {label}{active ? (paymentSort.direction === "desc" ? " ↓" : " ↑") : ""}
+                      </button>
+                    </th>
+                  );
+                })}
+                <th scope="col">عملیات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedPayments.map((item) => (
+                <tr key={item.id}>
+                  <td><strong>{formatOrderNumber(item.dailyOrderNumber)}</strong></td>
+                  <td>{new Date(item.recordedAt).toLocaleString("fa-IR")}</td>
+                  <td>{paymentContext(item)}</td>
+                  <td>{formatToman(item.totalAmount)}</td>
+                  <td>{paymentMethods(item)}</td>
+                  <td>{item.recordedBy.username}</td>
+                  <td>{item.reversedAt ? "برگشت خورده" : "ثبت شده"}</td>
+                  <td className="manager-payment-table__actions">
+                    <button
                 className="secondary-button"
                 type="button"
                 onClick={() =>
@@ -592,7 +669,7 @@ function FinancePanel({
                   onClick={() =>
                     requestConfirm({
                       title: "برگشت تسویه",
-                      detail: `برگشت تسویه سفارش ${item.orderNumber}، پرداخت ثبت‌شده را حذف نمی‌کند؛ آن را با دلیل شما برگشت‌خورده ثبت می‌کند و وضعیت سفارش را دوباره محاسبه می‌کند.`,
+                      detail: `برگشت تسویه سفارش ${formatOrderNumber(item.dailyOrderNumber)}، پرداخت ثبت‌شده را حذف نمی‌کند؛ آن را با دلیل شما برگشت‌خورده ثبت می‌کند و وضعیت سفارش را دوباره محاسبه می‌کند.`,
                       reasonLabel: "دلیل برگشت تسویه",
                       run: async (reason) => {
                         const order = await readOrder(item.orderId);
@@ -617,9 +694,15 @@ function FinancePanel({
                   برگشت تسویه
                 </button>
               )}
-            </li>
-          ))}
-        </ul>
+                  </td>
+                </tr>
+              ))}
+              {sortedPayments.length === 0 && (
+                <tr><td className="manager-payment-table__empty" colSpan={8}>تسویه‌ای برای نمایش وجود ندارد.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         {cursor && (
           <button
             className="secondary-button"
@@ -636,7 +719,7 @@ function FinancePanel({
             <header className="manager-dialog__header">
               <div>
                 <p className="kicker">سفارش ذخیره‌شده</p>
-                <h2 id="historical-order-title">{selectedOrder.orderNumber}</h2>
+                <h2 id="historical-order-title">{formatOrderNumber(selectedOrder.dailyOrderNumber)}</h2>
               </div>
               <button className="text-button" type="button" onClick={() => setSelectedOrder(null)}>بستن</button>
             </header>
@@ -720,18 +803,24 @@ function FinancePanel({
           </div>
           <button type="submit">اعمال فیلتر</button>
         </form>
-        <ul className="manager-list">
-          {audit?.data.entries.map((entry: any) => (
-            <li key={entry.id}>
-              <strong>{entry.operation}</strong>
-              <small>
-                {entry.actor?.username ?? "سامانه"} · {entry.entityType} ·{" "}
-                {new Date(entry.occurredAt).toLocaleString("fa-IR")}
-              </small>
-              {entry.reason && <span>{entry.reason}</span>}
-            </li>
-          ))}
-        </ul>
+        <div className="manager-audit-table-wrap">
+          <table className="manager-audit-table">
+            <thead><tr>
+              {([ ["occurredAt", "زمان"], ["operation", "عملیات"], ["entityType", "نوع رکورد"], ["actor", "اجراکننده"] ] as const).map(([sortBy, label]) => (
+                <th key={sortBy}><button type="button" onClick={() => {
+                  const sortDirection = auditFilters.sortBy === sortBy && auditFilters.sortDirection === "desc" ? "asc" : "desc";
+                  const next = { ...auditFilters, sortBy, sortDirection };
+                  setAuditFilters(next);
+                  void loadAudit(undefined, false, next);
+                }}>{label}{auditFilters.sortBy === sortBy ? (auditFilters.sortDirection === "desc" ? " ↓" : " ↑") : ""}</button></th>
+              ))}
+              <th>شناسه رکورد</th><th>دلیل</th>
+            </tr></thead>
+            <tbody>{audit?.data.entries.map((entry: any) => (
+              <tr key={entry.id}><td>{new Date(entry.occurredAt).toLocaleString("fa-IR")}</td><td>{entry.operation}</td><td>{entry.entityType}</td><td>{entry.actor?.username ?? "سامانه"}</td><td dir="ltr">{entry.entityId}</td><td>{entry.reason ?? "—"}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
         {audit?.meta.page.nextCursor && (
           <button
             className="secondary-button"
@@ -748,17 +837,24 @@ function FinancePanel({
 
 function SettingsPanel({
   settings,
+  staff,
   mutate,
   reload,
+  reloadStaff,
+  requestConfirm,
 }: {
   settings: ManagerSettings;
+  staff: ManagerStaff | null;
   mutate: (action: () => Promise<any>, reload: () => Promise<any>) => Promise<void>;
   reload: () => Promise<any>;
+  reloadStaff: () => Promise<any>;
+  requestConfirm: (confirm: Confirm) => void;
 }) {
   const [seatingLimitEnabled, setSeatingLimitEnabled] = useState(
     settings.tableSeatingLimitMinutes !== null,
   );
   return (
+    <div className="manager-grid">
     <ManagerCard title="تنظیمات کافه" hint="نمایش زمان نشستن میز اختیاری است و فقط با فعال‌سازی مدیر استفاده می‌شود.">
       <form
         className="manager-form"
@@ -798,6 +894,12 @@ function SettingsPanel({
         <button type="submit">ذخیره تنظیمات</button>
       </form>
     </ManagerCard>
+    {staff ? <StaffPanel staff={staff} mutate={mutate} reload={reloadStaff} requestConfirm={requestConfirm} /> : (
+      <ManagerCard title="پرسنل" hint="فهرست پرسنل اکنون در دسترس نیست.">
+        <button className="secondary-button" type="button" onClick={() => void reloadStaff()}>تلاش دوباره</button>
+      </ManagerCard>
+    )}
+    </div>
   );
 }
 function ManagerCard({
