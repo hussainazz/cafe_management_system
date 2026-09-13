@@ -50,7 +50,7 @@ export async function readPosCatalog(prisma: PrismaClient) {
             name: optionGroup.name,
             minSelections,
             maxSelections,
-            options: allowedOptions.filter(({ option }) => option.isActive && option.isAvailable && !option.archivedAt).map(({ option, priceAmountOverride }) => ({ ...option, priceAmount: priceAmountOverride ?? option.priceAmount })),
+            options: allowedOptions.filter(({ option }) => option.isActive && !option.archivedAt).map(({ option, priceAmountOverride }) => ({ ...option, priceAmount: priceAmountOverride ?? option.priceAmount })),
           })),
       })),
     })),
