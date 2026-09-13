@@ -16,20 +16,16 @@ describe("public QR menu", () => {
   it("returns only public current menu fields without requiring a session", async () => {
     const category = await app.prisma.category.create({ data: { name: "قهوه", displayOrder: 1 } });
     const optionGroup = await app.prisma.optionGroup.create({ data: { name: "دانه قهوه" } });
+    const arabica = await app.prisma.option.create({ data: { optionGroupId: optionGroup.id, name: "۱۰۰ عربیکا", priceAmount: 0, displayOrder: 1 } });
+    const unavailable = await app.prisma.option.create({ data: { optionGroupId: optionGroup.id, name: "ناموجود", priceAmount: 10_000, displayOrder: 2, isAvailable: false } });
     const product = await app.prisma.product.create({
       data: {
         categoryId: category.id, name: "لاته", priceAmount: 250_000,
         saleDiscountKind: DiscountKind.PERCENTAGE, saleDiscountValue: 20,
         preparationDeadlineMinutes: 8, displayOrder: 1, isAvailable: false,
         image: { create: { storageKey: "products/latte.webp", altText: "لاته" } },
-        productOptionGroups: { create: { optionGroupId: optionGroup.id, displayOrder: 1 } },
+        productOptionGroups: { create: { optionGroupId: optionGroup.id, displayOrder: 1, allowedOptions: { create: [{ optionId: arabica.id, displayOrder: 1 }, { optionId: unavailable.id, displayOrder: 2 }] } } },
       },
-    });
-    await app.prisma.option.createMany({
-      data: [
-        { optionGroupId: optionGroup.id, name: "۱۰۰ عربیکا", priceAmount: 0, displayOrder: 1 },
-        { optionGroupId: optionGroup.id, name: "ناموجود", priceAmount: 10_000, displayOrder: 2, isAvailable: false },
-      ],
     });
     const hiddenCategory = await app.prisma.category.create({ data: { name: "پنهان", displayOrder: 2, isActive: false } });
     await app.prisma.product.create({ data: { categoryId: hiddenCategory.id, name: "نباید نمایش داده شود", priceAmount: 1, preparationDeadlineMinutes: 1, displayOrder: 1 } });
@@ -41,7 +37,7 @@ describe("public QR menu", () => {
       id: category.id, name: "قهوه", products: [{
         id: product.id, name: "لاته", priceAmount: 200_000,
         isAvailable: false, image: { storageKey: "products/latte.webp", altText: "لاته" },
-        optionGroups: [{ id: optionGroup.id, name: "دانه قهوه", options: [
+        optionGroups: [{ id: optionGroup.id, name: "دانه قهوه", minSelections: 1, maxSelections: 1, options: [
           { id: expect.any(String), name: "۱۰۰ عربیکا", priceAmount: 0, isAvailable: true },
           { id: expect.any(String), name: "ناموجود", priceAmount: 10_000, isAvailable: false },
         ] }],
