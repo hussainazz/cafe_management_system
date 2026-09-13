@@ -44,6 +44,29 @@ export function buildApp() {
   app.register(multipart, { limits: { files: 1, fileSize: 5 * 1024 * 1024 } });
 
   app.register(swagger, {
+    transform: ({ schema, url, route }) => {
+      if (
+        route.method === "PUT" &&
+        url === "/api/v1/admin/products/:productId/image"
+      ) {
+        return {
+          url,
+          schema: {
+            ...schema,
+            body: {
+              type: "object",
+              additionalProperties: false,
+              required: ["altText", "image"],
+              properties: {
+                altText: { type: "string", minLength: 1, maxLength: 500 },
+                image: { type: "string", format: "binary" },
+              },
+            },
+          },
+        };
+      }
+      return { schema, url };
+    },
     openapi: {
       info: {
         title: "Café Management API",
