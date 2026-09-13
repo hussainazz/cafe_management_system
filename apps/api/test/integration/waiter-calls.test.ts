@@ -146,6 +146,23 @@ describe("public table context and waiter-calls", () => {
     expect(rotated.json().data.active).toBe(false);
   });
 
+  it("allows an explicitly occupied table to bypass OTP only until it is made available", async () => {
+    const staff = await staffCookies();
+    const { table, token } = await tableCredential("bypass");
+    const exchange = await app.inject({ method: "POST", url: "/api/v1/public/table-context/exchange", payload: { token } });
+    const contextCookies = cookies(exchange);
+    const before = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: contextCookies });
+    expect(before.json().data).toMatchObject({ authenticationRequired: true, canCallWaiter: false });
+    expect((await app.inject({ method: "POST", url: `/api/v1/tables/${table.id}/occupy`, cookies: staff, payload: {} })).statusCode).toBe(200);
+    const bypass = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: contextCookies });
+    expect(bypass.json().data).toMatchObject({ authenticationRequired: false, canCallWaiter: true });
+    const call = await app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: contextCookies });
+    expect(call.statusCode).toBe(201);
+    await expect(app.prisma.waiterCall.findFirstOrThrow({ where: { tableId: table.id } })).resolves.toMatchObject({ customerTableVisitId: null });
+    expect((await app.inject({ method: "POST", url: `/api/v1/tables/${table.id}/make-available`, cookies: staff, payload: {} })).statusCode).toBe(200);
+    await expect(app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).resolves.toMatchObject({ customerAuthBypassEnabled: false });
+  });
+
   it("allows repeated QR exchanges without creating extra database records", async () => {
     const { token } = await tableCredential("2");
     for (let index = 0; index < 31; index += 1) {

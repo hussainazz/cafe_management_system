@@ -156,7 +156,8 @@ describe("Staff order creation", () => {
         },
       ],
     });
-    expect(body.data.orderNumber).toMatch(/^ORD-[A-Z0-9]+-[A-F0-9]{8}$/);
+    expect(body.data.orderNumber).toMatch(/^\d{4}-\d{2}-\d{2}-\d+$/);
+    expect(body.data.dailyOrderNumber).toBeGreaterThan(0);
     expect(body.data).not.toHaveProperty("estimatedPreparationMinutes");
     expect(body.data).not.toHaveProperty("tableSeatingLimitSnapshotMinutes");
     expect(body.data).not.toHaveProperty("estimatedTableReleaseAt");

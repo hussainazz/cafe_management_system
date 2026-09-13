@@ -27,6 +27,7 @@ import { canChangeDiscount, discountPayload } from "../lib/discount-workflow";
 import {
   elapsedLabel,
   englishNumber,
+  formatOrderNumber,
   formatToman,
   positiveIntegerAmount,
   settlementAllocationAmount,
@@ -48,7 +49,7 @@ type Data = {
   calls: Array<{ tableId: string; tableName: string; version: number; requestedAt: string }>;
   openOrders: Array<{ id: string; tableId: string | null; totalAmount: number }>;
 };
-type PendingTableClear = { tableId: string; tableName: string; orderNumber: string; error: string };
+type PendingTableClear = { tableId: string; tableName: string; dailyOrderNumber: number; error: string };
 type PendingTransfer = { order: OrderDetail; source: PosTable; destination: PosTable; swaps: boolean };
 type TenderMethod = "CASH" | "CARD_TERMINAL" | "CARD_TRANSFER";
 type TenderDraft = { id: string; method: TenderMethod; amount: string; reference: string };
@@ -320,7 +321,7 @@ export function OrdersWorkspace({
       {pendingTableClear && (
         <section className="clear-retry" role="alert" aria-live="assertive">
           <div>
-            <b>سفارش {pendingTableClear.orderNumber} از فهرست فعال حذف شد.</b>
+            <b>سفارش {formatOrderNumber(pendingTableClear.dailyOrderNumber)} از فهرست فعال حذف شد.</b>
             <span>
               میز {pendingTableClear.tableName} هنوز اشغال است و زمینه مهمان قبلی پایان نیافته: {pendingTableClear.error}
             </span>
@@ -816,7 +817,7 @@ function OrderDesk({
     }
     setDeleteDialogOpen(false);
     if (result.status === "needs-table-clear" && table) {
-      onTableClearNeeded({ tableId: table.id, tableName: table.name, orderNumber: initialOrder.orderNumber, error: result.error.message });
+      onTableClearNeeded({ tableId: table.id, tableName: table.name, dailyOrderNumber: initialOrder.dailyOrderNumber, error: result.error.message });
       return;
     }
     onDone(
@@ -1191,7 +1192,7 @@ function DeleteOrderDialog({ order, table, clearsTable, busy, onCancel, onConfir
           <div><h2 id="delete-order-title">{clearsTable ? "پایان و آزادسازی میز" : "حذف از سفارش‌های فعال"}</h2></div>
           <button className="icon-button" type="button" disabled={busy} onClick={onCancel} aria-label="بستن تأیید حذف"><CloseIcon /></button>
         </div>
-        <p id="delete-order-description">سفارش {order.orderNumber} {tableOrder ? `برای میز ${table!.name}` : "بیرون‌بر"} با وضعیت {paymentStatus} از عملیات فعال حذف می‌شود.</p>
+        <p id="delete-order-description">سفارش {formatOrderNumber(order.dailyOrderNumber)} {tableOrder ? `برای میز ${table!.name}` : "بیرون‌بر"} با وضعیت {paymentStatus} از عملیات فعال حذف می‌شود.</p>
         <p className="deletion-dialog__notice">این حذف فیزیکی نیست؛ اطلاعات مالی و سابقه ثبت‌شده حفظ می‌شود و دلیل حذف لازم نیست.</p>
         {clearsTable && <p className="deletion-dialog__consequence">پس از حذف، میز آماده پذیرش می‌شود، زمینه مهمان قبلی پایان می‌یابد و درخواست گارسون باز آن بسته می‌شود.</p>}
         {tableOrder && !clearsTable && <p className="deletion-dialog__consequence">این میز سفارش باز دیگری دارد؛ فقط این سفارش حذف می‌شود و میز تا پایان سفارش‌های باقی‌مانده آماده پذیرش نخواهد شد.</p>}
@@ -1441,7 +1442,7 @@ function SettlementSheet({
       <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
         <div className="modal-header">
           <div>
-            <h2 id="settlement-title">ثبت پرداخت {order.orderNumber}</h2>
+            <h2 id="settlement-title">ثبت پرداخت {formatOrderNumber(order.dailyOrderNumber)}</h2>
           </div>
           <button className="icon-button" type="button" ref={closeButtonRef} onClick={onClose} aria-label="بستن ثبت پرداخت">
             <CloseIcon />

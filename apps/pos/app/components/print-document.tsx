@@ -36,6 +36,7 @@ function ReceiptItems({ receipt }: { receipt: Receipt }) {
 function BarTicket({ ticket }: { ticket: BarTicket }) {
   return (
     <main className="thermal-print thermal-print--ticket">
+      <strong className="thermal-ticket-number">#{englishNumber.format(ticket.dailyOrderNumber)}</strong>
       <p className="thermal-context">{ticket.context}</p>
       <div className="thermal-items">
         {ticket.items.map((item, index) => (

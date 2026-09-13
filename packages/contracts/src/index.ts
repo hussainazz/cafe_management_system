@@ -138,6 +138,7 @@ export const PosCatalogResponseSchema = z.object({
 export const ActiveTableOrderSchema = z.object({
   id: z.uuid(),
   orderNumber: z.string(),
+  dailyOrderNumber: z.number().int().positive(),
   paymentStatus: z.enum(["UNPAID", "PARTIALLY_PAID", "PAID"]),
   itemPreparationDeadlineMinutes: z.array(ProductPreparationDeadlineMinutesSchema),
   createdAt: z.iso.datetime(),
@@ -259,6 +260,7 @@ export const CreatedOrderItemSchema = z.object({
 export const CreatedOrderSchema = z.object({
   id: z.uuid(),
   orderNumber: z.string(),
+  dailyOrderNumber: z.number().int().positive(),
   channel: z.enum(["TABLE", "TAKEAWAY"]),
   tableId: z.uuid().nullable(),
   state: z.literal("OPEN"),
@@ -333,6 +335,7 @@ export const OrderDetailResponseSchema = z.object({
 export const OrderSummarySchema = z.object({
   id: z.uuid(),
   orderNumber: z.string(),
+  dailyOrderNumber: z.number().int().positive(),
   channel: OrderChannelSchema,
   tableId: z.uuid().nullable(),
   state: OrderStateSchema,
@@ -383,6 +386,7 @@ export const PaymentHistoryEntrySchema = z.object({
   id: z.uuid(),
   orderId: z.uuid(),
   orderNumber: z.string(),
+  dailyOrderNumber: z.number().int().positive(),
   channel: OrderChannelSchema,
   table: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   totalAmount: z.number().int().nonnegative(),
@@ -447,6 +451,8 @@ export const AuditLogQuerySchema = z
     entityId: z.uuid().optional(),
     from: z.iso.datetime().optional(),
     to: z.iso.datetime().optional(),
+    sortBy: z.enum(["occurredAt", "operation", "entityType", "actor"]).default("occurredAt"),
+    sortDirection: z.enum(["asc", "desc"]).default("desc"),
   })
   .strict()
   .refine((query) => !query.from || !query.to || query.from <= query.to, { message: "from must not be later than to.", path: ["to"] });
@@ -566,7 +572,7 @@ export type ReverseSettlementRequest = z.infer<typeof ReverseSettlementRequestSc
 export const ReverseSettlementResponseSchema = OrderDetailResponseSchema;
 
 const ReceiptItemSchema = z.object({ productName: z.string(), quantity: z.number().int().positive(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), lineTotalAmount: z.number().int().nonnegative() });
-export const BarTicketResponseSchema = z.object({ data: z.object({ context: z.string(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
+export const BarTicketResponseSchema = z.object({ data: z.object({ dailyOrderNumber: z.number().int().positive(), context: z.string(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
 export const OrderReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
 export const SettlementReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
 

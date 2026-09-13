@@ -7,6 +7,7 @@ const activeOrders = {
   select: {
     id: true,
     orderNumber: true,
+    dailyOrderNumber: true,
     paymentStatus: true,
     createdAt: true,
     items: { select: { product: { select: { preparationDeadlineMinutes: true } } } },
@@ -23,6 +24,7 @@ function tableDto(table: {
   orders: Array<{
     id: string;
     orderNumber: string;
+    dailyOrderNumber: number;
     paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID";
     createdAt: Date;
     items: Array<{ product: { preparationDeadlineMinutes: number } }>;
@@ -38,6 +40,7 @@ function tableDto(table: {
     activeOrders: table.orders.map((order) => ({
       id: order.id,
       orderNumber: order.orderNumber,
+      dailyOrderNumber: order.dailyOrderNumber,
       paymentStatus: order.paymentStatus,
       createdAt: order.createdAt.toISOString(),
       itemPreparationDeadlineMinutes: order.items.map((item) => item.product.preparationDeadlineMinutes),
@@ -73,7 +76,7 @@ export async function readPosTable(prisma: PrismaClient, tableId: string) {
 export async function occupyTable(prisma: PrismaClient, tableId: string) {
   const updated = await prisma.cafeTable.updateMany({
     where: { id: tableId, isActive: true, archivedAt: null },
-    data: { occupancyState: "OCCUPIED", occupiedAt: new Date(), occupancyReminderAt: null },
+    data: { occupancyState: "OCCUPIED", occupiedAt: new Date(), occupancyReminderAt: null, customerAuthBypassEnabled: true },
   });
   if (updated.count !== 1) {
     throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested table was not found.");
@@ -97,6 +100,7 @@ export async function makeTableAvailable(prisma: PrismaClient, tableId: string) 
         occupancyState: "AVAILABLE",
         occupiedAt: null,
         occupancyReminderAt: null,
+        customerAuthBypassEnabled: false,
         tableContextInvalidBefore: now,
       },
     });

@@ -36,7 +36,7 @@ export async function listPaymentHistory(prisma: PrismaClient, query: PaymentHis
     orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
     take: query.limit + 1,
     include: {
-      order: { select: { id: true, orderNumber: true, channel: true, table: { select: { id: true, name: true } } } },
+      order: { select: { id: true, orderNumber: true, dailyOrderNumber: true, channel: true, table: { select: { id: true, name: true } } } },
       recordedBy: { select: { id: true, username: true, role: true } },
       payments: { orderBy: { id: "asc" }, select: { method: true, amount: true, reference: true } },
       reversal: { select: { recordedAt: true } },
@@ -49,6 +49,7 @@ export async function listPaymentHistory(prisma: PrismaClient, query: PaymentHis
       id: settlement.id,
       orderId: settlement.order.id,
       orderNumber: settlement.order.orderNumber,
+      dailyOrderNumber: settlement.order.dailyOrderNumber,
       channel: settlement.order.channel,
       table: settlement.order.table,
       totalAmount: settlement.totalAmount,

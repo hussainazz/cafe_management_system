@@ -2,6 +2,12 @@
 
 ## 13 September 2026 API and migration audit
 
+- Documented the mandatory Prisma synchronization rule: every schema change
+  requires a reviewed forward migration, local `prisma:deploy`, regenerated
+  client/API restart, isolated `_test` verification, and release-time migration
+  recording before new code starts. Schema drift must be surfaced as a
+  migration/readiness problem rather than an apparent POS authorization error.
+
 - The 14-migration rehearsal is current again: its production-like upgrade
   fixture matches the timing columns removed on 11 September, and fresh/repeat
   deploy, existing-data upgrade, invalid-data atomic rollback, exact table seed,
@@ -30,6 +36,12 @@
   response targets, plus the existing browser/device, printer, and production
   operational evidence listed below. Those gates were not expanded into this
   local API/migration audit.
+
+## 13 September 2026 approved table bypass, daily number, and Manager workspace pass
+
+- Complete: explicit POS hold/occupy enables a table-local temporary OTP bypass; normal available-table QR scans retain OTP, and making the table available invalidates its context and clears the bypass.
+- Complete: staff-facing orders have a transaction-safe shared Tehran-day integer sequence, bar tickets prominently show that number, and UUID identity plus idempotent replay semantics remain intact.
+- Complete: audit history supports controlled server-side sort/cursor semantics, Personnel sits under Settings, and physical-table administration is its own Manager tab.
 
 ## 11 September 2026 deployment and printer targets
 

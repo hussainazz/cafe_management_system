@@ -24,6 +24,7 @@ async function recordedSettlement(input: {
   const order = await app.prisma.order.create({
     data: {
       orderNumber: input.orderNumber,
+      dailyOrderNumber: 1,
       createdById: input.actorId,
       channel: input.tableId ? "TABLE" : "TAKEAWAY",
       tableId: input.tableId ?? null,
@@ -237,6 +238,7 @@ describe("Manager administration", () => {
         id: second.settlement.id,
         orderId: second.order.id,
         orderNumber: "PAY-002",
+        dailyOrderNumber: 1,
         channel: "TABLE",
         table: { id: table.id, name: "۱۲" },
         totalAmount: 20_000,
@@ -332,6 +334,12 @@ describe("Manager administration", () => {
     const secondPage = await app.inject({ method: "GET", url: `/api/v1/admin/audit-log?limit=2&cursor=${encodeURIComponent(firstPage.json().meta.page.nextCursor)}`, cookies: manager });
     expect(secondPage.statusCode).toBe(200);
     expect(secondPage.json().data.entries.map((entry: { id: string }) => entry.id)).toEqual(expected.slice(2).map((entry) => entry.id));
+    for (const sortDirection of ["asc", "desc"] as const) {
+      const actorPage = await app.inject({ method: "GET", url: `/api/v1/admin/audit-log?limit=1&sortBy=actor&sortDirection=${sortDirection}`, cookies: manager });
+      expect(actorPage.statusCode).toBe(200);
+      const actorNext = await app.inject({ method: "GET", url: `/api/v1/admin/audit-log?limit=1&sortBy=actor&sortDirection=${sortDirection}&cursor=${encodeURIComponent(actorPage.json().meta.page.nextCursor)}`, cookies: manager });
+      expect(actorNext.statusCode).toBe(200);
+    }
     const filtered = await app.inject({ method: "GET", url: `/api/v1/admin/audit-log?entityType=CATEGORY&entityId=${category.id}&actorId=${staffUser.id}&operation=UPDATE_CATEGORY`, cookies: manager });
     expect(filtered.statusCode).toBe(200);
     expect(filtered.json().data.entries).toHaveLength(1);

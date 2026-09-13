@@ -60,8 +60,8 @@ async function contextDto(prisma: PrismaClient, cookieHeader: string | undefined
     tableName: table.name,
     occupancyState: table.occupancyState,
     waiterCallStatus: table.waiterCalls.length > 0 ? ("PENDING" as const) : null,
-    canCallWaiter: Boolean(visit),
-    authenticationRequired: !auth,
+    canCallWaiter: Boolean(visit) || (table.occupancyState === "OCCUPIED" && table.customerAuthBypassEnabled),
+    authenticationRequired: !(table.occupancyState === "OCCUPIED" && table.customerAuthBypassEnabled) && !auth,
     customerAuthenticated: Boolean(auth),
     visitActive: Boolean(visit),
   };
@@ -127,11 +127,13 @@ export async function createWaiterCall(prisma: PrismaClient, cookieHeader: strin
     );
   }
   const auth = await readCustomerAuth(prisma, cookieHeader);
-  if (!auth) throw new ApplicationError(401, ErrorCodes.CUSTOMER_AUTH_REQUIRED, "Customer authentication is required.");
-  const visit = await prisma.customerTableVisit.findFirst({
-    where: { customerId: auth.customerId, tableId: context.credential.tableId, tableCredentialId: context.credential.id, invalidatedAt: null, expiresAt: { gt: new Date() } },
-  });
-  if (!visit) throw new ApplicationError(401, ErrorCodes.CUSTOMER_AUTH_REQUIRED, "A valid table visit is required.");
+  const bypassEnabled = context.credential.table.occupancyState === "OCCUPIED" && context.credential.table.customerAuthBypassEnabled;
+  const visit = auth
+    ? await prisma.customerTableVisit.findFirst({
+        where: { customerId: auth.customerId, tableId: context.credential.tableId, tableCredentialId: context.credential.id, invalidatedAt: null, expiresAt: { gt: new Date() } },
+      })
+    : null;
+  if (!visit && !bypassEnabled) throw new ApplicationError(401, ErrorCodes.CUSTOMER_AUTH_REQUIRED, "Customer authentication and a valid table visit are required.");
 
   try {
     return await prisma.$transaction(async (transaction) => {
@@ -144,6 +146,7 @@ export async function createWaiterCall(prisma: PrismaClient, cookieHeader: strin
         !current.table.isActive ||
         current.table.archivedAt ||
         !current.table.waiterCallEnabled ||
+        (!(current.table.occupancyState === "OCCUPIED" && current.table.customerAuthBypassEnabled) && !visit) ||
         (current.table.tableContextInvalidBefore?.getTime() ?? 0) >= context.payload.issuedAt
       ) {
         throw new ApplicationError(
@@ -156,7 +159,7 @@ export async function createWaiterCall(prisma: PrismaClient, cookieHeader: strin
         where: { tableId: current.tableId, status: "PENDING" },
       });
       const call =
-        existing ?? (await transaction.waiterCall.create({ data: { tableId: current.tableId, customerTableVisitId: visit.id } }));
+        existing ?? (await transaction.waiterCall.create({ data: { tableId: current.tableId, customerTableVisitId: visit?.id ?? null } }));
       return {
         status: "PENDING" as const,
         tableName: current.table.name,

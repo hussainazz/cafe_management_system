@@ -272,10 +272,13 @@ async function verifyExistingDataUpgrade(files) {
     `);
     await client.query(latest.sql);
     const retained = await client.query(
-      `SELECT "totalAmount" FROM "orders" WHERE "orderNumber" = 'MIGRATION-ORDER-1'`,
+      `SELECT "totalAmount", "dailyOrderNumber" FROM "orders" WHERE "orderNumber" = 'MIGRATION-ORDER-1'`,
     );
-    if (retained.rows[0]?.totalAmount !== 100000)
+    if (retained.rows[0]?.totalAmount !== 100000 || retained.rows[0]?.dailyOrderNumber !== 1)
       throw new Error("Existing valid financial data was not retained");
+    const dailySequence = await client.query(`SELECT "lastNumber" FROM "daily_order_sequences"`);
+    if (dailySequence.rows[0]?.lastNumber !== 1)
+      throw new Error("Existing orders did not initialize their Tehran-day sequence");
     const waiterTable = await client.query(`SELECT to_regclass('public.waiter_calls') AS name`);
     if (waiterTable.rows[0]?.name !== "waiter_calls")
       throw new Error("Existing-data upgrade did not add waiter-call persistence");

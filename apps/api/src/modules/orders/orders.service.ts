@@ -81,6 +81,7 @@ function validateOptionSelections(product: ProductForOrder, selected: Array<{ op
 type CreatedOrder = {
   id: string;
   orderNumber: string;
+  dailyOrderNumber: number;
   channel: "TABLE" | "TAKEAWAY";
   tableId: string | null;
   state: "OPEN" | "CLOSED" | "DELETED";
@@ -137,8 +138,28 @@ function requestFingerprint(input: unknown): string {
   return createHash("sha256").update(stableJson(input)).digest("hex");
 }
 
-function orderNumber(): string {
-  return `ORD-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 8).toUpperCase()}`;
+const tehranBusinessDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Tehran",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function tehranBusinessDate(value: Date): string {
+  const parts = Object.fromEntries(tehranBusinessDateFormatter.formatToParts(value).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+async function nextDailyOrderNumber(transaction: Prisma.TransactionClient, createdAt: Date): Promise<{ businessDate: string; number: number }> {
+  const businessDate = tehranBusinessDate(createdAt);
+  await transaction.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`daily-order:${businessDate}`}::text))`);
+  const sequence = await transaction.dailyOrderSequence.upsert({
+    where: { businessDate },
+    create: { businessDate, lastNumber: 1 },
+    update: { lastNumber: { increment: 1 } },
+    select: { lastNumber: true },
+  });
+  return { businessDate, number: sequence.lastNumber };
 }
 
 function isAvailableProduct(product: ProductForOrder): boolean {
@@ -360,9 +381,11 @@ export async function createOrder(
       const subtotalAmount = preparedItems.reduce((total, item) => total + item.lineTotalAmount, 0);
       const createdAt = new Date();
 
+      const dailySequence = await nextDailyOrderNumber(transaction, createdAt);
       const created = await transaction.order.create({
         data: {
-          orderNumber: orderNumber(),
+          orderNumber: `${dailySequence.businessDate}-${dailySequence.number}`,
+          dailyOrderNumber: dailySequence.number,
           createdById: actor.id,
           channel: input.channel,
           tableId: table?.id ?? null,
@@ -403,6 +426,7 @@ export async function createOrder(
           entityId: created.id,
           afterSnapshot: {
             orderNumber: result.orderNumber,
+            dailyOrderNumber: result.dailyOrderNumber,
             channel: result.channel,
             tableId: result.tableId,
             ...(input.channel === "TABLE"
@@ -467,6 +491,7 @@ function orderDetailDto(order: OrderDetailRecord) {
   return {
     id: order.id,
     orderNumber: order.orderNumber,
+    dailyOrderNumber: order.dailyOrderNumber,
     channel: order.channel,
     tableId: order.tableId,
     tableName: order.table?.name ?? null,
@@ -573,6 +598,7 @@ export async function listOrders(prisma: PrismaClient, actor: AuthenticatedUser,
     orders: orders.map((order) => ({
       id: order.id,
       orderNumber: order.orderNumber,
+      dailyOrderNumber: order.dailyOrderNumber,
       channel: order.channel,
       tableId: order.tableId,
       state: order.state,
@@ -733,7 +759,7 @@ export async function transferOrderTable(prisma: PrismaClient, actor: Authentica
       ] });
     } else {
       await transaction.cafeTable.update({ where: { id: destinationTable.id }, data: { occupancyState: "OCCUPIED", occupiedAt: destinationTable.occupiedAt ?? now, occupancyReminderAt: null } });
-      await transaction.cafeTable.update({ where: { id: sourceTable.id }, data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, tableContextInvalidBefore: now } });
+      await transaction.cafeTable.update({ where: { id: sourceTable.id }, data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, customerAuthBypassEnabled: false, tableContextInvalidBefore: now } });
       await transaction.waiterCall.updateMany({ where: { tableId: sourceTable.id, status: "PENDING" }, data: { status: "RESOLVED", acknowledgedAt: now, resolvedAt: now, version: { increment: 1 } } });
       await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "TRANSFER_ORDER_TABLE", entityType: "ORDER", entityId: orderId, afterSnapshot: { tableId: destinationTable.id, version: input.expectedVersion + 1 } } });
     }
@@ -887,7 +913,7 @@ export async function recordSettlement(
       if (closesOrder && current.channel === OrderChannel.TABLE && current.tableId) {
         await transaction.cafeTable.update({
           where: { id: current.tableId },
-          data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, tableContextInvalidBefore: recordedAt },
+          data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, customerAuthBypassEnabled: false, tableContextInvalidBefore: recordedAt },
         });
         await transaction.waiterCall.updateMany({
           where: { tableId: current.tableId, status: "PENDING" },
@@ -994,7 +1020,7 @@ export async function barTicket(prisma: PrismaClient, actor: AuthenticatedUser, 
   requireRole(actor, ["STAFF", "MANAGER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-  return { context: order.channel === OrderChannel.TABLE ? `میز ${order.table!.name}` : "بیرون‌بر", items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note })) };
+  return { dailyOrderNumber: order.dailyOrderNumber, context: order.channel === OrderChannel.TABLE ? `میز ${order.table!.name}` : "بیرون‌بر", items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note })) };
 }
 
 export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {

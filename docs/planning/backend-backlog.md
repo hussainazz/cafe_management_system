@@ -100,11 +100,35 @@ from development data.
 Acceptance criteria:
 
 - Test commands use a separate database URL from local development.
+
 - The test workflow can create, migrate, reset, and dispose of test data
   repeatably.
 - API integration tests can run against real PostgreSQL without sharing state
   between test cases.
 - The workflow is documented for a fresh environment.
+
+### Prisma schema/migration synchronization rule
+
+Every database-model change must be delivered as one synchronized change set:
+
+1. Update `apps/api/prisma/schema.prisma` and create the corresponding reviewed
+   forward migration; never rely on `prisma db push`, ad-hoc SQL, or a generated
+   client alone.
+2. Regenerate the Prisma client, apply pending migrations to the intended local
+   development database with `pnpm --filter @cafe/api prisma:deploy`, and restart
+   the API watcher before browser/POS verification.
+3. Run the migration rehearsal and the affected API tests against the isolated
+   `_test` database. Do not use the development database for the authorized
+   test reset workflow.
+4. Before a release, bundle the migration, record the applied migration version,
+   and apply it to the target database through the release runbook before
+   starting code that queries the new schema.
+
+The schema, migration history, generated client, and running database must be
+checked as a single compatibility boundary. If they drift, authenticated POS
+bootstrap requests can return Prisma 500 errors after a successful login and
+appear to be an authorization failure. A readiness failure should be reported
+as schema/migration drift, not as a credential or role problem.
 
 #### P0.4 Structured Error Envelope Implementation
 
@@ -274,7 +298,7 @@ Implement print-ready API data for bar tickets and customer receipts.
 
 Acceptance criteria:
 
-- Bar-ticket data includes order number, `Asia/Tehran` display time,
+- Bar-ticket data includes the prominent Tehran-business-day order number, `Asia/Tehran` display time,
   table/takeaway context, item quantities, selected options, preparation
   snapshots, estimated preparation minutes, and notes.
 - Bar-ticket data excludes prices, discounts, totals, payment details, audit

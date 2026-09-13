@@ -214,6 +214,7 @@ model CafeTable {
   occupancyState            TableOccupancyState @default(AVAILABLE)
   occupiedAt                DateTime?
   occupancyReminderAt       DateTime?
+  customerAuthBypassEnabled Boolean             @default(false)
   tableContextInvalidBefore DateTime?
   archivedAt                DateTime?
 
@@ -341,6 +342,7 @@ model CustomerTableVisit {
 model Order {
   id                               String        @id @default(uuid())
   orderNumber                      String        @unique
+  dailyOrderNumber                 Int           @default(0)
   tableId                          String?
   createdById                      String
   channel                          OrderChannel
@@ -370,7 +372,15 @@ model Order {
   @@index([tableId, state])
   @@index([state, paymentStatus])
   @@index([createdAt])
+  @@index([dailyOrderNumber])
   @@map("orders")
+}
+
+model DailyOrderSequence {
+  businessDate String @id
+  lastNumber   Int    @default(0)
+
+  @@map("daily_order_sequences")
 }
 
 model OrderItem {

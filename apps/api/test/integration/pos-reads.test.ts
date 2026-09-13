@@ -141,6 +141,7 @@ describe("POS catalog and table reads", () => {
     const order = await app.prisma.order.create({
       data: {
         orderNumber: "POS-READ-001",
+        dailyOrderNumber: 1,
         tableId: table.id,
         createdById: staff.id,
         channel: OrderChannel.TABLE,
@@ -168,6 +169,7 @@ describe("POS catalog and table reads", () => {
           {
             id: order.id,
             orderNumber: "POS-READ-001",
+            dailyOrderNumber: 1,
             paymentStatus: "UNPAID",
             createdAt: createdAt.toISOString(),
             itemPreparationDeadlineMinutes: [],

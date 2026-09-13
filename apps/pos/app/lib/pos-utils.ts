@@ -6,6 +6,10 @@ export function formatToman(amount: number) {
   return englishNumber.format(amount);
 }
 
+export function formatOrderNumber(dailyOrderNumber: number) {
+  return `#${englishNumber.format(dailyOrderNumber)}`;
+}
+
 export function elapsedLabel(startedAt: string | null, now = Date.now()) {
   if (!startedAt) return null;
   const started = new Date(startedAt).getTime();
