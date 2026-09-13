@@ -81,9 +81,11 @@ export async function login(
     );
   }
 
-  const tokens = await issueSession(prisma, userDto(user));
-  await authEvent(prisma, "LOGIN_SUCCEEDED", requestId, user.id);
-  return tokens;
+  return prisma.$transaction(async (transaction) => {
+    const tokens = await issueSession(transaction, userDto(user));
+    await authEvent(transaction, "LOGIN_SUCCEEDED", requestId, user.id);
+    return tokens;
+  });
 }
 
 export async function refresh(
