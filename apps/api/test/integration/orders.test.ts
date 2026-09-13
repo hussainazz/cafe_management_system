@@ -40,21 +40,31 @@ async function staffSession() {
   return userSession(UserRole.STAFF, "order.staff");
 }
 
+let sellableProductNumber = 0;
 async function sellableProduct() {
-  const category = await app.prisma.category.create({ data: { name: "Coffee", displayOrder: 1 } });
-  const optionGroup = await app.prisma.optionGroup.create({ data: { name: "Milk" } });
+  const sequence = ++sellableProductNumber;
+  const category = await app.prisma.category.create({ data: { name: `Coffee ${sequence}`, displayOrder: sequence } });
+  const optionGroup = await app.prisma.optionGroup.create({ data: { name: `Milk ${sequence}` } });
+  const option = await app.prisma.option.create({
+    data: { optionGroupId: optionGroup.id, name: "Oat milk", priceAmount: 5_000, displayOrder: 1 },
+  });
   const product = await app.prisma.product.create({
     data: {
       categoryId: category.id,
       name: "Latte",
       priceAmount: 50_000,
       preparationDeadlineMinutes: 8,
-      displayOrder: 1,
-      productOptionGroups: { create: { optionGroupId: optionGroup.id, displayOrder: 1 } },
+      displayOrder: sequence,
+      productOptionGroups: {
+        create: {
+          optionGroupId: optionGroup.id,
+          displayOrder: 1,
+          minSelections: 0,
+          maxSelections: 1,
+          allowedOptions: { create: { optionId: option.id, displayOrder: 1 } },
+        },
+      },
     },
-  });
-  const option = await app.prisma.option.create({
-    data: { optionGroupId: optionGroup.id, name: "Oat milk", priceAmount: 5_000, displayOrder: 1 },
   });
   return { product, option };
 }
@@ -86,7 +96,7 @@ describe("Staff order creation", () => {
     expect(second.json().error.code).toBe("INVALID_STATE");
   });
 
-  it("creates a table order from authoritative catalog snapshots and timing", async () => {
+  it("creates a table order from authoritative catalog snapshots without persisted timing", async () => {
     const cookies = await staffSession();
     const { product, option } = await sellableProduct();
     const table = await app.prisma.cafeTable.create({
@@ -147,9 +157,9 @@ describe("Staff order creation", () => {
       ],
     });
     expect(body.data.orderNumber).toMatch(/^ORD-[A-Z0-9]+-[A-F0-9]{8}$/);
-    expect(new Date(body.data.estimatedTableReleaseAt).getTime()).toBe(
-      new Date(body.data.createdAt).getTime() + 53 * 60_000,
-    );
+    expect(body.data).not.toHaveProperty("estimatedPreparationMinutes");
+    expect(body.data).not.toHaveProperty("tableSeatingLimitSnapshotMinutes");
+    expect(body.data).not.toHaveProperty("estimatedTableReleaseAt");
     const settled = await app.inject({
       method: "POST", url: `/api/v1/orders/${body.data.id}/record-settlement`, cookies,
       headers: { "idempotency-key": "close-table-order-0001" },
@@ -235,7 +245,7 @@ describe("Staff order creation", () => {
     });
   });
 
-  it("creates takeaway orders without a table timing snapshot", async () => {
+  it("creates takeaway orders without persisted timing", async () => {
     const cookies = await staffSession();
     const { product } = await sellableProduct();
 
@@ -387,6 +397,41 @@ describe("order reads, edits, and discounts", () => {
     expect(historical.json().data.items[0]).toMatchObject({ discountKind: "PERCENTAGE", discountValue: 20, discountAmount: 10_000, lineTotalAmount: 40_000 });
   });
 
+  it("rolls back a product sale discount when its audit write fails", async () => {
+    const managerCookies = await userSession(UserRole.MANAGER, "discount-atomic.manager");
+    const { product } = await sellableProduct();
+    await app.prisma.$executeRawUnsafe(`
+      CREATE FUNCTION fail_discount_audit() RETURNS trigger AS $$
+      BEGIN
+        IF NEW."operation" = 'UPDATE_PRODUCT_SALE_DISCOUNT' THEN
+          RAISE EXCEPTION 'forced discount audit failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_discount_audit_trigger
+      BEFORE INSERT ON "audit_logs"
+      FOR EACH ROW EXECUTE FUNCTION fail_discount_audit();
+    `);
+    try {
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/admin/products/${product.id}/sale-discount`,
+        cookies: managerCookies,
+        payload: { saleDiscount: { kind: "FIXED", value: 5_000 } },
+      });
+      expect(response.statusCode).toBe(500);
+      expect(response.json().error.code).toBe("INTERNAL_ERROR");
+      await expect(app.prisma.product.findUniqueOrThrow({ where: { id: product.id } }))
+        .resolves.toMatchObject({ saleDiscountKind: null, saleDiscountValue: null });
+    } finally {
+      await app.prisma.$executeRawUnsafe(`
+        DROP TRIGGER IF EXISTS fail_discount_audit_trigger ON "audit_logs";
+        DROP FUNCTION IF EXISTS fail_discount_audit();
+      `);
+    }
+  });
+
   it("moves a table order to an empty table, frees its source context, and rejects a stale edit", async () => {
     const cookies = await userSession(UserRole.STAFF, "transfer.staff");
     const { product } = await sellableProduct();
@@ -396,7 +441,7 @@ describe("order reads, edits, and discounts", () => {
     const order = created.json().data;
     const transferred = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/transfer-table`, cookies, payload: { expectedVersion: order.version, tableId: secondTable.id } });
     expect(transferred.statusCode).toBe(200);
-    expect(transferred.json().data).toMatchObject({ tableId: secondTable.id, tableSeatingLimitSnapshotMinutes: 60, version: 2 });
+    expect(transferred.json().data).toMatchObject({ tableId: secondTable.id, version: 2 });
     expect(await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: firstTable.id } })).toMatchObject({ occupancyState: "AVAILABLE", occupiedAt: null });
     expect(await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: secondTable.id } })).toMatchObject({ occupancyState: "OCCUPIED" });
     const stale = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[0].id, note: "Stale edit" }] } });
@@ -406,7 +451,7 @@ describe("order reads, edits, and discounts", () => {
     expect(current.note).toBeNull();
   });
 
-  it("swaps two open table orders and recalculates their table timing", async () => {
+  it("swaps two open table orders without introducing persisted timing", async () => {
     const cookies = await userSession(UserRole.MANAGER, "swap.manager");
     const { product } = await sellableProduct();
     const firstTable = await app.prisma.cafeTable.create({ data: { name: "Swap 1", displayOrder: 101 } });
@@ -426,9 +471,9 @@ describe("order reads, edits, and discounts", () => {
     });
     const moved = await app.inject({ method: "POST", url: `/api/v1/orders/${first.json().data.id}/transfer-table`, cookies, payload: { expectedVersion: first.json().data.version, tableId: secondTable.id } });
     expect(moved.statusCode).toBe(200);
-    expect(moved.json().data).toMatchObject({ tableId: secondTable.id, tableSeatingLimitSnapshotMinutes: 75, version: 2 });
+    expect(moved.json().data).toMatchObject({ tableId: secondTable.id, version: 2 });
     const displaced = await app.prisma.order.findUniqueOrThrow({ where: { id: second.json().data.id } });
-    expect(displaced).toMatchObject({ tableId: firstTable.id, tableSeatingLimitSnapshotMinutes: 45, version: 2 });
+    expect(displaced).toMatchObject({ tableId: firstTable.id, version: 2 });
     await expect(app.prisma.cafeTable.findUniqueOrThrow({ where: { id: firstTable.id } })).resolves.toMatchObject({ occupancyState: "OCCUPIED" });
     await expect(app.prisma.cafeTable.findUniqueOrThrow({ where: { id: secondTable.id } })).resolves.toMatchObject({ occupancyState: "OCCUPIED" });
   });
