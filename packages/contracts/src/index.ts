@@ -300,7 +300,7 @@ export const SettlementSummarySchema = z.object({
   allocations: z.array(
     z.object({
       orderItemId: z.uuid(),
-      quantity: z.number().int().positive(),
+      quantity: z.number().int().nonnegative(),
       amount: z.number().int().nonnegative(),
     }),
   ),
@@ -546,14 +546,12 @@ export const SettlementPaymentInputSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("CARD_TRANSFER"), amount: z.number().int().positive(), reference: z.string().trim().min(1).max(128).optional() }).strict(),
 ]);
 
-export const RecordSettlementRequestSchema = z
-  .object({
+const SettlementBaseSchema = z.object({
     expectedVersion: z.number().int().positive(),
-    allocations: z.array(SettlementAllocationInputSchema).min(1).max(100),
     payments: z.array(SettlementPaymentInputSchema).min(1).max(10),
-  })
-  .strict()
-  .superRefine((input, context) => {
+  }).strict();
+export const RecordSettlementRequestSchema = z.union([
+  SettlementBaseSchema.extend({ allocationMode: z.literal("ITEM_QUANTITY").optional(), allocations: z.array(SettlementAllocationInputSchema).min(1).max(100) }).superRefine((input, context) => {
     const itemIds = new Set<string>();
     input.allocations.forEach((allocation, index) => {
       if (itemIds.has(allocation.orderItemId)) {
@@ -561,7 +559,9 @@ export const RecordSettlementRequestSchema = z
       }
       itemIds.add(allocation.orderItemId);
     });
-  });
+  }),
+  SettlementBaseSchema.extend({ allocationMode: z.literal("AMOUNT"), amount: z.number().int().positive() }),
+]);
 
 export type RecordSettlementRequest = z.infer<typeof RecordSettlementRequestSchema>;
 
