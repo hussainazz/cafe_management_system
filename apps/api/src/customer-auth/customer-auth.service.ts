@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../generated/prisma/client.js";
+import { Prisma, type PrismaClient } from "../../generated/prisma/client.js";
 import { readCookie } from "../auth/session.js";
 import { ApplicationError, ErrorCodes } from "../errors/application-error.js";
 import {
@@ -35,41 +35,59 @@ export async function requestCustomerOtp(prisma: PrismaClient, credentialId: str
   const phone = normalizeIranMobile(phoneInput);
   const fullName = normalizeCustomerName(fullNameInput);
   if (!phone || !fullName) throw new ApplicationError(400, ErrorCodes.BAD_REQUEST, "A valid full name and mobile number are required.");
-  const now = new Date();
   const phoneLookupHash = hashCustomerPhone(phone);
-  const recent = await prisma.customerOtpChallenge.findFirst({
-    where: { phoneLookupHash, tableCredentialId: credentialId, purpose: "TABLE_WAITER_CALL", consumedAt: null },
-    orderBy: { createdAt: "desc" },
-  });
-  if (recent && recent.resendAvailableAt > now) {
-    throw new ApplicationError(429, ErrorCodes.OTP_RESEND_COOLDOWN, "Please wait before requesting another code.");
-  }
-  const id = crypto.randomUUID();
-  const code = createOtpCode();
-  const challenge = await prisma.customerOtpChallenge.create({
-    data: {
-      id,
-      fullName,
-      phoneLookupHash,
-      tableCredentialId: credentialId,
-      purpose: "TABLE_WAITER_CALL",
-      codeHash: hashOtp(id, code),
-      expiresAt: new Date(now.getTime() + customerOtpLifetimeSeconds * 1_000),
-      resendAvailableAt: new Date(now.getTime() + customerOtpResendCooldownSeconds * 1_000),
-    },
+  const challenge = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(
+      Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`${credentialId}:${phoneLookupHash}`}::text))`,
+    );
+    const now = new Date();
+    const recent = await tx.customerOtpChallenge.findFirst({
+      where: { phoneLookupHash, tableCredentialId: credentialId, purpose: "TABLE_WAITER_CALL", consumedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    if (recent && recent.resendAvailableAt > now) {
+      throw new ApplicationError(429, ErrorCodes.OTP_RESEND_COOLDOWN, "Please wait before requesting another code.");
+    }
+    if (recent) {
+      await tx.customerOtpChallenge.updateMany({
+        where: { phoneLookupHash, tableCredentialId: credentialId, purpose: "TABLE_WAITER_CALL", consumedAt: null },
+        data: { consumedAt: now },
+      });
+    }
+    const id = crypto.randomUUID();
+    const code = createOtpCode();
+    return tx.customerOtpChallenge.create({
+      data: {
+        id,
+        fullName,
+        phoneLookupHash,
+        tableCredentialId: credentialId,
+        purpose: "TABLE_WAITER_CALL",
+        codeHash: hashOtp(id, code),
+        expiresAt: new Date(now.getTime() + customerOtpLifetimeSeconds * 1_000),
+        resendAvailableAt: new Date(now.getTime() + customerOtpResendCooldownSeconds * 1_000),
+      },
+    });
   });
   return { challengeId: challenge.id, expiresAt: challenge.expiresAt, resendAvailableAt: challenge.resendAvailableAt };
 }
 
 export async function verifyCustomerOtp(prisma: PrismaClient, challengeId: string, code: string) {
-  const now = new Date();
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "customer_otp_challenges" WHERE "id" = ${challengeId} FOR UPDATE`,
+    );
+    const now = new Date();
     const challenge = await tx.customerOtpChallenge.findUnique({ where: { id: challengeId }, include: { tableCredential: { include: { table: true } } } });
-    if (!challenge || challenge.consumedAt || challenge.expiresAt <= now) throw new ApplicationError(401, ErrorCodes.OTP_EXPIRED, "The verification code is no longer valid.");
-    if (challenge.attemptCount >= customerOtpMaxAttempts) throw new ApplicationError(429, ErrorCodes.OTP_ATTEMPTS_EXCEEDED, "Too many verification attempts.");
+    if (!challenge || challenge.consumedAt || challenge.expiresAt <= now) {
+      return { error: new ApplicationError(401, ErrorCodes.OTP_EXPIRED, "The verification code is no longer valid.") } as const;
+    }
+    if (challenge.attemptCount >= customerOtpMaxAttempts) {
+      return { error: new ApplicationError(429, ErrorCodes.OTP_ATTEMPTS_EXCEEDED, "Too many verification attempts.") } as const;
+    }
     if (!otpMatches(challenge.id, code, challenge.codeHash)) {
       await tx.customerOtpChallenge.update({ where: { id: challenge.id }, data: { attemptCount: { increment: 1 } } });
-      throw new ApplicationError(401, ErrorCodes.OTP_INVALID, "The verification code is not valid.");
+      return { error: new ApplicationError(401, ErrorCodes.OTP_INVALID, "The verification code is not valid.") } as const;
     }
     const consumed = await tx.customerOtpChallenge.updateMany({ where: { id: challenge.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now } });
     if (consumed.count !== 1) throw new ApplicationError(409, ErrorCodes.CONFLICT, "The verification code has already been used.");
@@ -82,8 +100,10 @@ export async function verifyCustomerOtp(prisma: PrismaClient, challengeId: strin
     const visit = await tx.customerTableVisit.create({ data: { customerId: customer.id, tableId: challenge.tableCredential.tableId, tableCredentialId: challenge.tableCredentialId, expiresAt: new Date(now.getTime() + customerTableVisitLifetimeSeconds * 1_000) } });
     const token = createCustomerSessionToken();
     await tx.customerAuthSession.create({ data: { customerId: customer.id, tokenHash: hashCustomerSessionToken(token), expiresAt: new Date(now.getTime() + customerAuthLifetimeSeconds * 1_000) } });
-    return { token, visit };
+    return { token, visit, error: null } as const;
   });
+  if (result.error) throw result.error;
+  return { token: result.token, visit: result.visit };
 }
 
 export async function createVisitForAuthenticatedCustomer(prisma: PrismaClient, customerId: string, credentialId: string) {
