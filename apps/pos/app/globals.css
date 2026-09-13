@@ -1315,6 +1315,11 @@ svg {
   background: #fff;
   box-shadow: 0 26px 70px rgba(9, 21, 16, 0.22);
 }
+.takeaway-order-dialog { width: min(1280px, 100%); max-height: min(900px, calc(100vh - 40px)); }
+.takeaway-order-dialog .modal-header { align-items: start; }
+.takeaway-order-dialog .modal-header h2 { margin: 0; font-size: var(--text-heading); }
+.takeaway-order-dialog .modal-header p { margin: 5px 0 0; color: var(--muted); font-size: var(--text-meta); }
+.takeaway-order-dialog .order-desk { min-width: 0; }
 .modal-card:focus-visible { outline: none; }
 .modal-header {
   display: flex;
@@ -1417,6 +1422,22 @@ svg {
   font-size: var(--text-label);
 }
 .settlement-section-heading span { color: var(--muted); font-size: var(--text-meta); }
+.settlement-mode { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; }
+.settlement-mode button { border: 0; background: #fff; padding: 6px 9px; color: var(--muted); font: inherit; font-size: var(--text-meta); }
+.settlement-mode button.is-selected { background: var(--teal); color: #fff; font-weight: 800; }
+.settlement-amount { display: grid; gap: 5px; padding: 12px 0; font-size: var(--text-label); }
+.settlement-amount input { min-height: 42px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
+.settlement-amount small { color: var(--muted); font-size: var(--text-meta); }
+.takeaway-orders { display: grid; align-content: start; gap: 8px; padding: 14px 10px 12px; border: 1px solid #edf0ee; border-radius: var(--radius-panel); background: #fff; box-shadow: 0 10px 30px rgba(22,35,30,.045); }
+.order-desk--takeaway .takeaway-orders { grid-column: 3; grid-row: 1; }
+.order-desk--takeaway .desk-sidebar { grid-column: 1; grid-row: 1; }
+.order-desk--takeaway .products { grid-column: 2; grid-row: 1; }
+.order-desk--takeaway .order-panel { grid-column: 1 / -1; }
+.takeaway-orders h2 { margin: 0; font-size: var(--text-label); }
+.takeaway-orders p { margin: 0; color: var(--muted); font-size: var(--text-meta); }
+.takeaway-orders button { display: grid; gap: 3px; width: 100%; border: 1px solid var(--line); border-radius: 9px; background: #fff; padding: 10px; text-align: right; }
+.takeaway-orders button.is-selected { border-color: var(--teal); background: var(--teal-soft); }
+.takeaway-orders span { color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
 .text-action {
   padding: 0;
   border: 0;
@@ -1811,14 +1832,19 @@ svg {
 .manager-payment-table__actions button { min-height: 34px; padding: 5px 8px; font-size: var(--text-meta); }
 .manager-payment-table__empty { padding-block: 28px !important; color: var(--muted); text-align: center !important; }
 .thermal-ticket-number {
-  display: block;
   direction: ltr;
-  margin: 0 0 2mm;
-  font-size: 28px;
+  margin: 0;
+  font-size: 18px;
   font-weight: 900;
   line-height: 1;
-  text-align: center;
+  text-align: left;
   font-variant-numeric: tabular-nums;
+}
+.thermal-ticket-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3mm;
 }
 .thermal-context,
 .thermal-time {
@@ -1826,7 +1852,35 @@ svg {
   font-size: 12px;
   font-weight: 700;
 }
+.thermal-context { margin: 0; text-align: right; }
 .thermal-time { font-weight: 400; }
+.thermal-receipt-header {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+}
+.thermal-contact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  direction: ltr;
+  gap: 3mm;
+  margin-top: 2mm;
+  font-size: 10px;
+}
+.thermal-contact__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.2mm;
+  direction: ltr;
+  white-space: nowrap;
+}
+.thermal-contact__item svg { width: 13px; height: 13px; }
+.thermal-contact__item--phone b { direction: ltr; font-variant-numeric: tabular-nums; }
+.thermal-divider { border-top: 1px solid #000; margin: 3mm 0; }
+.thermal-divider--dashed { border-top-style: dashed; }
 .thermal-items {
   border-top: 1px dashed #000;
 }
@@ -1836,6 +1890,10 @@ svg {
   break-inside: avoid;
   page-break-inside: avoid;
 }
+.thermal-items--ticket { border-top: 0; }
+.thermal-items--ticket .thermal-item { border-bottom: 0; }
+.thermal-items--receipt { border-top: 0; }
+.thermal-items--receipt .thermal-item:last-child { border-bottom: 0; }
 .thermal-item__main {
   display: flex;
   justify-content: space-between;
