@@ -31,12 +31,22 @@ describe("ManagerWorkspace", () => {
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
     expect(await screen.findByText("داده زنده ناقص است.")).toBeTruthy();
     expect(screen.getByText("Staff unavailable")).toBeTruthy();
-    expect(screen.getByText("کاتالوگ و میزها")).toBeTruthy();
+    expect(screen.getByText("کاتالوگ")).toBeTruthy();
+    expect(screen.getByText("میزها")).toBeTruthy();
+  });
+
+  it("keeps General Settings available when the Personnel read fails", async () => {
+    api.readManagerStaff.mockResolvedValue({ ok: false, error: { kind: "response", message: "Staff unavailable" } });
+    render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    expect(await screen.findByText("تنظیمات")).toBeTruthy();
+    fireEvent.click(screen.getByText("تنظیمات"));
+    expect(await screen.findByText("تنظیمات کافه")).toBeTruthy();
+    expect(screen.getByText("فهرست پرسنل اکنون در دسترس نیست.")).toBeTruthy();
   });
 
   it("does not refetch finance data while audit filters are being typed", async () => {
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
-    await waitFor(() => expect(screen.getByText("کاتالوگ و میزها")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
     fireEvent.click(screen.getByText("حسابداری"));
     await waitFor(() => expect(api.readAuditLog).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByLabelText("عملیات"), { target: { value: "UPDATE_PRODUCT" } });
@@ -46,11 +56,11 @@ describe("ManagerWorkspace", () => {
   });
 
   it("keeps a settlement reversal open until its required reason is entered", async () => {
-    api.readPaymentHistory.mockResolvedValue({ ok: true, data: { payments: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", totalAmount: 25_000, reversedAt: null }], page: { nextCursor: null } } });
-    api.readOrder.mockResolvedValue({ ok: true, data: { version: 3 } });
+    api.readPaymentHistory.mockResolvedValue({ ok: true, data: { payments: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH" }] }], page: { nextCursor: null } } });
+    api.readOrder.mockResolvedValue({ ok: true, data: { version: 3, dailyOrderNumber: 1 } });
     api.reverseSettlement.mockResolvedValue({ ok: true });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
-    await waitFor(() => expect(screen.getByText("کاتالوگ و میزها")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
     fireEvent.click(screen.getByText("حسابداری"));
     expect(await screen.findByText("برگشت تسویه")).toBeTruthy();
     fireEvent.click(screen.getByText("برگشت تسویه"));
@@ -69,6 +79,26 @@ describe("ManagerWorkspace", () => {
     fireEvent.click(screen.getByText("برگشت تسویه"));
     fireEvent.click(screen.getByText("انصراف"));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("renders payment history as a sortable table", async () => {
+    api.readPaymentHistory.mockResolvedValue({
+      ok: true,
+      data: {
+        payments: [
+          { id: "settlement-2", orderId: "order-2", orderNumber: "1002", dailyOrderNumber: 2, totalAmount: 40_000, recordedAt: "2026-09-13T09:00:00.000Z", recordedBy: { username: "z" }, channel: "TAKEAWAY", table: null, reversedAt: null, payments: [{ method: "CASH" }] },
+          { id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 20_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "a" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CARD_TERMINAL" }] },
+        ],
+        page: { nextCursor: null },
+      },
+    });
+    render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
+    fireEvent.click(screen.getByText("حسابداری"));
+    const table = await screen.findByRole("table", { name: "تاریخچه پرداخت‌ها" });
+    expect(table.className).toContain("manager-payment-table");
+    fireEvent.click(screen.getByRole("button", { name: "مبلغ" }));
+    expect(screen.getByRole("columnheader", { name: "مبلغ ↓" }).getAttribute("aria-sort")).toBe("descending");
   });
 
   it("shows upload progress while an item image is being sent", async () => {
