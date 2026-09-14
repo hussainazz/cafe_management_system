@@ -217,15 +217,36 @@ model CafeTable {
   customerAuthBypassEnabled Boolean             @default(false)
   tableContextInvalidBefore DateTime?
   archivedAt                DateTime?
+  qrFamilyId                String?
 
   orders        Order[]
   qrCredentials TableQrCredential[]
   waiterCalls   WaiterCall[]
   customerTableVisits CustomerTableVisit[]
+  otpChallenges CustomerOtpChallenge[]
+  qrFamily      TableQrFamily? @relation(fields: [qrFamilyId], references: [id], onDelete: SetNull)
 
   @@index([isActive, displayOrder])
   @@index([waiterCallEnabled, occupancyState])
+  @@index([qrFamilyId])
   @@map("cafe_tables")
+}
+
+model TableQrFamily {
+  id                    String   @id @default(uuid())
+  name                  String   @unique
+  assignmentTargetTableId String?
+  assignmentActivatedAt DateTime?
+  assignmentFirstScanAt DateTime?
+  assignmentExpiresAt   DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  tables        CafeTable[]
+  qrCredentials TableQrCredential[]
+
+  @@index([assignmentExpiresAt])
+  @@map("table_qr_families")
 }
 
 enum WaiterCallStatus {
@@ -242,10 +263,13 @@ model TableQrCredential {
   rotatedAt DateTime?
 
   table CafeTable @relation(fields: [tableId], references: [id])
+  qrFamily TableQrFamily? @relation(fields: [qrFamilyId], references: [id], onDelete: SetNull)
+  qrFamilyId String?
   customerTableVisits CustomerTableVisit[]
   otpChallenges CustomerOtpChallenge[]
 
   @@index([tableId])
+  @@index([qrFamilyId])
   @@map("table_qr_credentials")
 }
 
@@ -290,6 +314,7 @@ model CustomerOtpChallenge {
   id                String             @id @default(uuid())
   phoneLookupHash   String
   tableCredentialId String
+  tableId          String
   purpose           CustomerOtpPurpose
   codeHash          String
   expiresAt         DateTime
@@ -299,9 +324,11 @@ model CustomerOtpChallenge {
   createdAt         DateTime           @default(now())
 
   tableCredential TableQrCredential @relation(fields: [tableCredentialId], references: [id], onDelete: Restrict)
+  table           CafeTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
 
   @@index([phoneLookupHash, purpose, createdAt])
   @@index([tableCredentialId, expiresAt])
+  @@index([tableId, expiresAt])
   @@map("customer_otp_challenges")
 }
 
