@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import type { PosCatalogCategory, PosCatalogProduct, PosTable } from "@cafe/contracts";
 import {
   acknowledgeWaiterCall,
+  activateQrAssignment,
+  cancelQrAssignment,
   createOpenOrder,
   deleteOpenOrder,
-  markTableOccupied,
   readOpenOrders,
   readOrder,
   readPosCatalog,
@@ -21,7 +22,7 @@ import {
 } from "../lib/api-client";
 import { recoveryStateFor, type RecoveryState } from "../lib/recovery-state";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
-import { printRoute, type PrintKind } from "../lib/print-routes";
+import { printDocument, printRoute, type PrintKind } from "../lib/print-routes";
 import { acknowledgeAndOpenWaiterCall } from "../lib/waiter-call-workflow";
 import { operationalRefreshIntervalMs } from "../lib/operational-refresh";
 import { canChangeDiscount, discountPayload } from "../lib/discount-workflow";
@@ -36,6 +37,8 @@ import {
   sumAmounts,
 } from "../lib/pos-utils";
 import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon } from "./icons";
+
+const QR_ROUTING_ANCHOR_NAMES = new Set(["3", "4", "7", "8"]);
 
 type Channel = "TABLE" | "TAKEAWAY";
 type OrderDetail = PosOrderDetail;
@@ -400,15 +403,6 @@ export function OrdersWorkspace({
           onSelect={openTable}
           onAcknowledgeWaiterCall={handleWaiterCall}
           acknowledgingTableId={acknowledgingTableId}
-          onOccupy={async (table) => {
-            const result = await markTableOccupied(table.id);
-            if (!result.ok) {
-              setMessage({ tone: "error", text: result.error.message });
-              return;
-            }
-            await refreshOperationalData();
-            setMessage({ tone: "notice", text: `میز ${result.data.name} اشغال شد.` });
-          }}
           onMakeAvailable={async (table) => {
             const result = await makeTableAvailable(table.id);
             if (!result.ok) {
@@ -418,10 +412,32 @@ export function OrdersWorkspace({
             await refreshOperationalData();
             setMessage({ tone: "notice", text: `میز ${result.data.name} آزاد شد.` });
           }}
+          onActivateQrAssignment={async (table, targetTableId) => {
+            const result = await activateQrAssignment(table.id, targetTableId);
+            if (!result.ok) {
+              setMessage({ tone: "error", text: result.error.message });
+              return;
+            }
+            await refreshOperationalData();
+            setMessage({ tone: "notice", text: `گروه بعدی به میز ${result.data.qrAssignment?.targetTableName ?? "انتخاب‌شده"} هدایت می‌شود.` });
+          }}
+          onCancelQrAssignment={async (table) => {
+            const result = await cancelQrAssignment(table.id);
+            if (!result.ok) {
+              setMessage({ tone: "error", text: result.error.message });
+              return;
+            }
+            await refreshOperationalData();
+            setMessage({ tone: "notice", text: "تخصیص موقت QR لغو شد." });
+          }}
           onClosePanel={close}
           onEditOrder={() => setEditingOrder(true)}
           onCheckout={() => setCheckout(true)}
-          onPrint={(kind) => window.open(printRoute(order!.id, kind), "run-cafe-print", "popup=yes")}
+          onPrint={(kind) => {
+            void printDocument(printRoute(order!.id, kind)).catch((error: unknown) => {
+              setMessage({ tone: "error", text: error instanceof Error ? error.message : "سند چاپی آماده نشد." });
+            });
+          }}
           onRequestTransfer={async (source, destination) => {
             let sourceOrder: OrderDetail | null = order?.tableId === source.id ? order : null;
             if (!sourceOrder) {
@@ -492,7 +508,7 @@ export function OrdersWorkspace({
   );
 }
 
-function TableBoard({
+export function TableBoard({
   tables,
   tableSeatingLimitMinutes,
   calls,
@@ -502,8 +518,9 @@ function TableBoard({
   onSelect,
   onAcknowledgeWaiterCall,
   acknowledgingTableId,
-  onOccupy,
   onMakeAvailable,
+  onActivateQrAssignment,
+  onCancelQrAssignment,
   onClosePanel,
   onEditOrder,
   onCheckout,
@@ -519,8 +536,9 @@ function TableBoard({
   onSelect: (table: PosTable) => void;
   onAcknowledgeWaiterCall: (table: PosTable, call: Data["calls"][number]) => void;
   acknowledgingTableId: string | null;
-  onOccupy: (table: PosTable) => Promise<void>;
   onMakeAvailable: (table: PosTable) => Promise<void>;
+  onActivateQrAssignment: (table: PosTable, targetTableId: string) => Promise<void>;
+  onCancelQrAssignment: (table: PosTable) => Promise<void>;
   onClosePanel: () => void;
   onEditOrder: () => void;
   onCheckout: () => void;
@@ -528,12 +546,36 @@ function TableBoard({
   onRequestTransfer: (source: PosTable, destination: PosTable) => Promise<void>;
 }) {
   const [transferSourceId, setTransferSourceId] = useState<string | null>(null);
+  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
+  const [dragDestinationId, setDragDestinationId] = useState<string | null>(null);
+  const [qrAssignmentSourceId, setQrAssignmentSourceId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const occupyTimer = useRef<number | null>(null);
-  const heldTableId = useRef<string | null>(null);
-  const cancelOccupy = () => {
-    if (occupyTimer.current !== null) window.clearTimeout(occupyTimer.current);
-    occupyTimer.current = null;
+  const transferDragTimer = useRef<number | null>(null);
+  const qrAssignmentTimer = useRef<number | null>(null);
+  const pointerStart = useRef<{ id: number; x: number; y: number } | null>(null);
+  const transferDrag = useRef<{ sourceId: string; pointerId: number } | null>(null);
+  const dragDestination = useRef<string | null>(null);
+  const suppressClick = useRef(false);
+  const cancelQrAssignmentHold = () => {
+    if (qrAssignmentTimer.current !== null) window.clearTimeout(qrAssignmentTimer.current);
+    qrAssignmentTimer.current = null;
+  };
+  const cancelTransferDragHold = () => {
+    if (transferDragTimer.current !== null) window.clearTimeout(transferDragTimer.current);
+    transferDragTimer.current = null;
+  };
+  const endTransferDrag = (destinationId: string | null) => {
+    const drag = transferDrag.current;
+    if (!drag) return;
+    const source = tables.find((item) => item.id === drag.sourceId);
+    const destination = destinationId ? tables.find((item) => item.id === destinationId) : null;
+    transferDrag.current = null;
+    dragDestination.current = null;
+    setDraggingTableId(null);
+    setDragDestinationId(null);
+    suppressClick.current = true;
+    if (!source || !source.activeOrders[0] || !destination || source.id === destination.id || calls.some((call) => call.tableId === destination.id)) return;
+    void onRequestTransfer(source, destination);
   };
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -577,6 +619,18 @@ function TableBoard({
           </div>
         </div>
       {transferSourceId && <p className="table-transfer-hint" role="status">مقصد انتقال میز را انتخاب کنید. میزهای دارای درخواست گارسون قابل انتخاب نیستند.</p>}
+      {qrAssignmentSourceId && (() => {
+        const source = tables.find((item) => item.id === qrAssignmentSourceId);
+        if (!source) return null;
+        return <div className="table-qr-assignment" role="dialog" aria-label="تخصیص موقت QR">
+          <div><strong>گروه بعدی با QR این میز</strong><span>یک مقصد از همین میز فیزیکی انتخاب کنید.</span></div>
+          <div className="table-qr-assignment__choices">
+            {source.qrFamilyMembers.filter((member) => !QR_ROUTING_ANCHOR_NAMES.has(member.name)).map((member) => <button key={member.id} type="button" className={source.qrAssignment?.targetTableId === member.id ? "is-active" : ""} onClick={() => { setQrAssignmentSourceId(null); void onActivateQrAssignment(source, member.id); }}>{member.name}</button>)}
+          </div>
+          <button type="button" className="text-action" onClick={() => setQrAssignmentSourceId(null)}>انصراف</button>
+          {source.qrAssignment && <button type="button" className="text-action" onClick={() => { setQrAssignmentSourceId(null); void onCancelQrAssignment(source); }}>لغو تخصیص فعال</button>}
+        </div>;
+      })()}
       <div className="table-grid" id="table-transfer-targets" tabIndex={-1}>
         {tables.map((table) => {
           const hasOrder = table.activeOrders.length > 0;
@@ -591,29 +645,62 @@ function TableBoard({
           return (
             <article
               key={table.id}
-              draggable={hasOrder && !call}
-              onDragStart={(event) => event.dataTransfer.setData("text/plain", table.id)}
-              onDragOver={(event) => {
-                if (!call) event.preventDefault();
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                const source = tables.find((item) => item.id === event.dataTransfer.getData("text/plain"));
-                if (!source || !source.activeOrders[0] || source.id === table.id || call) return;
-                void onRequestTransfer(source, table);
-              }}
-              className={`table-tile table-tile--${state}${selectedTableId === table.id ? " is-selected" : ""}`}
+              data-table-id={table.id}
+              className={`table-tile table-tile--${state}${selectedTableId === table.id ? " is-selected" : ""}${draggingTableId === table.id ? " is-dragging" : ""}${dragDestinationId === table.id ? " is-drag-target" : ""}`}
             >
-              <button className="table-tile__main" disabled={Boolean(call)} onPointerDown={() => {
-                if (call || hasOrder || table.occupancyState !== "AVAILABLE") return;
-                heldTableId.current = null;
-                occupyTimer.current = window.setTimeout(() => {
-                  heldTableId.current = table.id;
-                  void onOccupy(table);
-                }, 700);
-              }} onPointerUp={cancelOccupy} onPointerLeave={cancelOccupy} onPointerMove={cancelOccupy} onClick={() => {
-                if (heldTableId.current === table.id) {
-                  heldTableId.current = null;
+              <button className="table-tile__main" disabled={Boolean(call)} onPointerDown={(event) => {
+                pointerStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+                suppressClick.current = false;
+                if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
+                if (hasOrder && !call && !QR_ROUTING_ANCHOR_NAMES.has(table.name)) {
+                  const startDrag = () => {
+                    transferDrag.current = { sourceId: table.id, pointerId: event.pointerId };
+                    setDraggingTableId(table.id);
+                  };
+                  if (event.pointerType === "touch" || event.pointerType === "pen") {
+                    transferDragTimer.current = window.setTimeout(startDrag, 420);
+                  }
+                }
+                if (QR_ROUTING_ANCHOR_NAMES.has(table.name) && table.qrFamilyMembers.length > 1) {
+                  qrAssignmentTimer.current = window.setTimeout(() => {
+                    suppressClick.current = true;
+                    setQrAssignmentSourceId(table.id);
+                  }, 600);
+                }
+              }} onPointerMove={(event) => {
+                const start = pointerStart.current;
+                if (!start || start.id !== event.pointerId) return;
+                const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10;
+                if (moved) {
+                  cancelQrAssignmentHold();
+                  if (!transferDrag.current) cancelTransferDragHold();
+                }
+                if (hasOrder && !call && !transferDrag.current && moved && event.pointerType === "mouse") {
+                  transferDrag.current = { sourceId: table.id, pointerId: event.pointerId };
+                  setDraggingTableId(table.id);
+                }
+                const drag = transferDrag.current;
+                if (drag?.pointerId === event.pointerId) {
+                  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-table-id]")?.dataset.tableId ?? null;
+                  const destination = target && target !== drag.sourceId && !calls.some((item) => item.tableId === target) ? target : null;
+                  dragDestination.current = destination;
+                  setDragDestinationId(destination);
+                }
+              }} onPointerUp={(event) => {
+                cancelQrAssignmentHold();
+                cancelTransferDragHold();
+                if (transferDrag.current?.pointerId === event.pointerId) {
+                  endTransferDrag(dragDestination.current);
+                }
+                pointerStart.current = null;
+              }} onPointerCancel={(event) => {
+                cancelQrAssignmentHold();
+                cancelTransferDragHold();
+                if (transferDrag.current?.pointerId === event.pointerId) endTransferDrag(null);
+                pointerStart.current = null;
+              }} onClick={() => {
+                if (suppressClick.current) {
+                  suppressClick.current = false;
                   return;
                 }
                 const source = tables.find((item) => item.id === transferSourceId);
@@ -636,6 +723,9 @@ function TableBoard({
                   {hasOrder && <b>{formatToman(totals.get(table.id) ?? 0)}</b>}
                 </span>
               </button>
+              {QR_ROUTING_ANCHOR_NAMES.has(table.name) && table.qrFamilyMembers.length > 1 && table.qrFamilyMembers[0]?.id === table.id && (
+                <div className="table-qr-assignment__indicator">{table.qrAssignment ? `گروه بعدی → ${table.qrAssignment.targetTableName}` : "QR مشترک"}</div>
+              )}
               {call && (
                 <button
                   className="table-tile__call-action"
@@ -886,7 +976,9 @@ function OrderDesk({
         onCheckout={() => setCheckout(true)}
         onPrint={(kind, settlementId) => {
           if (!initialOrder) return;
-          window.open(printRoute(initialOrder.id, kind, settlementId), "run-cafe-print", "popup=yes");
+          void printDocument(printRoute(initialOrder.id, kind, settlementId)).catch((printError: unknown) => {
+            setError(printError instanceof Error ? printError.message : "سند چاپی آماده نشد.");
+          });
         }}
         onRequestDelete={() => setDeleteDialogOpen(true)}
         onRequestDiscount={(target) => { discountTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setDiscountTarget(target); }}
