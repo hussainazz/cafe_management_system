@@ -103,7 +103,7 @@ export const waiterCallRoutes: FastifyPluginAsync = async (app) => {
       const context = await credentialFromCookie(app.prisma, request.headers.cookie);
       if (!context) throw new ApplicationError(401, ErrorCodes.TABLE_CONTEXT_INVALID, "Table context required.");
       const body = request.body as { phoneNumber: string };
-      const result = await identifyCustomerPhone(app.prisma, context.credential.id, body.phoneNumber);
+      const result = await identifyCustomerPhone(app.prisma, context.credential.id, context.table.id, body.phoneNumber);
       reply.header("cache-control", "no-store");
       reply.header("set-cookie", customerAuthCookie(result.token));
       return { data: { authenticated: true, visitActive: true, visitExpiresAt: result.visit.expiresAt.toISOString() }, meta: { requestId: request.id } };
@@ -117,7 +117,7 @@ export const waiterCallRoutes: FastifyPluginAsync = async (app) => {
       const context = await credentialFromCookie(app.prisma, request.headers.cookie);
       if (!context) throw new ApplicationError(401, ErrorCodes.TABLE_CONTEXT_INVALID, "Table context required.");
       const body = request.body as { fullName: string; phoneNumber: string };
-      const result = await requestCustomerOtp(app.prisma, context.credential.id, body.fullName, body.phoneNumber);
+      const result = await requestCustomerOtp(app.prisma, context.credential.id, context.table.id, body.fullName, body.phoneNumber);
       return { data: { ...result, expiresAt: result.expiresAt.toISOString(), resendAvailableAt: result.resendAvailableAt.toISOString() }, meta: { requestId: request.id } };
     },
   );
@@ -130,7 +130,7 @@ export const waiterCallRoutes: FastifyPluginAsync = async (app) => {
       if (!context) throw new ApplicationError(401, ErrorCodes.TABLE_CONTEXT_INVALID, "Table context required.");
       const body = request.body as { challengeId: string; code: string; verificationToken: string };
       const challenge = await app.prisma.customerOtpChallenge.findUnique({ where: { id: body.challengeId } });
-      if (!challenge || challenge.tableCredentialId !== context.credential.id) throw new ApplicationError(401, ErrorCodes.OTP_INVALID, "OTP challenge is not valid for this table.");
+      if (!challenge || challenge.tableCredentialId !== context.credential.id || challenge.tableId !== context.table.id) throw new ApplicationError(401, ErrorCodes.OTP_INVALID, "OTP challenge is not valid for this table.");
       const result = await verifyCustomerOtp(app.prisma, body.challengeId, body.code, body.verificationToken);
       reply.header("cache-control", "no-store");
       reply.header("set-cookie", customerAuthCookie(result.token));
@@ -156,7 +156,7 @@ export const waiterCallRoutes: FastifyPluginAsync = async (app) => {
       const auth = await readCustomerAuth(app.prisma, request.headers.cookie);
       const context = await credentialFromCookie(app.prisma, request.headers.cookie);
       const visit = auth && context ? await app.prisma.customerTableVisit.findFirst({
-        where: { customerId: auth.customerId, tableCredentialId: context.credential.id, invalidatedAt: null, expiresAt: { gt: new Date() } },
+        where: { customerId: auth.customerId, tableId: context.table.id, tableCredentialId: context.credential.id, invalidatedAt: null, expiresAt: { gt: new Date() } },
       }) : null;
       return { data: { authenticated: Boolean(auth), visitActive: Boolean(visit), visitExpiresAt: visit?.expiresAt.toISOString() ?? null }, meta: { requestId: request.id } };
     },
