@@ -536,9 +536,7 @@ export const DeleteOrderRequestSchema = z
 
 export type DeleteOrderRequest = z.infer<typeof DeleteOrderRequestSchema>;
 
-export const SettlementAllocationInputSchema = z
-  .object({ orderItemId: z.uuid(), quantity: z.number().int().positive() })
-  .strict();
+export const SettlementAllocationInputSchema = z.object({ orderItemId: z.uuid(), quantity: z.number().int().positive() }).strict();
 
 export const SettlementPaymentInputSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("CASH"), amount: z.number().int().positive() }).strict(),
@@ -571,7 +569,14 @@ export const ReverseSettlementRequestSchema = z.object({ expectedVersion: z.numb
 export type ReverseSettlementRequest = z.infer<typeof ReverseSettlementRequestSchema>;
 export const ReverseSettlementResponseSchema = OrderDetailResponseSchema;
 
-const ReceiptItemSchema = z.object({ productName: z.string(), quantity: z.number().int().positive(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), lineTotalAmount: z.number().int().nonnegative() });
+const ReceiptItemSchema = z.object({
+  productName: z.string(),
+  quantity: z.number().int().positive(),
+  options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })),
+  lineTotalAmount: z.number().int().nonnegative(),
+  paidAmount: z.number().int().nonnegative(),
+  isPaid: z.boolean(),
+});
 export const BarTicketResponseSchema = z.object({ data: z.object({ dailyOrderNumber: z.number().int().positive(), context: z.string(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
 export const OrderReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
 export const SettlementReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
@@ -586,9 +591,11 @@ export type ProductSaleDiscountRequest = z.infer<typeof ProductSaleDiscountReque
 const AdminNameSchema = z.string().trim().min(1).max(120);
 const AdminDisplayOrderSchema = z.number().int().min(0).max(10_000);
 const AdminMoneySchema = z.number().int().nonnegative();
-export const AdminCategoryInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional() }).strict();
+export const AdminCategoryInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional() }).strict();
 const AdminProductOptionGroupInputSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative().default(1), maxSelections: z.number().int().positive().default(1), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable().optional() }).strict()).max(100) }).strict().refine((value) => value.minSelections <= value.maxSelections);
-export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroups: z.array(AdminProductOptionGroupInputSchema).max(30).optional() }).strict();
+export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroups: z.array(AdminProductOptionGroupInputSchema).max(30).optional() }).strict();
+export const AdminCategoryReorderInputSchema = z.object({ categoryIds: z.array(z.uuid()).min(1).max(500) }).strict();
+export const AdminProductReorderInputSchema = z.object({ productIds: z.array(z.uuid()).min(1).max(2_000) }).strict();
 export const AdminOptionGroupInputSchema = z.object({ name: AdminNameSchema, isActive: z.boolean().optional() }).strict();
 export const AdminOptionInputSchema = z.object({ name: AdminNameSchema, priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), isAvailable: z.boolean().optional() }).strict();
 export const AdminTableInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), waiterCallEnabled: z.boolean().optional() }).strict();
@@ -659,7 +666,9 @@ export const PublicMenuOptionGroupSchema = z.object({
 export const PublicMenuProductSchema = z.object({
   id: z.uuid(),
   name: z.string(),
+  basePriceAmount: z.number().int().nonnegative(),
   priceAmount: z.number().int().nonnegative(),
+  saleDiscount: z.object({ kind: z.enum(["FIXED", "PERCENTAGE"]), value: z.number().int().positive(), amount: z.number().int().nonnegative() }).nullable(),
   isAvailable: z.boolean(),
   image: ProductImageSchema.nullable(),
   optionGroups: z.array(PublicMenuOptionGroupSchema),
