@@ -3,9 +3,11 @@ import { env } from "../config/env.js";
 
 export const tableContextCookieName = "cafe_table_context";
 export const tableContextLifetimeSeconds = 12 * 60 * 60;
+export const qrAssignmentWindowSeconds = env.QR_ASSIGNMENT_WINDOW_SECONDS;
 
 type TableContextPayload = {
   credentialId: string;
+  tableId?: string;
   issuedAt: number;
   expiresAt: number;
 };
@@ -22,9 +24,12 @@ export function hashTableQrToken(token: string): string {
   return createHmac("sha256", env.TABLE_QR_TOKEN_SECRET).update(token).digest("hex");
 }
 
-export function createTableContextCookieValue(credentialId: string, now = new Date()): string {
+export function createTableContextCookieValue(credentialId: string, tableIdOrNow?: string | Date, now = new Date()): string {
+  const tableId = typeof tableIdOrNow === "string" ? tableIdOrNow : undefined;
+  if (tableIdOrNow instanceof Date) now = tableIdOrNow;
   const payload: TableContextPayload = {
     credentialId,
+    ...(tableId ? { tableId } : {}),
     issuedAt: now.getTime(),
     expiresAt: now.getTime() + tableContextLifetimeSeconds * 1_000,
   };
