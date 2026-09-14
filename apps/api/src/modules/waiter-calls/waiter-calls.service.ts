@@ -15,8 +15,11 @@ const inactiveContext = {
   tableName: null,
   occupancyState: null,
   waiterCallStatus: null,
+  waiterCallAvailableAt: null,
   canCallWaiter: false,
 } as const;
+
+const WAITER_CALL_COOLDOWN_MS = 2 * 60 * 1_000;
 
 export async function credentialFromCookie(prisma: PrismaClient, cookieHeader: string | undefined) {
   const payload = readTableContextCookieValue(readCookie(cookieHeader, tableContextCookieName));
@@ -24,17 +27,7 @@ export async function credentialFromCookie(prisma: PrismaClient, cookieHeader: s
 
   const credential = await prisma.tableQrCredential.findUnique({
     where: { id: payload.credentialId },
-    include: {
-      table: {
-        include: {
-          waiterCalls: {
-            where: { status: "PENDING" },
-            orderBy: { requestedAt: "asc" },
-            take: 1,
-          },
-        },
-      },
-    },
+    include: { table: true },
   });
   if (
     !credential?.isActive ||
@@ -55,12 +48,22 @@ async function contextDto(prisma: PrismaClient, cookieHeader: string | undefined
   const visit = auth ? await prisma.customerTableVisit.findFirst({
     where: { customerId: auth.customerId, tableId: table.id, tableCredentialId: credential.credential.id, invalidatedAt: null, expiresAt: { gt: new Date() } },
   }) : null;
+  const [pendingCall, latestResolvedCall] = await Promise.all([
+    prisma.waiterCall.findFirst({ where: { tableId: table.id, status: "PENDING" }, select: { id: true } }),
+    prisma.waiterCall.findFirst({ where: { tableId: table.id, status: "RESOLVED", resolvedAt: { not: null } }, orderBy: { resolvedAt: "desc" }, select: { resolvedAt: true } }),
+  ]);
+  const now = new Date();
+  const cooldownEndsAt = latestResolvedCall?.resolvedAt
+    ? new Date(latestResolvedCall.resolvedAt.getTime() + WAITER_CALL_COOLDOWN_MS)
+    : null;
+  const cooldownActive = Boolean(cooldownEndsAt && cooldownEndsAt > now);
   return {
     active: true,
     tableName: table.name,
     occupancyState: table.occupancyState,
-    waiterCallStatus: table.waiterCalls.length > 0 ? ("PENDING" as const) : null,
-    canCallWaiter: Boolean(visit) || (table.occupancyState === "OCCUPIED" && table.customerAuthBypassEnabled),
+    waiterCallStatus: pendingCall ? ("PENDING" as const) : null,
+    waiterCallAvailableAt: cooldownActive ? cooldownEndsAt!.toISOString() : null,
+    canCallWaiter: !cooldownActive && (Boolean(visit) || (table.occupancyState === "OCCUPIED" && table.customerAuthBypassEnabled)),
     authenticationRequired: !(table.occupancyState === "OCCUPIED" && table.customerAuthBypassEnabled) && !auth,
     customerAuthenticated: Boolean(auth),
     visitActive: Boolean(visit),
@@ -158,6 +161,17 @@ export async function createWaiterCall(prisma: PrismaClient, cookieHeader: strin
       const existing = await transaction.waiterCall.findFirst({
         where: { tableId: current.tableId, status: "PENDING" },
       });
+      const latestResolved = await transaction.waiterCall.findFirst({
+        where: { tableId: current.tableId, status: "RESOLVED", resolvedAt: { not: null } },
+        orderBy: { resolvedAt: "desc" },
+        select: { resolvedAt: true },
+      });
+      const cooldownEndsAt = latestResolved?.resolvedAt
+        ? new Date(latestResolved.resolvedAt.getTime() + WAITER_CALL_COOLDOWN_MS)
+        : null;
+      if (!existing && cooldownEndsAt && cooldownEndsAt > new Date()) {
+        throw new ApplicationError(429, ErrorCodes.RATE_LIMITED, "Waiter-call is available again after the cooldown.");
+      }
       const call =
         existing ?? (await transaction.waiterCall.create({ data: { tableId: current.tableId, customerTableVisitId: visit?.id ?? null } }));
       return {
