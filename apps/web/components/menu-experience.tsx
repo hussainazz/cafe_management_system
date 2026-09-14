@@ -22,6 +22,7 @@ import {
   LeafIcon,
   RefreshIcon,
   SearchIcon,
+  ServiceBellIcon,
   SparkIcon,
 } from "./icons";
 import type { PublicTableContext } from "../lib/public-table-context";
@@ -55,11 +56,9 @@ const copy = {
     errorBody: "ارتباط با منو برقرار نشد. چند لحظه دیگر دوباره امتحان کن.",
     retry: "تلاش دوباره",
     close: "بستن",
-    footer: "قهوه خوب، نور گرم، گفت‌وگوی طولانی.",
     invalidQrTitle: "این کد میز دیگر معتبر نیست",
     invalidQrBody: "منو همچنان در دسترس است؛ برای تعویض کد میز با همکاران کافه صحبت کنید.",
     tableContext: "میز",
-    scanReminder: "اسکن میز ثبت شد؛ همکاران کافه مطلع می‌شوند.",
     callWaiter: "درخواست گارسون",
     callingWaiter: "در حال ارسال…",
     waiterCalled: "درخواست شما ارسال شد",
@@ -86,11 +85,9 @@ const copy = {
     errorBody: "We could not reach the menu. Please try again in a moment.",
     retry: "Try again",
     close: "Close",
-    footer: "Good coffee, warm light, long conversations.",
     invalidQrTitle: "This table QR is no longer valid",
     invalidQrBody: "The menu is still available. Please ask café staff to replace the table QR.",
     tableContext: "Table",
-    scanReminder: "The table scan was recorded and café staff will be notified.",
     callWaiter: "Call a waiter",
     callingWaiter: "Sending…",
     waiterCalled: "Your request was sent",
@@ -398,12 +395,14 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
   const [tableContext, setTableContext] = useState<PublicTableContext | null>(initialTableContext);
   const [callingWaiter, setCallingWaiter] = useState(false);
   const [waiterCallFailed, setWaiterCallFailed] = useState(false);
+  const [waiterCallSent, setWaiterCallSent] = useState(false);
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [otpLoading, setOtpLoading] = useState(false);
+  const [showWaiterTip, setShowWaiterTip] = useState(false);
   const language: Language = "fa";
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -419,6 +418,23 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
   } | null>(null);
   const text = copy[language];
   const direction = language === "fa" ? "rtl" : "ltr";
+
+  useEffect(() => {
+    if (!tableContext?.active || !tableContext.customerAuthenticated ||
+        (tableContext.canCallWaiter && !tableContext.waiterCallStatus && !tableContext.waiterCallAvailableAt)) return;
+    const refreshTableContext = async () => {
+      try {
+        const response = await fetch("/api/table-context", { cache: "no-store" });
+        if (!response.ok) return;
+        const body = await response.json() as { data?: PublicTableContext };
+        if (body.data) setTableContext(body.data);
+      } catch {
+        // A transient refresh failure should not interrupt the menu session.
+      }
+    };
+    const interval = window.setInterval(() => void refreshTableContext(), 5_000);
+    return () => window.clearInterval(interval);
+  }, [tableContext?.active, tableContext?.canCallWaiter, tableContext?.customerAuthenticated, tableContext?.waiterCallAvailableAt, tableContext?.waiterCallStatus]);
 
   const filteredCategories = useMemo(
     () => (menu ? filterMenu(menu, deferredQuery, null) : []),
@@ -624,6 +640,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
     try {
       const response = await fetch("/api/waiter-call", { method: "POST" });
       if (!response.ok) throw new Error("Waiter-call request failed");
+      setWaiterCallSent(true);
       setTableContext((current) => current ? { ...current, waiterCallStatus: "PENDING" } : current);
     } catch {
       setWaiterCallFailed(true);
@@ -652,6 +669,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
       const context = await fetch("/api/table-context", { cache: "no-store" });
       const body = await context.json() as { data: PublicTableContext };
       setTableContext(body.data);
+      if (body.data.active && body.data.canCallWaiter) setShowWaiterTip(true);
     } catch (error) { setOtpError(error instanceof Error ? error.message : "تأیید کد ممکن نشد"); }
     finally { setOtpLoading(false); }
   }
@@ -701,6 +719,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
   }
 
   return (
+    <>
     <div className="site-shell" dir={direction} lang={language}>
       <a className="skip-link" href="#menu-content">
         {text.menu}
@@ -727,29 +746,6 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
           <section className="table-context-banner table-context-banner--warning" role="status">
             <strong>{text.invalidQrTitle}</strong>
             <p>{text.invalidQrBody}</p>
-          </section>
-        ) : null}
-
-        {tableContext?.active ? (
-          <section className="table-context-banner" aria-live="polite">
-            <div>
-              <strong>{text.tableContext} {tableContext.tableName}</strong>
-              {tableContext.occupancyState === "AVAILABLE" ? <p>{text.scanReminder}</p> : null}
-              {waiterCallFailed ? <p className="table-context-error">{text.waiterCallError}</p> : null}
-            </div>
-            {tableContext.canCallWaiter ? (
-              <button
-                type="button"
-                disabled={callingWaiter || tableContext.waiterCallStatus === "PENDING"}
-                onClick={() => void callWaiter()}
-              >
-                {tableContext.waiterCallStatus === "PENDING"
-                  ? text.waiterCalled
-                  : callingWaiter
-                    ? text.callingWaiter
-                    : text.callWaiter}
-              </button>
-            ) : null}
           </section>
         ) : null}
 
@@ -872,7 +868,6 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
         <div className="footer-mark" aria-hidden="true">
           <img src="/run-cafe-logo.webp" alt="" width="30" height="56" />
         </div>
-        <p>{text.footer}</p>
         <span>RUN CAFÉ · EST. 2017</span>
       </footer>
 
@@ -885,5 +880,37 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
         />
       ) : null}
     </div>
+    {showWaiterTip ? (
+      <div className="waiter-tip-backdrop" role="presentation">
+        <div className="waiter-tip-coachmark">
+          <section className="waiter-tip" role="dialog" aria-modal="true" aria-labelledby="waiter-tip-title">
+            <button className="waiter-tip-close" type="button" aria-label="بستن راهنما" onClick={() => setShowWaiterTip(false)}><CloseIcon /></button>
+            <p className="waiter-tip-kicker">سلام 👋 به کافه ران</p>
+            <h2 id="waiter-tip-title">خوش اومدی :)</h2>
+            <p>هروقت که سفارشت رو انتخاب کردی<br />یا چیزی احتیاج داشتی،<br />میتونی روی این دکمه کلیک کنی</p>
+          </section>
+          <svg className="waiter-tip-pointer" viewBox="0 0 150 100" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M88 2C57 21 19 50 37 95" />
+            <path d="m29 89 8 8 7-10" />
+          </svg>
+        </div>
+      </div>
+    ) : null}
+    {tableContext?.active && (tableContext.canCallWaiter || tableContext.waiterCallStatus === "PENDING" || tableContext.waiterCallAvailableAt) ? (
+      <button
+        className={`waiter-call-button${showWaiterTip ? " waiter-call-button--guided" : ""}${waiterCallSent || tableContext.waiterCallStatus === "PENDING" ? " waiter-call-button--called" : ""}`}
+        type="button"
+        disabled={showWaiterTip || !tableContext.canCallWaiter || callingWaiter || tableContext.waiterCallStatus === "PENDING"}
+        onClick={() => { setShowWaiterTip(false); void callWaiter(); }}
+      >
+        <span className="waiter-call-icon" aria-hidden="true"><ServiceBellIcon /></span>
+        <span className="waiter-call-label">{tableContext.waiterCallStatus === "PENDING"
+          ? text.waiterCalled
+          : callingWaiter
+            ? text.callingWaiter
+            : "صدا زدن پرسنل"}</span>
+      </button>
+    ) : null}
+    </>
   );
 }
