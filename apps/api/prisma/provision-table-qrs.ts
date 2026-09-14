@@ -74,23 +74,38 @@ async function provision() {
         isActive: true,
         archivedAt: null,
         waiterCallEnabled: true,
-        ...(args.table ? { name: args.table } : {}),
+      ...(args.table ? { name: args.table } : {}),
       },
       orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
-      include: { qrCredentials: { where: { isActive: true }, take: 1 } },
+      include: { qrCredentials: { where: { isActive: true }, take: 1 }, qrFamily: { include: { qrCredentials: { where: { isActive: true }, take: 1 } } } },
     });
-    if (args.table && tables.length !== 1) {
+    const familyTables = new Map<string, (typeof tables)[number]>();
+    for (const table of tables) {
+      if (!table.qrFamilyId) {
+        familyTables.set(`table:${table.id}`, table);
+        continue;
+      }
+      const existingFamilyCredential = table.qrFamily?.qrCredentials[0];
+      const key = `family:${table.qrFamilyId}`;
+      if (!familyTables.has(key) || existingFamilyCredential?.tableId === table.id) familyTables.set(key, table);
+    }
+    const provisionableTables = [...familyTables.values()];
+    if (args.table && tables[0] && tables[0].qrFamily?.qrCredentials[0] && tables[0].qrFamily.qrCredentials[0].tableId !== tables[0].id) {
+      throw new Error(`Table ${args.table} belongs to a QR family whose credential is already assigned to ${tables[0].qrFamily.qrCredentials[0].tableId}.`);
+    }
+    const selectedTables = provisionableTables;
+    if (args.table && selectedTables.length !== 1) {
       throw new Error(`Eligible active table not found: ${args.table}`);
     }
-    if (args.allEligible && tables.length === 0) throw new Error("No eligible active tables found");
-    const withExisting = tables.filter((table) => table.qrCredentials.length > 0);
+    if (args.allEligible && selectedTables.length === 0) throw new Error("No eligible active tables found");
+    const withExisting = selectedTables.filter((table) => table.qrCredentials.length > 0 || Boolean(table.qrFamily?.qrCredentials.length));
     if (withExisting.length > 0 && !args.rotate) {
       throw new Error(
         `Active QR credential already exists for: ${withExisting.map((table) => table.name).join(", ")}. Use --rotate explicitly.`,
       );
     }
 
-    const issued = tables.map((table) => {
+    const issued = selectedTables.map((table) => {
       const token = createTableQrToken();
       return {
         table,
@@ -149,8 +164,8 @@ async function provision() {
             data: { tableContextInvalidBefore: rotatedAt },
           });
         }
-        await transaction.tableQrCredential.create({
-          data: { tableId: item.table.id, tokenHash: item.tokenHash, createdAt: generatedAt },
+          await transaction.tableQrCredential.create({
+          data: { tableId: item.table.id, qrFamilyId: item.table.qrFamilyId, tokenHash: item.tokenHash, createdAt: generatedAt },
         });
       }
     });
