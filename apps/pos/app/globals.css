@@ -1915,23 +1915,16 @@ svg {
   margin-top: 1mm;
   text-align: left;
 }
+.thermal-item--paid { text-decoration: line-through; text-decoration-thickness: 1px; }
+.thermal-item--paid strong { text-decoration: line-through; }
 .thermal-note {
   margin: 1.5mm 0 0;
   padding: 1.5mm 2mm;
   border-right: 2px solid #000;
   font-weight: 700;
 }
-.thermal-summary {
-  margin-top: 3mm;
-}
-.thermal-summary--total {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 2mm;
-  border-top: 1px solid #000;
-  font-size: 13px;
-}
-.thermal-time--footer { margin: 3mm 0 0; text-align: center; }
+.thermal-time--footer { margin: 0; text-align: center; }
+.thermal-thanks { margin: 2mm 0 0; font-weight: 700; text-align: center; }
 @media print {
   @page { size: 80mm auto; margin: 0; }
   html,
