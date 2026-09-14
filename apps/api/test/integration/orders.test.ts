@@ -533,6 +533,53 @@ describe("logical order deletion", () => {
 });
 
 describe("settlement recording", () => {
+  it("allocates an entered partial amount in display order, retains item settlement, and closes with the remaining amount", async () => {
+    const cookies = await userSession(UserRole.STAFF, "settlement.amount.staff");
+    const { product: first } = await sellableProduct();
+    const { product: second } = await sellableProduct();
+    const created = await createOrderRequest(
+      cookies,
+      { channel: "TAKEAWAY", items: [{ productId: first.id, quantity: 1, options: [] }, { productId: second.id, quantity: 1, options: [] }] },
+      "settlement-amount-order-create-1",
+    );
+    const order = created.json().data;
+
+    const firstPayment = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies,
+      headers: { "idempotency-key": "settlement-amount-record-0001" },
+      payload: { expectedVersion: order.version, allocationMode: "AMOUNT", amount: 75_000, payments: [{ method: "CASH", amount: 75_000 }] },
+    });
+    expect(firstPayment.statusCode).toBe(201);
+    expect(firstPayment.json().data).toMatchObject({
+      paymentStatus: "PARTIALLY_PAID",
+      paidAmount: 75_000,
+      balanceAmount: 25_000,
+      settlements: [{ allocations: [
+        { orderItemId: order.items[0].id, quantity: 1, amount: 50_000 },
+        { orderItemId: order.items[1].id, quantity: 0, amount: 25_000 },
+      ] }],
+    });
+
+    const receipt = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/receipt`, cookies });
+    expect(receipt.statusCode).toBe(200);
+    expect(receipt.json().data.items).toMatchObject([
+      { productName: "Latte", paidAmount: 50_000, isPaid: true },
+      { productName: "Latte", paidAmount: 25_000, isPaid: false },
+    ]);
+
+    const finalPayment = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies,
+      headers: { "idempotency-key": "settlement-amount-record-0002" },
+      payload: { expectedVersion: 2, allocationMode: "AMOUNT", amount: 25_000, payments: [{ method: "CARD_TERMINAL", amount: 25_000 }] },
+    });
+    expect(finalPayment.statusCode).toBe(201);
+    expect(finalPayment.json().data).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", paidAmount: 100_000, balanceAmount: 0 });
+  });
+
   it("commits only one of two simultaneous settlements for the same order version", async () => {
     const cookies = await userSession(UserRole.STAFF, "settlement.race.staff");
     const { product } = await sellableProduct();

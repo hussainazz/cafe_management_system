@@ -845,6 +845,8 @@ export async function recordSettlement(
       if (current.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
 
       const activeAllocatedQuantity = new Map<string, number>();
+      const activeAllocatedAmount = new Map<string, number>();
+      let hasAmountPartialAllocation = false;
       current.paymentSettlements
         .filter((settlement) => !settlement.reversal)
         .forEach((settlement) => settlement.allocations.forEach((allocation) => {
@@ -852,6 +854,8 @@ export async function recordSettlement(
             allocation.orderItemId,
             (activeAllocatedQuantity.get(allocation.orderItemId) ?? 0) + allocation.quantity,
           );
+          activeAllocatedAmount.set(allocation.orderItemId, (activeAllocatedAmount.get(allocation.orderItemId) ?? 0) + allocation.amount);
+          if (allocation.quantity === 0) hasAmountPartialAllocation = true;
         }));
 
       const finalLineAmount = new Map<string, number>();
@@ -863,7 +867,8 @@ export async function recordSettlement(
         finalLineAmount.set(item.id, item.lineTotalAmount - (orderDiscountAfter - orderDiscountBefore));
       }
 
-      const allocations = input.allocations.map((requested) => {
+      const allocations = input.allocationMode !== "AMOUNT" ? input.allocations.map((requested) => {
+        if (hasAmountPartialAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Complete an amount-based partial payment by amount.");
         const item = current.items.find((candidate) => candidate.id === requested.orderItemId);
         if (!item) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An allocated item does not belong to this order.");
         const alreadyAllocated = activeAllocatedQuantity.get(item.id) ?? 0;
@@ -878,7 +883,21 @@ export async function recordSettlement(
         });
         if (amount <= 0) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The selected quantity has no payable amount.");
         return { orderItemId: item.id, quantity: requested.quantity, amount };
-      });
+      }) : (() => {
+        if (input.amount > current.balanceAmount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The entered amount exceeds the remaining balance.");
+        let remaining = input.amount;
+        return current.items.flatMap((item) => {
+          const availableAmount = finalLineAmount.get(item.id)! - (activeAllocatedAmount.get(item.id) ?? 0);
+          if (availableAmount <= 0 || remaining <= 0) return [];
+          const amount = Math.min(remaining, availableAmount);
+          remaining -= amount;
+          const alreadyQuantity = activeAllocatedQuantity.get(item.id) ?? 0;
+          // A zero quantity records an amount that pays only part of this item.
+          // Fully covered later items still retain their immutable quantity snapshot.
+          const quantity = amount === availableAmount ? item.quantity - alreadyQuantity : 0;
+          return [{ orderItemId: item.id, quantity, amount }];
+        });
+      })();
       const totalAmount = allocations.reduce((total, allocation) => total + allocation.amount, 0);
       const tenderAmount = input.payments.reduce((total, payment) => total + payment.amount, 0);
       if (tenderAmount !== totalAmount) {
@@ -1027,7 +1046,32 @@ export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUse
   requireRole(actor, ["STAFF", "MANAGER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-  return { displayTime: tehranDisplayTime(order.createdAt), items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), lineTotalAmount: item.lineTotalAmount })), totalAmount: order.totalAmount };
+  let runningSubtotal = 0;
+  const paidByItem = new Map<string, number>();
+  order.paymentSettlements
+    .filter((settlement) => !settlement.reversal)
+    .forEach((settlement) => settlement.allocations.forEach((allocation) => {
+      paidByItem.set(allocation.orderItemId, (paidByItem.get(allocation.orderItemId) ?? 0) + allocation.amount);
+    }));
+  return {
+    displayTime: tehranDisplayTime(order.createdAt),
+    items: order.items.map((item) => {
+      const discountBefore = Math.floor((order.discountAmount * runningSubtotal) / order.subtotalAmount);
+      runningSubtotal += item.lineTotalAmount;
+      const discountAfter = Math.floor((order.discountAmount * runningSubtotal) / order.subtotalAmount);
+      const lineTotalAmount = item.lineTotalAmount - (discountAfter - discountBefore);
+      const paidAmount = paidByItem.get(item.id) ?? 0;
+      return {
+        productName: item.productNameSnapshot,
+        quantity: item.quantity,
+        options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })),
+        lineTotalAmount,
+        paidAmount,
+        isPaid: paidAmount === lineTotalAmount,
+      };
+    }),
+    totalAmount: order.totalAmount,
+  };
 }
 
 export async function settlementReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string) {
@@ -1036,5 +1080,16 @@ export async function settlementReceipt(prisma: PrismaClient, actor: Authenticat
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
   const settlement = order.paymentSettlements.find((candidate) => candidate.id === settlementId);
   if (!settlement) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested settlement was not found.");
-  return { displayTime: tehranDisplayTime(settlement.recordedAt), items: settlement.allocations.map((allocation) => ({ productName: allocation.orderItem.productNameSnapshot, quantity: allocation.quantity, options: allocation.orderItem.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), lineTotalAmount: allocation.amount })), totalAmount: settlement.totalAmount };
+  return {
+    displayTime: tehranDisplayTime(settlement.recordedAt),
+    items: settlement.allocations.map((allocation) => ({
+      productName: allocation.orderItem.productNameSnapshot,
+      quantity: allocation.quantity || allocation.orderItem.quantity,
+      options: allocation.orderItem.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })),
+      lineTotalAmount: allocation.amount,
+      paidAmount: allocation.amount,
+      isPaid: true,
+    })),
+    totalAmount: settlement.totalAmount,
+  };
 }

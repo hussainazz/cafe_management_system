@@ -34,6 +34,7 @@ import {
 } from "../lib/api-client";
 import { formatOrderNumber, formatToman } from "../lib/pos-utils";
 import { printRoute } from "../lib/print-routes";
+import { CatalogPanel } from "./catalog-panel";
 
 type Panel = "catalog" | "tables" | "finance" | "settings";
 type Confirm = {
@@ -185,7 +186,7 @@ export function ManagerWorkspace({
   );
 }
 
-function CatalogPanel({
+function LegacyCatalogPanel({
   catalog,
   mutate,
   reload,

@@ -47,7 +47,7 @@ type Data = {
   tables: PosTable[];
   tableSeatingLimitMinutes: number | null;
   calls: Array<{ tableId: string; tableName: string; version: number; requestedAt: string }>;
-  openOrders: Array<{ id: string; tableId: string | null; totalAmount: number }>;
+  openOrders: Array<{ id: string; tableId: string | null; channel: Channel; paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID"; dailyOrderNumber: number; totalAmount: number; balanceAmount: number }>;
 };
 type PendingTableClear = { tableId: string; tableName: string; dailyOrderNumber: number; error: string };
 type PendingTransfer = { order: OrderDetail; source: PosTable; destination: PosTable; swaps: boolean };
@@ -354,7 +354,19 @@ export function OrdersWorkspace({
           table={selected}
           channel={channel}
           initialOrder={order}
+          takeawayOrders={data.openOrders.filter((item) => item.channel === "TAKEAWAY" && item.paymentStatus !== "PAID")}
+          onOpenTakeaway={async (orderId) => {
+            const result = await readOrder(orderId);
+            if (result.ok) setOrder(result.data);
+            else setMessage({ tone: "error", text: result.error.message });
+          }}
           onOrder={async (updated) => {
+            if (channel === "TAKEAWAY" && updated?.state === "CLOSED") {
+              setOrder(null);
+              await load();
+              setMessage({ tone: "notice", text: "پرداخت ثبت شد و سفارش بیرون‌بر بسته شد." });
+              return;
+            }
             setOrder(updated);
             await load();
           }}
@@ -374,6 +386,7 @@ export function OrdersWorkspace({
           }}
           onDirtyChange={setDeskDirty}
           onSubmitReady={(submit) => { submitDeskRef.current = submit; }}
+          onCloseTakeawayPanel={() => setOrder(null)}
         />
       ) : (
         <TableBoard
@@ -685,6 +698,9 @@ function OrderDesk({
   onCreateFailure,
   onDirtyChange,
   onSubmitReady,
+  takeawayOrders,
+  onOpenTakeaway,
+  onCloseTakeawayPanel,
 }: {
   catalog: PosCatalogCategory[];
   table: PosTable | null;
@@ -696,6 +712,9 @@ function OrderDesk({
   onCreateFailure: (error: string) => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
   onSubmitReady: (submit: () => void) => void;
+  takeawayOrders: Data["openOrders"] | null;
+  onOpenTakeaway: (orderId: string) => Promise<void>;
+  onCloseTakeawayPanel: () => void;
 }) {
   const posCatalog = useMemo(
     () => catalog.filter((item) => item.name !== "ویژه و جدید"),
@@ -713,6 +732,8 @@ function OrderDesk({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [discountTarget, setDiscountTarget] = useState<DiscountTarget | null>(null);
   const discountTriggerRef = useRef<HTMLElement | null>(null);
+  const takeawayCloseRef = useRef<HTMLButtonElement>(null);
+  const takeawayOrderPanelOpen = channel === "TAKEAWAY" && initialOrder !== null;
   useEffect(() => {
     setSaved(savedDrafts(initialOrder));
     setDraft([]);
@@ -828,6 +849,50 @@ function OrderDesk({
         : "سفارش از فهرست فعال حذف شد.",
     );
   };
+  useEffect(() => {
+    if (!takeawayOrderPanelOpen) return;
+    takeawayCloseRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onCloseTakeawayPanel();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [busy, onCloseTakeawayPanel, takeawayOrderPanelOpen]);
+  const orderPanel = (
+    <aside className={`order-panel${takeawayOrderPanelOpen ? " takeaway-order-panel-popup" : ""}`} {...(takeawayOrderPanelOpen ? { role: "dialog", "aria-modal": true, "aria-label": `سفارش بیرون‌بر ${formatOrderNumber(initialOrder!.dailyOrderNumber)}` } : {})}>
+      {takeawayOrderPanelOpen && <button className="icon-button takeaway-order-panel-popup__close" type="button" ref={takeawayCloseRef} disabled={busy} onClick={onCloseTakeawayPanel} aria-label="بستن سفارش بیرون‌بر"><CloseIcon /></button>}
+      <OrderSummary
+        order={initialOrder}
+        draft={draft}
+        saved={saved}
+        canEditSaved={initialOrder?.paymentStatus === "UNPAID"}
+        total={draftTotal}
+        onQuantity={(key, value) =>
+          setDraft((items) =>
+            items.flatMap((item) =>
+              item.key !== key
+                ? [item]
+                : item.quantity + value > 0
+                  ? [{ ...item, quantity: item.quantity + value }]
+                  : [],
+            ),
+          )
+        }
+        onSavedQuantity={(id, delta) => setSaved((items) => items.map((item) => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item))}
+        onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
+        onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
+        onSave={() => void save()}
+        onCheckout={() => setCheckout(true)}
+        onPrint={(kind, settlementId) => {
+          if (!initialOrder) return;
+          window.open(printRoute(initialOrder.id, kind, settlementId), "run-cafe-print", "popup=yes");
+        }}
+        onRequestDelete={() => setDeleteDialogOpen(true)}
+        onRequestDiscount={(target) => { discountTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setDiscountTarget(target); }}
+        busy={busy}
+      />
+    </aside>
+  );
   return (
     <>
       {error && (
@@ -836,7 +901,11 @@ function OrderDesk({
           {error}
         </div>
       )}
-      <div className="order-desk">
+      <div className={channel === "TAKEAWAY" ? "order-desk order-desk--takeaway" : "order-desk"}>
+        {channel === "TAKEAWAY" && takeawayOrders && <aside className="takeaway-orders" aria-labelledby="takeaway-orders-title">
+          <h2 id="takeaway-orders-title">سفارش‌های پرداخت‌نشده</h2>
+          {takeawayOrders.length === 0 ? <p>سفارش بازی نیست.</p> : takeawayOrders.map((takeaway) => <button key={takeaway.id} type="button" className={initialOrder?.id === takeaway.id ? "is-selected" : ""} onClick={() => void onOpenTakeaway(takeaway.id)}><b>{formatOrderNumber(takeaway.dailyOrderNumber)}</b><span>مانده {formatToman(takeaway.balanceAmount)}</span></button>)}
+        </aside>}
         <aside className="desk-sidebar">
           <div className="desk-context">
             <span className="context-icon">
@@ -846,7 +915,6 @@ function OrderDesk({
               <b>{channel === "TABLE" ? `میز ${table?.name}` : "بیرون‌بر"}</b>
               <small>{initialOrder ? "ویرایش سفارش" : "سفارش جدید"}</small>
             </span>
-            {initialOrder ? <em>مانده {formatToman(initialOrder.balanceAmount)}</em> : null}
           </div>
           <nav className="categories" aria-label="دسته‌های محصولات">
             <div>
@@ -904,38 +972,7 @@ function OrderDesk({
             ))}
           </div>
         </section>
-        <aside className="order-panel">
-          <OrderSummary
-            order={initialOrder}
-            draft={draft}
-            saved={saved}
-            canEditSaved={initialOrder?.paymentStatus === "UNPAID"}
-            total={draftTotal}
-            onQuantity={(key, value) =>
-              setDraft((items) =>
-                items.flatMap((item) =>
-                  item.key !== key
-                    ? [item]
-                    : item.quantity + value > 0
-                      ? [{ ...item, quantity: item.quantity + value }]
-                      : [],
-                ),
-              )
-            }
-            onSavedQuantity={(id, delta) => setSaved((items) => items.map((item) => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item))}
-            onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
-            onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
-            onSave={() => void save()}
-            onCheckout={() => setCheckout(true)}
-            onPrint={(kind, settlementId) => {
-              if (!initialOrder) return;
-              window.open(printRoute(initialOrder.id, kind, settlementId), "run-cafe-print", "popup=yes");
-            }}
-            onRequestDelete={() => setDeleteDialogOpen(true)}
-            onRequestDiscount={(target) => { discountTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setDiscountTarget(target); }}
-            busy={busy}
-          />
-        </aside>
+        {takeawayOrderPanelOpen ? <div className="modal-backdrop takeaway-order-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCloseTakeawayPanel(); }}>{orderPanel}</div> : orderPanel}
       </div>
       {checkout && initialOrder && (
         <SettlementSheet
@@ -1010,6 +1047,8 @@ function OrderSummary({
   busy: boolean;
 }) {
   const [expandedDraftKey, setExpandedDraftKey] = useState<string | null>(null);
+  const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null);
+  const hasUnsavedChanges = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
   return (
     <>
       {order && (
@@ -1026,11 +1065,10 @@ function OrderSummary({
       <div className="order-lines">
         {order?.items.map((item) => {
           const edit = saved.find((candidate) => candidate.id === item.id)!;
-          return edit.quantity > 0 && <article className="order-line order-line--saved" key={item.id}>
-            <div><b>{edit.name} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small>{item.discountAmount > 0 && <small>تخفیف: {formatToman(item.discountAmount)}{item.discountReason ? ` · ${item.discountReason}` : ""}</small>}</div>
-            <span>{formatToman(item.lineTotalAmount)}</span>
-            <div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <input aria-label={`یادداشت ${edit.name}`} value={edit.note} onChange={(event) => onSavedNote(edit.id, event.target.value)} placeholder="یادداشت" /> : <small className="saved-lock">پس از پرداخت فقط افزایش تعداد مجاز است</small>}</div>
-            <button className="button button--quiet" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} title={!canChangeDiscount(order!.paymentStatus, "item") ? "پس از اولین پرداخت، تخفیف کالا قابل تغییر نیست." : undefined} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button>
+          const expanded = expandedSavedId === item.id;
+          return edit.quantity > 0 && <article className={`order-line order-line--saved${expanded ? " order-line--expanded" : ""}`} key={item.id}>
+            <button className="order-line__summary" type="button" aria-expanded={expanded} onClick={() => setExpandedSavedId((current) => current === item.id ? null : item.id)}><span className="order-line__details"><b>{edit.name} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></span><strong>{formatToman(item.lineTotalAmount)}</strong></button>
+            {expanded && <><div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <input aria-label={`یادداشت ${edit.name}`} value={edit.note} onChange={(event) => onSavedNote(edit.id, event.target.value)} placeholder="یادداشت" /> : <small className="saved-lock">پس از پرداخت فقط افزایش تعداد مجاز است</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
           </article>;
         })}
         {draft.map((item) => {
@@ -1106,9 +1144,9 @@ function OrderSummary({
         <strong>{formatToman(order ? order.balanceAmount : total)}</strong>
       </div>
       {order && order.discountAmount > 0 && <div className="order-discount-summary">تخفیف سفارش: {formatToman(order.discountAmount)}{order.discountReason ? ` · ${order.discountReason}` : ""}</div>}
-      {(draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""))) && (
-        <button className="button button--primary button--wide" disabled={busy} onClick={onSave}>
-          {busy ? "در حال ثبت…" : order ? "افزودن به سفارش" : "ثبت سفارش"}
+      {(order || hasUnsavedChanges) && (
+        <button className="button button--primary button--wide" disabled={busy || !hasUnsavedChanges} onClick={onSave}>
+          {busy ? "در حال ثبت…" : order ? "تأیید و ثبت ویرایش" : "ثبت سفارش"}
         </button>
       )}
       {order && (
@@ -1132,11 +1170,6 @@ function OrderSummary({
           <button className="text-danger" disabled={busy} onClick={onRequestDelete}>
             حذف سفارش
           </button>
-          {order.settlements.filter((settlement) => !settlement.reversedAt).map((settlement) => (
-            <button className="button button--quiet order-actions__settlement" key={settlement.id} onClick={() => onPrint("settlement", settlement.id)}>
-              رسید پرداخت {formatToman(settlement.totalAmount)}
-            </button>
-          ))}
         </div>
       )}
     </>
@@ -1379,10 +1412,12 @@ function SettlementSheet({
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>(() =>
     Object.fromEntries(available.map(({ item, availableQuantity }) => [item.id, availableQuantity])),
   );
+  const [settlementMode, setSettlementMode] = useState<"ITEM_QUANTITY" | "AMOUNT">("ITEM_QUANTITY");
+  const [amountValue, setAmountValue] = useState("");
   const selected = available
     .map((entry) => ({ ...entry, quantity: selectedQuantities[entry.item.id] ?? 0 }))
     .filter((entry) => entry.quantity > 0);
-  const selectedAmount = sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
+  const selectedAmount = settlementMode === "AMOUNT" ? positiveIntegerAmount(amountValue) : sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
   const [tenders, setTenders] = useState<TenderDraft[]>(() => [
     { id: requestKey(), method: "CARD_TERMINAL", amount: String(selectedAmount), reference: "" },
   ]);
@@ -1391,6 +1426,13 @@ function SettlementSheet({
   const [attemptKey, setAttemptKey] = useState(requestKey);
   const tenderAmount = sumAmounts(tenders.map((tender) => positiveIntegerAmount(tender.amount)));
   const isReconciled = selectedAmount > 0 && tenderAmount === selectedAmount;
+  useEffect(() => {
+    setTenders((current) => {
+      const primaryTender = current[0];
+      if (!primaryTender || primaryTender.amount === String(selectedAmount)) return current;
+      return [{ ...primaryTender, amount: String(selectedAmount) }, ...current.slice(1)];
+    });
+  }, [selectedAmount]);
   const resetAttempt = () => {
     setAttemptKey(requestKey());
     setError(null);
@@ -1413,7 +1455,9 @@ function SettlementSheet({
       order.id,
       {
         expectedVersion: order.version,
-        allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })),
+        ...(settlementMode === "AMOUNT"
+          ? { allocationMode: "AMOUNT" as const, amount: selectedAmount }
+          : { allocationMode: "ITEM_QUANTITY" as const, allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })) }),
         payments: tenders.map((tender) =>
           tender.method === "CARD_TRANSFER" && tender.reference.trim()
             ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() }
@@ -1451,9 +1495,15 @@ function SettlementSheet({
         <section className="settlement-selection" aria-labelledby="settlement-items-title">
           <div className="settlement-section-heading">
             <h3 id="settlement-items-title">اقلام قابل پرداخت</h3>
-            <span>تعداد موردنظر را انتخاب کنید</span>
+            <div className="settlement-mode" role="group" aria-label="روش انتخاب مبلغ پرداخت">
+              <button type="button" className={settlementMode === "ITEM_QUANTITY" ? "is-selected" : ""} disabled={busy} onClick={() => { setSettlementMode("ITEM_QUANTITY"); resetAttempt(); }}>بر اساس اقلام</button>
+              <button type="button" className={settlementMode === "AMOUNT" ? "is-selected" : ""} disabled={busy} onClick={() => { setSettlementMode("AMOUNT"); resetAttempt(); }}>بر اساس مبلغ</button>
+            </div>
           </div>
-          {available.map(({ item, availableQuantity }) => {
+          {settlementMode === "AMOUNT" ? <label className="settlement-amount">مبلغ پرداخت (تومان)
+            <input inputMode="numeric" value={amountValue} disabled={busy} placeholder={`حداکثر ${formatToman(order.balanceAmount)}`} onChange={(event) => { setAmountValue(event.target.value.replace(/[^0-9]/g, "")); resetAttempt(); }} />
+            <small>این مبلغ به‌ترتیب اقلامِ باقی‌مانده تخصیص می‌یابد.</small>
+          </label> : available.map(({ item, availableQuantity }) => {
             const quantity = selectedQuantities[item.id] ?? 0;
             return (
               <div className="settlement-item" key={item.id}>

@@ -94,7 +94,7 @@ Exit gate:
 - Calculate all prices, totals, estimated preparation minutes, and table release estimates on the server and persist immutable item/option/timing snapshots.
 - Implement controlled edits to `OPEN` orders, table assignment/transfer, and order history; after the first settlement, allow only additive/unsettled-quantity edits and reject rewrites to settled quantities, posted allocations, tenders, or settlement receipts.
 - Implement logical deletion with actor and timestamp; a reason is optional at every payment status. Never physically delete an order.
-- Implement per-payer settlements that allocate selected order-item quantities and contain one or more cash, card-terminal, or card-to-card transfer tenders.
+- Implement per-payer settlements that allocate selected order-item quantities or a server-allocated remaining-balance amount, and contain one or more cash, card-terminal, or card-to-card transfer tenders.
 - Make each settlement recording idempotent and transactional; update the order's `UNPAID`/`PARTIALLY_PAID`/`PAID` status and audit entry from active allocations.
 - Provide bar-ticket and customer-receipt-ready API data with stable order numbers, timing snapshots, and `Asia/Tehran` display timestamps. The bar ticket is limited to preparation information; customer receipts contain the financial detail.
 - Test permissions, duplicate retries, stale edits, invalid transitions, unavailable products, historical price/timing stability, selected-item allocation, mixed tender, optional card-transfer references, settlement reversal, payment reconciliation, and transaction rollback.

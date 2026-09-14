@@ -447,7 +447,7 @@ model SettlementAllocation {
   id           String @id @default(uuid())
   settlementId String
   orderItemId  String
-  quantity     Int
+  quantity     Int // Zero denotes the fractional item portion of an amount-based settlement.
   amount       Int
 
   settlement PaymentSettlement @relation(fields: [settlementId], references: [id])

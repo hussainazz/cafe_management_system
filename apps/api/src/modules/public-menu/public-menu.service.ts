@@ -33,10 +33,18 @@ function finalPriceAmount(product: { priceAmount: number; saleDiscountKind: "FIX
 }
 
 function toPublicProduct(product: PublicCatalogProduct) {
+  const priceAmount = finalPriceAmount(product);
+  const discountAmount = product.priceAmount - priceAmount;
   return {
     id: product.id,
     name: product.name,
-    priceAmount: finalPriceAmount(product),
+    basePriceAmount: product.priceAmount,
+    priceAmount,
+    saleDiscount: product.saleDiscountKind && product.saleDiscountValue ? {
+      kind: product.saleDiscountKind,
+      value: product.saleDiscountValue,
+      amount: discountAmount,
+    } : null,
     isAvailable: product.isAvailable,
     image: product.image,
     optionGroups: product.productOptionGroups

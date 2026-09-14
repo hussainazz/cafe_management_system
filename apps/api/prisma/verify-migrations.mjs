@@ -239,9 +239,13 @@ async function applySqlFiles(url, files) {
 async function verifyExistingDataUpgrade(files) {
   const name = databaseNames.upgrade;
   const url = databaseUrl(name);
-  const previous = files.slice(0, -1);
-  const latest = files.at(-1);
-  if (!latest) throw new Error("No migrations found");
+  const dailySequenceMigrationIndex = files.findIndex((file) => file.name.includes("add_daily_order_sequence"));
+  if (dailySequenceMigrationIndex === -1) throw new Error("The daily order sequence migration was not found");
+  // Seed an order from the last schema before daily numbering, then run every
+  // later migration. This remains a real existing-data rehearsal as newer
+  // forward migrations are appended.
+  const previous = files.slice(0, dailySequenceMigrationIndex);
+  const forward = files.slice(dailySequenceMigrationIndex);
 
   await recreateDatabase(name);
   await applySqlFiles(url, previous);
@@ -270,7 +274,7 @@ async function verifyExistingDataUpgrade(files) {
         '30000000-0000-4000-8000-000000000001', 'Existing product', 100000, 1, 0, 100000, 1
       );
     `);
-    await client.query(latest.sql);
+    for (const migration of forward) await client.query(migration.sql);
     const retained = await client.query(
       `SELECT "totalAmount", "dailyOrderNumber" FROM "orders" WHERE "orderNumber" = 'MIGRATION-ORDER-1'`,
     );

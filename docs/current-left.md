@@ -1,5 +1,10 @@
 # Current Backend Stage Status
 
+## 14 September 2026 partial settlement and takeaway popup pass
+
+- Complete in code and automated verification: a settlement may allocate selected item quantities or an entered integer-Toman amount up to the remaining balance. Amount payments are allocated deterministically across immutable item snapshots; completed receipt lines are marked paid and print with a strike-through, while tender references remain private. The POS payment sheet offers both methods, and selecting an existing takeaway from its queue opens edit/payment/receipt actions in a modal instead of expanding the main takeaway workspace. Table-order behavior is unchanged.
+- Left: attached-browser and physical-receipt validation remain part of the existing Stage 7/10 operational gates.
+
 ## 13 September 2026 API and migration audit
 
 - Documented the mandatory Prisma synchronization rule: every schema change
@@ -323,6 +328,18 @@ This file is the active completion checklist and current stage status for the ba
     groups and `طعم` remain archived for immutable order history only. Seating
     duration moves from physical tables to the café-settings singleton while
     each existing/new table order retains its own timing snapshot.
+  - 13 September 2026 catalog-workspace refactor: Manager catalog management
+    now uses a compact selected-category sidebar and a responsive product-card
+    workspace. Category and in-category product reordering use touch/keyboard
+    accessible drag handles and audited, serializable batch reorder endpoints;
+    the server assigns appended display order for new categories/products.
+    Product create/edit is drawer-based, images and option configuration remain
+    available there, and archive controls are only exposed in the selected
+    category/editor contexts. Focused UI/API verification is recorded with this
+    change; authenticated desktop/mobile browser evidence remains required.
+    The product drawer now keeps upload progress visibly announced while a
+    product image is transferring, previews the current/recently uploaded
+    image, and exposes the confirmed remove-image action for either state.
 
 ## Future Validation Work
 
