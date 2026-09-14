@@ -1171,11 +1171,6 @@ function OrderSummary({
           <button className="text-danger" disabled={busy} onClick={onRequestDelete}>
             حذف سفارش
           </button>
-          {order.settlements.filter((settlement) => !settlement.reversedAt).map((settlement) => (
-            <button className="button button--quiet order-actions__settlement" key={settlement.id} onClick={() => onPrint("settlement", settlement.id)}>
-              رسید پرداخت {formatToman(settlement.totalAmount)}
-            </button>
-          ))}
         </div>
       )}
     </>
@@ -1432,6 +1427,13 @@ function SettlementSheet({
   const [attemptKey, setAttemptKey] = useState(requestKey);
   const tenderAmount = sumAmounts(tenders.map((tender) => positiveIntegerAmount(tender.amount)));
   const isReconciled = selectedAmount > 0 && tenderAmount === selectedAmount;
+  useEffect(() => {
+    setTenders((current) => {
+      const primaryTender = current[0];
+      if (!primaryTender || primaryTender.amount === String(selectedAmount)) return current;
+      return [{ ...primaryTender, amount: String(selectedAmount) }, ...current.slice(1)];
+    });
+  }, [selectedAmount]);
   const resetAttempt = () => {
     setAttemptKey(requestKey());
     setError(null);
