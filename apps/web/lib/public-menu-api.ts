@@ -9,6 +9,8 @@ type BackendProduct = {
   id: string;
   name: string;
   priceAmount: number;
+  basePriceAmount?: number;
+  saleDiscount?: { kind: "FIXED" | "PERCENTAGE"; value: number; amount: number } | null;
   isAvailable: boolean;
   image: { storageKey: string; altText: string } | null;
   optionGroups: Array<{ id: string; name: string; options: BackendOption[] }>;
@@ -39,9 +41,9 @@ function adaptMenu(response: BackendResponse): PublicMenu {
         id: product.id,
         name: product.name,
         nameEn: null,
-        basePriceAmount: product.priceAmount,
+        basePriceAmount: product.basePriceAmount ?? product.priceAmount,
         finalPriceAmount: product.priceAmount,
-        saleDiscount: null,
+        saleDiscount: product.saleDiscount ?? null,
         isAvailable: product.isAvailable,
         image: product.image,
         optionGroups: product.optionGroups
