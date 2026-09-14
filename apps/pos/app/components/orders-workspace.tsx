@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { PosCatalogCategory, PosCatalogProduct, PosTable } from "@cafe/contracts";
 import {
   acknowledgeWaiterCall,
@@ -347,7 +347,7 @@ export function OrdersWorkspace({
           </button>
         </section>
       )}
-      {editingOrder || (selected && !order) || (channel === "TAKEAWAY" && !order) ? (
+      {editingOrder || (selected && !order) || channel === "TAKEAWAY" ? (
         <OrderDesk
           key={`${channel}:${selected?.id ?? "takeaway"}:${order?.id ?? "new"}`}
           catalog={data.catalog}
@@ -361,6 +361,12 @@ export function OrdersWorkspace({
             else setMessage({ tone: "error", text: result.error.message });
           }}
           onOrder={async (updated) => {
+            if (channel === "TAKEAWAY" && updated?.state === "CLOSED") {
+              setOrder(null);
+              await load();
+              setMessage({ tone: "notice", text: "پرداخت ثبت شد و سفارش بیرون‌بر بسته شد." });
+              return;
+            }
             setOrder(updated);
             await load();
           }}
@@ -380,6 +386,7 @@ export function OrdersWorkspace({
           }}
           onDirtyChange={setDeskDirty}
           onSubmitReady={(submit) => { submitDeskRef.current = submit; }}
+          onCloseTakeawayPanel={() => setOrder(null)}
         />
       ) : (
         <TableBoard
@@ -427,45 +434,6 @@ export function OrdersWorkspace({
             setPendingTransfer({ order: sourceOrder, source, destination, swaps: destination.activeOrders.length > 0 });
           }}
         />
-      )}
-      {channel === "TAKEAWAY" && order && (
-        <TakeawayOrderDialog
-          order={order}
-          onClose={() => setOrder(null)}
-        >
-          <OrderDesk
-            key={`takeaway-dialog:${order.id}`}
-            catalog={data.catalog}
-            table={null}
-            channel="TAKEAWAY"
-            initialOrder={order}
-            takeawayOrders={null}
-            onOpenTakeaway={async () => undefined}
-            onOrder={async (updated) => {
-              if (!updated) {
-                close();
-                return;
-              }
-              if (updated.state === "CLOSED") {
-                close();
-                await load();
-                setMessage({ tone: "notice", text: "پرداخت ثبت شد و سفارش بیرون‌بر بسته شد." });
-                return;
-              }
-              setOrder(updated);
-              await load();
-            }}
-            onDone={async (notice) => {
-              close();
-              await load();
-              setMessage({ tone: "notice", text: notice });
-            }}
-            onTableClearNeeded={() => undefined}
-            onCreateFailure={async (error) => setMessage({ tone: "error", text: error })}
-            onDirtyChange={setDeskDirty}
-            onSubmitReady={(submit) => { submitDeskRef.current = submit; }}
-          />
-        </TakeawayOrderDialog>
       )}
       {pendingTransfer && (
         <TransferTableDialog
@@ -520,40 +488,6 @@ export function OrdersWorkspace({
         />
       )}
     </section>
-  );
-}
-
-function TakeawayOrderDialog({
-  order,
-  onClose,
-  children,
-}: {
-  order: OrderDetail;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    closeButtonRef.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-  return (
-    <div className="modal-backdrop takeaway-order-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal-card takeaway-order-dialog" role="dialog" aria-modal="true" aria-labelledby="takeaway-order-title">
-        <header className="modal-header">
-          <div>
-            <h2 id="takeaway-order-title">سفارش بیرون‌بر {formatOrderNumber(order.dailyOrderNumber)}</h2>
-            <p>ویرایش، پرداخت و رسید این سفارش در همین پنجره انجام می‌شود.</p>
-          </div>
-          <button className="icon-button" type="button" ref={closeButtonRef} onClick={onClose} aria-label="بستن سفارش بیرون‌بر"><CloseIcon /></button>
-        </header>
-        {children}
-      </section>
-    </div>
   );
 }
 
@@ -766,6 +700,7 @@ function OrderDesk({
   onSubmitReady,
   takeawayOrders,
   onOpenTakeaway,
+  onCloseTakeawayPanel,
 }: {
   catalog: PosCatalogCategory[];
   table: PosTable | null;
@@ -779,6 +714,7 @@ function OrderDesk({
   onSubmitReady: (submit: () => void) => void;
   takeawayOrders: Data["openOrders"] | null;
   onOpenTakeaway: (orderId: string) => Promise<void>;
+  onCloseTakeawayPanel: () => void;
 }) {
   const posCatalog = useMemo(
     () => catalog.filter((item) => item.name !== "ویژه و جدید"),
@@ -796,6 +732,8 @@ function OrderDesk({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [discountTarget, setDiscountTarget] = useState<DiscountTarget | null>(null);
   const discountTriggerRef = useRef<HTMLElement | null>(null);
+  const takeawayCloseRef = useRef<HTMLButtonElement>(null);
+  const takeawayOrderPanelOpen = channel === "TAKEAWAY" && initialOrder !== null;
   useEffect(() => {
     setSaved(savedDrafts(initialOrder));
     setDraft([]);
@@ -911,6 +849,50 @@ function OrderDesk({
         : "سفارش از فهرست فعال حذف شد.",
     );
   };
+  useEffect(() => {
+    if (!takeawayOrderPanelOpen) return;
+    takeawayCloseRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onCloseTakeawayPanel();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [busy, onCloseTakeawayPanel, takeawayOrderPanelOpen]);
+  const orderPanel = (
+    <aside className={`order-panel${takeawayOrderPanelOpen ? " takeaway-order-panel-popup" : ""}`} {...(takeawayOrderPanelOpen ? { role: "dialog", "aria-modal": true, "aria-label": `سفارش بیرون‌بر ${formatOrderNumber(initialOrder!.dailyOrderNumber)}` } : {})}>
+      {takeawayOrderPanelOpen && <button className="icon-button takeaway-order-panel-popup__close" type="button" ref={takeawayCloseRef} disabled={busy} onClick={onCloseTakeawayPanel} aria-label="بستن سفارش بیرون‌بر"><CloseIcon /></button>}
+      <OrderSummary
+        order={initialOrder}
+        draft={draft}
+        saved={saved}
+        canEditSaved={initialOrder?.paymentStatus === "UNPAID"}
+        total={draftTotal}
+        onQuantity={(key, value) =>
+          setDraft((items) =>
+            items.flatMap((item) =>
+              item.key !== key
+                ? [item]
+                : item.quantity + value > 0
+                  ? [{ ...item, quantity: item.quantity + value }]
+                  : [],
+            ),
+          )
+        }
+        onSavedQuantity={(id, delta) => setSaved((items) => items.map((item) => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item))}
+        onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
+        onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
+        onSave={() => void save()}
+        onCheckout={() => setCheckout(true)}
+        onPrint={(kind, settlementId) => {
+          if (!initialOrder) return;
+          window.open(printRoute(initialOrder.id, kind, settlementId), "run-cafe-print", "popup=yes");
+        }}
+        onRequestDelete={() => setDeleteDialogOpen(true)}
+        onRequestDiscount={(target) => { discountTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setDiscountTarget(target); }}
+        busy={busy}
+      />
+    </aside>
+  );
   return (
     <>
       {error && (
@@ -991,38 +973,7 @@ function OrderDesk({
             ))}
           </div>
         </section>
-        <aside className="order-panel">
-          <OrderSummary
-            order={initialOrder}
-            draft={draft}
-            saved={saved}
-            canEditSaved={initialOrder?.paymentStatus === "UNPAID"}
-            total={draftTotal}
-            onQuantity={(key, value) =>
-              setDraft((items) =>
-                items.flatMap((item) =>
-                  item.key !== key
-                    ? [item]
-                    : item.quantity + value > 0
-                      ? [{ ...item, quantity: item.quantity + value }]
-                      : [],
-                ),
-              )
-            }
-            onSavedQuantity={(id, delta) => setSaved((items) => items.map((item) => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item))}
-            onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
-            onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
-            onSave={() => void save()}
-            onCheckout={() => setCheckout(true)}
-            onPrint={(kind, settlementId) => {
-              if (!initialOrder) return;
-              window.open(printRoute(initialOrder.id, kind, settlementId), "run-cafe-print", "popup=yes");
-            }}
-            onRequestDelete={() => setDeleteDialogOpen(true)}
-            onRequestDiscount={(target) => { discountTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setDiscountTarget(target); }}
-            busy={busy}
-          />
-        </aside>
+        {takeawayOrderPanelOpen ? <div className="modal-backdrop takeaway-order-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCloseTakeawayPanel(); }}>{orderPanel}</div> : orderPanel}
       </div>
       {checkout && initialOrder && (
         <SettlementSheet
