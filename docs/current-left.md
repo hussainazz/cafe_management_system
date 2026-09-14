@@ -1,5 +1,26 @@
 # Current Backend Stage Status
 
+## 14 September 2026 shared physical-table QR assignment pass
+
+- Complete in code and isolated API verification: logical POS tables `7`, `8`,
+  `سوشال`, and `سوشال سوشال` share one physical QR family; `3`, `4`, and
+  `کانتر وسط` share the second. Staff can activate or cancel a short,
+  server-authoritative assignment window from the shared POS, and new scans
+  resolve to the selected logical table before customer authentication.
+  Existing same-family sessions remain on their prior logical table, and
+  concurrent scans are serialized. Browser/device QR verification remains a
+  live operational gate.
+- Follow-up hardening completed: family activation, cancellation, scan routing,
+  and expiry cleanup now read assignment state under the same row lock; clearing
+  a routed logical table invalidates that table's context; customer visits and
+  auth-state reads remain scoped to the resolved logical table while preserving
+  the database's one-active-visit invariant. Touch-hold QR assignment no longer
+  cancels touch-hold order transfer on shared-family cards. Regression coverage
+  includes target-table clearing, cross-logical-table visit isolation, the
+  second physical family, authorization, touch gestures, and print preparation
+  errors/lifecycle. The 18-migration database gate, all isolated API tests, 31
+  POS tests, contracts/API/POS typechecks, and `git diff --check` pass.
+
 ## 14 September 2026 deferred OTP and first-scan phone pass
 
 - Superseded for the active QR flow: OTP verification and resend are deferred.
@@ -191,7 +212,7 @@ This file is the active completion checklist and current stage status for the ba
     focused clear retry are implemented. Focused POS tests,
     typecheck, production build, and `git diff --check` pass; attached-browser
     validation remains left.
-  - Table transfer is complete: Staff and Manager can drag or use the accessible `انتقال میز` action to move an open table order to an empty table or atomically swap it with another table order; server transactions preserve one active order per table, table occupancy/context cleanup, timing snapshots, audit history, and stale-version protection. Browser/device validation remains item 8.
+  - Table transfer is complete: Staff and Manager can use Pointer Events to mouse-drag or touch-hold and drag an open table order to an empty table, or use the accessible `انتقال میز` action to move it; the server can atomically swap it with another table order while preserving one active order per table, table occupancy/context cleanup, timing snapshots, audit history, and stale-version protection. Occupancy hold cancellation uses a 10 px movement tolerance. Browser/device validation remains item 8.
   - Payments are complete: the shared POS supports selected unallocated item
     quantities, one-to-ten reconciled cash/card-terminal/card-transfer tenders,
     optional transfer references, server-authoritative settlement retries, and
@@ -221,9 +242,11 @@ This file is the active completion checklist and current stage status for the ba
     browser-print documents now render the minimal bar ticket, whole-order
     customer receipt, and itemized settlement receipt from immutable API
     snapshots. Customer receipts now print one total only and put their
-    Persian-calendar Tehran timestamp in the footer. The table-board active
-    order panel exposes both bar-ticket and receipt actions. Contract/API
-    tests, POS tests, and typechecks pass. Actual
+    Persian-calendar Tehran timestamp in the footer. POS print actions now
+    load those documents in hidden same-origin iframes, while the print page
+    remains the single automatic `window.print()` trigger. The table-board
+    active order panel exposes both bar-ticket and receipt actions.
+    Contract/API tests, POS tests, and typechecks pass. Actual
     browser print and physical 80 mm printer/paper-advance validation remain
     required before marking item 4 complete.
   4. Add API-backed bar-ticket and receipt views/printing for whole orders and
