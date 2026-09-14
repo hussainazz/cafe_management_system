@@ -34,7 +34,7 @@ function normalizeCustomerName(input: string) {
   return name.length >= 2 && name.length <= 120 ? name : undefined;
 }
 
-export async function requestCustomerOtp(prisma: PrismaClient, credentialId: string, fullNameInput: string, phoneInput: string) {
+export async function requestCustomerOtp(prisma: PrismaClient, credentialId: string, tableId: string, fullNameInput: string, phoneInput: string) {
   const phone = normalizeIranMobile(phoneInput);
   const fullName = normalizeCustomerName(fullNameInput);
   if (!phone || !fullName) throw new ApplicationError(400, ErrorCodes.BAD_REQUEST, "A valid full name and mobile number are required.");
@@ -64,6 +64,7 @@ export async function requestCustomerOtp(prisma: PrismaClient, credentialId: str
         id,
         phoneLookupHash,
         tableCredentialId: credentialId,
+        tableId,
         purpose: "TABLE_WAITER_CALL",
         codeHash: hashOtp(id, code),
         expiresAt: new Date(now.getTime() + customerOtpLifetimeSeconds * 1_000),
@@ -74,7 +75,7 @@ export async function requestCustomerOtp(prisma: PrismaClient, credentialId: str
   return { challengeId: challenge.id, verificationToken: encryptCustomerIdentity({ fullName, phoneNumber: phone }), expiresAt: challenge.expiresAt, resendAvailableAt: challenge.resendAvailableAt };
 }
 
-export async function identifyCustomerPhone(prisma: PrismaClient, credentialId: string, phoneInput: string) {
+export async function identifyCustomerPhone(prisma: PrismaClient, credentialId: string, tableId: string, phoneInput: string) {
   const phone = normalizeIranMobile(phoneInput);
   if (!phone) throw new ApplicationError(400, ErrorCodes.BAD_REQUEST, "A valid mobile number is required.");
   const now = new Date();
@@ -87,7 +88,7 @@ export async function identifyCustomerPhone(prisma: PrismaClient, credentialId: 
       update: { phoneNumberEncrypted: encryptCustomerPhone(phone) },
     });
     await tx.customerTableVisit.updateMany({ where: { customerId: customer.id, invalidatedAt: null }, data: { invalidatedAt: now } });
-    const visit = await tx.customerTableVisit.create({ data: { customerId: customer.id, tableId: (await tx.tableQrCredential.findUniqueOrThrow({ where: { id: credentialId } })).tableId, tableCredentialId: credentialId, expiresAt: new Date(now.getTime() + customerTableVisitLifetimeSeconds * 1_000) } });
+    const visit = await tx.customerTableVisit.create({ data: { customerId: customer.id, tableId, tableCredentialId: credentialId, expiresAt: new Date(now.getTime() + customerTableVisitLifetimeSeconds * 1_000) } });
     await tx.customerAuthSession.create({ data: { customerId: customer.id, tokenHash: hashCustomerSessionToken(token), expiresAt: new Date(now.getTime() + customerAuthLifetimeSeconds * 1_000) } });
     return visit;
   });
@@ -123,7 +124,7 @@ export async function verifyCustomerOtp(prisma: PrismaClient, challengeId: strin
       update: { fullName: identity.fullName, phoneNumberEncrypted: encryptCustomerPhone(identity.phoneNumber) },
     });
     await tx.customerTableVisit.updateMany({ where: { customerId: customer.id, invalidatedAt: null }, data: { invalidatedAt: now } });
-    const visit = await tx.customerTableVisit.create({ data: { customerId: customer.id, tableId: challenge.tableCredential.tableId, tableCredentialId: challenge.tableCredentialId, expiresAt: new Date(now.getTime() + customerTableVisitLifetimeSeconds * 1_000) } });
+    const visit = await tx.customerTableVisit.create({ data: { customerId: customer.id, tableId: challenge.tableId, tableCredentialId: challenge.tableCredentialId, expiresAt: new Date(now.getTime() + customerTableVisitLifetimeSeconds * 1_000) } });
     const token = createCustomerSessionToken();
     await tx.customerAuthSession.create({ data: { customerId: customer.id, tokenHash: hashCustomerSessionToken(token), expiresAt: new Date(now.getTime() + customerAuthLifetimeSeconds * 1_000) } });
     return { token, visit, error: null } as const;
@@ -132,12 +133,12 @@ export async function verifyCustomerOtp(prisma: PrismaClient, challengeId: strin
   return { token: result.token, visit: result.visit };
 }
 
-export async function createVisitForAuthenticatedCustomer(prisma: PrismaClient, customerId: string, credentialId: string) {
+export async function createVisitForAuthenticatedCustomer(prisma: PrismaClient, customerId: string, credentialId: string, tableId: string) {
   const now = new Date();
   const credential = await prisma.tableQrCredential.findFirst({ where: { id: credentialId, isActive: true, table: { isActive: true, archivedAt: null, waiterCallEnabled: true } } });
   if (!credential) return null;
   return prisma.$transaction(async (tx) => {
     await tx.customerTableVisit.updateMany({ where: { customerId, invalidatedAt: null }, data: { invalidatedAt: now } });
-    return tx.customerTableVisit.create({ data: { customerId, tableId: credential.tableId, tableCredentialId: credential.id, expiresAt: new Date(now.getTime() + customerTableVisitLifetimeSeconds * 1_000) } });
+    return tx.customerTableVisit.create({ data: { customerId, tableId, tableCredentialId: credential.id, expiresAt: new Date(now.getTime() + customerTableVisitLifetimeSeconds * 1_000) } });
   });
 }
