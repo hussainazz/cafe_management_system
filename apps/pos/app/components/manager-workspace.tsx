@@ -33,7 +33,7 @@ import {
   type PosOrderDetail,
 } from "../lib/api-client";
 import { formatOrderNumber, formatToman } from "../lib/pos-utils";
-import { printRoute } from "../lib/print-routes";
+import { printDocument, printRoute } from "../lib/print-routes";
 import { CatalogPanel } from "./catalog-panel";
 
 type Panel = "catalog" | "tables" | "finance" | "settings";
@@ -643,11 +643,9 @@ function FinancePanel({
                 className="secondary-button"
                 type="button"
                 onClick={() =>
-                  window.open(
-                    printRoute(item.orderId, "settlement", item.id),
-                    "_blank",
-                    "noopener,noreferrer",
-                  )
+                  void printDocument(printRoute(item.orderId, "settlement", item.id)).catch((error: unknown) => {
+                    setMessage(error instanceof Error ? error.message : "سند چاپی آماده نشد.");
+                  })
                 }
               >
                 رسید تسویه
