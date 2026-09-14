@@ -700,6 +700,7 @@ export const PublicTableContextSchema = z.object({
   tableName: z.string().nullable(),
   occupancyState: z.enum(["AVAILABLE", "OCCUPIED"]).nullable(),
   waiterCallStatus: z.enum(["PENDING"]).nullable(),
+  waiterCallAvailableAt: z.iso.datetime().nullable(),
   canCallWaiter: z.boolean(),
   authenticationRequired: z.boolean().optional(),
   customerAuthenticated: z.boolean().optional(),
