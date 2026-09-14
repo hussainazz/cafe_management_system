@@ -8,10 +8,12 @@ import {
   AcknowledgeWaiterCallRequestSchema,
   ErrorResponseSchema,
   type AcknowledgeWaiterCallRequest,
+  QrAssignmentRequestSchema,
+  type QrAssignmentRequest,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { requireStaff } from "../auth/authorization.js";
-import { acknowledgeTableWaiterCall, listPosTables, makeTableAvailable, occupyTable, readPosTable } from "./tables.service.js";
+import { acknowledgeTableWaiterCall, activateQrAssignment, cancelQrAssignment, listPosTables, makeTableAvailable, occupyTable, readPosTable } from "./tables.service.js";
 
 const headers = zodToJsonSchema(AuthRequestHeadersSchema);
 const tableParams = zodToJsonSchema(TableIdPathSchema);
@@ -69,5 +71,17 @@ export const tablesRoutes: FastifyPluginAsync = async (app) => {
     "/tables/:tableId/acknowledge-waiter-call",
     { preHandler: requireStaff, schema: { tags: ["POS"], summary: "Open a table and resolve its pending waiter-call", headers, params: tableParams, body: zodToJsonSchema(AcknowledgeWaiterCallRequestSchema), response: { 200: zodToJsonSchema(PosTableResponseSchema), ...errors } } },
     async (request) => ({ data: await acknowledgeTableWaiterCall(app.prisma, request.params.tableId, request.body.expectedVersion), meta: { requestId: request.id } }),
+  );
+
+  app.post<{ Params: { tableId: string }; Body: QrAssignmentRequest }>(
+    "/tables/:tableId/qr-assignment",
+    { preHandler: requireStaff, schema: { tags: ["POS"], summary: "Assign the next new QR group within a physical table family", headers, params: tableParams, body: zodToJsonSchema(QrAssignmentRequestSchema), response: { 200: zodToJsonSchema(PosTableResponseSchema), ...errors } } },
+    async (request) => ({ data: await activateQrAssignment(app.prisma, request.params.tableId, request.body.targetTableId), meta: { requestId: request.id } }),
+  );
+
+  app.delete<{ Params: { tableId: string } }>(
+    "/tables/:tableId/qr-assignment",
+    { preHandler: requireStaff, schema: { tags: ["POS"], summary: "Cancel a physical table QR assignment", headers, params: tableParams, response: { 200: zodToJsonSchema(PosTableResponseSchema), ...errors } } },
+    async (request) => ({ data: await cancelQrAssignment(app.prisma, request.params.tableId), meta: { requestId: request.id } }),
   );
 };
