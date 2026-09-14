@@ -152,7 +152,7 @@ async function verifyFreshDeploy(files) {
       "11",
       "12",
     ];
-    const enabledNames = new Set(["1", "2", "3", "4", "5", "6", "جگوار", "7", "8", "9", "10"]);
+    const enabledNames = new Set(["1", "2", "3", "4", "کانتر وسط", "5", "6", "جگوار", "7", "8", "سوشال", "سوشال سوشال", "9", "10"]);
     if (
       tables.rows.length !== expectedNames.length ||
       tables.rows.some(
@@ -163,6 +163,14 @@ async function verifyFreshDeploy(files) {
       )
     ) {
       throw new Error("Fresh deploy did not seed the exact physical table layout");
+    }
+
+    const familyIds = await client.query(
+      `SELECT "id" FROM "table_qr_families" ORDER BY "id"`,
+    );
+    const apiUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    if (familyIds.rows.some((row) => !apiUuidPattern.test(row.id))) {
+      throw new Error("Fresh deploy created a QR-family ID rejected by the API contract");
     }
 
     await client.query(
