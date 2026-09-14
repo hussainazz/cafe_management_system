@@ -147,6 +147,9 @@ export const ActiveTableOrderSchema = z.object({
 export const PosTableSchema = z.object({
   id: z.uuid(),
   name: z.string(),
+  qrFamilyId: z.uuid().nullable(),
+  qrFamilyMembers: z.array(z.object({ id: z.uuid(), name: z.string() })),
+  qrAssignment: z.object({ targetTableId: z.uuid(), targetTableName: z.string(), expiresAt: z.iso.datetime() }).nullable(),
   waiterCallEnabled: z.boolean(),
   occupancyState: z.enum(["AVAILABLE", "OCCUPIED"]),
   occupiedAt: z.iso.datetime().nullable(),
@@ -162,6 +165,9 @@ export const PosTablesResponseSchema = z.object({
   meta: z.object({ requestId: z.string() }),
 });
 export type PosTable = z.infer<typeof PosTableSchema>;
+
+export const QrAssignmentRequestSchema = z.object({ targetTableId: z.uuid() }).strict();
+export type QrAssignmentRequest = z.infer<typeof QrAssignmentRequestSchema>;
 
 export const PosTableResponseSchema = z.object({
   data: PosTableSchema,
