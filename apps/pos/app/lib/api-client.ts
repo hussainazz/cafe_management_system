@@ -440,8 +440,10 @@ async function managerMutation<T>(path: string, method: "POST" | "PATCH", body: 
 }
 export const saveCategory = (id: string | null, body: unknown) => managerMutation(id ? `/admin/categories/${id}` : "/admin/categories", id ? "PATCH" : "POST", body, id ? AdminCategoryResponseSchema : AdminCategoryResponseSchema, "پاسخ دسته معتبر نیست.");
 export const archiveCategory = (id: string) => managerMutation(`/admin/categories/${id}/archive`, "POST", {}, AdminCategoryResponseSchema, "پاسخ بایگانی دسته معتبر نیست.");
+export const reorderCategories = (categoryIds: string[]) => managerMutation("/admin/categories/reorder", "PATCH", { categoryIds }, AdminCategoriesResponseSchema, "پاسخ ترتیب دسته‌ها معتبر نیست.");
 export const saveProduct = (id: string | null, body: unknown) => managerMutation(id ? `/admin/products/${id}` : "/admin/products", id ? "PATCH" : "POST", body, AdminProductResponseSchema, "پاسخ محصول معتبر نیست.");
 export const archiveProduct = (id: string) => managerMutation(`/admin/products/${id}/archive`, "POST", {}, AdminProductResponseSchema, "پاسخ بایگانی محصول معتبر نیست.");
+export const reorderProducts = (categoryId: string, productIds: string[]) => managerMutation(`/admin/categories/${categoryId}/products/reorder`, "PATCH", { productIds }, AdminProductsResponseSchema, "پاسخ ترتیب محصولات معتبر نیست.");
 export const saveOptionGroup = (id: string | null, body: unknown) => managerMutation(id ? `/admin/option-groups/${id}` : "/admin/option-groups", id ? "PATCH" : "POST", body, AdminOptionGroupResponseSchema, "پاسخ گروه گزینه معتبر نیست.");
 export const saveOption = (groupId: string, id: string | null, body: unknown) => managerMutation(id ? `/admin/option-groups/${groupId}/options/${id}` : `/admin/option-groups/${groupId}/options`, id ? "PATCH" : "POST", body, AdminOptionResponseSchema, "پاسخ گزینه معتبر نیست.");
 export const archiveOption = (groupId: string, id: string) => managerMutation(`/admin/option-groups/${groupId}/options/${id}/archive`, "POST", {}, AdminOptionResponseSchema, "پاسخ بایگانی گزینه معتبر نیست.");

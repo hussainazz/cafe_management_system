@@ -4,12 +4,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ManagerWorkspace } from "./manager-workspace";
 
-const catalog = { categories: [], products: [], optionGroups: [], tables: [] };
+const catalog = { categories: [{ id: "category-1", name: "قهوه", isActive: true }], products: [], optionGroups: [], tables: [] };
 
 const api = vi.hoisted(() => ({
   readManagerCatalog: vi.fn(), readManagerStaff: vi.fn(), readManagerSettings: vi.fn(),
   readPaymentHistory: vi.fn(), readDailyReport: vi.fn(), readAuditLog: vi.fn(), readOrder: vi.fn(),
-  archiveCategory: vi.fn(), archiveOption: vi.fn(), archiveProduct: vi.fn(), archiveProductImage: vi.fn(), archiveTable: vi.fn(), deactivateStaff: vi.fn(), reactivateStaff: vi.fn(), reverseSettlement: vi.fn(), saveCategory: vi.fn(), saveOption: vi.fn(), saveOptionGroup: vi.fn(), saveProduct: vi.fn(), saveSettings: vi.fn(), saveStaff: vi.fn(), saveTable: vi.fn(), uploadProductImage: vi.fn(),
+  archiveCategory: vi.fn(), archiveOption: vi.fn(), archiveProduct: vi.fn(), archiveProductImage: vi.fn(), archiveTable: vi.fn(), deactivateStaff: vi.fn(), reactivateStaff: vi.fn(), reverseSettlement: vi.fn(), saveCategory: vi.fn(), saveOption: vi.fn(), saveOptionGroup: vi.fn(), saveProduct: vi.fn(), saveSettings: vi.fn(), saveStaff: vi.fn(), saveTable: vi.fn(), uploadProductImage: vi.fn(), reorderCategories: vi.fn(), reorderProducts: vi.fn(),
 }));
 
 vi.mock("../lib/api-client", () => api);
@@ -109,9 +109,12 @@ describe("ManagerWorkspace", () => {
         ...catalog,
         products: [{
           id: "product-1",
+          categoryId: "category-1",
           name: "ترک",
           priceAmount: 185_000,
           isAvailable: true,
+          isActive: true,
+          preparationDeadlineMinutes: 5,
           image: null,
         }],
       },

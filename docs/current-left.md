@@ -328,6 +328,18 @@ This file is the active completion checklist and current stage status for the ba
     groups and `طعم` remain archived for immutable order history only. Seating
     duration moves from physical tables to the café-settings singleton while
     each existing/new table order retains its own timing snapshot.
+  - 13 September 2026 catalog-workspace refactor: Manager catalog management
+    now uses a compact selected-category sidebar and a responsive product-card
+    workspace. Category and in-category product reordering use touch/keyboard
+    accessible drag handles and audited, serializable batch reorder endpoints;
+    the server assigns appended display order for new categories/products.
+    Product create/edit is drawer-based, images and option configuration remain
+    available there, and archive controls are only exposed in the selected
+    category/editor contexts. Focused UI/API verification is recorded with this
+    change; authenticated desktop/mobile browser evidence remains required.
+    The product drawer now keeps upload progress visibly announced while a
+    product image is transferring, previews the current/recently uploaded
+    image, and exposes the confirmed remove-image action for either state.
 
 ## Future Validation Work
 

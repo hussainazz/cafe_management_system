@@ -109,6 +109,35 @@ describe("Manager administration", () => {
     await expect(app.prisma.auditLog.findFirstOrThrow({ where: { entityId: categoryId, operation: "ARCHIVE_CATEGORY" } })).resolves.toBeDefined();
   });
 
+  it("appends catalog records and persists contiguous, validated category and product reorders", async () => {
+    const manager = await session(UserRole.MANAGER, "reorder.manager");
+    const first = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "ترتیب اول" } });
+    const second = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "ترتیب دوم" } });
+    expect(first.json().data.displayOrder).toBeLessThan(second.json().data.displayOrder);
+    const categoryIds = [second.json().data.id, first.json().data.id];
+    const invalidCategory = await app.inject({ method: "PATCH", url: "/api/v1/admin/categories/reorder", cookies: manager, payload: { categoryIds: [first.json().data.id, "00000000-0000-4000-8000-000000000099"] } });
+    expect(invalidCategory.statusCode).toBe(422);
+    const activeCategories = await app.prisma.category.findMany({ where: { isActive: true, archivedAt: null }, orderBy: { displayOrder: "asc" } });
+    const fullCategoryOrder = [...activeCategories.filter((row) => !categoryIds.includes(row.id)).map((row) => row.id), ...categoryIds];
+    const categoryReorder = await app.inject({ method: "PATCH", url: "/api/v1/admin/categories/reorder", cookies: manager, payload: { categoryIds: fullCategoryOrder } });
+    expect(categoryReorder.statusCode).toBe(200);
+    expect(categoryReorder.json().data.categories.map((row: any) => row.displayOrder)).toEqual(fullCategoryOrder.map((_: string, index: number) => index + 1));
+    expect((await app.inject({ method: "PATCH", url: "/api/v1/admin/categories/reorder", cookies: manager, payload: { categoryIds: [...fullCategoryOrder, fullCategoryOrder[0]] } })).statusCode).toBe(400);
+
+    const makeProduct = (name: string, categoryId = first.json().data.id) => app.inject({ method: "POST", url: "/api/v1/admin/products", cookies: manager, payload: { categoryId, name, priceAmount: 10_000, preparationDeadlineMinutes: 5 } });
+    const productOne = await makeProduct("ترتیب محصول یک");
+    const productTwo = await makeProduct("ترتیب محصول دو");
+    const otherProduct = await makeProduct("محصول دسته دیگر", second.json().data.id);
+    expect(productOne.json().data.displayOrder).toBe(1);
+    expect(productTwo.json().data.displayOrder).toBe(2);
+    const productReorder = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${first.json().data.id}/products/reorder`, cookies: manager, payload: { productIds: [productTwo.json().data.id, productOne.json().data.id] } });
+    expect(productReorder.statusCode).toBe(200);
+    expect(productReorder.json().data.products.map((row: any) => row.displayOrder)).toEqual([1, 2]);
+    const crossCategory = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${first.json().data.id}/products/reorder`, cookies: manager, payload: { productIds: [productOne.json().data.id, otherProduct.json().data.id] } });
+    expect(crossCategory.statusCode).toBe(422);
+    await expect(app.prisma.auditLog.findFirstOrThrow({ where: { operation: "REORDER_PRODUCTS", entityId: first.json().data.id } })).resolves.toBeDefined();
+  });
+
   it("manages Staff accounts only and revokes sessions on deactivation", async () => {
     const manager = await session(UserRole.MANAGER, "accounts.manager");
     const created = await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: manager, payload: { username: "new.staff", password: "CafePassword2026" } });
