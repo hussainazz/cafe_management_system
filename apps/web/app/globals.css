@@ -1,3 +1,39 @@
+@font-face {
+  font-family: "Estedad";
+  src: url("/fonts/estedad/Estedad-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Estedad";
+  src: url("/fonts/estedad/Estedad-Medium.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Estedad";
+  src: url("/fonts/estedad/Estedad-SemiBold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Estedad";
+  src: url("/fonts/estedad/Estedad-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Estedad";
+  src: url("/fonts/estedad/Estedad-ExtraBold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+}
+
 :root {
   --ink: #f4ead8;
   --ink-soft: #cfc0a9;
@@ -36,7 +72,7 @@ body {
   background:
     radial-gradient(circle at 86% -8%, rgba(151, 91, 39, 0.2), transparent 34rem),
     radial-gradient(circle at -10% 35%, rgba(80, 96, 67, 0.09), transparent 34rem), var(--night);
-  font-family: Tahoma, Arial, "Noto Sans Arabic", sans-serif;
+  font-family: "Estedad", Tahoma, Arial, sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
@@ -851,7 +887,7 @@ main {
 
 .site-shell[dir="rtl"] .price-line strong,
 .product-dialog[dir="rtl"] .price-line strong {
-  font-family: Tahoma, Arial, sans-serif;
+  font-family: "Estedad", Tahoma, Arial, sans-serif;
 }
 
 .price-line small {
@@ -970,7 +1006,7 @@ footer p {
 }
 
 .site-shell[dir="rtl"] footer p {
-  font-family: Tahoma, Arial, sans-serif;
+  font-family: "Estedad", Tahoma, Arial, sans-serif;
   font-style: normal;
 }
 
