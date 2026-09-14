@@ -14,6 +14,10 @@
   --danger: #d78c73;
   --shadow: 0 28px 70px rgba(0, 0, 0, 0.35);
   --content: 1180px;
+  --waiter-call-left: 16px;
+  --waiter-call-bottom: calc(16px + env(safe-area-inset-bottom));
+  --waiter-call-height: 54px;
+  --waiter-coachmark-top: clamp(48px, 9vh, 78px);
 }
 
 * {
@@ -420,7 +424,9 @@ main {
   pointer-events: none;
   color: var(--amber-bright);
   background: linear-gradient(to right, rgba(16, 14, 12, 0.98) 60%, transparent);
-  font: 24px/1 Georgia, serif;
+  font:
+    24px/1 Georgia,
+    serif;
   opacity: 1;
   transition: opacity 160ms ease;
 }
@@ -969,6 +975,7 @@ footer p {
 }
 
 footer span {
+  margin-top: 20px;
   color: #62584a;
   font:
     9px/1 Georgia,
@@ -1250,8 +1257,7 @@ footer span {
   overflow: hidden;
   padding: 24px 16px;
   background:
-    radial-gradient(circle at 50% 15%, rgba(208, 149, 81, 0.12), transparent 25rem),
-    var(--night);
+    radial-gradient(circle at 50% 15%, rgba(208, 149, 81, 0.12), transparent 25rem), var(--night);
 }
 
 .auth-card {
@@ -1260,7 +1266,9 @@ footer span {
   border: 1px solid rgba(239, 221, 191, 0.14);
   border-radius: 24px;
   background: linear-gradient(145deg, rgba(35, 29, 23, 0.98), rgba(23, 19, 15, 0.98));
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38), inset 0 1px rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.38),
+    inset 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .auth-card .eyebrow {
@@ -1300,7 +1308,10 @@ footer span {
   outline: none;
   background: rgba(16, 14, 12, 0.72);
   color: var(--ink);
-  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
 }
 
 .auth-form input:focus {
@@ -1342,6 +1353,188 @@ footer span {
   margin: 18px 0 0;
   color: var(--danger);
   line-height: 1.7;
+}
+
+.waiter-tip-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  padding: var(--waiter-coachmark-top) 20px 0;
+  background: rgba(12, 10, 8, 0.4);
+  backdrop-filter: blur(3px);
+  animation: waiter-tip-fade 220ms ease-out;
+}
+
+.waiter-tip-coachmark {
+  position: relative;
+  width: min(92vw, 540px);
+}
+
+.waiter-tip {
+  position: relative;
+  padding: 30px clamp(24px, 6vw, 34px) 26px;
+  border: 1px solid rgba(208, 149, 81, 0.58);
+  border-radius: 22px;
+  background: rgba(27, 22, 17, 0.98);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+  text-align: center;
+}
+
+.waiter-tip-close {
+  position: absolute;
+  inset-block-start: 15px;
+  inset-inline-start: 15px;
+  display: grid !important;
+  width: 30px !important;
+  min-height: 30px !important;
+  place-items: center;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 1px solid rgba(239, 221, 191, 0.16) !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.waiter-tip-close svg {
+  width: 15px;
+  height: 15px;
+}
+
+.waiter-tip-kicker {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: clamp(24px, 5.9vw, 30px);
+  font-weight: 800;
+}
+
+.waiter-tip h2 {
+  margin: 0;
+  color: var(--amber-bright);
+  font-size: clamp(24px, 5.9vw, 30px);
+  line-height: 1.55;
+}
+
+.waiter-tip > p:not(.waiter-tip-kicker) {
+  margin: 18px 0 0;
+  color: #c7b9a5;
+  font-size: clamp(17px, 3.7vw, 17px);
+  line-height: 1.85;
+}
+
+.waiter-tip-pointer {
+  position: fixed;
+  z-index: 55;
+  bottom: calc(var(--waiter-call-bottom) + var(--waiter-call-height) + 10px);
+  left: 0;
+  width: 150px;
+  height: max(
+    92px,
+    calc(
+      100dvh - var(--waiter-coachmark-top) - 250px - var(--waiter-call-bottom) -
+        var(--waiter-call-height)
+    )
+  );
+  overflow: visible;
+  fill: none;
+  stroke: rgba(237, 184, 111, 0.8);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 4 5;
+}
+
+.waiter-tip-pointer path:last-child {
+  stroke-dasharray: none;
+}
+
+.waiter-call-button {
+  position: fixed;
+  z-index: 45;
+  bottom: var(--waiter-call-bottom);
+  left: var(--waiter-call-left);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--waiter-call-height);
+  padding: 3px 14px 3px 2px;
+  border: 1px solid rgba(237, 184, 111, 0.82);
+  border-radius: 999px;
+  background: rgba(29, 24, 19, 0.98);
+  color: var(--amber-bright);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  direction: ltr;
+  cursor: pointer;
+}
+
+.waiter-call-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  margin-inline-start: -11px;
+  border: 1px solid var(--amber-bright);
+  border-radius: 50%;
+  background: var(--amber-bright);
+  color: var(--night);
+}
+
+.waiter-call-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.waiter-call-label {
+  direction: rtl;
+}
+
+.waiter-call-button--guided {
+  z-index: 60;
+  animation: waiter-call-glow 1.6s ease-in-out infinite;
+}
+
+.waiter-call-button--guided:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.waiter-call-button--called {
+  background: rgba(29, 24, 19, 0.99);
+}
+
+.waiter-call-button--called .waiter-call-icon {
+  border-color: var(--amber-bright);
+  background: #211912;
+  color: var(--amber-bright);
+}
+
+.waiter-call-button:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
+
+@keyframes waiter-call-glow {
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(237, 184, 111, 0.08),
+      0 8px 22px rgba(0, 0, 0, 0.32);
+  }
+}
+
+@keyframes waiter-tip-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .is-spinning {
