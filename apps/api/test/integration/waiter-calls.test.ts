@@ -48,12 +48,26 @@ async function tableCredential(name = "1") {
 async function authenticateTableCustomer(contextCookies: Record<string, string>) {
   const requested = await app.inject({ method: "POST", url: "/api/v1/public/customer-otp/request", cookies: contextCookies, payload: { fullName: "مینا رضایی", phoneNumber: "09121234567" } });
   expect(requested.statusCode).toBe(200);
-  const verified = await app.inject({ method: "POST", url: "/api/v1/public/customer-otp/verify", cookies: contextCookies, payload: { challengeId: requested.json().data.challengeId, code: "111111" } });
+  const verified = await app.inject({ method: "POST", url: "/api/v1/public/customer-otp/verify", cookies: contextCookies, payload: { challengeId: requested.json().data.challengeId, code: "111111", verificationToken: requested.json().data.verificationToken } });
   expect(verified.statusCode).toBe(200);
   return { ...contextCookies, ...cookies(verified) };
 }
 
 describe("public table context and waiter-calls", () => {
+  it("collects a phone number on first QR use without requiring OTP", async () => {
+    const { token, table } = await tableCredential("phone-only");
+    const exchange = await app.inject({ method: "POST", url: "/api/v1/public/table-context/exchange", payload: { token } });
+    const contextCookies = cookies(exchange);
+    const identified = await app.inject({ method: "POST", url: "/api/v1/public/customer-auth/identify", cookies: contextCookies, payload: { phoneNumber: "09121234567" } });
+    expect(identified.statusCode).toBe(200);
+    expect(identified.headers["set-cookie"]).toBeTruthy();
+    expect(await app.prisma.customerOtpChallenge.count()).toBe(0);
+    await expect(app.prisma.customer.findFirstOrThrow()).resolves.toMatchObject({ fullName: null, phoneNumberEncrypted: expect.stringContaining(".") });
+    const customerCookies = { ...contextCookies, ...cookies(identified) };
+    const context = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: customerCookies });
+    expect(context.json().data).toMatchObject({ tableName: table.name, authenticationRequired: false, customerAuthenticated: true, visitActive: true, canCallWaiter: true });
+  });
+
   it("records a scan reminder, requires an authenticated visit, deduplicates calls, and resolves on table open", async () => {
     const staff = await staffCookies();
     const { table, token } = await tableCredential();
@@ -78,7 +92,7 @@ describe("public table context and waiter-calls", () => {
     expect(prematureCall.statusCode).toBe(401);
     expect(prematureCall.json().error.code).toBe("CUSTOMER_AUTH_REQUIRED");
     const customer = await authenticateTableCustomer(contextCookies);
-    await expect(app.prisma.customer.findFirstOrThrow()).resolves.toMatchObject({ fullName: "مینا رضایی" });
+    await expect(app.prisma.customer.findFirstOrThrow()).resolves.toMatchObject({ fullName: "مینا رضایی", phoneNumberEncrypted: expect.stringContaining(".") });
 
     const [firstCall, secondCall] = await Promise.all([
       app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: customer }),
@@ -110,7 +124,6 @@ describe("public table context and waiter-calls", () => {
 
     const coolingContext = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: customer });
     expect(coolingContext.json().data).toMatchObject({ canCallWaiter: false, waiterCallStatus: null });
-    expect(coolingContext.json().data.waiterCallAvailableAt).toEqual(expect.any(String));
     const coolingCall = await app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: customer });
     expect(coolingCall.statusCode).toBe(429);
     expect(coolingCall.json().error.code).toBe("RATE_LIMITED");
@@ -118,7 +131,7 @@ describe("public table context and waiter-calls", () => {
     const cooldownElapsedAt = new Date(Date.now() - 2 * 60 * 1_000 - 1);
     await app.prisma.waiterCall.updateMany({ where: { tableId: table.id }, data: { requestedAt: cooldownElapsedAt, acknowledgedAt: cooldownElapsedAt, resolvedAt: cooldownElapsedAt } });
     const availableAfterCooldown = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: customer });
-    expect(availableAfterCooldown.json().data).toMatchObject({ canCallWaiter: true, waiterCallStatus: null, waiterCallAvailableAt: null });
+    expect(availableAfterCooldown.json().data).toMatchObject({ canCallWaiter: true, waiterCallStatus: null });
     const reopenedCall = await app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: customer });
     expect(reopenedCall.statusCode).toBe(201);
   });
@@ -206,13 +219,17 @@ describe("public table context and waiter-calls", () => {
     expect(requested.map((response) => response.statusCode).sort()).toEqual([200, 429]);
     expect(await app.prisma.customerOtpChallenge.count()).toBe(1);
     const challengeId = requested.find((response) => response.statusCode === 200)!.json().data.challengeId;
+    const verificationToken = requested.find((response) => response.statusCode === 200)!.json().data.verificationToken;
+    const challenge = await app.prisma.customerOtpChallenge.findUniqueOrThrow({ where: { id: challengeId } });
+    expect(challenge).not.toHaveProperty("fullName");
+    expect(JSON.stringify(challenge)).not.toContain("09121234567");
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const invalid = await app.inject({
         method: "POST",
         url: "/api/v1/public/customer-otp/verify",
         cookies: contextCookies,
-        payload: { challengeId, code: "000000" },
+        payload: { challengeId, code: "000000", verificationToken },
       });
       expect(invalid.statusCode).toBe(401);
       expect(invalid.json().error.code).toBe("OTP_INVALID");
@@ -224,7 +241,7 @@ describe("public table context and waiter-calls", () => {
       method: "POST",
       url: "/api/v1/public/customer-otp/verify",
       cookies: contextCookies,
-      payload: { challengeId, code: "111111" },
+      payload: { challengeId, code: "111111", verificationToken },
     });
     expect(locked.statusCode).toBe(429);
     expect(locked.json().error.code).toBe("OTP_ATTEMPTS_EXCEEDED");

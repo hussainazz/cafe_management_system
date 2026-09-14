@@ -345,7 +345,7 @@ Acceptance criteria:
   control, and table clearing or credential rotation invalidates old contexts.
 - Staff and Manager have equal authority to mark a table `OCCUPIED` or
   `AVAILABLE`. A public waiter call requires an eligible QR context plus the
-  customer full-name/phone OTP session and its unexpired credential-bound visit;
+  customer phone session and its unexpired credential-bound visit; phone OTP verification is deferred;
   it does not require occupancy and grants no order, payment, receipt, tracking,
   or catalog authority.
 - The POS table card is highlighted while its call is `PENDING`. Opening that

@@ -5,7 +5,6 @@ export type PublicTableContext = {
   tableName: string | null;
   occupancyState: "AVAILABLE" | "OCCUPIED" | null;
   waiterCallStatus: "PENDING" | null;
-  waiterCallAvailableAt: string | null;
   canCallWaiter: boolean;
   authenticationRequired?: boolean;
   customerAuthenticated?: boolean;
@@ -20,7 +19,6 @@ function isPublicTableContext(value: unknown): value is PublicTableContext {
     (typeof context.tableName === "string" || context.tableName === null) &&
     (context.occupancyState === "AVAILABLE" || context.occupancyState === "OCCUPIED" || context.occupancyState === null) &&
     (context.waiterCallStatus === "PENDING" || context.waiterCallStatus === null) &&
-    (typeof context.waiterCallAvailableAt === "string" || context.waiterCallAvailableAt === null) &&
     typeof context.canCallWaiter === "boolean"
   );
 }

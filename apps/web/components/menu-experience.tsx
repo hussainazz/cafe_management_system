@@ -396,12 +396,9 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
   const [callingWaiter, setCallingWaiter] = useState(false);
   const [waiterCallFailed, setWaiterCallFailed] = useState(false);
   const [waiterCallSent, setWaiterCallSent] = useState(false);
-  const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [otpLoading, setOtpLoading] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [phoneLoading, setPhoneLoading] = useState(false);
   const [showWaiterTip, setShowWaiterTip] = useState(false);
   const language: Language = "fa";
   const [query, setQuery] = useState("");
@@ -421,7 +418,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
 
   useEffect(() => {
     if (!tableContext?.active || !tableContext.customerAuthenticated ||
-        (tableContext.canCallWaiter && !tableContext.waiterCallStatus && !tableContext.waiterCallAvailableAt)) return;
+        (tableContext.canCallWaiter && !tableContext.waiterCallStatus)) return;
     const refreshTableContext = async () => {
       try {
         const response = await fetch("/api/table-context", { cache: "no-store" });
@@ -434,7 +431,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
     };
     const interval = window.setInterval(() => void refreshTableContext(), 5_000);
     return () => window.clearInterval(interval);
-  }, [tableContext?.active, tableContext?.canCallWaiter, tableContext?.customerAuthenticated, tableContext?.waiterCallAvailableAt, tableContext?.waiterCallStatus]);
+  }, [tableContext?.active, tableContext?.canCallWaiter, tableContext?.customerAuthenticated, tableContext?.waiterCallStatus]);
 
   const filteredCategories = useMemo(
     () => (menu ? filterMenu(menu, deferredQuery, null) : []),
@@ -649,29 +646,18 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
     }
   }
 
-  async function requestOtp() {
-    setOtpLoading(true); setOtpError(null);
+  async function identifyPhone() {
+    setPhoneLoading(true); setPhoneError(null);
     try {
-      const response = await fetch("/api/customer-otp/request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fullName, phoneNumber }) });
-      const body = await response.json() as { data?: { challengeId: string }; error?: { message?: string } };
-      if (!response.ok || !body.data) throw new Error(body.error?.message ?? "خطا در ارسال کد");
-      setOtpChallengeId(body.data.challengeId);
-    } catch (error) { setOtpError(error instanceof Error ? error.message : "ارسال کد ممکن نشد"); }
-    finally { setOtpLoading(false); }
-  }
-
-  async function verifyOtp() {
-    if (!otpChallengeId) return;
-    setOtpLoading(true); setOtpError(null);
-    try {
-      const response = await fetch("/api/customer-otp/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ challengeId: otpChallengeId, code: otpCode }) });
-      if (!response.ok) throw new Error("کد واردشده معتبر نیست یا منقضی شده است.");
+      const response = await fetch("/api/customer-auth/identify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phoneNumber }) });
+      const body = await response.json() as { data?: PublicTableContext; error?: { message?: string } };
+      if (!response.ok) throw new Error(body.error?.message ?? "ثبت شماره موبایل ممکن نشد");
       const context = await fetch("/api/table-context", { cache: "no-store" });
-      const body = await context.json() as { data: PublicTableContext };
-      setTableContext(body.data);
-      if (body.data.active && body.data.canCallWaiter) setShowWaiterTip(true);
-    } catch (error) { setOtpError(error instanceof Error ? error.message : "تأیید کد ممکن نشد"); }
-    finally { setOtpLoading(false); }
+      const contextBody = await context.json() as { data: PublicTableContext };
+      setTableContext(contextBody.data);
+      if (contextBody.data.active && contextBody.data.canCallWaiter) setShowWaiterTip(true);
+    } catch (error) { setPhoneError(error instanceof Error ? error.message : "ثبت شماره موبایل ممکن نشد"); }
+    finally { setPhoneLoading(false); }
   }
 
   if (!menu && !requestFailed) return <LoadingMenu />;
@@ -698,21 +684,12 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
       <main className="error-page auth-page" dir="rtl">
         <section className="auth-card" aria-labelledby="customer-auth-title">
           <p className="eyebrow">RUN CAFÉ · میز {tableContext.tableName}</p>
-          <h1 id="customer-auth-title">برای استفاده از امکانات منو، لطفا نام و شماره موبایل خود را تأیید کنید</h1>
-        {otpChallengeId ? (
-          <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void verifyOtp(); }}>
-            <label>کد شش‌رقمی<input inputMode="numeric" autoComplete="one-time-code" value={otpCode} onChange={(event) => setOtpCode(event.target.value)} /></label>
-            <button className="auth-submit" type="submit" disabled={otpLoading || otpCode.length !== 6}>{otpLoading ? "در حال بررسی…" : "تأیید کد"}</button>
-            <button className="auth-secondary" type="button" disabled={otpLoading} onClick={() => void requestOtp()}>ارسال دوباره کد</button>
-          </form>
-        ) : (
-          <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void requestOtp(); }}>
-            <label>نام و نام خانوادگی<input autoComplete="name" value={fullName} onChange={(event) => setFullName(event.target.value)} /></label>
+          <h1 id="customer-auth-title">برای مشاهده ی منو، لطفا شماره موبایل خود را تأیید کنید</h1>
+          <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void identifyPhone(); }}>
             <label>شماره موبایل<input inputMode="tel" autoComplete="tel" value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} /></label>
-            <button className="auth-submit" type="submit" disabled={otpLoading || fullName.trim().length < 2}>{otpLoading ? "در حال ارسال…" : "ارسال کد تأیید"}</button>
+            <button className="auth-submit" type="submit" disabled={phoneLoading || phoneNumber.trim().length < 1}>{phoneLoading ? "در حال ثبت…" : "ادامه"}</button>
           </form>
-        )}
-        {otpError ? <p className="table-context-error" role="alert">{otpError}</p> : null}
+          {phoneError ? <p className="table-context-error" role="alert">{phoneError}</p> : null}
         </section>
       </main>
     );
@@ -896,7 +873,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
         </div>
       </div>
     ) : null}
-    {tableContext?.active && (tableContext.canCallWaiter || tableContext.waiterCallStatus === "PENDING" || tableContext.waiterCallAvailableAt) ? (
+    {tableContext?.active && (tableContext.customerAuthenticated || tableContext.canCallWaiter || tableContext.waiterCallStatus === "PENDING") ? (
       <button
         className={`waiter-call-button${showWaiterTip ? " waiter-call-button--guided" : ""}${waiterCallSent || tableContext.waiterCallStatus === "PENDING" ? " waiter-call-button--called" : ""}`}
         type="button"

@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { env } from "../config/env.js";
 
 export const customerAuthCookieName = "cafe_customer_auth";
@@ -21,6 +21,38 @@ export function normalizeIranMobile(input: string): string | undefined {
 
 export function hashCustomerPhone(phone: string) {
   return hmac(env.CUSTOMER_PHONE_LOOKUP_SECRET, phone);
+}
+
+type CustomerIdentity = { fullName: string; phoneNumber: string };
+
+function identityKey() {
+  return createHash("sha256").update(env.CUSTOMER_PHONE_ENCRYPTION_KEY).digest();
+}
+
+export function encryptCustomerIdentity(identity: CustomerIdentity) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", identityKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(identity), "utf8"), cipher.final()]);
+  return [iv, cipher.getAuthTag(), ciphertext].map((part) => part.toString("base64url")).join(".");
+}
+
+export function encryptCustomerPhone(phoneNumber: string) {
+  return encryptCustomerIdentity({ fullName: "", phoneNumber });
+}
+
+export function decryptCustomerIdentity(value: string): CustomerIdentity | null {
+  try {
+    const [ivEncoded, tagEncoded, ciphertextEncoded] = value.split(".");
+    if (!ivEncoded || !tagEncoded || !ciphertextEncoded) return null;
+    const decipher = createDecipheriv("aes-256-gcm", identityKey(), Buffer.from(ivEncoded, "base64url"));
+    decipher.setAuthTag(Buffer.from(tagEncoded, "base64url"));
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(ciphertextEncoded, "base64url")), decipher.final()]).toString("utf8");
+    const identity = JSON.parse(plaintext) as { fullName?: unknown; phoneNumber?: unknown };
+    if (typeof identity.fullName !== "string" || typeof identity.phoneNumber !== "string") return null;
+    return { fullName: identity.fullName, phoneNumber: identity.phoneNumber };
+  } catch {
+    return null;
+  }
 }
 
 export function createOtpCode() {

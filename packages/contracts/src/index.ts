@@ -700,7 +700,6 @@ export const PublicTableContextSchema = z.object({
   tableName: z.string().nullable(),
   occupancyState: z.enum(["AVAILABLE", "OCCUPIED"]).nullable(),
   waiterCallStatus: z.enum(["PENDING"]).nullable(),
-  waiterCallAvailableAt: z.iso.datetime().nullable(),
   canCallWaiter: z.boolean(),
   authenticationRequired: z.boolean().optional(),
   customerAuthenticated: z.boolean().optional(),
@@ -725,12 +724,16 @@ export const CustomerOtpRequestSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   phoneNumber: z.string().min(1).max(32),
 }).strict();
+export const CustomerPhoneIdentifySchema = z.object({
+  phoneNumber: z.string().min(1).max(32),
+}).strict();
 export const CustomerOtpVerifySchema = z.object({
   challengeId: z.uuid(),
   code: z.string().regex(/^\d{6}$/),
+  verificationToken: z.string().min(1),
 }).strict();
 export const CustomerOtpResponseSchema = z.object({
-  data: z.object({ challengeId: z.uuid(), expiresAt: z.iso.datetime(), resendAvailableAt: z.iso.datetime() }),
+  data: z.object({ challengeId: z.uuid(), verificationToken: z.string().min(1), expiresAt: z.iso.datetime(), resendAvailableAt: z.iso.datetime() }),
   meta: z.object({ requestId: z.string() }),
 });
 export const CustomerAuthStateResponseSchema = z.object({

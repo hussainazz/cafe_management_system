@@ -1,5 +1,17 @@
 # Current Backend Stage Status
 
+## 14 September 2026 deferred OTP and first-scan phone pass
+
+- Superseded for the active QR flow: OTP verification and resend are deferred.
+  First-time QR visitors will submit only a phone number, which is retained in
+  the recoverable encrypted customer field and used to create a scoped session
+  and table visit. Collected phones remain unverified and are not marketing
+  consent.
+- Complete in code and isolated API verification: the phone-only first-scan
+  endpoint/UI creates the scoped customer session and table visit without an
+  OTP challenge. Left for a later phase: OTP verification and customer-club
+  consent/read/export.
+
 ## 14 September 2026 partial settlement and takeaway popup pass
 
 - Complete in code and automated verification: a settlement may allocate selected item quantities or an entered integer-Toman amount up to the remaining balance. Amount payments are allocated deterministically across immutable item snapshots; completed receipt lines are marked paid and print with a strike-through, while tender references remain private. The POS payment sheet offers both methods, and selecting an existing takeaway from its queue opens edit/payment/receipt actions in a modal instead of expanding the main takeaway workspace. Table-order behavior is unchanged.

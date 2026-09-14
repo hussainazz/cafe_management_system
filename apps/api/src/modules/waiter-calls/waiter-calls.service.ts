@@ -15,7 +15,6 @@ const inactiveContext = {
   tableName: null,
   occupancyState: null,
   waiterCallStatus: null,
-  waiterCallAvailableAt: null,
   canCallWaiter: false,
 } as const;
 
@@ -62,7 +61,6 @@ async function contextDto(prisma: PrismaClient, cookieHeader: string | undefined
     tableName: table.name,
     occupancyState: table.occupancyState,
     waiterCallStatus: pendingCall ? ("PENDING" as const) : null,
-    waiterCallAvailableAt: cooldownActive ? cooldownEndsAt!.toISOString() : null,
     canCallWaiter: !cooldownActive && (Boolean(visit) || (table.occupancyState === "OCCUPIED" && table.customerAuthBypassEnabled)),
     authenticationRequired: !(table.occupancyState === "OCCUPIED" && table.customerAuthBypassEnabled) && !auth,
     customerAuthenticated: Boolean(auth),

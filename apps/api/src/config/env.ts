@@ -13,6 +13,7 @@ const EnvironmentSchema = z.object({
   TABLE_QR_TOKEN_SECRET: z.string().min(32).optional(),
   TABLE_CONTEXT_COOKIE_SECRET: z.string().min(32).optional(),
   CUSTOMER_PHONE_LOOKUP_SECRET: z.string().min(32).optional(),
+  CUSTOMER_PHONE_ENCRYPTION_KEY: z.string().min(32).optional(),
   CUSTOMER_OTP_SECRET: z.string().min(32).optional(),
   CUSTOMER_SESSION_SECRET: z.string().min(32).optional(),
   CUSTOMER_OTP_DEV_CODE: z.string().regex(/^\d{6}$/).optional(),
@@ -31,7 +32,7 @@ if (
   result.data.NODE_ENV === "production" &&
   (!result.data.TABLE_QR_TOKEN_SECRET || !result.data.TABLE_CONTEXT_COOKIE_SECRET ||
     !result.data.CUSTOMER_PHONE_LOOKUP_SECRET || !result.data.CUSTOMER_OTP_SECRET ||
-    !result.data.CUSTOMER_SESSION_SECRET || result.data.CUSTOMER_OTP_DEV_CODE)
+    !result.data.CUSTOMER_SESSION_SECRET || !result.data.CUSTOMER_PHONE_ENCRYPTION_KEY || result.data.CUSTOMER_OTP_DEV_CODE)
 ) {
   console.error(
     "Table QR/context and customer authentication secrets are required in production; CUSTOMER_OTP_DEV_CODE is forbidden",
@@ -45,6 +46,7 @@ export const env = {
   TABLE_CONTEXT_COOKIE_SECRET:
     result.data.TABLE_CONTEXT_COOKIE_SECRET ?? result.data.ACCESS_TOKEN_SECRET,
   CUSTOMER_PHONE_LOOKUP_SECRET: result.data.CUSTOMER_PHONE_LOOKUP_SECRET ?? result.data.REFRESH_TOKEN_SECRET,
+  CUSTOMER_PHONE_ENCRYPTION_KEY: result.data.CUSTOMER_PHONE_ENCRYPTION_KEY ?? result.data.REFRESH_TOKEN_SECRET,
   CUSTOMER_OTP_SECRET: result.data.CUSTOMER_OTP_SECRET ?? result.data.REFRESH_TOKEN_SECRET,
   CUSTOMER_SESSION_SECRET: result.data.CUSTOMER_SESSION_SECRET ?? result.data.REFRESH_TOKEN_SECRET,
 };

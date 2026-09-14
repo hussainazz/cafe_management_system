@@ -13,6 +13,9 @@ import {
   hashCustomerPhone,
   hashCustomerSessionToken,
   hashOtp,
+  encryptCustomerIdentity,
+  encryptCustomerPhone,
+  decryptCustomerIdentity,
   normalizeIranMobile,
   otpMatches,
 } from "./customer-auth.js";
@@ -59,7 +62,6 @@ export async function requestCustomerOtp(prisma: PrismaClient, credentialId: str
     return tx.customerOtpChallenge.create({
       data: {
         id,
-        fullName,
         phoneLookupHash,
         tableCredentialId: credentialId,
         purpose: "TABLE_WAITER_CALL",
@@ -69,10 +71,30 @@ export async function requestCustomerOtp(prisma: PrismaClient, credentialId: str
       },
     });
   });
-  return { challengeId: challenge.id, expiresAt: challenge.expiresAt, resendAvailableAt: challenge.resendAvailableAt };
+  return { challengeId: challenge.id, verificationToken: encryptCustomerIdentity({ fullName, phoneNumber: phone }), expiresAt: challenge.expiresAt, resendAvailableAt: challenge.resendAvailableAt };
 }
 
-export async function verifyCustomerOtp(prisma: PrismaClient, challengeId: string, code: string) {
+export async function identifyCustomerPhone(prisma: PrismaClient, credentialId: string, phoneInput: string) {
+  const phone = normalizeIranMobile(phoneInput);
+  if (!phone) throw new ApplicationError(400, ErrorCodes.BAD_REQUEST, "A valid mobile number is required.");
+  const now = new Date();
+  const phoneLookupHash = hashCustomerPhone(phone);
+  const token = createCustomerSessionToken();
+  const result = await prisma.$transaction(async (tx) => {
+    const customer = await tx.customer.upsert({
+      where: { phoneLookupHash },
+      create: { fullName: null, phoneLookupHash, phoneNumberEncrypted: encryptCustomerPhone(phone) },
+      update: { phoneNumberEncrypted: encryptCustomerPhone(phone) },
+    });
+    await tx.customerTableVisit.updateMany({ where: { customerId: customer.id, invalidatedAt: null }, data: { invalidatedAt: now } });
+    const visit = await tx.customerTableVisit.create({ data: { customerId: customer.id, tableId: (await tx.tableQrCredential.findUniqueOrThrow({ where: { id: credentialId } })).tableId, tableCredentialId: credentialId, expiresAt: new Date(now.getTime() + customerTableVisitLifetimeSeconds * 1_000) } });
+    await tx.customerAuthSession.create({ data: { customerId: customer.id, tokenHash: hashCustomerSessionToken(token), expiresAt: new Date(now.getTime() + customerAuthLifetimeSeconds * 1_000) } });
+    return visit;
+  });
+  return { token, visit: result };
+}
+
+export async function verifyCustomerOtp(prisma: PrismaClient, challengeId: string, code: string, verificationToken: string) {
   const result = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw(
       Prisma.sql`SELECT "id" FROM "customer_otp_challenges" WHERE "id" = ${challengeId} FOR UPDATE`,
@@ -89,12 +111,16 @@ export async function verifyCustomerOtp(prisma: PrismaClient, challengeId: strin
       await tx.customerOtpChallenge.update({ where: { id: challenge.id }, data: { attemptCount: { increment: 1 } } });
       return { error: new ApplicationError(401, ErrorCodes.OTP_INVALID, "The verification code is not valid.") } as const;
     }
+    const identity = decryptCustomerIdentity(verificationToken);
+    if (!identity || hashCustomerPhone(identity.phoneNumber) !== challenge.phoneLookupHash) {
+      return { error: new ApplicationError(401, ErrorCodes.OTP_INVALID, "The verification code is not valid.") } as const;
+    }
     const consumed = await tx.customerOtpChallenge.updateMany({ where: { id: challenge.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now } });
     if (consumed.count !== 1) throw new ApplicationError(409, ErrorCodes.CONFLICT, "The verification code has already been used.");
     const customer = await tx.customer.upsert({
       where: { phoneLookupHash: challenge.phoneLookupHash },
-      create: { fullName: challenge.fullName, phoneLookupHash: challenge.phoneLookupHash },
-      update: { fullName: challenge.fullName },
+      create: { fullName: identity.fullName, phoneLookupHash: challenge.phoneLookupHash, phoneNumberEncrypted: encryptCustomerPhone(identity.phoneNumber) },
+      update: { fullName: identity.fullName, phoneNumberEncrypted: encryptCustomerPhone(identity.phoneNumber) },
     });
     await tx.customerTableVisit.updateMany({ where: { customerId: customer.id, invalidatedAt: null }, data: { invalidatedAt: now } });
     const visit = await tx.customerTableVisit.create({ data: { customerId: customer.id, tableId: challenge.tableCredential.tableId, tableCredentialId: challenge.tableCredentialId, expiresAt: new Date(now.getTime() + customerTableVisitLifetimeSeconds * 1_000) } });

@@ -9,6 +9,7 @@ import {
   CustomerOtpResponseSchema,
   CustomerOtpVerifySchema,
   CustomerAuthStateResponseSchema,
+  CustomerPhoneIdentifySchema,
   type TableContextExchangeRequest,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
@@ -28,7 +29,7 @@ import {
 } from "./waiter-calls.service.js";
 import { credentialFromCookie } from "./waiter-calls.service.js";
 import { customerAuthCookie, clearCustomerAuthCookie } from "../../customer-auth/customer-auth.js";
-import { readCustomerAuth, requestCustomerOtp, verifyCustomerOtp } from "../../customer-auth/customer-auth.service.js";
+import { identifyCustomerPhone, readCustomerAuth, requestCustomerOtp, verifyCustomerOtp } from "../../customer-auth/customer-auth.service.js";
 
 const errorResponse = zodToJsonSchema(ErrorResponseSchema);
 
@@ -96,6 +97,20 @@ export const waiterCallRoutes: FastifyPluginAsync = async (app) => {
   );
 
   app.post(
+    "/public/customer-auth/identify",
+    { schema: { tags: ["Public customer authentication"], body: zodToJsonSchema(CustomerPhoneIdentifySchema), response: { 200: zodToJsonSchema(CustomerAuthStateResponseSchema), 400: errorResponse, 401: errorResponse } } },
+    async (request, reply) => {
+      const context = await credentialFromCookie(app.prisma, request.headers.cookie);
+      if (!context) throw new ApplicationError(401, ErrorCodes.TABLE_CONTEXT_INVALID, "Table context required.");
+      const body = request.body as { phoneNumber: string };
+      const result = await identifyCustomerPhone(app.prisma, context.credential.id, body.phoneNumber);
+      reply.header("cache-control", "no-store");
+      reply.header("set-cookie", customerAuthCookie(result.token));
+      return { data: { authenticated: true, visitActive: true, visitExpiresAt: result.visit.expiresAt.toISOString() }, meta: { requestId: request.id } };
+    },
+  );
+
+  app.post(
     "/public/customer-otp/request",
     { schema: { tags: ["Public customer authentication"], body: zodToJsonSchema(CustomerOtpRequestSchema), response: { 200: zodToJsonSchema(CustomerOtpResponseSchema), 400: errorResponse, 401: errorResponse, 429: errorResponse } } },
     async (request) => {
@@ -113,10 +128,10 @@ export const waiterCallRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const context = await credentialFromCookie(app.prisma, request.headers.cookie);
       if (!context) throw new ApplicationError(401, ErrorCodes.TABLE_CONTEXT_INVALID, "Table context required.");
-      const body = request.body as { challengeId: string; code: string };
+      const body = request.body as { challengeId: string; code: string; verificationToken: string };
       const challenge = await app.prisma.customerOtpChallenge.findUnique({ where: { id: body.challengeId } });
       if (!challenge || challenge.tableCredentialId !== context.credential.id) throw new ApplicationError(401, ErrorCodes.OTP_INVALID, "OTP challenge is not valid for this table.");
-      const result = await verifyCustomerOtp(app.prisma, body.challengeId, body.code);
+      const result = await verifyCustomerOtp(app.prisma, body.challengeId, body.code, body.verificationToken);
       reply.header("cache-control", "no-store");
       reply.header("set-cookie", customerAuthCookie(result.token));
       return { data: { authenticated: true, visitActive: true, visitExpiresAt: result.visit.expiresAt.toISOString() }, meta: { requestId: request.id } };
