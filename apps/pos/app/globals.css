@@ -1315,11 +1315,8 @@ svg {
   background: #fff;
   box-shadow: 0 26px 70px rgba(9, 21, 16, 0.22);
 }
-.takeaway-order-dialog { width: min(1280px, 100%); max-height: min(900px, calc(100vh - 40px)); }
-.takeaway-order-dialog .modal-header { align-items: start; }
-.takeaway-order-dialog .modal-header h2 { margin: 0; font-size: var(--text-heading); }
-.takeaway-order-dialog .modal-header p { margin: 5px 0 0; color: var(--muted); font-size: var(--text-meta); }
-.takeaway-order-dialog .order-desk { min-width: 0; }
+.takeaway-order-panel-popup { position: relative; width: min(460px, 100%); max-height: min(760px, calc(100vh - 40px)); overflow: auto; box-shadow: 0 26px 70px rgba(9, 21, 16, 0.22); }
+.takeaway-order-panel-popup__close { position: absolute; z-index: 1; top: 10px; inset-inline-start: 10px; }
 .modal-card:focus-visible { outline: none; }
 .modal-header {
   display: flex;
