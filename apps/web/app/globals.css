@@ -1245,6 +1245,105 @@ footer span {
   width: 17px;
 }
 
+.auth-page {
+  position: relative;
+  overflow: hidden;
+  padding: 24px 16px;
+  background:
+    radial-gradient(circle at 50% 15%, rgba(208, 149, 81, 0.12), transparent 25rem),
+    var(--night);
+}
+
+.auth-card {
+  width: min(100%, 500px);
+  padding: clamp(28px, 6vw, 48px);
+  border: 1px solid rgba(239, 221, 191, 0.14);
+  border-radius: 24px;
+  background: linear-gradient(145deg, rgba(35, 29, 23, 0.98), rgba(23, 19, 15, 0.98));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38), inset 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.auth-card .eyebrow {
+  justify-content: center;
+  margin: 0 0 20px;
+  color: var(--amber-bright);
+}
+
+.auth-card h1 {
+  max-width: none;
+  margin: 0;
+  font-size: clamp(24px, 5vw, 34px);
+  line-height: 1.55;
+}
+
+.auth-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 30px;
+  text-align: right;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.auth-form input {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 1px solid rgba(239, 221, 191, 0.18);
+  border-radius: 12px;
+  outline: none;
+  background: rgba(16, 14, 12, 0.72);
+  color: var(--ink);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.auth-form input:focus {
+  border-color: var(--amber-bright);
+  background: rgba(16, 14, 12, 0.9);
+  box-shadow: 0 0 0 4px rgba(237, 184, 111, 0.13);
+}
+
+.auth-form button {
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 4px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.auth-submit {
+  background: linear-gradient(135deg, var(--amber-bright), var(--amber));
+  color: var(--night);
+  box-shadow: 0 10px 22px rgba(208, 149, 81, 0.18);
+}
+
+.auth-secondary {
+  margin-top: -4px !important;
+  border: 1px solid rgba(239, 221, 191, 0.18) !important;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.auth-form button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.auth-card .table-context-error {
+  margin: 18px 0 0;
+  color: var(--danger);
+  line-height: 1.7;
+}
+
 .is-spinning {
   animation: slow-spin 1s linear infinite;
 }
