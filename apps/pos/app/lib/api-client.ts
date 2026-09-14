@@ -371,6 +371,28 @@ export async function makeTableAvailable(tableId: string): Promise<ApiResult<Pos
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
 
+export async function activateQrAssignment(tableId: string, targetTableId: string): Promise<ApiResult<PosTable>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/tables/${encodeURIComponent(tableId)}/qr-assignment`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ targetTableId }),
+    }),
+    PosTableResponseSchema,
+    "پاسخ تخصیص QR معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function cancelQrAssignment(tableId: string): Promise<ApiResult<PosTable>> {
+  const parsed = parseResponse(
+    await request<unknown>(`/tables/${encodeURIComponent(tableId)}/qr-assignment`, { method: "DELETE" }),
+    PosTableResponseSchema,
+    "پاسخ لغو تخصیص QR معتبر نیست.",
+  );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
 export async function readWaiterCalls(): Promise<ApiResult<PosActiveWaiterCall[]>> {
   const parsed = parseResponse(
     await request<unknown>("/waiter-calls", undefined, false),
