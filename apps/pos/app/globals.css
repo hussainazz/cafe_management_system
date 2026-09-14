@@ -1317,6 +1317,8 @@ svg {
 }
 .takeaway-order-panel-popup { position: relative; width: min(460px, 100%); max-height: min(760px, calc(100vh - 40px)); overflow: auto; box-shadow: 0 26px 70px rgba(9, 21, 16, 0.22); }
 .takeaway-order-panel-popup__close { position: absolute; z-index: 1; top: 10px; inset-inline-start: 10px; }
+.takeaway-order-panel-popup .section-title { align-items: center; }
+.takeaway-order-panel-popup .section-title .status-badge { margin-inline-start: 54px; }
 .modal-card:focus-visible { outline: none; }
 .modal-header {
   display: flex;
