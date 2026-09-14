@@ -915,7 +915,6 @@ function OrderDesk({
               <b>{channel === "TABLE" ? `میز ${table?.name}` : "بیرون‌بر"}</b>
               <small>{initialOrder ? "ویرایش سفارش" : "سفارش جدید"}</small>
             </span>
-            {initialOrder ? <em>مانده {formatToman(initialOrder.balanceAmount)}</em> : null}
           </div>
           <nav className="categories" aria-label="دسته‌های محصولات">
             <div>
