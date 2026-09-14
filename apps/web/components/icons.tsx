@@ -106,3 +106,12 @@ export function RefreshIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function ServiceBellIcon(props: IconProps) {
+  return (
+    <svg {...defaults} {...props}>
+      <path d="M4.5 16.5h15M6.5 16.5a5.5 5.5 0 0 1 11 0M12 5V3.5M3.5 20h17" />
+      <path d="M12 5a5.5 5.5 0 0 1 5.5 5.5v1.2" />
+    </svg>
+  );
+}
