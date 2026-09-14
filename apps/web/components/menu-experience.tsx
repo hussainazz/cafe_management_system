@@ -677,24 +677,25 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
 
   if (tableContext?.active && tableContext.authenticationRequired) {
     return (
-      <main className="error-page" dir="rtl">
-        <p className="eyebrow">RUN CAFÉ · میز {tableContext.tableName}</p>
-        <h1>برای استفاده از میز، نام و شماره موبایل خود را تأیید کنید</h1>
-        <p>این تأیید فقط برای درخواست گارسون در همین میز است و به معنی ثبت سفارش یا عضویت باشگاه مشتریان نیست.</p>
+      <main className="error-page auth-page" dir="rtl">
+        <section className="auth-card" aria-labelledby="customer-auth-title">
+          <p className="eyebrow">RUN CAFÉ · میز {tableContext.tableName}</p>
+          <h1 id="customer-auth-title">برای استفاده از امکانات منو، لطفا نام و شماره موبایل خود را تأیید کنید</h1>
         {otpChallengeId ? (
-          <form onSubmit={(event) => { event.preventDefault(); void verifyOtp(); }}>
+          <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void verifyOtp(); }}>
             <label>کد شش‌رقمی<input inputMode="numeric" autoComplete="one-time-code" value={otpCode} onChange={(event) => setOtpCode(event.target.value)} /></label>
-            <button type="submit" disabled={otpLoading || otpCode.length !== 6}>{otpLoading ? "در حال بررسی…" : "تأیید کد"}</button>
-            <button type="button" disabled={otpLoading} onClick={() => void requestOtp()}>ارسال دوباره کد</button>
+            <button className="auth-submit" type="submit" disabled={otpLoading || otpCode.length !== 6}>{otpLoading ? "در حال بررسی…" : "تأیید کد"}</button>
+            <button className="auth-secondary" type="button" disabled={otpLoading} onClick={() => void requestOtp()}>ارسال دوباره کد</button>
           </form>
         ) : (
-          <form onSubmit={(event) => { event.preventDefault(); void requestOtp(); }}>
+          <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void requestOtp(); }}>
             <label>نام و نام خانوادگی<input autoComplete="name" value={fullName} onChange={(event) => setFullName(event.target.value)} /></label>
             <label>شماره موبایل<input inputMode="tel" autoComplete="tel" value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} /></label>
-            <button type="submit" disabled={otpLoading || fullName.trim().length < 2}>{otpLoading ? "در حال ارسال…" : "ارسال کد تأیید"}</button>
+            <button className="auth-submit" type="submit" disabled={otpLoading || fullName.trim().length < 2}>{otpLoading ? "در حال ارسال…" : "ارسال کد تأیید"}</button>
           </form>
         )}
         {otpError ? <p className="table-context-error" role="alert">{otpError}</p> : null}
+        </section>
       </main>
     );
   }
