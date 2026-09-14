@@ -23,6 +23,7 @@ import { recoveryStateFor, type RecoveryState } from "../lib/recovery-state";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
 import { printRoute, type PrintKind } from "../lib/print-routes";
 import { acknowledgeAndOpenWaiterCall } from "../lib/waiter-call-workflow";
+import { operationalRefreshIntervalMs } from "../lib/operational-refresh";
 import { canChangeDiscount, discountPayload } from "../lib/discount-workflow";
 import {
   elapsedLabel,
@@ -185,7 +186,7 @@ export function OrdersWorkspace({
     const refreshIfVisible = () => {
       if (document.visibilityState === "visible") void refreshOperationalData();
     };
-    const interval = window.setInterval(refreshIfVisible, 15_000);
+    const interval = window.setInterval(refreshIfVisible, operationalRefreshIntervalMs);
     document.addEventListener("visibilitychange", refreshIfVisible);
     return () => {
       window.clearInterval(interval);
