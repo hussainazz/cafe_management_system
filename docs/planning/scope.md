@@ -45,7 +45,7 @@ v1 success criteria:
 | Ordering       | Every v1 order is created by a logged-in Staff user through POS.                                                                                                                                                                       |
 | Payments       | Staff record one or more cash, card-terminal, or card-to-card transfer tenders per settlement. A settlement can cover selected order-item quantities or a server-allocated integer Toman amount against the remaining balance; split tender is allowed. There is no online payment or terminal integration. |
 | Prices         | Each catalog price is already the finished price. There are no taxes or service charges.                                                                                                                                               |
-| Receipts       | v1 uses print-friendly browser bar tickets and customer receipts. Silent ESC/POS printing and printer control are separate integrations.                                                                                               |
+| Receipts       | v1 keeps shared HTML/CSS bar-ticket and customer-receipt previews and sends print jobs from the Windows POS browser through QZ Tray to the locally installed Windows printer queue. QZ signing keys remain server-only; direct USB and raw ESC/POS printer control are out of scope. |
 | Deployment     | One Iranian VPS hosts one authoritative application/database stack. There is no dual writable cloud/local setup.                                                                                                                       |
 
 User-facing surfaces:
@@ -63,7 +63,7 @@ Explicit non-goals for v1:
 - Online payments, direct card-terminal control, automatic refunds, and accounting integrations.
 - Tax, VAT, service-charge, or item-level tax calculation.
 - Full offline synchronization, a café-local authoritative server, or conflict resolution between two writable databases.
-- Native mobile apps, advanced forecasting, automatic printer routing, and a CDN requirement.
+- Native mobile apps, advanced forecasting, multi-printer routing beyond the locally selected Windows queue, and a CDN requirement.
 
 Scope rule: a future feature may influence a clean module boundary, but it must not add tables, abstractions, services, or infrastructure to v1 unless a current v1 use case needs it.
 
@@ -216,11 +216,11 @@ Table timing rules:
 
 Waiter-call rules:
 
-- The initial physical-table order is: `1`, `2`, `3`, `4`, `کانتر وسط`, `5`, `6`, `جگوار`, `7`, `8`, `سوشال`, `سوشال سوشال`, `9`, `10`, `11`, `12`. Only numeric tables `1` through `10`, plus `جگوار`, may receive waiter-calls: `1`, `2`, `3`, `4`, `5`, `6`, `جگوار`, `7`, `8`, `9`, `10`. `کانتر وسط`, `سوشال`, `سوشال سوشال`, `11`, and `12` never expose a waiter-call action.
+- The initial physical-table order is: `1`, `2`, `3`, `4`, `کانتر وسط`, `5`, `6`, `جگوار`, `7`, `8`, `سوشال`, `سوشال سوشال`, `9`, `10`, `11`, `12`. There are 11 customer-facing physical QR locations: independent QRs for `1`, `2`, `5`, `6`, `جگوار`, `9`, and `10`; two QR locations, labelled `3` and `4`, on the long physical table shared by logical tables `3`, `4`, and `کانتر وسط`; and two QR locations, labelled `7` and `8`, on the long physical table shared by logical tables `7`, `8`, `سوشال`, and `سوشال سوشال`. Each shared-table QR can be assigned by Staff or Manager to one of its family’s logical tables before a new scan. `11` and `12` have no waiter-call QR.
 - The public catalog is always the same `/menu`. Eligible-table QRs point to
   `/t/:token`, which establishes a signed, HttpOnly table context for at most
-  12 hours and redirects to `/menu`; noneligible locations may display the
-  generic menu QR without a waiter-call action.
+  12 hours and redirects to `/menu`; `11` and `12` may display the generic
+  menu QR without a waiter-call action.
 - A table has the operational states `AVAILABLE` and `OCCUPIED`. Staff and Manager have the same authority to mark either state; the system does not assign acknowledgement or resolution to a particular person.
 - When a customer scans an eligible table QR while that table is `AVAILABLE`, the dashboard receives a non-blocking occupancy reminder. The scan does not create an order, change the table to occupied, or expose any customer identity. Staff or Manager must explicitly mark the table `OCCUPIED`.
 - A waiter-call may be submitted only from an eligible QR context with a remembered customer session and unexpired visit bound to that exact table credential, except while Staff or Manager has explicitly held that same table occupied with its temporary OTP-bypass policy enabled. The bypass is table-local, requires the occupied state, creates no customer identity record, and is cleared whenever the table is made available or its context is invalidated. Submission creates or returns that table's one `PENDING` call and highlights the table in the shared POS dashboard.

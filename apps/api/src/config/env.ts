@@ -19,6 +19,8 @@ const EnvironmentSchema = z.object({
   CUSTOMER_OTP_DEV_CODE: z.string().regex(/^\d{6}$/).optional(),
   QR_ASSIGNMENT_WINDOW_SECONDS: z.coerce.number().int().positive().default(180),
   PRODUCT_IMAGE_STORAGE_DIR: z.string().min(1).default("./data/product-images"),
+  QZ_CERTIFICATE_PATH: z.string().min(1).optional(),
+  QZ_PRIVATE_KEY_PATH: z.string().min(1).optional(),
 });
 
 const result = EnvironmentSchema.safeParse(process.env);

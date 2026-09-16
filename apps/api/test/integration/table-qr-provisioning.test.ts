@@ -71,4 +71,27 @@ describe("table QR provisioning command", () => {
     expect(disabled.status).not.toBe(0);
     expect(disabled.stderr).toContain("Eligible active table not found");
   });
+
+  it("prints two locations for each shared physical table while keeping all routing targets eligible", async () => {
+    const socialFamily = await app.prisma.tableQrFamily.create({ data: { name: "social-physical-table" } });
+    const counterFamily = await app.prisma.tableQrFamily.create({ data: { name: "counter-physical-table" } });
+    const independentNames = ["1", "2", "5", "6", "جگوار", "9", "10", "11", "12"];
+    const independentFamilies = new Map((await Promise.all(independentNames.map(async (name) => {
+      const family = await app.prisma.tableQrFamily.create({ data: { name: `independent-${name}` } });
+      return [name, family.id] as const;
+    }))));
+    const rows = [
+      ["1", independentFamilies.get("1")!], ["2", independentFamilies.get("2")!], ["3", counterFamily.id], ["4", counterFamily.id], ["کانتر وسط", counterFamily.id],
+      ["5", independentFamilies.get("5")!], ["6", independentFamilies.get("6")!], ["جگوار", independentFamilies.get("جگوار")!], ["7", socialFamily.id], ["8", socialFamily.id],
+      ["سوشال", socialFamily.id], ["سوشال سوشال", socialFamily.id], ["9", independentFamilies.get("9")!], ["10", independentFamilies.get("10")!], ["11", independentFamilies.get("11")!], ["12", independentFamilies.get("12")!],
+    ] as const;
+    await app.prisma.cafeTable.createMany({
+      data: rows.map(([name, qrFamilyId], displayOrder) => ({ name, qrFamilyId, displayOrder: displayOrder + 1, waiterCallEnabled: !["11", "12"].includes(name) })),
+    });
+    const output = await outputPath("shared-physical");
+    const result = runProvision(["--all-eligible", "--base-url", "https://runncafe.ir", "--output-dir", output]);
+    expect(result.status, result.stderr).toBe(0);
+    const manifest = JSON.parse(await readFile(join(output, "table-qr-urls.json"), "utf8"));
+    expect(manifest.credentials.map((item: { tableName: string }) => item.tableName)).toEqual(["1", "2", "3", "4", "5", "6", "جگوار", "7", "8", "9", "10"]);
+  });
 });

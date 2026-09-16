@@ -1,10 +1,44 @@
 # Current Backend Stage Status
 
+## 15 September 2026 QZ Tray Windows-queue printing pass
+
+- In progress: replace the hidden-iframe/browser `window.print()` path with
+  authenticated, server-signed QZ Tray pixel-HTML jobs to the locally selected
+  Windows printer queue. The existing shared thermal preview components and
+  `/pos/print/...` routes remain the document source of truth; previews must
+  not auto-print. Left: implementation, automated checks, Windows/QZ trusted
+  certificate setup, and physical POS88C/Persian/80 mm verification.
+
+## 15 September 2026 long-lived POS session recovery
+
+- Complete in code and automated verification: production logs showed that the
+  15-minute access-token expiry caused the five-second table/order/waiter-call
+  polling requests to remain unauthorized until a full page reload invoked the
+  refresh endpoint. The shared POS API client now coordinates one refresh-token
+  rotation across concurrent 401 responses and retries each protected request
+  once. Regression coverage proves both the single-request and simultaneous
+  polling cases; all 37 POS tests, typecheck, production build, and
+  `git diff --check` pass. The exact tested POS build is active on the VPS;
+  API readiness and the public POS/menu routes return 200, and all services are
+  active with no POS restart loop. Café-browser validation across a 15-minute
+  expiry remains the final operational check.
+
+## 15 September 2026 VPS artifact-retention rule
+
+- Complete: the primary VPS retains only the current verified rollback release
+  and one or two recent database backups. Older verified backups must first be
+  copied to separate storage before removal. During a release or pilot, never
+  remove the active deployment, the only verified rollback artifact, or the
+  newest database backup. Disk space remains monitored as a production gate.
+
 ## 14 September 2026 shared physical-table QR assignment pass
 
 - Complete in code and isolated API verification: logical POS tables `7`, `8`,
-  `سوشال`, and `سوشال سوشال` share one physical QR family; `3`, `4`, and
-  `کانتر وسط` share the second. Staff can activate or cancel a short,
+  `سوشال`, and `سوشال سوشال` share one physical-table QR family with two
+  customer-facing QR locations, labelled `7` and `8`; `3`, `4`, and `کانتر
+  وسط` share the second family with two customer-facing QR locations, labelled
+  `3` and `4`. The intended print set is therefore 11 QR codes: seven
+  independent-table codes plus those four shared-table codes. Staff can activate or cancel a short,
   server-authoritative assignment window from the shared POS, and new scans
   resolve to the selected logical table before customer authentication.
   Existing same-family sessions remain on their prior logical table, and
@@ -106,6 +140,8 @@
   part of the archived order model.
 
 This file is the active completion checklist and current stage status for the backend phase. Check it for every related request.
+
+- 16 September 2026 category visibility split completed: Manager category settings now separately control public-menu visibility and POS order-entry visibility; the migration defaults existing categories to visible on both surfaces, and POS order validation enforces the POS visibility flag.
 
 ## In Progress Stages
 

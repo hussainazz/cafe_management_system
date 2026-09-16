@@ -80,8 +80,20 @@ export function ChevronIcon() {
 export function RefreshIcon() {
   return (
     <Icon>
-      <path d="M20 11a8 8 0 1 0 2 5.5" />
-      <path d="M20 4v7h-7" />
+      <path d="M20 11a8 8 0 0 0-14.7-4.2L4 8" />
+      <path d="M4 4v4h4" />
+      <path d="M4 13a8 8 0 0 0 14.7 4.2L20 16" />
+      <path d="M20 20v-4h-4" />
+    </Icon>
+  );
+}
+export function WifiIcon() {
+  return (
+    <Icon>
+      <path d="M3.5 8.8a13.5 13.5 0 0 1 17 0" />
+      <path d="M6.8 12.5a8.3 8.3 0 0 1 10.4 0" />
+      <path d="M10 16.1a3.2 3.2 0 0 1 4 0" />
+      <circle cx="12" cy="19.2" r=".75" fill="currentColor" stroke="none" />
     </Icon>
   );
 }

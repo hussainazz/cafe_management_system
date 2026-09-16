@@ -9,6 +9,7 @@ import {
   signIn,
   type ApiFailure,
 } from "../lib/api-client";
+import { unlockWaiterCallSound } from "../lib/waiter-call-sound";
 import { OrdersIcon } from "./icons";
 import { OrdersWorkspace } from "./orders-workspace";
 import { ManagerWorkspace } from "./manager-workspace";
@@ -37,6 +38,16 @@ export function PosSessionBoundary() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [workspace, setWorkspace] = useState<"orders" | "manager">("orders");
   const opener = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    const unlock = () => { void unlockWaiterCallSound(); };
+    document.addEventListener("pointerdown", unlock, { capture: true, once: true });
+    document.addEventListener("keydown", unlock, { capture: true, once: true });
+    return () => {
+      document.removeEventListener("pointerdown", unlock, true);
+      document.removeEventListener("keydown", unlock, true);
+    };
+  }, []);
 
   const loadSession = useCallback(async (allowRefresh: boolean) => {
     setSession((current) =>

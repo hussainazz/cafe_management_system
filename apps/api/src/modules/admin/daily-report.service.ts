@@ -40,14 +40,15 @@ export function tehranReportRange(period: DailyReportQuery["period"], now = new 
 export async function dailyAccountingReport(prisma: PrismaClient, query: DailyReportQuery) {
   const range = tehranReportRange(query.period);
   const withinRange = { gte: range.from, lt: range.to };
+  const activeOrdersInRange = { createdAt: withinRange, state: { not: "DELETED" as const } };
   const [orders, itemDiscounts, settlements, paymentMethods, reversals, deletedOrders] = await Promise.all([
-    prisma.order.aggregate({ where: { createdAt: withinRange }, _count: { _all: true }, _sum: { totalAmount: true, discountAmount: true } }),
-    prisma.orderItem.aggregate({ where: { order: { createdAt: withinRange } }, _sum: { discountAmount: true } }),
+    prisma.order.aggregate({ where: activeOrdersInRange, _count: { _all: true }, _sum: { totalAmount: true, discountAmount: true } }),
+    prisma.orderItem.aggregate({ where: { order: activeOrdersInRange }, _sum: { discountAmount: true } }),
     // Accounting is event-based: a tender belongs to the day it was recorded,
     // even when a later-day reversal changes the order's current balance.
-    prisma.paymentSettlement.aggregate({ where: { recordedAt: withinRange }, _sum: { totalAmount: true } }),
-    prisma.payment.groupBy({ by: ["method"], where: { settlement: { recordedAt: withinRange } }, _sum: { amount: true } }),
-    prisma.settlementReversal.findMany({ where: { recordedAt: withinRange }, select: { settlement: { select: { totalAmount: true } } } }),
+    prisma.paymentSettlement.aggregate({ where: { recordedAt: withinRange, order: { state: { not: "DELETED" } } }, _sum: { totalAmount: true } }),
+    prisma.payment.groupBy({ by: ["method"], where: { settlement: { recordedAt: withinRange, order: { state: { not: "DELETED" } } } }, _sum: { amount: true } }),
+    prisma.settlementReversal.findMany({ where: { recordedAt: withinRange, settlement: { order: { state: { not: "DELETED" } } } }, select: { settlement: { select: { totalAmount: true } } } }),
     prisma.order.aggregate({ where: { createdAt: withinRange, state: "DELETED" }, _count: { _all: true }, _sum: { totalAmount: true, paidAmount: true } }),
   ]);
   const paymentMethodTotals = { cashAmount: 0, cardTerminalAmount: 0, cardTransferAmount: 0 };

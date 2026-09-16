@@ -22,10 +22,14 @@ import {
 } from "../lib/api-client";
 import { recoveryStateFor, type RecoveryState } from "../lib/recovery-state";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
-import { printDocument, printRoute, type PrintKind } from "../lib/print-routes";
+import type { PrintKind } from "../lib/print-routes";
+import { printThermalDocument, printerDiagnostics } from "../lib/printing/print-service";
+import { saveConfiguredPrinter } from "../lib/printing/printer-resolver";
+import type { PrinterDiagnostics } from "../lib/printing/types";
 import { acknowledgeAndOpenWaiterCall } from "../lib/waiter-call-workflow";
 import { operationalRefreshIntervalMs } from "../lib/operational-refresh";
 import { canChangeDiscount, discountPayload } from "../lib/discount-workflow";
+import { newWaiterCallSoundKeys, playWaiterCallSound, waiterCallSoundKey } from "../lib/waiter-call-sound";
 import {
   elapsedLabel,
   englishNumber,
@@ -36,7 +40,7 @@ import {
   settlementAvailability,
   sumAmounts,
 } from "../lib/pos-utils";
-import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon } from "./icons";
+import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon, WifiIcon } from "./icons";
 
 const QR_ROUTING_ANCHOR_NAMES = new Set(["3", "4", "7", "8"]);
 
@@ -113,7 +117,11 @@ export function OrdersWorkspace({
   const [recovery, setRecovery] = useState<RecoveryState | null>(null);
   const [recovering, setRecovering] = useState(false);
   const [online, setOnline] = useState(true);
+  const [printing, setPrinting] = useState(false);
+  const [printerStatus, setPrinterStatus] = useState<PrinterDiagnostics | null>(null);
+  const [printerPanelOpen, setPrinterPanelOpen] = useState(false);
   const [liveDataLimited, setLiveDataLimited] = useState(false);
+  const knownWaiterCallKeys = useRef<Set<string> | null>(null);
   const submitDeskRef = useRef<(() => void) | null>(null);
   const load = useCallback(async (): Promise<boolean> => {
     setLoading(true);
@@ -137,6 +145,9 @@ export function OrdersWorkspace({
       calls: calls.ok ? calls.data : current?.calls ?? [],
       openOrders: orders.ok ? orders.data : current?.openOrders ?? [],
     }));
+    if (calls.ok) {
+      knownWaiterCallKeys.current = new Set(calls.data.map(waiterCallSoundKey));
+    }
     setLiveDataLimited(!calls.ok || !orders.ok);
     setLoading(false);
     return true;
@@ -175,6 +186,11 @@ export function OrdersWorkspace({
       setLiveDataLimited(true);
       setMessage({ tone: "notice", text: "وضعیت زنده میزها در دسترس نیست؛ برای تازه‌سازی دوباره تلاش کنید." });
       return;
+    }
+    if (calls.ok) {
+      const incoming = newWaiterCallSoundKeys(calls.data, knownWaiterCallKeys.current);
+      if (incoming.length > 0) playWaiterCallSound();
+      knownWaiterCallKeys.current = new Set(calls.data.map(waiterCallSoundKey));
     }
     setData((current) => current && {
       ...current,
@@ -256,15 +272,19 @@ export function OrdersWorkspace({
     <section className="pos-workspace">
       <header className="workspace-header">
         <div className="header-actions">
-          <span className={`connection ${!online ? "connection--offline" : liveDataLimited || refreshing ? "connection--busy" : ""}`}>
-            <i aria-hidden="true" />
+          <span className={`connection ${!online ? "connection--offline" : liveDataLimited || refreshing ? "connection--busy" : "connection--connected"}`} role="status" aria-label={!online ? "اتصال شبکه قطع است" : liveDataLimited ? "داده زنده ناقص است" : refreshing ? "در حال بازخوانی اتصال" : "اتصال برقرار است"}>
+            <WifiIcon />
             <span title={!online ? "اتصال شبکه در دسترس نیست" : liveDataLimited ? "بخشی از داده زنده تازه نشده است؛ با دکمه تازه‌سازی دوباره تلاش کنید." : refreshing ? "در حال بازخوانی وضعیت" : "اتصال برقرار است"}>
               {!online ? "قطع ارتباط" : liveDataLimited ? "داده زنده ناقص" : refreshing ? "در حال بازخوانی" : "متصل"}
             </span>
           </span>
-          <button className="icon-button" onClick={() => void load()} aria-label="تازه‌سازی">
+          <button className={`icon-button refresh-button${refreshing ? " is-refreshing" : ""}`} onClick={() => void load()} aria-label="تازه‌سازی وضعیت" title="تازه‌سازی وضعیت">
             <RefreshIcon />
           </button>
+          <button className="button button--quiet" type="button" onClick={() => {
+            setPrinterPanelOpen(true);
+            void printerDiagnostics().then(setPrinterStatus);
+          }}>چاپگر</button>
           <button
             className="menu-button"
             type="button"
@@ -299,6 +319,16 @@ export function OrdersWorkspace({
           </button>
         </div>
       </header>
+      {printerPanelOpen && <aside className="printer-panel" aria-label="وضعیت چاپگر">
+        <header><strong>چاپگر حرارتی</strong><button className="icon-button" type="button" onClick={() => setPrinterPanelOpen(false)} aria-label="بستن"><CloseIcon /></button></header>
+        {!printerStatus ? <p>در حال بررسی QZ Tray…</p> : <>
+          <p>{printerStatus.connected ? "QZ Tray متصل است." : "QZ Tray در دسترس نیست."}</p>
+          <label>چاپگر این سیستم<select value={printerStatus.configuredPrinter ?? ""} onChange={(event) => { saveConfiguredPrinter("BAR", event.target.value || null); saveConfiguredPrinter("RECEIPT", event.target.value || null); setPrinterStatus((current) => current && { ...current, configuredPrinter: event.target.value || null, resolvedPrinter: event.target.value || null }); }}><option value="">انتخاب خودکار چاپگر حرارتی</option>{printerStatus.printers.map((printer) => <option key={printer} value={printer}>{printer}</option>)}</select></label>
+          <p>{printerStatus.resolvedPrinter ? `چاپگر انتخاب‌شده: ${printerStatus.resolvedPrinter}` : "چاپگر حرارتی مشخص نشده است."}</p>
+          {printerStatus.lastFailure && <p role="alert">آخرین خطا: {printerStatus.lastFailure}</p>}
+          <button className="button button--quiet" type="button" onClick={() => void printerDiagnostics().then(setPrinterStatus)}>بازخوانی وضعیت</button>
+        </>}
+      </aside>}
       {message && (
         <div
           className={`toast toast--${message.tone}`}
@@ -434,9 +464,12 @@ export function OrdersWorkspace({
           onEditOrder={() => setEditingOrder(true)}
           onCheckout={() => setCheckout(true)}
           onPrint={(kind) => {
-            void printDocument(printRoute(order!.id, kind)).catch((error: unknown) => {
-              setMessage({ tone: "error", text: error instanceof Error ? error.message : "سند چاپی آماده نشد." });
-            });
+            if (printing) return;
+            setPrinting(true);
+            setMessage({ tone: "notice", text: "در حال ارسال فیش به چاپگر…" });
+            void printThermalDocument(order!.id, kind).then(() => setMessage({ tone: "notice", text: "فیش برای چاپگر ارسال شد." })).catch((error: unknown) => {
+              setMessage({ tone: "error", text: error instanceof Error ? error.message : "ارسال فیش به چاپگر انجام نشد." });
+            }).finally(() => setPrinting(false));
           }}
           onRequestTransfer={async (source, destination) => {
             let sourceOrder: OrderDetail | null = order?.tableId === source.id ? order : null;
@@ -618,7 +651,7 @@ export function TableBoard({
             <h1>مدیریت میزها</h1>
           </div>
         </div>
-      {transferSourceId && <p className="table-transfer-hint" role="status">مقصد انتقال میز را انتخاب کنید. میزهای دارای درخواست گارسون قابل انتخاب نیستند.</p>}
+      {transferSourceId && <p className="table-transfer-hint" role="status">مقصد انتقال میز را انتخاب کنید. میزهای دارای فراخوان میزبان قابل انتخاب نیستند.</p>}
       {qrAssignmentSourceId && (() => {
         const source = tables.find((item) => item.id === qrAssignmentSourceId);
         if (!source) return null;
@@ -648,7 +681,7 @@ export function TableBoard({
               data-table-id={table.id}
               className={`table-tile table-tile--${state}${selectedTableId === table.id ? " is-selected" : ""}${draggingTableId === table.id ? " is-dragging" : ""}${dragDestinationId === table.id ? " is-drag-target" : ""}`}
             >
-              <button className="table-tile__main" disabled={Boolean(call)} onPointerDown={(event) => {
+              <button className="table-tile__main" disabled={Boolean(call)} onContextMenu={(event) => event.preventDefault()} onPointerDown={(event) => {
                 pointerStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
                 suppressClick.current = false;
                 if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
@@ -716,14 +749,14 @@ export function TableBoard({
                   {call && <AlertIcon />}
                 </span>
                 <span className="table-tile__details">
-                  <span className="table-status"><i />{call ? "درخواست گارسون" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال" : "آماده"}</span>
+                  <span className="table-status"><i />{call ? "فراخوان میزبان" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال" : "آماده"}</span>
                   {hasOrder && <span className="table-tile__meta">{[remainingLabel(table.activeOrders[0]!), elapsedLabel(table.activeOrders[0]!.createdAt)].filter(Boolean).join(" · ")}</span>}
                   {call && <span className="table-tile__meta">{elapsedLabel(call.requestedAt)} پیش درخواست شده</span>}
                   {!hasOrder && !call && <span className="table-tile__meta">{table.occupiedAt ? elapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>}
                   {hasOrder && <b>{formatToman(totals.get(table.id) ?? 0)}</b>}
                 </span>
               </button>
-              {QR_ROUTING_ANCHOR_NAMES.has(table.name) && table.qrFamilyMembers.length > 1 && table.qrFamilyMembers[0]?.id === table.id && (
+              {QR_ROUTING_ANCHOR_NAMES.has(table.name) && table.qrFamilyMembers.length > 1 && (
                 <div className="table-qr-assignment__indicator">{table.qrAssignment ? `گروه بعدی → ${table.qrAssignment.targetTableName}` : "QR مشترک"}</div>
               )}
               {call && (
@@ -976,8 +1009,10 @@ function OrderDesk({
         onCheckout={() => setCheckout(true)}
         onPrint={(kind, settlementId) => {
           if (!initialOrder) return;
-          void printDocument(printRoute(initialOrder.id, kind, settlementId)).catch((printError: unknown) => {
-            setError(printError instanceof Error ? printError.message : "سند چاپی آماده نشد.");
+          void printThermalDocument(initialOrder.id, kind, settlementId).then(() => {
+            setError("فیش برای چاپگر ارسال شد.");
+          }).catch((printError: unknown) => {
+            setError(printError instanceof Error ? printError.message : "ارسال فیش به چاپگر انجام نشد.");
           });
         }}
         onRequestDelete={() => setDeleteDialogOpen(true)}
@@ -1320,7 +1355,7 @@ function DeleteOrderDialog({ order, table, clearsTable, busy, onCancel, onConfir
         </div>
         <p id="delete-order-description">سفارش {formatOrderNumber(order.dailyOrderNumber)} {tableOrder ? `برای میز ${table!.name}` : "بیرون‌بر"} با وضعیت {paymentStatus} از عملیات فعال حذف می‌شود.</p>
         <p className="deletion-dialog__notice">این حذف فیزیکی نیست؛ اطلاعات مالی و سابقه ثبت‌شده حفظ می‌شود و دلیل حذف لازم نیست.</p>
-        {clearsTable && <p className="deletion-dialog__consequence">پس از حذف، میز آماده پذیرش می‌شود، زمینه مهمان قبلی پایان می‌یابد و درخواست گارسون باز آن بسته می‌شود.</p>}
+        {clearsTable && <p className="deletion-dialog__consequence">پس از حذف، میز آماده پذیرش می‌شود، زمینه مهمان قبلی پایان می‌یابد و فراخوان میزبان باز آن بسته می‌شود.</p>}
         {tableOrder && !clearsTable && <p className="deletion-dialog__consequence">این میز سفارش باز دیگری دارد؛ فقط این سفارش حذف می‌شود و میز تا پایان سفارش‌های باقی‌مانده آماده پذیرش نخواهد شد.</p>}
         <div className="modal-actions">
           <button className="button button--quiet" type="button" ref={cancelButtonRef} disabled={busy} onClick={onCancel}>انصراف</button>
@@ -1505,12 +1540,10 @@ function SettlementSheet({
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>(() =>
     Object.fromEntries(available.map(({ item, availableQuantity }) => [item.id, availableQuantity])),
   );
-  const [settlementMode, setSettlementMode] = useState<"ITEM_QUANTITY" | "AMOUNT">("ITEM_QUANTITY");
-  const [amountValue, setAmountValue] = useState("");
   const selected = available
     .map((entry) => ({ ...entry, quantity: selectedQuantities[entry.item.id] ?? 0 }))
     .filter((entry) => entry.quantity > 0);
-  const selectedAmount = settlementMode === "AMOUNT" ? positiveIntegerAmount(amountValue) : sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
+  const selectedAmount = sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
   const [tenders, setTenders] = useState<TenderDraft[]>(() => [
     { id: requestKey(), method: "CARD_TERMINAL", amount: String(selectedAmount), reference: "" },
   ]);
@@ -1548,9 +1581,8 @@ function SettlementSheet({
       order.id,
       {
         expectedVersion: order.version,
-        ...(settlementMode === "AMOUNT"
-          ? { allocationMode: "AMOUNT" as const, amount: selectedAmount }
-          : { allocationMode: "ITEM_QUANTITY" as const, allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })) }),
+        allocationMode: "ITEM_QUANTITY" as const,
+        allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })),
         payments: tenders.map((tender) =>
           tender.method === "CARD_TRANSFER" && tender.reference.trim()
             ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() }
@@ -1588,15 +1620,8 @@ function SettlementSheet({
         <section className="settlement-selection" aria-labelledby="settlement-items-title">
           <div className="settlement-section-heading">
             <h3 id="settlement-items-title">اقلام قابل پرداخت</h3>
-            <div className="settlement-mode" role="group" aria-label="روش انتخاب مبلغ پرداخت">
-              <button type="button" className={settlementMode === "ITEM_QUANTITY" ? "is-selected" : ""} disabled={busy} onClick={() => { setSettlementMode("ITEM_QUANTITY"); resetAttempt(); }}>بر اساس اقلام</button>
-              <button type="button" className={settlementMode === "AMOUNT" ? "is-selected" : ""} disabled={busy} onClick={() => { setSettlementMode("AMOUNT"); resetAttempt(); }}>بر اساس مبلغ</button>
-            </div>
           </div>
-          {settlementMode === "AMOUNT" ? <label className="settlement-amount">مبلغ پرداخت (تومان)
-            <input inputMode="numeric" value={amountValue} disabled={busy} placeholder={`حداکثر ${formatToman(order.balanceAmount)}`} onChange={(event) => { setAmountValue(event.target.value.replace(/[^0-9]/g, "")); resetAttempt(); }} />
-            <small>این مبلغ به‌ترتیب اقلامِ باقی‌مانده تخصیص می‌یابد.</small>
-          </label> : available.map(({ item, availableQuantity }) => {
+          {available.map(({ item, availableQuantity }) => {
             const quantity = selectedQuantities[item.id] ?? 0;
             return (
               <div className="settlement-item" key={item.id}>

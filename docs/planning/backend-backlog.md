@@ -331,11 +331,15 @@ Acceptance criteria:
 
 - Seed physical tables in this exact `displayOrder`: `1`, `2`, `3`, `4`,
   `کانتر وسط`, `5`, `6`, `جگوار`, `7`, `8`, `سوشال`, `سوشال سوشال`, `9`, `10`,
-  `11`, `12`. Enable waiter-calls only for `1`, `2`, `3`, `4`, `5`, `6`,
-  `جگوار`, `7`, `8`, `9`, and `10`.
+  `11`, `12`. Provision 11 customer-facing QR locations: independent codes
+  for `1`, `2`, `5`, `6`, `جگوار`, `9`, and `10`; labels `3` and `4` for the
+  shared `3`/`4`/`کانتر وسط` physical table; and labels `7` and `8` for the
+  shared `7`/`8`/`سوشال`/`سوشال سوشال` physical table. Shared-family routing
+  selects the logical waiter-call target for a new scan; `11` and `12` are not
+  waiter-call QR locations.
 - A table has a rotatable opaque QR credential whose usable value is never
   stored in PostgreSQL or server logs. The operations command provisions one
-  table or all eligible tables, emits SVG/HTML/JSON print artifacts outside
+  physical QR location or all provisionable locations, emits SVG/HTML/JSON print artifacts outside
   version control, refuses implicit replacement, and rotates only explicitly.
   An eligible-table QR scan while the dashboard
   still shows `AVAILABLE` creates a non-blocking occupancy reminder; it does

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it } from "vitest";
-import { printDocument, printRoute } from "./print-routes";
+import { prepareThermalDocument, printRoute } from "./print-routes";
 
 afterEach(() => document.querySelectorAll('iframe[title="سند چاپی کافه"]').forEach((iframe) => iframe.remove()));
 
@@ -16,21 +16,19 @@ describe("printRoute", () => {
     expect(() => printRoute("order", "settlement")).toThrow("settlement ID");
   });
 
-  it("keeps a prepared print frame alive until printing finishes", async () => {
-    const prepared = printDocument("/pos/print/order/receipt");
+  it("serializes a prepared shared thermal document without browser printing", async () => {
+    const prepared = prepareThermalDocument("/pos/print/order/receipt");
     const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="سند چاپی کافه"]')!;
     const frameDocument = document.implementation.createHTMLDocument("print");
     frameDocument.body.innerHTML = '<main class="thermal-print">receipt</main>';
     Object.defineProperty(iframe, "contentDocument", { configurable: true, value: frameDocument });
     iframe.dispatchEvent(new Event("load"));
-    await expect(prepared).resolves.toBeUndefined();
-    expect(iframe.isConnected).toBe(true);
-    iframe.contentWindow!.dispatchEvent(new Event("afterprint"));
+    await expect(prepared).resolves.toContain('<main class="thermal-print">receipt</main>');
     expect(iframe.isConnected).toBe(false);
   });
 
   it("surfaces a print-document loading error and removes the frame", async () => {
-    const prepared = printDocument("/pos/print/order/receipt");
+    const prepared = prepareThermalDocument("/pos/print/order/receipt");
     const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="سند چاپی کافه"]')!;
     const frameDocument = document.implementation.createHTMLDocument("print");
     frameDocument.body.innerHTML = '<main class="thermal-error">رسید پیدا نشد.</main>';

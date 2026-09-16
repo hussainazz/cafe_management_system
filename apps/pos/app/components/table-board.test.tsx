@@ -84,11 +84,24 @@ describe("shared-table hold gestures", () => {
     expect(screen.queryByRole("button", { name: "8" })).toBeNull();
   });
 
+  it("shows the shared-QR indicator on both tables in the QR group", () => {
+    renderBoard([table(firstId, "7", false), table(secondId, "8", false)]);
+    expect(screen.getAllByText("QR مشترک")).toHaveLength(2);
+  });
+
   it("does not use a hold gesture to occupy a non-anchor table", () => {
     vi.useFakeTimers();
     renderBoard([table("40000000-0000-4000-8000-000000000006", "5", false)]);
     pointerDown(screen.getByRole("button", { name: /^5/ }));
     act(() => vi.advanceTimersByTime(800));
     expect(screen.queryByRole("dialog", { name: "تخصیص موقت QR" })).toBeNull();
+  });
+
+  it("prevents the browser context menu on table tiles", () => {
+    renderBoard([table("40000000-0000-4000-8000-000000000006", "5", false)]);
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    const main = screen.getByRole("button", { name: /^5/ });
+    main.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
   });
 });

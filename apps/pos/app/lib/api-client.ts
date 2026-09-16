@@ -81,7 +81,7 @@ function reportFailure(error: ApiFailure) {
   return error;
 }
 
-async function request<T>(path: string, init?: RequestInit, report = true): Promise<ApiResult<T>> {
+async function requestOnce<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   try {
     const headers = new Headers(init?.headers);
     if (!headers.has("accept")) headers.set("accept", "application/json");
@@ -97,7 +97,7 @@ async function request<T>(path: string, init?: RequestInit, report = true): Prom
       const parsed = ErrorResponseSchema.safeParse(payload);
       return {
         ok: false,
-        error: report ? reportFailure(parsed.success
+        error: parsed.success
           ? {
               kind: "response",
               status: response.status,
@@ -105,15 +105,7 @@ async function request<T>(path: string, init?: RequestInit, report = true): Prom
               message: parsed.data.error.message,
               requestId: parsed.data.error.requestId,
             }
-          : { kind: "response", status: response.status, message: "پاسخ سرویس قابل خواندن نیست." }) : (parsed.success
-          ? {
-              kind: "response",
-              status: response.status,
-              code: parsed.data.error.code,
-              message: parsed.data.error.message,
-              requestId: parsed.data.error.requestId,
-            }
-          : { kind: "response", status: response.status, message: "پاسخ سرویس قابل خواندن نیست." }),
+          : { kind: "response", status: response.status, message: "پاسخ سرویس قابل خواندن نیست." },
       };
     }
     return {
@@ -123,8 +115,46 @@ async function request<T>(path: string, init?: RequestInit, report = true): Prom
     };
   } catch {
     const error = { kind: "network" as const, message: "ارتباط با سرویس برقرار نشد." };
-    return { ok: false, error: report ? reportFailure(error) : error };
+    return { ok: false, error };
   }
+}
+
+function isAuthenticationFailure(error: ApiFailure): boolean {
+  return error.status === 401 ||
+    error.code === "AUTHENTICATION_REQUIRED" ||
+    error.code === "SESSION_EXPIRED";
+}
+
+let sessionRefreshInFlight: Promise<ApiResult<AuthenticatedUser>> | null = null;
+
+function refreshSessionOnce(): Promise<ApiResult<AuthenticatedUser>> {
+  if (sessionRefreshInFlight) return sessionRefreshInFlight;
+
+  const refresh = requestOnce<unknown>("/auth/refresh", { method: "POST" }).then((result) =>
+    parseAuthentication(result, "پاسخ نوسازی نشست معتبر نیست."),
+  );
+  sessionRefreshInFlight = refresh;
+  const clear = () => {
+    if (sessionRefreshInFlight === refresh) sessionRefreshInFlight = null;
+  };
+  void refresh.then(clear, clear);
+  return refresh;
+}
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  report = true,
+  recoverSession = true,
+): Promise<ApiResult<T>> {
+  let result = await requestOnce<T>(path, init);
+  if (!result.ok && recoverSession && isAuthenticationFailure(result.error)) {
+    const refreshed = await refreshSessionOnce();
+    if (refreshed.ok) result = await requestOnce<T>(path, init);
+    else result = { ok: false, error: refreshed.error };
+  }
+  if (!result.ok && report) return { ok: false, error: reportFailure(result.error) };
+  return result;
 }
 
 function parseAuthentication(
@@ -139,7 +169,7 @@ function parseAuthentication(
 }
 
 export async function currentSession() {
-  return parseAuthentication(await request<unknown>("/auth/me", undefined, false), "پاسخ نشست معتبر نیست.");
+  return parseAuthentication(await request<unknown>("/auth/me", undefined, false, false), "پاسخ نشست معتبر نیست.");
 }
 export async function signIn(input: { username: string; password: string }) {
   return parseAuthentication(
@@ -147,15 +177,13 @@ export async function signIn(input: { username: string; password: string }) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
-    }),
+    }, true, false),
     "پاسخ ورود معتبر نیست.",
   );
 }
 export async function refreshSession() {
-  return parseAuthentication(
-    await request<unknown>("/auth/refresh", { method: "POST" }),
-    "پاسخ نوسازی نشست معتبر نیست.",
-  );
+  const result = await refreshSessionOnce();
+  return result.ok ? result : { ok: false as const, error: reportFailure(result.error) };
 }
 export async function endSession() {
   const result = await request<null>("/auth/logout", { method: "POST" });

@@ -597,7 +597,7 @@ export type ProductSaleDiscountRequest = z.infer<typeof ProductSaleDiscountReque
 const AdminNameSchema = z.string().trim().min(1).max(120);
 const AdminDisplayOrderSchema = z.number().int().min(0).max(10_000);
 const AdminMoneySchema = z.number().int().nonnegative();
-export const AdminCategoryInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional() }).strict();
+export const AdminCategoryInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional(), isPosVisible: z.boolean().optional() }).strict();
 const AdminProductOptionGroupInputSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative().default(1), maxSelections: z.number().int().positive().default(1), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable().optional() }).strict()).max(100) }).strict().refine((value) => value.minSelections <= value.maxSelections);
 export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroups: z.array(AdminProductOptionGroupInputSchema).max(30).optional() }).strict();
 export const AdminCategoryReorderInputSchema = z.object({ categoryIds: z.array(z.uuid()).min(1).max(500) }).strict();
@@ -612,7 +612,7 @@ export const AdminImageMetadataSchema = z.object({ altText: z.string().trim().mi
 export const AdminIdPathSchema = z.object({ id: z.uuid() });
 
 const AdminMetaSchema = z.object({ requestId: z.string() });
-export const AdminCategorySchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), archivedAt: z.iso.datetime().nullable() });
+export const AdminCategorySchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isPosVisible: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminProductImageSchema = z.object({ storageKey: z.string(), altText: z.string() });
 const AdminProductOptionGroupSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative(), maxSelections: z.number().int().positive(), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable() })) });
 export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroups: z.array(AdminProductOptionGroupSchema) });

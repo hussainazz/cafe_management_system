@@ -1,6 +1,6 @@
 export type PrintKind = "bar-ticket" | "receipt" | "settlement";
 
-export function printDocument(url: string): Promise<void> {
+export function prepareThermalDocument(url: string): Promise<string> {
   if (typeof document === "undefined") return Promise.reject(new Error("چاپ فقط در مرورگر در دسترس است."));
 
   return new Promise((resolve, reject) => {
@@ -31,12 +31,16 @@ export function printDocument(url: string): Promise<void> {
     };
     const ready = () => {
       if (settled) return;
+      const frameDocument = iframe.contentDocument;
+      if (!frameDocument) return fail("مرورگر اجازه آماده‌سازی سند چاپی را نداد.");
       settled = true;
       window.clearTimeout(preparationTimeout);
-      const printWindow = iframe.contentWindow;
-      if (printWindow) printWindow.addEventListener("afterprint", cleanup, { once: true });
-      window.setTimeout(cleanup, 120_000);
-      resolve();
+      const base = frameDocument.createElement("base");
+      base.href = `${window.location.origin}/pos/`;
+      frameDocument.head.prepend(base);
+      const html = `<!doctype html>${frameDocument.documentElement.outerHTML}`;
+      cleanup();
+      resolve(html);
     };
     const inspect = () => {
       try {

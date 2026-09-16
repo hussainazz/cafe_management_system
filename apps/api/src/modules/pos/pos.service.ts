@@ -2,7 +2,7 @@ import type { PrismaClient } from "../../../generated/prisma/client.js";
 
 export async function readPosCatalog(prisma: PrismaClient) {
   const categories = await prisma.category.findMany({
-    where: { isActive: true, archivedAt: null },
+    where: { isActive: true, isPosVisible: true, archivedAt: null },
     orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     include: {
       products: {

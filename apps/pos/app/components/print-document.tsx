@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   readBarTicket,
   readOrderReceipt,
@@ -104,7 +104,6 @@ export function PrintDocument({
 }) {
   const [data, setData] = useState<BarTicket | OrderReceipt | SettlementReceipt | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const printed = useRef(false);
 
   useEffect(() => {
     const load = async () => {
@@ -119,13 +118,6 @@ export function PrintDocument({
     };
     void load();
   }, [kind, orderId, settlementId]);
-
-  useEffect(() => {
-    if (!data || printed.current) return;
-    printed.current = true;
-    const timer = window.setTimeout(() => window.print(), 120);
-    return () => window.clearTimeout(timer);
-  }, [data]);
 
   if (error)
     return (

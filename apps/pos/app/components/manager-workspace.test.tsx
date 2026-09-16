@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ManagerWorkspace } from "./manager-workspace";
 
-const catalog = { categories: [{ id: "category-1", name: "قهوه", isActive: true }], products: [], optionGroups: [], tables: [] };
+const catalog = { categories: [{ id: "category-1", name: "قهوه", isActive: true, isPosVisible: true }], products: [], optionGroups: [], tables: [] };
 
 const api = vi.hoisted(() => ({
   readManagerCatalog: vi.fn(), readManagerStaff: vi.fn(), readManagerSettings: vi.fn(),

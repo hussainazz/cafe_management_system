@@ -397,7 +397,7 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 | `seatingLimitMinutes` | Configurable expected seating limit for the table in whole minutes. The initial data default is 45 minutes, but POS code must read it from the API. |
 | `displayOrder`        | The order used to lay out tables in the POS.                                                                                                        |
 | `isActive`            | Whether staff may assign new orders to the table.                                                                                                   |
-| `waiterCallEnabled`   | Whether this physical table may expose the customer waiter-call action. It is enabled only for `1`, `2`, `3`, `4`, `5`, `6`, `جگوار`, `7`, `8`, `9`, and `10`. |
+| `waiterCallEnabled`   | Whether this logical table may be the customer waiter-call target. The 11 printed QR labels are `1` through `10` plus `جگوار`; `کانتر وسط`, `سوشال`, and `سوشال سوشال` are enabled only as routing targets of their shared physical QR families. |
 | `occupancyState`      | Shared dashboard state: `AVAILABLE` or explicitly staff/Manager-marked `OCCUPIED`.                                                                  |
 | `occupiedAt`          | When the current occupancy began; empty while available.                                                                                            |
 | `occupancyReminderAt` | Most recent eligible-table QR scan made while the table was still available; cleared when staff marks it occupied.                                  |
@@ -409,7 +409,7 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 | Field       | Explanation                                                                                                                           |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`        | Internal identity of one rotatable table QR credential record.                                                                        |
-| `tableId`   | The only table for which the credential may process a QR scan or, when eligible and occupied, create a waiter-call.                  |
+| `tableId`   | The printed QR location’s anchor logical table. A shared-family credential can be routed to another eligible logical table in the same family before the scan. |
 | `tokenHash` | One-way hash of the opaque credential. The usable token is never stored or logged in plaintext.                                        |
 | `isActive`  | Whether this credential may submit a waiter-call. Rotation deactivates the previous credential without deleting history.               |
 | `createdAt` | When the credential record was issued.                                                                                                 |

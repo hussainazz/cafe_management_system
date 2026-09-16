@@ -102,6 +102,7 @@ model Category {
   name         String
   displayOrder Int
   isActive     Boolean   @default(true)
+  isPosVisible Boolean   @default(true)
   archivedAt   DateTime?
 
   products Product[]

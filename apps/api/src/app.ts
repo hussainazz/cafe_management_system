@@ -10,6 +10,7 @@ import { isValidRequestId, registerErrorHandling } from "./errors/error-handler.
 import { healthRoutes } from "./modules/health/health.routes.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { posRoutes } from "./modules/pos/pos.routes.js";
+import { qzPrintingRoutes } from "./modules/pos/qz-printing.routes.js";
 import { tablesRoutes } from "./modules/tables/tables.routes.js";
 import { ordersRoutes } from "./modules/orders/orders.routes.js";
 import { catalogRoutes } from "./modules/catalog/catalog.routes.js";
@@ -87,6 +88,7 @@ export function buildApp() {
       api.register(healthRoutes);
       api.register(authRoutes);
       api.register(posRoutes);
+      api.register(qzPrintingRoutes);
       api.register(tablesRoutes);
       api.register(ordersRoutes);
       api.register(catalogRoutes);

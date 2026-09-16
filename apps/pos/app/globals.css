@@ -183,22 +183,31 @@ svg {
   gap: 7px;
   align-items: center;
   direction: rtl;
-  color: var(--teal);
-  font-size: 0;
+  color: #16805f;
+  font-size: var(--text-meta);
   font-weight: bold;
 }
-.connection i {
-  width: 8px;
-  height: 8px;
-  border-radius: 99px;
-  background: currentColor;
-  box-shadow: 0 0 0 4px var(--teal-soft);
+.connection svg {
+  width: 21px;
+  height: 21px;
+  flex: 0 0 auto;
 }
+.connection--connected { color: #16805f; }
 .connection--busy {
-  color: var(--orange);
+  color: #c57a16;
 }
 .connection--offline {
-  color: var(--red);
+  color: #c44747;
+}
+.refresh-button svg {
+  width: 21px;
+  height: 21px;
+}
+.refresh-button.is-refreshing svg {
+  animation: refresh-spin .8s linear infinite;
+}
+@keyframes refresh-spin {
+  to { transform: rotate(360deg); }
 }
 .text-button,
 .back-button {
@@ -1559,12 +1568,6 @@ svg {
   font-size: var(--text-label);
 }
 .settlement-section-heading span { color: var(--muted); font-size: var(--text-meta); }
-.settlement-mode { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; }
-.settlement-mode button { border: 0; background: #fff; padding: 6px 9px; color: var(--muted); font: inherit; font-size: var(--text-meta); }
-.settlement-mode button.is-selected { background: var(--teal); color: #fff; font-weight: 800; }
-.settlement-amount { display: grid; gap: 5px; padding: 12px 0; font-size: var(--text-label); }
-.settlement-amount input { min-height: 42px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
-.settlement-amount small { color: var(--muted); font-size: var(--text-meta); }
 .takeaway-orders { display: grid; align-content: start; gap: 8px; padding: 14px 10px 12px; border: 1px solid #edf0ee; border-radius: var(--radius-panel); background: #fff; box-shadow: 0 10px 30px rgba(22,35,30,.045); }
 .order-desk--takeaway .takeaway-orders { grid-column: 3; grid-row: 1; }
 .order-desk--takeaway .desk-sidebar { grid-column: 1; grid-row: 1; }
@@ -1954,6 +1957,11 @@ svg {
   text-align: center;
 }
 .thermal-error { color: #9c231c; }
+.printer-panel { position: fixed; z-index: 40; inset: 76px 16px auto auto; width: min(340px, calc(100vw - 32px)); padding: 16px; border: 1px solid var(--line, #d8d4cc); border-radius: 14px; background: var(--surface, #fff); box-shadow: 0 14px 42px rgba(34, 30, 24, .18); }
+.printer-panel header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.printer-panel p { margin: 10px 0; font-size: var(--text-meta); }
+.printer-panel label { display: grid; gap: 6px; font-size: var(--text-meta); }
+.printer-panel select { min-height: 38px; width: 100%; }
 .manager-audit-table-wrap { overflow-x: auto; }
 .manager-audit-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 12px; }
 .manager-audit-table th, .manager-audit-table td { padding: 9px 8px; border-bottom: 1px solid var(--line, #d8d4cc); text-align: right; vertical-align: top; }

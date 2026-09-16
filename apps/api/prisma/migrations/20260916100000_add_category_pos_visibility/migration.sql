@@ -1,0 +1,1 @@
+ALTER TABLE "categories" ADD COLUMN "isPosVisible" BOOLEAN NOT NULL DEFAULT true;

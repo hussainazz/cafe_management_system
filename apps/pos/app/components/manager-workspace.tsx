@@ -33,7 +33,8 @@ import {
   type PosOrderDetail,
 } from "../lib/api-client";
 import { formatOrderNumber, formatToman } from "../lib/pos-utils";
-import { printDocument, printRoute } from "../lib/print-routes";
+import { printSettlementReceipt } from "../lib/printing/print-service";
+import { AlertIcon, MenuIcon, RefreshIcon, WifiIcon } from "./icons";
 import { CatalogPanel } from "./catalog-panel";
 
 type Panel = "catalog" | "tables" | "finance" | "settings";
@@ -68,12 +69,13 @@ export function ManagerWorkspace({
   onOpenMenu: () => void;
   menuOpen: boolean;
 }) {
-  const [panel, setPanel] = useState<Panel>("catalog");
+  const [panel, setPanel] = useState<Panel>("finance");
   const [catalog, setCatalog] = useState<ManagerCatalog | null>(null);
   const [staff, setStaff] = useState<ManagerStaff | null>(null);
   const [settings, setSettings] = useState<ManagerSettings | null>(null);
   const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [loading, setLoading] = useState(true);
+  const [online, setOnline] = useState(true);
   const [confirm, setConfirm] = useState<Confirm>(null);
 
   const reloadCatalog = useCallback(async () => {
@@ -101,6 +103,17 @@ export function ManagerWorkspace({
   useEffect(() => {
     void reloadAll();
   }, [reloadAll]);
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const handleOffline = () => setOnline(false);
+    const handleOnline = () => setOnline(true);
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
   const mutate = async (
     action: () => Promise<{ ok: boolean; error?: ApiFailure }>,
     reload: () => Promise<unknown>,
@@ -119,30 +132,34 @@ export function ManagerWorkspace({
   return (
     <section className="pos-workspace manager-workspace" aria-busy={loading}>
       <header className="workspace-header">
-        <button
-          className="menu-button"
-          type="button"
-          aria-label={menuOpen ? "بستن منو" : "باز کردن منو"}
-          aria-expanded={menuOpen}
-          onClick={onOpenMenu}
-        >
-          ☰
-        </button>
-        <div className="workspace-title">
-          <p className="kicker">مدیریت</p>
-          <h1>کنترل کافه</h1>
-          <p>تغییرها مستقیماً با قوانین سرور ثبت می‌شوند.</p>
+        <div className="header-actions">
+          <span className={`connection ${!online ? "connection--offline" : loading || failure ? "connection--busy" : "connection--connected"}`} role="status" aria-label={!online ? "اتصال شبکه قطع است" : failure ? "داده مدیریت ناقص است" : loading ? "در حال بازخوانی اتصال" : "اتصال برقرار است"}>
+            <WifiIcon />
+            <span>{!online ? "قطع ارتباط" : failure ? "داده ناقص" : loading ? "در حال بازخوانی" : "متصل"}</span>
+          </span>
+          <button className={`icon-button refresh-button${loading ? " is-refreshing" : ""}`} type="button" disabled={loading} onClick={() => void reloadAll()} aria-label="تازه‌سازی وضعیت مدیریت" title="تازه‌سازی وضعیت مدیریت">
+            <RefreshIcon />
+          </button>
+          <button
+            className="menu-button"
+            type="button"
+            aria-label={menuOpen ? "بستن منو" : "باز کردن منو"}
+            aria-expanded={menuOpen}
+            onClick={onOpenMenu}
+          >
+            <MenuIcon />
+          </button>
         </div>
-        <button className="text-button" type="button" onClick={() => void reloadAll()}>
-          نوسازی
-        </button>
+        <div className="workspace-title">
+          <h1>مدیریت</h1>
+        </div>
       </header>
       <nav className="manager-tabs" aria-label="بخش‌های مدیریت">
         {(
           [
+            ["finance", "حسابداری"],
             ["catalog", "کاتالوگ"],
             ["tables", "میزها"],
-            ["finance", "حسابداری"],
             ["settings", "تنظیمات"],
           ] as const
         ).map(([id, label]) => (
@@ -208,6 +225,7 @@ function LegacyCatalogPanel({
                   name: text(data.get("name")),
                   displayOrder: number(data.get("displayOrder")),
                   isActive: true,
+                  isPosVisible: true,
                 }),
               reload,
             )
@@ -231,6 +249,7 @@ function LegacyCatalogPanel({
                         name: text(data.get("name")),
                         displayOrder: number(data.get("displayOrder")),
                         isActive: data.get("isActive") === "on",
+                        isPosVisible: data.get("isPosVisible") === "on",
                       }),
                     reload,
                   )
@@ -238,7 +257,8 @@ function LegacyCatalogPanel({
                 fields={[
                   ["name", "نام", "text", row.name],
                   ["displayOrder", "ترتیب", "number", row.displayOrder],
-                  ["isActive", "فعال", "checkbox", row.isActive],
+                  ["isActive", "نمایش در منوی عمومی", "checkbox", row.isActive],
+                  ["isPosVisible", "نمایش در سفارش‌گیری POS", "checkbox", row.isPosVisible],
                 ]}
               />
               <DangerButton
@@ -383,7 +403,7 @@ function TablesPanel({ catalog, mutate, reload, requestConfirm }: {
 }) {
   return (
     <div className="manager-grid">
-      <ManagerCard title="میزهای فیزیکی" hint="ظرفیت زمانی، ترتیب نمایش و مجوز فراخوان گارسون">
+      <ManagerCard title="میزهای فیزیکی" hint="ظرفیت زمانی، ترتیب نمایش و مجوز فراخوان میزبان">
         <TableForm
           submit={(body) => mutate(() => saveTable(null, body), reload)}
           action="افزودن میز"
@@ -643,8 +663,10 @@ function FinancePanel({
                 className="secondary-button"
                 type="button"
                 onClick={() =>
-                  void printDocument(printRoute(item.orderId, "settlement", item.id)).catch((error: unknown) => {
-                    setMessage(error instanceof Error ? error.message : "سند چاپی آماده نشد.");
+                  void printSettlementReceipt(item.orderId, item.id).then(() => {
+                    setMessage("فیش برای چاپگر ارسال شد.");
+                  }).catch((error: unknown) => {
+                    setMessage(error instanceof Error ? error.message : "ارسال فیش به چاپگر انجام نشد.");
                   })
                 }
               >
@@ -1134,7 +1156,7 @@ function TableForm({
         ["name", "نام میز", "text", initial?.name],
         ["displayOrder", "ترتیب", "number", initial?.displayOrder ?? 0],
         ["isActive", "فعال", "checkbox", initial?.isActive ?? true],
-        ["waiterCallEnabled", "فراخوان گارسون", "checkbox", initial?.waiterCallEnabled ?? false],
+        ["waiterCallEnabled", "فراخوان میزبان", "checkbox", initial?.waiterCallEnabled ?? false],
       ]}
     />
   );

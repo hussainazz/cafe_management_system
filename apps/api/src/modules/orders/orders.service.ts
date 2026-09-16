@@ -41,7 +41,7 @@ type ProductForOrder = {
   isActive: boolean;
   isAvailable: boolean;
   archivedAt: Date | null;
-  category: { isActive: boolean; archivedAt: Date | null };
+  category: { isActive: boolean; isPosVisible: boolean; archivedAt: Date | null };
   productOptionGroups: Array<{
     minSelections: number;
     maxSelections: number;
@@ -168,6 +168,7 @@ function isAvailableProduct(product: ProductForOrder): boolean {
     product.isAvailable &&
     !product.archivedAt &&
     product.category.isActive &&
+    product.category.isPosVisible &&
     !product.category.archivedAt
   );
 }
@@ -295,7 +296,7 @@ export async function createOrder(
       const products = await transaction.product.findMany({
         where: { id: { in: productIds } },
         include: {
-          category: { select: { isActive: true, archivedAt: true } },
+          category: { select: { isActive: true, isPosVisible: true, archivedAt: true } },
           productOptionGroups: {
             include: {
               optionGroup: {
@@ -640,7 +641,7 @@ export async function updateOrder(
       const products = await transaction.product.findMany({
         where: { id: { in: productIds } },
         include: {
-          category: { select: { isActive: true, archivedAt: true } },
+          category: { select: { isActive: true, isPosVisible: true, archivedAt: true } },
           productOptionGroups: { include: { optionGroup: true, allowedOptions: { include: { option: true } } } },
         },
       });

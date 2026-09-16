@@ -213,8 +213,11 @@ history by default.
     validation.
 - Initial records, in `displayOrder` order: `1`, `2`, `3`, `4`, `کانتر وسط`,
   `5`, `6`, `جگوار`, `7`, `8`, `سوشال`, `سوشال سوشال`, `9`, `10`, `11`, `12`.
-  Waiter-call eligibility is enabled only for `1`, `2`, `3`, `4`, `5`, `6`,
-  `جگوار`, `7`, `8`, `9`, and `10`.
+  The 11 printed waiter-call QR locations are `1`, `2`, `3`, `4`, `5`, `6`,
+  `جگوار`, `7`, `8`, `9`, and `10`. Labels `3` and `4` share a QR family with
+  logical table `کانتر وسط`; labels `7` and `8` share a QR family with logical
+  tables `سوشال` and `سوشال سوشال`. These logical routing targets must remain
+  waiter-call eligible even though they do not receive their own printed QR.
 
 ### `table_qr_credentials`
 

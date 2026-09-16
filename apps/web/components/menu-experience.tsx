@@ -59,7 +59,7 @@ const copy = {
     invalidQrTitle: "این کد میز دیگر معتبر نیست",
     invalidQrBody: "منو همچنان در دسترس است؛ برای تعویض کد میز با همکاران کافه صحبت کنید.",
     tableContext: "میز",
-    callWaiter: "درخواست گارسون",
+    callWaiter: "صدا زدن میزبان",
     callingWaiter: "در حال ارسال…",
     waiterCalled: "درخواست شما ارسال شد",
     waiterCallError: "ارسال درخواست ممکن نشد؛ کمی بعد دوباره امتحان کنید.",
@@ -885,7 +885,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
           ? text.waiterCalled
           : callingWaiter
             ? text.callingWaiter
-            : "صدا زدن پرسنل"}</span>
+            : text.callWaiter}</span>
       </button>
     ) : null}
     </>
