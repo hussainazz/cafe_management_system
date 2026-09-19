@@ -66,4 +66,19 @@ describe("public QR menu", () => {
     expect((await app.inject({ method: "GET", url: "/api/v1/public/menu?q=" })).statusCode).toBe(400);
     expect((await app.inject({ method: "GET", url: `/api/v1/public/products/${latte.id}` })).json().data).toMatchObject({ id: latte.id, name: "Latte", priceAmount: 150_000 });
   });
+
+  it("hides POS-only products from menu, search, category reads, and direct lookup", async () => {
+    const category = await app.prisma.category.create({ data: { name: "پک", displayOrder: 1 } });
+    const packing = await app.prisma.product.create({ data: { categoryId: category.id, name: "بسته‌بندی", priceAmount: 0, isPublic: false, systemKey: "PACKING", preparationDeadlineMinutes: 1, displayOrder: 1 } });
+
+    const menu = await app.inject({ method: "GET", url: "/api/v1/public/menu" });
+    const search = await app.inject({ method: "GET", url: "/api/v1/public/menu?q=بسته" });
+    const filtered = await app.inject({ method: "GET", url: `/api/v1/public/menu?categoryId=${category.id}` });
+    const direct = await app.inject({ method: "GET", url: `/api/v1/public/products/${packing.id}` });
+
+    expect(menu.json().data.categories.some((entry: any) => entry.products.some((product: any) => product.id === packing.id))).toBe(false);
+    expect(search.json().data.categories).toEqual([]);
+    expect(filtered.json().data.categories).toEqual([]);
+    expect(direct.statusCode).toBe(404);
+  });
 });

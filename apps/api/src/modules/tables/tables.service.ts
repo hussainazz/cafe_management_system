@@ -1,6 +1,5 @@
 import { OrderState, type PrismaClient } from "../../../generated/prisma/client.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
-import { qrAssignmentWindowSeconds } from "../../table-context/table-context.js";
 
 const activeOrders = {
   where: { state: OrderState.OPEN },
@@ -18,8 +17,6 @@ const activeOrders = {
 function tableDto(table: {
   id: string;
   name: string;
-  qrFamilyId: string | null;
-  qrFamily: { id: string; tables: Array<{ id: string; name: string; isActive: boolean; archivedAt: Date | null }> ; assignmentTargetTableId: string | null; assignmentExpiresAt: Date | null } | null;
   waiterCallEnabled: boolean;
   occupancyState: "AVAILABLE" | "OCCUPIED";
   occupiedAt: Date | null;
@@ -33,15 +30,9 @@ function tableDto(table: {
     items: Array<{ product: { preparationDeadlineMinutes: number } }>;
   }>;
 }) {
-  const assignment = table.qrFamily?.assignmentTargetTableId && table.qrFamily.assignmentExpiresAt && table.qrFamily.assignmentExpiresAt > new Date()
-    ? table.qrFamily.tables.find((item) => item.id === table.qrFamily?.assignmentTargetTableId && item.isActive && !item.archivedAt)
-    : null;
   return {
     id: table.id,
     name: table.name,
-    qrFamilyId: table.qrFamilyId,
-    qrFamilyMembers: table.qrFamily?.tables.filter((item) => item.isActive && !item.archivedAt).map((item) => ({ id: item.id, name: item.name })) ?? [],
-    qrAssignment: assignment && table.qrFamily?.assignmentExpiresAt ? { targetTableId: assignment.id, targetTableName: assignment.name, expiresAt: table.qrFamily.assignmentExpiresAt.toISOString() } : null,
     waiterCallEnabled: table.waiterCallEnabled,
     occupancyState: table.occupancyState,
     occupiedAt: table.occupiedAt?.toISOString() ?? null,
@@ -61,7 +52,7 @@ export async function listPosTables(prisma: PrismaClient) {
   const tables = await prisma.cafeTable.findMany({
     where: { isActive: true, archivedAt: null },
     orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
-    include: { orders: activeOrders, qrFamily: { include: { tables: { select: { id: true, name: true, isActive: true, archivedAt: true } } } } },
+    include: { orders: activeOrders },
   });
 
   const settings = await prisma.cafeSettings.upsert({ where: { singletonKey: true }, create: { tableSeatingLimitMinutes: null }, update: {}, select: { tableSeatingLimitMinutes: true } });
@@ -71,7 +62,7 @@ export async function listPosTables(prisma: PrismaClient) {
 export async function readPosTable(prisma: PrismaClient, tableId: string) {
   const table = await prisma.cafeTable.findFirst({
     where: { id: tableId, isActive: true, archivedAt: null },
-    include: { orders: activeOrders, qrFamily: { include: { tables: { select: { id: true, name: true, isActive: true, archivedAt: true } } } } },
+    include: { orders: activeOrders },
   });
 
   if (!table) {
@@ -80,29 +71,6 @@ export async function readPosTable(prisma: PrismaClient, tableId: string) {
 
   const settings = await prisma.cafeSettings.upsert({ where: { singletonKey: true }, create: { tableSeatingLimitMinutes: null }, update: {}, select: { tableSeatingLimitMinutes: true } });
   return { tableSeatingLimitMinutes: settings.tableSeatingLimitMinutes, ...tableDto(table) };
-}
-
-export async function activateQrAssignment(prisma: PrismaClient, tableId: string, targetTableId: string) {
-  const now = new Date();
-  await prisma.$transaction(async (transaction) => {
-    const source = await transaction.cafeTable.findFirst({ where: { id: tableId, isActive: true, archivedAt: null }, select: { id: true, qrFamilyId: true } });
-    if (!source?.qrFamilyId) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "This table does not belong to a shared QR family.");
-    await transaction.$queryRaw`SELECT "id" FROM "table_qr_families" WHERE "id" = ${source.qrFamilyId} FOR UPDATE`;
-    const target = await transaction.cafeTable.findFirst({ where: { id: targetTableId, qrFamilyId: source.qrFamilyId, isActive: true, archivedAt: null }, select: { id: true } });
-    if (!target) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The target table is outside this QR family.");
-    await transaction.tableQrFamily.update({ where: { id: source.qrFamilyId }, data: { assignmentTargetTableId: target.id, assignmentActivatedAt: now, assignmentFirstScanAt: null, assignmentExpiresAt: new Date(now.getTime() + qrAssignmentWindowSeconds * 1_000) } });
-  });
-  return readPosTable(prisma, tableId);
-}
-
-export async function cancelQrAssignment(prisma: PrismaClient, tableId: string) {
-  await prisma.$transaction(async (transaction) => {
-    const source = await transaction.cafeTable.findFirst({ where: { id: tableId, isActive: true, archivedAt: null }, select: { qrFamilyId: true } });
-    if (!source?.qrFamilyId) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "This table does not belong to a shared QR family.");
-    await transaction.$queryRaw`SELECT "id" FROM "table_qr_families" WHERE "id" = ${source.qrFamilyId} FOR UPDATE`;
-    await transaction.tableQrFamily.update({ where: { id: source.qrFamilyId }, data: { assignmentTargetTableId: null, assignmentActivatedAt: null, assignmentFirstScanAt: null, assignmentExpiresAt: null } });
-  });
-  return readPosTable(prisma, tableId);
 }
 
 export async function occupyTable(prisma: PrismaClient, tableId: string) {

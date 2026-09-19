@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   readBarTicket,
   readOrderReceipt,
@@ -86,6 +86,10 @@ function ReceiptDocument({ receipt }: { receipt: Receipt }) {
       </div>
       <div className="thermal-divider" aria-hidden="true" />
       <ReceiptItems receipt={receipt} className="thermal-items--receipt" />
+      <div className="thermal-receipt-total" aria-label="مجموع">
+        <span>مجموع</span>
+        <strong>{formatToman(receipt.totalAmount)}</strong>
+      </div>
       <div className="thermal-divider" aria-hidden="true" />
       <p className="thermal-time thermal-time--footer">{receipt.displayTime}</p>
       <p className="thermal-thanks">تشکر از انتخابتون :) </p>
@@ -104,6 +108,7 @@ export function PrintDocument({
 }) {
   const [data, setData] = useState<BarTicket | OrderReceipt | SettlementReceipt | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const printed = useRef(false);
 
   useEffect(() => {
     const load = async () => {
@@ -118,6 +123,13 @@ export function PrintDocument({
     };
     void load();
   }, [kind, orderId, settlementId]);
+
+  useEffect(() => {
+    if (!data || printed.current) return;
+    printed.current = true;
+    const timer = window.setTimeout(() => window.print(), 120);
+    return () => window.clearTimeout(timer);
+  }, [data]);
 
   if (error)
     return (

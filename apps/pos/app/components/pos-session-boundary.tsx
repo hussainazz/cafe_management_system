@@ -33,11 +33,31 @@ function failureState(error: ApiFailure): SessionState {
   return { kind: "failure", error };
 }
 
+function usePosTheme() {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  useEffect(() => {
+    const saved = localStorage.getItem("pos-theme") as "light" | "dark" | null;
+    const initial = saved ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    setTheme(initial);
+    document.documentElement.setAttribute("data-theme", initial);
+  }, []);
+  const toggle = useCallback(() => {
+    setTheme((prev) => {
+      const next = prev === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("pos-theme", next);
+      return next;
+    });
+  }, []);
+  return { theme, toggle };
+}
+
 export function PosSessionBoundary() {
   const [session, setSession] = useState<SessionState>({ kind: "loading" });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [workspace, setWorkspace] = useState<"orders" | "manager">("orders");
   const opener = useRef<HTMLButtonElement | null>(null);
+  const { theme, toggle } = usePosTheme();
 
   useEffect(() => {
     const unlock = () => { void unlockWaiterCallSound(); };
@@ -150,6 +170,10 @@ export function PosSessionBoundary() {
           </button>
           {session.user.role === "MANAGER" && <button className={`nav-item ${workspace === "manager" ? "is-active" : ""}`} type="button" onClick={() => { setWorkspace("manager"); setDrawerOpen(false); opener.current?.focus(); }}><span aria-hidden="true">⚙</span><span>مدیریت</span></button>}
         </nav>
+        <button className="theme-toggle" type="button" onClick={toggle} aria-label={theme === "dark" ? "تغییر به حالت روشن" : "تغییر به حالت تاریک"}>
+          <span>{theme === "dark" ? "حالت تاریک" : "حالت روشن"}</span>
+          <span className={`theme-toggle__switch ${theme === "dark" ? "is-dark" : ""}`} aria-hidden="true"><i /></span>
+        </button>
       </aside>
 
       <main className="pos-main">

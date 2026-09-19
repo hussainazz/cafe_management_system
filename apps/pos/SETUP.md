@@ -44,26 +44,17 @@ to the server-only `API_BASE_URL`, which keeps session cookies on the POS origin
 - Treat API totals, permissions, idempotency results, and version conflicts as
   server-authoritative.
 
-## Windows POS88C and QZ Tray production printing
+## Windows POS88C browser printing
 
 1. Connect the OSCAR POS88C by USB, install its Windows driver, and first pass
    a Windows test print. Configure the driver for 80 mm media and its supported
    cutter/feed behavior.
-2. Install QZ Tray on the café Windows POS computer and enable its Start with
-   Windows option. QZ Tray, rather than Chrome kiosk printing, sends jobs to
-   the Windows printer queue.
-3. In POS, use the compact **چاپگر** control to verify QZ connectivity and
-   select the local POS88C queue. This preference is intentionally stored only
-   on that Windows machine; bar and receipt roles currently use the same queue.
-4. Configure `QZ_CERTIFICATE_PATH` and `QZ_PRIVATE_KEY_PATH` on the API host.
-   The private key must stay server-side and must never be put in a
-   `NEXT_PUBLIC_*` variable, browser storage, or Git.
-5. Install the appropriate QZ trusted signing certificate. A locally generated
-   key pair alone does not establish trusted no-warning production printing.
-6. Verify a bar ticket, normal receipt, and settlement receipt: Persian glyph
-   joining, RTL layout, dynamic receipt height, 80 mm width, and no Chrome
-   print preview/dialog. QZ submission means the job entered the Windows queue;
-   it does not prove paper has exited the printer.
-
-Chrome does not need `--kiosk-printing` for this QZ printing path. Full-screen
-or kiosk mode can still be used independently for the POS interface.
+2. Configure Chrome's kiosk printing or the browser print workflow on the café
+   POS computer so the POS88C queue, 80 mm media, and supported cutter/feed
+   behavior are selected without manual printer changes during service.
+3. POS print actions load the authenticated `/pos/print/...` document in a
+   hidden same-origin iframe and trigger the browser's configured print flow;
+   the preview route is not a separate user-facing tab.
+4. Verify a bar ticket, normal receipt, and settlement receipt: Persian glyph
+   joining, RTL layout, dynamic receipt height, 80 mm width, and the expected
+   browser print behavior.

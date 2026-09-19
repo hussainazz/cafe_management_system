@@ -6,6 +6,7 @@ export type PublicTableContext = {
   occupancyState: "AVAILABLE" | "OCCUPIED" | null;
   waiterCallStatus: "PENDING" | null;
   canCallWaiter: boolean;
+  waiterCallCooldownProgress: number;
   authenticationRequired?: boolean;
   customerAuthenticated?: boolean;
   visitActive?: boolean;
@@ -19,7 +20,11 @@ function isPublicTableContext(value: unknown): value is PublicTableContext {
     (typeof context.tableName === "string" || context.tableName === null) &&
     (context.occupancyState === "AVAILABLE" || context.occupancyState === "OCCUPIED" || context.occupancyState === null) &&
     (context.waiterCallStatus === "PENDING" || context.waiterCallStatus === null) &&
-    typeof context.canCallWaiter === "boolean"
+    typeof context.canCallWaiter === "boolean" &&
+    typeof context.waiterCallCooldownProgress === "number" &&
+    Number.isFinite(context.waiterCallCooldownProgress) &&
+    context.waiterCallCooldownProgress >= 0 &&
+    context.waiterCallCooldownProgress <= 1
   );
 }
 

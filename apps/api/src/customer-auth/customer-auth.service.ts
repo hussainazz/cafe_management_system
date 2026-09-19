@@ -135,7 +135,7 @@ export async function verifyCustomerOtp(prisma: PrismaClient, challengeId: strin
 
 export async function createVisitForAuthenticatedCustomer(prisma: PrismaClient, customerId: string, credentialId: string, tableId: string) {
   const now = new Date();
-  const credential = await prisma.tableQrCredential.findFirst({ where: { id: credentialId, isActive: true, table: { isActive: true, archivedAt: null, waiterCallEnabled: true } } });
+  const credential = await prisma.tableQrCredential.findFirst({ where: { id: credentialId, isActive: true, table: { isActive: true, archivedAt: null, customerQrEnabled: true, waiterCallEnabled: true } } });
   if (!credential) return null;
   return prisma.$transaction(async (tx) => {
     await tx.customerTableVisit.updateMany({ where: { customerId, invalidatedAt: null }, data: { invalidatedAt: now } });

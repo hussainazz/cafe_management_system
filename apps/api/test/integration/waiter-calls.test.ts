@@ -36,7 +36,7 @@ async function staffCookies() {
 
 async function tableCredential(name = "1") {
   const table = await app.prisma.cafeTable.create({
-    data: { name, displayOrder: 1, waiterCallEnabled: true },
+    data: { name, displayOrder: 1, waiterCallEnabled: true, customerQrEnabled: true },
   });
   const token = createTableQrToken();
   const credential = await app.prisma.tableQrCredential.create({
@@ -162,7 +162,7 @@ describe("public table context and waiter-calls", () => {
     const cleared = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: originalCookies });
     expect(cleared.json().data.active).toBe(false);
 
-    const expiredValue = createTableContextCookieValue(credential.id, new Date(Date.now() - 13 * 60 * 60 * 1_000));
+    const expiredValue = createTableContextCookieValue(credential.id, table.id, new Date(Date.now() - 13 * 60 * 60 * 1_000));
     const expired = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: { [tableContextCookieName]: expiredValue } });
     expect(expired.json().data.active).toBe(false);
     const tampered = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: { [tableContextCookieName]: `${originalCookies[tableContextCookieName]}x` } });
@@ -198,6 +198,22 @@ describe("public table context and waiter-calls", () => {
     }
     expect(await app.prisma.tableQrCredential.count()).toBe(1);
     expect(await app.prisma.waiterCall.count()).toBe(0);
+  });
+
+  it("resolves each independent QR credential only to its attached table", async () => {
+    const entries = await Promise.all(["3", "5", "9"].map(async (name, index) => {
+      const table = await app.prisma.cafeTable.create({ data: { name, displayOrder: index + 1, waiterCallEnabled: true, customerQrEnabled: true } });
+      const token = createTableQrToken();
+      await app.prisma.tableQrCredential.create({ data: { tableId: table.id, tokenHash: hashTableQrToken(token) } });
+      return { table, token };
+    }));
+    for (const entry of entries) {
+      const exchange = await app.inject({ method: "POST", url: "/api/v1/public/table-context/exchange", payload: { token: entry.token } });
+      expect(exchange.statusCode).toBe(200);
+      expect(cookies(exchange)[tableContextCookieName]).toBeTruthy();
+      const context = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: cookies(exchange) });
+      expect(context.json().data).toMatchObject({ active: true, tableName: entry.table.name });
+    }
   });
 
   it("serializes OTP requests and permanently enforces the verification attempt limit", async () => {

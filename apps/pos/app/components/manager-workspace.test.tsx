@@ -123,6 +123,7 @@ describe("ManagerWorkspace", () => {
       () => new Promise((resolve) => { finishUpload = () => resolve({ ok: true }); }),
     );
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    fireEvent.click(await screen.findByText("کاتالوگ"));
     await screen.findByText("ترک");
     fireEvent.click(screen.getByText("ترک"));
     const file = new File(["image"], "turkish.webp", { type: "image/webp" });

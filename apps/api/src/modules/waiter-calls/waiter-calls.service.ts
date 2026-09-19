@@ -6,10 +6,10 @@ import {
   hashTableQrToken,
   readTableContextCookieValue,
   tableContextCookieName,
-  qrAssignmentWindowSeconds,
 } from "../../table-context/table-context.js";
 import { readCustomerAuth } from "../../customer-auth/customer-auth.service.js";
 import { createVisitForAuthenticatedCustomer } from "../../customer-auth/customer-auth.service.js";
+import { WAITER_CALL_COOLDOWN_MS } from "@cafe/contracts";
 
 const inactiveContext = {
   active: false,
@@ -17,9 +17,8 @@ const inactiveContext = {
   occupancyState: null,
   waiterCallStatus: null,
   canCallWaiter: false,
+  waiterCallCooldownProgress: 0,
 } as const;
-
-const WAITER_CALL_COOLDOWN_MS = 2 * 60 * 1_000;
 
 export async function credentialFromCookie(prisma: PrismaClient, cookieHeader: string | undefined) {
   const payload = readTableContextCookieValue(readCookie(cookieHeader, tableContextCookieName));
@@ -27,22 +26,20 @@ export async function credentialFromCookie(prisma: PrismaClient, cookieHeader: s
 
   const credential = await prisma.tableQrCredential.findUnique({
     where: { id: payload.credentialId },
-    include: { table: { include: { qrFamily: { include: { tables: true } } } } },
+    include: { table: true },
   });
   if (
     !credential?.isActive ||
     !credential.table.isActive ||
     credential.table.archivedAt ||
+    !credential.table.customerQrEnabled ||
     !credential.table.waiterCallEnabled ||
     credential.createdAt.getTime() > payload.issuedAt
   ) {
     return null;
   }
-  const table = payload.tableId
-    ? (credential.table.qrFamily?.tables.find((item) => item.id === payload.tableId && item.isActive && !item.archivedAt)
-      ?? (payload.tableId === credential.table.id ? credential.table : undefined))
-    : credential.table;
-  if (!table) return null;
+  if (payload.tableId && payload.tableId !== credential.table.id) return null;
+  const table = credential.table;
   if (
     !table.isActive ||
     table.archivedAt ||
@@ -75,6 +72,7 @@ async function contextDto(prisma: PrismaClient, cookieHeader: string | undefined
     occupancyState: table.occupancyState,
     waiterCallStatus: pendingCall ? ("PENDING" as const) : null,
     canCallWaiter: !cooldownActive && (Boolean(visit) || (table.occupancyState === "OCCUPIED" && table.customerAuthBypassEnabled)),
+    waiterCallCooldownProgress: cooldownActive ? Math.max(0, Math.min(1, (cooldownEndsAt!.getTime() - now.getTime()) / WAITER_CALL_COOLDOWN_MS)) : 0,
     authenticationRequired: !(table.occupancyState === "OCCUPIED" && table.customerAuthBypassEnabled) && !auth,
     customerAuthenticated: Boolean(auth),
     visitActive: Boolean(visit),
@@ -85,12 +83,13 @@ export async function exchangeTableQrToken(prisma: PrismaClient, token: string, 
   const tokenHash = hashTableQrToken(token);
   const credential = await prisma.tableQrCredential.findUnique({
     where: { tokenHash },
-    include: { table: { include: { qrFamily: { include: { tables: true } } } } },
+    include: { table: true },
   });
   if (
     !credential?.isActive ||
     !credential.table.isActive ||
     credential.table.archivedAt ||
+    !credential.table.customerQrEnabled ||
     !credential.table.waiterCallEnabled
   ) {
     throw new ApplicationError(
@@ -101,37 +100,15 @@ export async function exchangeTableQrToken(prisma: PrismaClient, token: string, 
   }
 
   const now = new Date();
-  const existing = await credentialFromCookie(prisma, cookieHeader);
-  const sameFamily = Boolean(existing?.credential.table.qrFamilyId && existing.credential.table.qrFamilyId === credential.table.qrFamilyId);
   const resolved = await prisma.$transaction(async (transaction) => {
-    if (credential.table.qrFamilyId) {
-      await transaction.$queryRaw(Prisma.sql`SELECT "id" FROM "table_qr_families" WHERE "id" = ${credential.table.qrFamilyId} FOR UPDATE`);
-    }
-    const family = credential.table.qrFamilyId
-      ? await transaction.tableQrFamily.findUnique({ where: { id: credential.table.qrFamilyId }, include: { tables: true } })
-      : null;
-    let tableId = sameFamily ? existing!.table.id : credential.tableId;
-    if (!sameFamily && family) {
-      const activeAssignment = family.assignmentTargetTableId && family.assignmentExpiresAt && family.assignmentExpiresAt > now
-        ? family.tables.find((item) => item.id === family.assignmentTargetTableId && item.isActive && !item.archivedAt)
-        : null;
-      if (activeAssignment) {
-        tableId = activeAssignment.id;
-        if (!family.assignmentFirstScanAt) {
-          await transaction.tableQrFamily.update({ where: { id: family.id }, data: { assignmentFirstScanAt: now } });
-        }
-      } else if (family.assignmentExpiresAt && family.assignmentExpiresAt <= now) {
-        await transaction.tableQrFamily.update({ where: { id: family.id }, data: { assignmentTargetTableId: null, assignmentActivatedAt: null, assignmentFirstScanAt: null, assignmentExpiresAt: null } });
-      }
-    }
-    const table = family?.tables.find((item) => item.id === tableId) ?? credential.table;
+    const table = credential.table;
     if (table.occupancyState === "AVAILABLE") {
       await transaction.cafeTable.updateMany({
         where: { id: table.id, isActive: true, archivedAt: null, waiterCallEnabled: true, occupancyState: "AVAILABLE" },
         data: { occupancyReminderAt: now },
       });
     }
-    return { tableId, tableName: table.name };
+    return { tableId: table.id, tableName: table.name };
   });
   const auth = await readCustomerAuth(prisma, cookieHeader);
   if (auth) await createVisitForAuthenticatedCustomer(prisma, auth.customerId, credential.id, resolved.tableId);

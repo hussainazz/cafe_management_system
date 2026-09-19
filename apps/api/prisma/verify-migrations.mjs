@@ -131,46 +131,48 @@ async function verifyFreshDeploy(files) {
     }
 
     const tables = await client.query(
-      `SELECT "name", "displayOrder", "waiterCallEnabled"
-       FROM "cafe_tables" ORDER BY "displayOrder"`,
+      `SELECT "name", "displayOrder", "waiterCallEnabled", "customerQrEnabled", "isActive", "archivedAt"
+       FROM "cafe_tables" WHERE "isActive" = true ORDER BY "displayOrder"`,
     );
     const expectedNames = [
       "1",
       "2",
       "3",
       "4",
-      "کانتر وسط",
       "5",
       "6",
-      "جگوار",
       "7",
       "8",
-      "سوشال",
-      "سوشال سوشال",
       "9",
       "10",
       "11",
       "12",
+      "13",
+      "14",
+      "15",
     ];
-    const enabledNames = new Set(["1", "2", "3", "4", "کانتر وسط", "5", "6", "جگوار", "7", "8", "سوشال", "سوشال سوشال", "9", "10"]);
+    const enabledNames = new Set(expectedNames.slice(0, 13));
     if (
       tables.rows.length !== expectedNames.length ||
       tables.rows.some(
         (row, index) =>
           row.name !== expectedNames[index] ||
           row.displayOrder !== index + 1 ||
-          row.waiterCallEnabled !== enabledNames.has(row.name),
+          row.waiterCallEnabled !== (row.name !== "14" && row.name !== "15") ||
+          row.customerQrEnabled !== enabledNames.has(row.name) ||
+          row.isActive !== true ||
+          row.archivedAt !== null,
       )
     ) {
       throw new Error("Fresh deploy did not seed the exact physical table layout");
     }
 
-    const familyIds = await client.query(
-      `SELECT "id" FROM "table_qr_families" ORDER BY "id"`,
+    const archived = await client.query(
+      `SELECT "name", "isActive", "archivedAt", "customerQrEnabled"
+       FROM "cafe_tables" WHERE "id" = '40000000-0000-4000-8000-000000000012'`,
     );
-    const apiUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-    if (familyIds.rows.some((row) => !apiUuidPattern.test(row.id))) {
-      throw new Error("Fresh deploy created a QR-family ID rejected by the API contract");
+    if (archived.rows[0]?.name !== "سوشال سوشال" || archived.rows[0]?.isActive !== false || archived.rows[0]?.archivedAt === null || archived.rows[0]?.customerQrEnabled !== false) {
+      throw new Error("Fresh deploy did not archive the retired table topology row");
     }
 
     await client.query(
@@ -217,14 +219,14 @@ async function verifyBackupRestore(files) {
       const evidence = await client.query(`
         SELECT
           (SELECT count(*)::int FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL) AS migrations,
-          (SELECT count(*)::int FROM "cafe_tables") AS tables,
+          (SELECT count(*)::int FROM "cafe_tables" WHERE "isActive" = true) AS tables,
           (SELECT count(*)::int FROM "categories" WHERE "name" = 'Backup restore probe') AS probes,
           to_regclass('public.waiter_calls') AS waiter_table
       `);
       const row = evidence.rows[0];
       if (
         row?.migrations !== files.length ||
-        row?.tables !== 16 ||
+        row?.tables !== 15 ||
         row?.probes !== 1 ||
         row?.waiter_table !== "waiter_calls"
       ) {

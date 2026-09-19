@@ -25,6 +25,9 @@ const menu = `
 افزودنی|اب معدنی:30,نوشابه:100,سودا لیمویی:100,Vitamin C:85,هایپ:180,سیروپ:45,شات شیر:35,عسل:45,اسکپ بستنی:85,دلستر لیوانی:90,ابجو بدون الکل با دورچین:190
 `.trim();
 
+const PACKING_SYSTEM_KEY = "PACKING" as const;
+const PACKING_DEFAULT_NAME = "بسته‌بندی";
+
 type OptionConfiguration = {
   name: string;
   totalPriceAmount: number;
@@ -279,6 +282,24 @@ async function main() {
           archivedProducts += archived.count;
         }
       }
+
+      const packing = await tx.product.findUnique({ where: { categoryId_systemKey: { categoryId: category.id, systemKey: PACKING_SYSTEM_KEY } } });
+      const packingProduct = packing ?? await tx.product.create({
+        data: {
+          categoryId: category.id,
+          name: PACKING_DEFAULT_NAME,
+          priceAmount: 15000,
+          isPublic: false,
+          systemKey: PACKING_SYSTEM_KEY,
+          preparationDeadlineMinutes: 1,
+          displayOrder: desiredCategory.products.length + 1,
+        },
+      });
+      await tx.product.update({
+        where: { id: packingProduct.id },
+        data: { isPublic: false, displayOrder: desiredCategory.products.length + 1, isActive: true, archivedAt: null },
+      });
+      desiredProductIds.push(packingProduct.id);
 
       const archived = await tx.product.updateMany({
         where: {

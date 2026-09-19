@@ -1510,6 +1510,31 @@ footer span {
   cursor: pointer;
 }
 
+.waiter-call-cooldown-fill {
+  position: absolute;
+  z-index: 0;
+  inset: 1px;
+  border-radius: 999px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.waiter-call-cooldown-fill::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(237, 184, 111, 0.2);
+  content: "";
+  transform: scaleX(var(--waiter-call-cooldown-fill));
+  transform-origin: right center;
+  transition: transform 5s linear;
+}
+
+.waiter-call-button > :not(.waiter-call-cooldown-fill) {
+  position: relative;
+  z-index: 1;
+}
+
 .waiter-call-icon {
   display: grid;
   width: 48px;

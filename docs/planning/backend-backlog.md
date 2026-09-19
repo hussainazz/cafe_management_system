@@ -329,14 +329,12 @@ Add the small backend increment required by the first shared POS interface.
 
 Acceptance criteria:
 
-- Seed physical tables in this exact `displayOrder`: `1`, `2`, `3`, `4`,
-  `کانتر وسط`, `5`, `6`, `جگوار`, `7`, `8`, `سوشال`, `سوشال سوشال`, `9`, `10`,
-  `11`, `12`. Provision 11 customer-facing QR locations: independent codes
-  for `1`, `2`, `5`, `6`, `جگوار`, `9`, and `10`; labels `3` and `4` for the
-  shared `3`/`4`/`کانتر وسط` physical table; and labels `7` and `8` for the
-  shared `7`/`8`/`سوشال`/`سوشال سوشال` physical table. Shared-family routing
-  selects the logical waiter-call target for a new scan; `11` and `12` are not
-  waiter-call QR locations.
+- Preserve the existing table UUIDs while migrating the active POS topology to
+  exactly `1` through `15` in display order. Archive the old `سوشال سوشال`
+  row without moving its history; rename the old named rows in place.
+  Provision exactly one independent customer QR for each table `1` through
+  `13`; tables `14` and `15` have no customer QR. No shared-family routing or
+  temporary QR assignment remains.
 - A table has a rotatable opaque QR credential whose usable value is never
   stored in PostgreSQL or server logs. The operations command provisions one
   physical QR location or all provisionable locations, emits SVG/HTML/JSON print artifacts outside

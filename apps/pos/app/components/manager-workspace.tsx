@@ -33,7 +33,7 @@ import {
   type PosOrderDetail,
 } from "../lib/api-client";
 import { formatOrderNumber, formatToman } from "../lib/pos-utils";
-import { printSettlementReceipt } from "../lib/printing/print-service";
+import { printDocument, printRoute } from "../lib/print-routes";
 import { AlertIcon, MenuIcon, RefreshIcon, WifiIcon } from "./icons";
 import { CatalogPanel } from "./catalog-panel";
 
@@ -663,10 +663,8 @@ function FinancePanel({
                 className="secondary-button"
                 type="button"
                 onClick={() =>
-                  void printSettlementReceipt(item.orderId, item.id).then(() => {
-                    setMessage("فیش برای چاپگر ارسال شد.");
-                  }).catch((error: unknown) => {
-                    setMessage(error instanceof Error ? error.message : "ارسال فیش به چاپگر انجام نشد.");
+                  void printDocument(printRoute(item.orderId, "settlement", item.id)).catch((error: unknown) => {
+                    setMessage(error instanceof Error ? error.message : "سند چاپی آماده نشد.");
                   })
                 }
               >

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const WAITER_CALL_COOLDOWN_MS = 2 * 60 * 1_000;
+
 export const DEFAULT_TABLE_SEATING_LIMIT_MINUTES = 45;
 
 export const HealthResponseSchema = z.object({
@@ -147,9 +149,6 @@ export const ActiveTableOrderSchema = z.object({
 export const PosTableSchema = z.object({
   id: z.uuid(),
   name: z.string(),
-  qrFamilyId: z.uuid().nullable(),
-  qrFamilyMembers: z.array(z.object({ id: z.uuid(), name: z.string() })),
-  qrAssignment: z.object({ targetTableId: z.uuid(), targetTableName: z.string(), expiresAt: z.iso.datetime() }).nullable(),
   waiterCallEnabled: z.boolean(),
   occupancyState: z.enum(["AVAILABLE", "OCCUPIED"]),
   occupiedAt: z.iso.datetime().nullable(),
@@ -165,9 +164,6 @@ export const PosTablesResponseSchema = z.object({
   meta: z.object({ requestId: z.string() }),
 });
 export type PosTable = z.infer<typeof PosTableSchema>;
-
-export const QrAssignmentRequestSchema = z.object({ targetTableId: z.uuid() }).strict();
-export type QrAssignmentRequest = z.infer<typeof QrAssignmentRequestSchema>;
 
 export const PosTableResponseSchema = z.object({
   data: PosTableSchema,
@@ -615,7 +611,7 @@ const AdminMetaSchema = z.object({ requestId: z.string() });
 export const AdminCategorySchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isPosVisible: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminProductImageSchema = z.object({ storageKey: z.string(), altText: z.string() });
 const AdminProductOptionGroupSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative(), maxSelections: z.number().int().positive(), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable() })) });
-export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroups: z.array(AdminProductOptionGroupSchema) });
+export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, isPublic: z.boolean(), systemKey: z.string().nullable(), preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroups: z.array(AdminProductOptionGroupSchema) });
 export const AdminOptionSchema = z.object({ id: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminOptionGroupSchema = z.object({ id: z.uuid(), name: z.string(), isActive: z.boolean(), options: z.array(AdminOptionSchema) });
 export const AdminTableSchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), waiterCallEnabled: z.boolean(), archivedAt: z.iso.datetime().nullable() });
@@ -707,6 +703,7 @@ export const PublicTableContextSchema = z.object({
   occupancyState: z.enum(["AVAILABLE", "OCCUPIED"]).nullable(),
   waiterCallStatus: z.enum(["PENDING"]).nullable(),
   canCallWaiter: z.boolean(),
+  waiterCallCooldownProgress: z.number().min(0).max(1),
   authenticationRequired: z.boolean().optional(),
   customerAuthenticated: z.boolean().optional(),
   visitActive: z.boolean().optional(),

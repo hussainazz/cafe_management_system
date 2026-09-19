@@ -30,7 +30,7 @@ function runProvision(arguments_: string[]) {
 
 describe("table QR provisioning command", () => {
   it("creates printable hash-only artifacts and requires explicit rotation", async () => {
-    const table = await app.prisma.cafeTable.create({ data: { name: "1", displayOrder: 1, waiterCallEnabled: true } });
+    const table = await app.prisma.cafeTable.create({ data: { name: "1", displayOrder: 1, waiterCallEnabled: true, customerQrEnabled: true } });
     const firstOutput = await outputPath("first");
     const first = runProvision(["--table", "1", "--base-url", "https://runncafe.ir", "--output-dir", firstOutput]);
     expect(first.status, first.stderr).toBe(0);
@@ -57,41 +57,35 @@ describe("table QR provisioning command", () => {
 
   it("supports all eligible tables and rejects noneligible labels", async () => {
     await app.prisma.cafeTable.createMany({ data: [
-      { name: "1", displayOrder: 1, waiterCallEnabled: true },
-      { name: "جگوار", displayOrder: 2, waiterCallEnabled: true },
-      { name: "کانتر وسط", displayOrder: 3, waiterCallEnabled: false },
+      { name: "1", displayOrder: 1, waiterCallEnabled: true, customerQrEnabled: true },
+      { name: "13", displayOrder: 2, waiterCallEnabled: true, customerQrEnabled: true },
+      { name: "14", displayOrder: 3, waiterCallEnabled: false, customerQrEnabled: false },
     ] });
     const output = await outputPath("all");
     const all = runProvision(["--all-eligible", "--base-url", "https://runncafe.ir", "--output-dir", output]);
     expect(all.status, all.stderr).toBe(0);
     const manifest = JSON.parse(await readFile(join(output, "table-qr-urls.json"), "utf8"));
-    expect(manifest.credentials.map((item: { tableName: string }) => item.tableName)).toEqual(["1", "جگوار"]);
+    expect(manifest.credentials.map((item: { tableName: string }) => item.tableName)).toEqual(["1", "13"]);
 
-    const disabled = runProvision(["--table", "کانتر وسط", "--base-url", "https://runncafe.ir", "--output-dir", await outputPath("disabled")]);
+    const disabled = runProvision(["--table", "14", "--base-url", "https://runncafe.ir", "--output-dir", await outputPath("disabled")]);
     expect(disabled.status).not.toBe(0);
     expect(disabled.stderr).toContain("Eligible active table not found");
   });
 
-  it("prints two locations for each shared physical table while keeping all routing targets eligible", async () => {
-    const socialFamily = await app.prisma.tableQrFamily.create({ data: { name: "social-physical-table" } });
-    const counterFamily = await app.prisma.tableQrFamily.create({ data: { name: "counter-physical-table" } });
-    const independentNames = ["1", "2", "5", "6", "جگوار", "9", "10", "11", "12"];
-    const independentFamilies = new Map((await Promise.all(independentNames.map(async (name) => {
-      const family = await app.prisma.tableQrFamily.create({ data: { name: `independent-${name}` } });
-      return [name, family.id] as const;
-    }))));
-    const rows = [
-      ["1", independentFamilies.get("1")!], ["2", independentFamilies.get("2")!], ["3", counterFamily.id], ["4", counterFamily.id], ["کانتر وسط", counterFamily.id],
-      ["5", independentFamilies.get("5")!], ["6", independentFamilies.get("6")!], ["جگوار", independentFamilies.get("جگوار")!], ["7", socialFamily.id], ["8", socialFamily.id],
-      ["سوشال", socialFamily.id], ["سوشال سوشال", socialFamily.id], ["9", independentFamilies.get("9")!], ["10", independentFamilies.get("10")!], ["11", independentFamilies.get("11")!], ["12", independentFamilies.get("12")!],
-    ] as const;
-    await app.prisma.cafeTable.createMany({
-      data: rows.map(([name, qrFamilyId], displayOrder) => ({ name, qrFamilyId, displayOrder: displayOrder + 1, waiterCallEnabled: !["11", "12"].includes(name) })),
+  it("generates one independent QR per eligible table and excludes tables without customer QR", async () => {
+    const rows = await app.prisma.cafeTable.createManyAndReturn({
+      data: [
+        { name: "3", displayOrder: 1, waiterCallEnabled: true, customerQrEnabled: true },
+        { name: "5", displayOrder: 2, waiterCallEnabled: false, customerQrEnabled: true },
+        { name: "14", displayOrder: 3, waiterCallEnabled: true, customerQrEnabled: false },
+        { name: "15", displayOrder: 4, waiterCallEnabled: true, customerQrEnabled: false, isActive: false, archivedAt: new Date() },
+      ],
     });
-    const output = await outputPath("shared-physical");
+    const output = await outputPath("independent");
     const result = runProvision(["--all-eligible", "--base-url", "https://runncafe.ir", "--output-dir", output]);
     expect(result.status, result.stderr).toBe(0);
     const manifest = JSON.parse(await readFile(join(output, "table-qr-urls.json"), "utf8"));
-    expect(manifest.credentials.map((item: { tableName: string }) => item.tableName)).toEqual(["1", "2", "3", "4", "5", "6", "جگوار", "7", "8", "9", "10"]);
+    expect(manifest.credentials.map((item: { tableName: string }) => item.tableName)).toEqual(["3", "5"]);
+    expect(await app.prisma.tableQrCredential.count({ where: { tableId: { in: rows.map((row) => row.id) }, isActive: true } })).toBe(2);
   });
 });

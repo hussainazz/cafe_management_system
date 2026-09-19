@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { MenuCategory, MenuProduct, PublicMenu } from "../lib/menu-types";
 import {
   categoryTone,
@@ -39,7 +39,7 @@ const copy = {
     menu: "منو",
     heroTitle: "Run Cafe",
     search: "دنبال چی می‌گردی؟",
-    searchHint: "مثلاً لاته، برگر یا براونی",
+    searchHint: "جستجو",
     categories: "دسته‌بندی‌ها",
     results: "نتیجه",
     toman: "تومان",
@@ -415,6 +415,21 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
   } | null>(null);
   const text = copy[language];
   const direction = language === "fa" ? "rtl" : "ltr";
+  const waiterCallSentState = Boolean(
+    waiterCallSent ||
+    tableContext?.waiterCallStatus === "PENDING" ||
+    (tableContext?.waiterCallCooldownProgress ?? 0) > 0,
+  );
+  const waiterCallProgress = tableContext?.waiterCallStatus === "PENDING"
+    ? 1
+    : (tableContext?.waiterCallCooldownProgress ?? 0);
+  const waiterCallCooldownFill = waiterCallSentState ? 1 - waiterCallProgress : 0;
+
+  useEffect(() => {
+    if (tableContext?.canCallWaiter && !tableContext.waiterCallStatus) {
+      setWaiterCallSent(false);
+    }
+  }, [tableContext?.canCallWaiter, tableContext?.waiterCallStatus]);
 
   useEffect(() => {
     if (!tableContext?.active || !tableContext.customerAuthenticated ||
@@ -875,17 +890,15 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
     ) : null}
     {tableContext?.active && (tableContext.customerAuthenticated || tableContext.canCallWaiter || tableContext.waiterCallStatus === "PENDING") ? (
       <button
-        className={`waiter-call-button${showWaiterTip ? " waiter-call-button--guided" : ""}${waiterCallSent || tableContext.waiterCallStatus === "PENDING" ? " waiter-call-button--called" : ""}`}
+        className={`waiter-call-button${showWaiterTip ? " waiter-call-button--guided" : ""}${waiterCallSentState ? " waiter-call-button--called" : ""}`}
+        style={{ "--waiter-call-cooldown-fill": waiterCallCooldownFill } as CSSProperties}
         type="button"
         disabled={showWaiterTip || !tableContext.canCallWaiter || callingWaiter || tableContext.waiterCallStatus === "PENDING"}
         onClick={() => { setShowWaiterTip(false); void callWaiter(); }}
       >
+        {waiterCallSentState ? <span className="waiter-call-cooldown-fill" aria-hidden="true" /> : null}
         <span className="waiter-call-icon" aria-hidden="true"><ServiceBellIcon /></span>
-        <span className="waiter-call-label">{tableContext.waiterCallStatus === "PENDING"
-          ? text.waiterCalled
-          : callingWaiter
-            ? text.callingWaiter
-            : text.callWaiter}</span>
+        <span className="waiter-call-label">{waiterCallSentState ? text.waiterCalled : text.callWaiter}</span>
       </button>
     ) : null}
     </>

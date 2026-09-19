@@ -10,7 +10,6 @@ const tableNames = [
   "customer_otp_challenges",
   "customers",
   "table_qr_credentials",
-  "table_qr_families",
   "settlement_reversals",
   "payments",
   "settlement_allocations",

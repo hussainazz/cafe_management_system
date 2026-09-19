@@ -117,9 +117,6 @@ importers:
       next:
         specifier: ^16.3.1
         version: 16.3.1(@playwright/test@1.62.1)(@types/node@26.1.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      qz-tray:
-        specifier: ^2.3.0
-        version: 2.3.0
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -1961,9 +1958,6 @@ packages:
 
   quick-format-unescaped@4.0.4:
     resolution: {integrity: sha512-tYC1Q1hgyRuHgloV/YXs2w15unPVh8qfu/qCTfhTYamaw7fyhumKa2yGpdSo87vY32rIclj+4fWYQXUMs9EHvg==}
-
-  qz-tray@2.3.0:
-    resolution: {integrity: sha512-hviWThaaUHdjSTjs1q7D8ow8F7l1iBUhbM3J+sOL2DgkTlXO5DmxQewMdirdQgnUQAuaiSzVB9wIhiltOn1aaQ==}
 
   rc9@2.1.2:
     resolution: {integrity: sha512-btXCnMmRIBINM2LDZoEmOogIZU7Qe7zn4BpomSKZ/ykbLObuBdvG+mFq11DL6fjH1DRwHhrlgtYWG96bJiC7Cg==}
@@ -3980,8 +3974,6 @@ snapshots:
       yargs: 15.4.1
 
   quick-format-unescaped@4.0.4: {}
-
-  qz-tray@2.3.0: {}
 
   rc9@2.1.2:
     dependencies:

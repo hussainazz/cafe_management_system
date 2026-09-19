@@ -60,7 +60,7 @@ export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuer
     orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     include: {
       products: {
-        where: { isActive: true, archivedAt: null },
+        where: { isActive: true, archivedAt: null, isPublic: true },
         orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
         include: publicCatalogInclude,
       },
@@ -82,7 +82,7 @@ export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuer
 
 export async function readPublicProduct(prisma: PrismaClient, productId: string) {
   const product = await prisma.product.findFirst({
-    where: { id: productId, isActive: true, archivedAt: null, category: { isActive: true, archivedAt: null } },
+    where: { id: productId, isActive: true, archivedAt: null, isPublic: true, category: { isActive: true, archivedAt: null } },
     include: publicCatalogInclude,
   });
   return product ? toPublicProduct(product) : null;

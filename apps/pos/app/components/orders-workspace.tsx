@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import type { PosCatalogCategory, PosCatalogProduct, PosTable } from "@cafe/contracts";
 import {
   acknowledgeWaiterCall,
-  activateQrAssignment,
-  cancelQrAssignment,
   createOpenOrder,
   deleteOpenOrder,
   readOpenOrders,
@@ -22,10 +20,7 @@ import {
 } from "../lib/api-client";
 import { recoveryStateFor, type RecoveryState } from "../lib/recovery-state";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
-import type { PrintKind } from "../lib/print-routes";
-import { printThermalDocument, printerDiagnostics } from "../lib/printing/print-service";
-import { saveConfiguredPrinter } from "../lib/printing/printer-resolver";
-import type { PrinterDiagnostics } from "../lib/printing/types";
+import { printDocument, printRoute, type PrintKind } from "../lib/print-routes";
 import { acknowledgeAndOpenWaiterCall } from "../lib/waiter-call-workflow";
 import { operationalRefreshIntervalMs } from "../lib/operational-refresh";
 import { canChangeDiscount, discountPayload } from "../lib/discount-workflow";
@@ -42,7 +37,6 @@ import {
 } from "../lib/pos-utils";
 import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon, WifiIcon } from "./icons";
 
-const QR_ROUTING_ANCHOR_NAMES = new Set(["3", "4", "7", "8"]);
 
 type Channel = "TABLE" | "TAKEAWAY";
 type OrderDetail = PosOrderDetail;
@@ -117,9 +111,6 @@ export function OrdersWorkspace({
   const [recovery, setRecovery] = useState<RecoveryState | null>(null);
   const [recovering, setRecovering] = useState(false);
   const [online, setOnline] = useState(true);
-  const [printing, setPrinting] = useState(false);
-  const [printerStatus, setPrinterStatus] = useState<PrinterDiagnostics | null>(null);
-  const [printerPanelOpen, setPrinterPanelOpen] = useState(false);
   const [liveDataLimited, setLiveDataLimited] = useState(false);
   const knownWaiterCallKeys = useRef<Set<string> | null>(null);
   const submitDeskRef = useRef<(() => void) | null>(null);
@@ -281,10 +272,6 @@ export function OrdersWorkspace({
           <button className={`icon-button refresh-button${refreshing ? " is-refreshing" : ""}`} onClick={() => void load()} aria-label="تازه‌سازی وضعیت" title="تازه‌سازی وضعیت">
             <RefreshIcon />
           </button>
-          <button className="button button--quiet" type="button" onClick={() => {
-            setPrinterPanelOpen(true);
-            void printerDiagnostics().then(setPrinterStatus);
-          }}>چاپگر</button>
           <button
             className="menu-button"
             type="button"
@@ -319,16 +306,6 @@ export function OrdersWorkspace({
           </button>
         </div>
       </header>
-      {printerPanelOpen && <aside className="printer-panel" aria-label="وضعیت چاپگر">
-        <header><strong>چاپگر حرارتی</strong><button className="icon-button" type="button" onClick={() => setPrinterPanelOpen(false)} aria-label="بستن"><CloseIcon /></button></header>
-        {!printerStatus ? <p>در حال بررسی QZ Tray…</p> : <>
-          <p>{printerStatus.connected ? "QZ Tray متصل است." : "QZ Tray در دسترس نیست."}</p>
-          <label>چاپگر این سیستم<select value={printerStatus.configuredPrinter ?? ""} onChange={(event) => { saveConfiguredPrinter("BAR", event.target.value || null); saveConfiguredPrinter("RECEIPT", event.target.value || null); setPrinterStatus((current) => current && { ...current, configuredPrinter: event.target.value || null, resolvedPrinter: event.target.value || null }); }}><option value="">انتخاب خودکار چاپگر حرارتی</option>{printerStatus.printers.map((printer) => <option key={printer} value={printer}>{printer}</option>)}</select></label>
-          <p>{printerStatus.resolvedPrinter ? `چاپگر انتخاب‌شده: ${printerStatus.resolvedPrinter}` : "چاپگر حرارتی مشخص نشده است."}</p>
-          {printerStatus.lastFailure && <p role="alert">آخرین خطا: {printerStatus.lastFailure}</p>}
-          <button className="button button--quiet" type="button" onClick={() => void printerDiagnostics().then(setPrinterStatus)}>بازخوانی وضعیت</button>
-        </>}
-      </aside>}
       {message && (
         <div
           className={`toast toast--${message.tone}`}
@@ -401,6 +378,11 @@ export function OrdersWorkspace({
               setMessage({ tone: "notice", text: "پرداخت ثبت شد و سفارش بیرون‌بر بسته شد." });
               return;
             }
+            if (channel === "TABLE" && editingOrder) {
+              close();
+              void refreshOperationalData();
+              return;
+            }
             setOrder(updated);
             await load();
           }}
@@ -442,34 +424,13 @@ export function OrdersWorkspace({
             await refreshOperationalData();
             setMessage({ tone: "notice", text: `میز ${result.data.name} آزاد شد.` });
           }}
-          onActivateQrAssignment={async (table, targetTableId) => {
-            const result = await activateQrAssignment(table.id, targetTableId);
-            if (!result.ok) {
-              setMessage({ tone: "error", text: result.error.message });
-              return;
-            }
-            await refreshOperationalData();
-            setMessage({ tone: "notice", text: `گروه بعدی به میز ${result.data.qrAssignment?.targetTableName ?? "انتخاب‌شده"} هدایت می‌شود.` });
-          }}
-          onCancelQrAssignment={async (table) => {
-            const result = await cancelQrAssignment(table.id);
-            if (!result.ok) {
-              setMessage({ tone: "error", text: result.error.message });
-              return;
-            }
-            await refreshOperationalData();
-            setMessage({ tone: "notice", text: "تخصیص موقت QR لغو شد." });
-          }}
           onClosePanel={close}
           onEditOrder={() => setEditingOrder(true)}
           onCheckout={() => setCheckout(true)}
           onPrint={(kind) => {
-            if (printing) return;
-            setPrinting(true);
-            setMessage({ tone: "notice", text: "در حال ارسال فیش به چاپگر…" });
-            void printThermalDocument(order!.id, kind).then(() => setMessage({ tone: "notice", text: "فیش برای چاپگر ارسال شد." })).catch((error: unknown) => {
-              setMessage({ tone: "error", text: error instanceof Error ? error.message : "ارسال فیش به چاپگر انجام نشد." });
-            }).finally(() => setPrinting(false));
+            void printDocument(printRoute(order!.id, kind)).catch((error: unknown) => {
+              setMessage({ tone: "error", text: error instanceof Error ? error.message : "سند چاپی آماده نشد." });
+            });
           }}
           onRequestTransfer={async (source, destination) => {
             let sourceOrder: OrderDetail | null = order?.tableId === source.id ? order : null;
@@ -552,8 +513,6 @@ export function TableBoard({
   onAcknowledgeWaiterCall,
   acknowledgingTableId,
   onMakeAvailable,
-  onActivateQrAssignment,
-  onCancelQrAssignment,
   onClosePanel,
   onEditOrder,
   onCheckout,
@@ -570,8 +529,6 @@ export function TableBoard({
   onAcknowledgeWaiterCall: (table: PosTable, call: Data["calls"][number]) => void;
   acknowledgingTableId: string | null;
   onMakeAvailable: (table: PosTable) => Promise<void>;
-  onActivateQrAssignment: (table: PosTable, targetTableId: string) => Promise<void>;
-  onCancelQrAssignment: (table: PosTable) => Promise<void>;
   onClosePanel: () => void;
   onEditOrder: () => void;
   onCheckout: () => void;
@@ -581,18 +538,12 @@ export function TableBoard({
   const [transferSourceId, setTransferSourceId] = useState<string | null>(null);
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const [dragDestinationId, setDragDestinationId] = useState<string | null>(null);
-  const [qrAssignmentSourceId, setQrAssignmentSourceId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const transferDragTimer = useRef<number | null>(null);
-  const qrAssignmentTimer = useRef<number | null>(null);
   const pointerStart = useRef<{ id: number; x: number; y: number } | null>(null);
   const transferDrag = useRef<{ sourceId: string; pointerId: number } | null>(null);
   const dragDestination = useRef<string | null>(null);
   const suppressClick = useRef(false);
-  const cancelQrAssignmentHold = () => {
-    if (qrAssignmentTimer.current !== null) window.clearTimeout(qrAssignmentTimer.current);
-    qrAssignmentTimer.current = null;
-  };
   const cancelTransferDragHold = () => {
     if (transferDragTimer.current !== null) window.clearTimeout(transferDragTimer.current);
     transferDragTimer.current = null;
@@ -652,18 +603,6 @@ export function TableBoard({
           </div>
         </div>
       {transferSourceId && <p className="table-transfer-hint" role="status">مقصد انتقال میز را انتخاب کنید. میزهای دارای فراخوان میزبان قابل انتخاب نیستند.</p>}
-      {qrAssignmentSourceId && (() => {
-        const source = tables.find((item) => item.id === qrAssignmentSourceId);
-        if (!source) return null;
-        return <div className="table-qr-assignment" role="dialog" aria-label="تخصیص موقت QR">
-          <div><strong>گروه بعدی با QR این میز</strong><span>یک مقصد از همین میز فیزیکی انتخاب کنید.</span></div>
-          <div className="table-qr-assignment__choices">
-            {source.qrFamilyMembers.filter((member) => !QR_ROUTING_ANCHOR_NAMES.has(member.name)).map((member) => <button key={member.id} type="button" className={source.qrAssignment?.targetTableId === member.id ? "is-active" : ""} onClick={() => { setQrAssignmentSourceId(null); void onActivateQrAssignment(source, member.id); }}>{member.name}</button>)}
-          </div>
-          <button type="button" className="text-action" onClick={() => setQrAssignmentSourceId(null)}>انصراف</button>
-          {source.qrAssignment && <button type="button" className="text-action" onClick={() => { setQrAssignmentSourceId(null); void onCancelQrAssignment(source); }}>لغو تخصیص فعال</button>}
-        </div>;
-      })()}
       <div className="table-grid" id="table-transfer-targets" tabIndex={-1}>
         {tables.map((table) => {
           const hasOrder = table.activeOrders.length > 0;
@@ -685,7 +624,7 @@ export function TableBoard({
                 pointerStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
                 suppressClick.current = false;
                 if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
-                if (hasOrder && !call && !QR_ROUTING_ANCHOR_NAMES.has(table.name)) {
+                if (hasOrder && !call) {
                   const startDrag = () => {
                     transferDrag.current = { sourceId: table.id, pointerId: event.pointerId };
                     setDraggingTableId(table.id);
@@ -694,18 +633,11 @@ export function TableBoard({
                     transferDragTimer.current = window.setTimeout(startDrag, 420);
                   }
                 }
-                if (QR_ROUTING_ANCHOR_NAMES.has(table.name) && table.qrFamilyMembers.length > 1) {
-                  qrAssignmentTimer.current = window.setTimeout(() => {
-                    suppressClick.current = true;
-                    setQrAssignmentSourceId(table.id);
-                  }, 600);
-                }
               }} onPointerMove={(event) => {
                 const start = pointerStart.current;
                 if (!start || start.id !== event.pointerId) return;
                 const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10;
                 if (moved) {
-                  cancelQrAssignmentHold();
                   if (!transferDrag.current) cancelTransferDragHold();
                 }
                 if (hasOrder && !call && !transferDrag.current && moved && event.pointerType === "mouse") {
@@ -720,14 +652,12 @@ export function TableBoard({
                   setDragDestinationId(destination);
                 }
               }} onPointerUp={(event) => {
-                cancelQrAssignmentHold();
                 cancelTransferDragHold();
                 if (transferDrag.current?.pointerId === event.pointerId) {
                   endTransferDrag(dragDestination.current);
                 }
                 pointerStart.current = null;
               }} onPointerCancel={(event) => {
-                cancelQrAssignmentHold();
                 cancelTransferDragHold();
                 if (transferDrag.current?.pointerId === event.pointerId) endTransferDrag(null);
                 pointerStart.current = null;
@@ -756,9 +686,6 @@ export function TableBoard({
                   {hasOrder && <b>{formatToman(totals.get(table.id) ?? 0)}</b>}
                 </span>
               </button>
-              {QR_ROUTING_ANCHOR_NAMES.has(table.name) && table.qrFamilyMembers.length > 1 && (
-                <div className="table-qr-assignment__indicator">{table.qrAssignment ? `گروه بعدی → ${table.qrAssignment.targetTableName}` : "QR مشترک"}</div>
-              )}
               {call && (
                 <button
                   className="table-tile__call-action"
@@ -900,6 +827,18 @@ function OrderDesk({
   ];
   const dirty = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    return () => {
+      onDirtyChange(false);
+    };
+  }, [onDirtyChange]);
+  const finishSuccessfulSave = async (updatedOrder: OrderDetail) => {
+    setDraft([]);
+    setSaved(savedDrafts(updatedOrder));
+    setCreateAttemptKey(requestKey());
+    onDirtyChange(false);
+    await onOrder(updatedOrder);
+  };
   const save = async () => {
     if (!draft.length && !saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""))) return;
     setBusy(true);
@@ -919,7 +858,7 @@ function OrderDesk({
         setError(result.error.message);
         return;
       }
-      await onOrder(result.data);
+      await finishSuccessfulSave(result.data);
     } else {
       const result = await createOpenOrder(
         channel === "TABLE"
@@ -939,11 +878,8 @@ function OrderDesk({
         setError(detail.error.message);
         return;
       }
-      await onOrder(detail.data);
+      await finishSuccessfulSave(detail.data);
     }
-    setDraft([]);
-    setSaved(savedDrafts(initialOrder));
-    setCreateAttemptKey(requestKey());
   };
   useEffect(() => { onSubmitReady(() => void save()); }, [onSubmitReady, save]);
   const remove = async () => {
@@ -1009,10 +945,8 @@ function OrderDesk({
         onCheckout={() => setCheckout(true)}
         onPrint={(kind, settlementId) => {
           if (!initialOrder) return;
-          void printThermalDocument(initialOrder.id, kind, settlementId).then(() => {
-            setError("فیش برای چاپگر ارسال شد.");
-          }).catch((printError: unknown) => {
-            setError(printError instanceof Error ? printError.message : "ارسال فیش به چاپگر انجام نشد.");
+          void printDocument(printRoute(initialOrder.id, kind, settlementId)).catch((printError: unknown) => {
+            setError(printError instanceof Error ? printError.message : "سند چاپی آماده نشد.");
           });
         }}
         onRequestDelete={() => setDeleteDialogOpen(true)}

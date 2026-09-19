@@ -132,7 +132,7 @@ describe("Manager administration", () => {
     expect(productTwo.json().data.displayOrder).toBe(2);
     const productReorder = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${first.json().data.id}/products/reorder`, cookies: manager, payload: { productIds: [productTwo.json().data.id, productOne.json().data.id] } });
     expect(productReorder.statusCode).toBe(200);
-    expect(productReorder.json().data.products.map((row: any) => row.displayOrder)).toEqual([1, 2]);
+    expect(productReorder.json().data.products.map((row: any) => row.displayOrder)).toEqual([1, 2, 3]);
     const crossCategory = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${first.json().data.id}/products/reorder`, cookies: manager, payload: { productIds: [productOne.json().data.id, otherProduct.json().data.id] } });
     expect(crossCategory.statusCode).toBe(422);
     await expect(app.prisma.auditLog.findFirstOrThrow({ where: { operation: "REORDER_PRODUCTS", entityId: first.json().data.id } })).resolves.toBeDefined();
@@ -186,6 +186,21 @@ describe("Manager administration", () => {
     const disabled = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: manager, payload: { tableSeatingLimitMinutes: null } });
     expect(disabled.statusCode).toBe(200);
     expect(disabled.json().data.tableSeatingLimitMinutes).toBeNull();
+  });
+
+  it("creates and protects one POS-only Packing product per new category", async () => {
+    const manager = await session(UserRole.MANAGER, "packing.manager");
+    const created = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "بسته‌بندی تست" } });
+    expect(created.statusCode).toBe(200);
+    const categoryId = created.json().data.id;
+    const packing = await app.prisma.product.findUniqueOrThrow({ where: { categoryId_systemKey: { categoryId, systemKey: "PACKING" } } });
+    expect(packing).toMatchObject({ isPublic: false, systemKey: "PACKING", displayOrder: 1 });
+
+    const products = await app.inject({ method: "GET", url: "/api/v1/admin/products", cookies: manager });
+    expect(products.json().data.products.filter((product: any) => product.categoryId === categoryId)).toHaveLength(1);
+    expect((await app.inject({ method: "POST", url: `/api/v1/admin/products/${packing.id}/archive`, cookies: manager })).statusCode).toBe(422);
+    const otherCategory = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "بسته‌بندی تست دوم" } });
+    expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${packing.id}`, cookies: manager, payload: { categoryId: otherCategory.json().data.id } })).statusCode).toBe(422);
   });
 
   it("returns safe client errors for malformed paths, missing rows, duplicates, and foreign keys", async () => {

@@ -15,14 +15,6 @@ type Arguments = {
   outputDirectory: string;
 };
 
-// These are physical QR locations, not the complete set of logical routing
-// targets. The two long shared tables have two printed locations each.
-const printedQrLocationNames = new Set(["3", "4", "7", "8"]);
-
-function isPrintedQrLocation(table: { name: string; qrFamily: { tables: unknown[] } | null }): boolean {
-  return !table.qrFamily || table.qrFamily.tables.length === 1 || printedQrLocationNames.has(table.name);
-}
-
 function parseArguments(values: string[]): Arguments {
   const valueFor = (flag: string) => {
     const index = values.indexOf(flag);
@@ -81,22 +73,21 @@ async function provision() {
       where: {
         isActive: true,
         archivedAt: null,
-        waiterCallEnabled: true,
+        customerQrEnabled: true,
       ...(args.table ? { name: args.table } : {}),
       },
       orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
       include: {
         qrCredentials: { where: { isActive: true }, take: 1 },
-        qrFamily: { include: { qrCredentials: { where: { isActive: true }, take: 1 }, tables: { select: { id: true } } } },
       },
     });
-    const selectedTables = tables.filter(isPrintedQrLocation);
+    const selectedTables = tables;
     if (args.table && selectedTables.length !== 1) {
       throw new Error(`Eligible active table not found: ${args.table}`);
     }
     if (args.allEligible && selectedTables.length === 0) throw new Error("No eligible active tables found");
     const withExisting = selectedTables.filter((table) => args.allEligible
-      ? Boolean(table.qrFamily?.qrCredentials.length) || table.qrCredentials.length > 0
+      ? table.qrCredentials.length > 0
       : table.qrCredentials.length > 0);
     if (withExisting.length > 0 && !args.rotate) {
       throw new Error(
@@ -164,21 +155,8 @@ async function provision() {
           });
         }
           await transaction.tableQrCredential.create({
-          data: { tableId: item.table.id, qrFamilyId: item.table.qrFamilyId, tokenHash: item.tokenHash, createdAt: generatedAt },
+          data: { tableId: item.table.id, tokenHash: item.tokenHash, createdAt: generatedAt },
         });
-      }
-      if (args.rotate && args.allEligible) {
-        const nonPrintedRoutingTables = tables.filter((table) => !isPrintedQrLocation(table));
-        for (const table of nonPrintedRoutingTables) {
-          await transaction.tableQrCredential.updateMany({
-            where: { tableId: table.id, isActive: true },
-            data: { isActive: false, rotatedAt },
-          });
-          await transaction.cafeTable.update({
-            where: { id: table.id },
-            data: { tableContextInvalidBefore: rotatedAt },
-          });
-        }
       }
     });
     credentialsCommitted = true;

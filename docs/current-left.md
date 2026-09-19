@@ -1,13 +1,41 @@
 # Current Backend Stage Status
 
-## 15 September 2026 QZ Tray Windows-queue printing pass
+## 18 September 2026 POS-only Packing catalog invariant
 
-- In progress: replace the hidden-iframe/browser `window.print()` path with
-  authenticated, server-signed QZ Tray pixel-HTML jobs to the locally selected
-  Windows printer queue. The existing shared thermal preview components and
-  `/pos/print/...` routes remain the document source of truth; previews must
-  not auto-print. Left: implementation, automated checks, Windows/QZ trusted
-  certificate setup, and physical POS88C/Persian/80 mm verification.
+- Complete in code: every active category now has one real `PACKING` product,
+  created transactionally for new categories and backfilled idempotently by the
+  forward migration/catalog synchronizer. Packing remains a normal POS product
+  for both TABLE and TAKEAWAY orders, is hidden from all public-menu reads, and
+  cannot be moved, option-linked, or archived through Manager APIs. Default
+  provisioned price is 15,000 Toman. Focused public
+  menu and Manager regression coverage is included.
+- Complete in code, VPS probes, and attached browser: the authenticated POS
+  dashboard loads, shows all 15 tables, and reports an active connection after
+  normalizing the deterministic Packing UUIDs. The VPS migration now sets all
+  16 Packing products to 15,000 Toman. Left: complete the physical POS/device
+  acceptance checks.
+
+## 18 September 2026 final 15-table and independent-QR topology
+
+- Complete in code and isolated API verification: existing table UUIDs are
+  preserved while active tables become `1` through `15` in display order; old
+  `سوشال سوشال` is archived; tables `1` through `13` use explicit independent
+  customer QR eligibility; tables `14` and `15` have no customer QR. Shared QR
+  families, temporary scan routing, assignment endpoints, POS assignment UI,
+  and QR-family persistence are retired by a forward migration. Historical
+  orders and customer records remain attached to their original UUIDs.
+- Left: provision and physically verify the 13 replacement QR artifacts in the
+  production rollout; browser/device and production migration evidence remain
+  operational gates.
+
+## 16 September 2026 browser printing restoration
+
+- Complete in code: restored the last pre-QZ hidden same-origin iframe browser
+  printing path for bar tickets, order receipts, settlement receipts, and the
+  Manager payment-history receipt action. Removed QZ Tray dependencies,
+  signing routes, printer diagnostics, and QZ-only host configuration. Left:
+  Chrome/browser print configuration and physical POS88C/Persian/80 mm
+  verification.
 
 ## 15 September 2026 long-lived POS session recovery
 
@@ -31,7 +59,7 @@
   remove the active deployment, the only verified rollback artifact, or the
   newest database backup. Disk space remains monitored as a production gate.
 
-## 14 September 2026 shared physical-table QR assignment pass
+## 14 September 2026 shared physical-table QR assignment pass (superseded 18 September)
 
 - Complete in code and isolated API verification: logical POS tables `7`, `8`,
   `سوشال`, and `سوشال سوشال` share one physical-table QR family with two
@@ -153,8 +181,8 @@ This file is the active completion checklist and current stage status for the ba
   Manager will use one POS
   application and one table dashboard; Manager-only capabilities are role-gated
   panels/actions rather than a separate application.
-- Stage 7 preparation completed: the forward migration seeds the requested
-  16-table layout in display order and the POS table-read contract exposes
+- Stage 7 preparation completed: the forward migrations establish the
+  requested 15-table layout in display order and the POS table-read contract exposes
   waiter-call eligibility plus availability/occupancy/reminder state.
 - Database readiness gate completed on 2 September 2026: all six migrations
   pass fresh/repeat deploy, existing-data upgrade, invalid-data atomic rollback,
@@ -529,3 +557,12 @@ Verified:
 
 - `pnpm typecheck` passes.
 - `pnpm --filter @cafe/api test` passes: 6 files and 18 tests.
+
+## 18 September 2026 customer receipt total
+
+- Complete in code and VPS release verification: customer receipts now show a
+  normal `مجموع` line with the server-provided total after the ordered items and
+  before the timestamp/footer. The deployed POS bundle contains the receipt
+  text and public `/pos` returns HTTP 200.
+- Left: run the POS browser and physical thermal-printer acceptance checks for
+  the updated receipt layout.
