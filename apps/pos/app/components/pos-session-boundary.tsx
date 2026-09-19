@@ -35,20 +35,27 @@ function failureState(error: ApiFailure): SessionState {
 
 function usePosTheme() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const applyTheme = useCallback((next: "light" | "dark") => {
+    document.documentElement.setAttribute("data-theme", next);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute(
+      "content",
+      next === "dark" ? "#19130f" : "#f5f5f3",
+    );
+  }, []);
   useEffect(() => {
     const saved = localStorage.getItem("pos-theme") as "light" | "dark" | null;
     const initial = saved ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     setTheme(initial);
-    document.documentElement.setAttribute("data-theme", initial);
-  }, []);
+    applyTheme(initial);
+  }, [applyTheme]);
   const toggle = useCallback(() => {
     setTheme((prev) => {
       const next = prev === "dark" ? "light" : "dark";
-      document.documentElement.setAttribute("data-theme", next);
+      applyTheme(next);
       localStorage.setItem("pos-theme", next);
       return next;
     });
-  }, []);
+  }, [applyTheme]);
   return { theme, toggle };
 }
 
