@@ -27,6 +27,12 @@ describe("public QR menu", () => {
         productOptionGroups: { create: { optionGroupId: optionGroup.id, displayOrder: 1, allowedOptions: { create: [{ optionId: arabica.id, displayOrder: 1 }, { optionId: unavailable.id, displayOrder: 2 }] } } },
       },
     });
+    const availableLater = await app.prisma.product.create({
+      data: { categoryId: category.id, name: "موجود دیرتر", priceAmount: 260_000, preparationDeadlineMinutes: 9, displayOrder: 2 },
+    });
+    const unavailableLater = await app.prisma.product.create({
+      data: { categoryId: category.id, name: "ناموجود دوم", priceAmount: 270_000, preparationDeadlineMinutes: 10, displayOrder: 3, isAvailable: false },
+    });
     const hiddenCategory = await app.prisma.category.create({ data: { name: "پنهان", displayOrder: 2, isActive: false } });
     await app.prisma.product.create({ data: { categoryId: hiddenCategory.id, name: "نباید نمایش داده شود", priceAmount: 1, preparationDeadlineMinutes: 1, displayOrder: 1 } });
 
@@ -35,6 +41,9 @@ describe("public QR menu", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data.categories).toEqual([{
       id: category.id, name: "قهوه", products: [{
+        id: availableLater.id, name: "موجود دیرتر", basePriceAmount: 260_000, priceAmount: 260_000,
+        saleDiscount: null, isAvailable: true, image: null, optionGroups: [],
+      }, {
         id: product.id, name: "لاته", basePriceAmount: 250_000, priceAmount: 200_000,
         saleDiscount: { kind: "PERCENTAGE", value: 20, amount: 50_000 },
         isAvailable: false, image: { storageKey: "products/latte.webp", altText: "لاته" },
@@ -42,6 +51,9 @@ describe("public QR menu", () => {
           { id: expect.any(String), name: "۱۰۰ عربیکا", priceAmount: 0, isAvailable: true },
           { id: expect.any(String), name: "ناموجود", priceAmount: 10_000, isAvailable: false },
         ] }],
+      }, {
+        id: unavailableLater.id, name: "ناموجود دوم", basePriceAmount: 270_000, priceAmount: 270_000,
+        saleDiscount: null, isAvailable: false, image: null, optionGroups: [],
       }],
     }]);
     expect(response.body).not.toContain("saleDiscountKind");

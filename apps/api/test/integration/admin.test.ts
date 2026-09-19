@@ -17,6 +17,7 @@ async function recordedSettlement(input: {
   orderNumber: string;
   actorId: string;
   recordedAt: Date;
+  createdAt?: Date;
   amount: number;
   tableId?: string;
   reversedById?: string;
@@ -34,6 +35,7 @@ async function recordedSettlement(input: {
       totalAmount: input.amount,
       paidAmount: input.amount,
       balanceAmount: 0,
+      createdAt: input.createdAt ?? input.recordedAt,
     },
   });
   const settlement = await app.prisma.paymentSettlement.create({
@@ -325,6 +327,8 @@ describe("Manager administration", () => {
     const reversedSettlement = await app.prisma.paymentSettlement.create({ data: { orderId: reversedOrder.id, recordedById: staffUser.id, idempotencyKey: "report-reversed", totalAmount: 20_000, recordedAt: new Date(todayStart.getTime() + 5 * 60 * 60_000), payments: { create: { method: "CARD_TRANSFER", amount: 20_000, reference: "REPORT-REVERSAL" } } } });
     await app.prisma.settlementReversal.create({ data: { settlementId: reversedSettlement.id, recordedById: managerUser.id, reason: "Report fixture", recordedAt: new Date(todayStart.getTime() + 6 * 60 * 60_000) } });
     await app.prisma.paymentSettlement.create({ data: { orderId: yesterdayOrder.id, recordedById: staffUser.id, idempotencyKey: "report-yesterday", totalAmount: 70_000, recordedAt: new Date(yesterdayStart.getTime() + 2 * 60 * 60_000), payments: { create: { method: "CASH", amount: 70_000 } } } });
+    const yesterdayOpenOrder = await reportOrder({ orderNumber: "RPT-006", actorId: staffUser.id, productId: product.id, createdAt: new Date(yesterdayStart.getTime() + 5 * 60 * 60_000), subtotalAmount: 15_000, totalAmount: 15_000, paidAmount: 0 });
+    await app.prisma.paymentSettlement.create({ data: { orderId: yesterdayOpenOrder.id, recordedById: staffUser.id, idempotencyKey: "report-yesterday-paid-today", totalAmount: 15_000, recordedAt: new Date(todayStart.getTime() + 7 * 60 * 60_000), payments: { create: { method: "CARD_TERMINAL", amount: 15_000 } } } });
 
     const today = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: manager });
     expect(today.statusCode).toBe(200);
@@ -342,7 +346,7 @@ describe("Manager administration", () => {
     });
     const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
     expect(yesterday.statusCode).toBe(200);
-    expect(yesterday.json().data).toMatchObject({ salesAmount: 70_000, paidAmount: 70_000, orderCount: 1, paymentMethodTotals: { cashAmount: 70_000, cardTerminalAmount: 0, cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 }, deletedOrders: { count: 0, totalAmount: 0, paidAmount: 0 } });
+    expect(yesterday.json().data).toMatchObject({ salesAmount: 85_000, paidAmount: 85_000, orderCount: 2, paymentMethodTotals: { cashAmount: 70_000, cardTerminalAmount: 15_000, cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 }, deletedOrders: { count: 0, totalAmount: 0, paidAmount: 0 } });
   });
 
   it("keeps yesterday's tender while reporting its reversal today", async () => {

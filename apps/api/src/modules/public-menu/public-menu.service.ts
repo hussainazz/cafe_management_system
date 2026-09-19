@@ -61,7 +61,9 @@ export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuer
     include: {
       products: {
         where: { isActive: true, archivedAt: null, isPublic: true },
-        orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+        // Availability changes presentation only: keep products in their
+        // category and preserve persisted order within each availability group.
+        orderBy: [{ isAvailable: "desc" }, { displayOrder: "asc" }, { name: "asc" }],
         include: publicCatalogInclude,
       },
     },

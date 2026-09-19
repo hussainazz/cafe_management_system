@@ -44,10 +44,11 @@ export async function dailyAccountingReport(prisma: PrismaClient, query: DailyRe
   const [orders, itemDiscounts, settlements, paymentMethods, reversals, deletedOrders] = await Promise.all([
     prisma.order.aggregate({ where: activeOrdersInRange, _count: { _all: true }, _sum: { totalAmount: true, discountAmount: true } }),
     prisma.orderItem.aggregate({ where: { order: activeOrdersInRange }, _sum: { discountAmount: true } }),
-    // Accounting is event-based: a tender belongs to the day it was recorded,
-    // even when a later-day reversal changes the order's current balance.
-    prisma.paymentSettlement.aggregate({ where: { recordedAt: withinRange, order: { state: { not: "DELETED" } } }, _sum: { totalAmount: true } }),
-    prisma.payment.groupBy({ by: ["method"], where: { settlement: { recordedAt: withinRange, order: { state: { not: "DELETED" } } } }, _sum: { amount: true } }),
+    // A settlement confirms an order but does not move that order to the
+    // confirmation day. Attribute order payments to the order's immutable
+    // initialization date; reversals below remain event-based.
+    prisma.paymentSettlement.aggregate({ where: { order: { createdAt: withinRange, state: { not: "DELETED" } } }, _sum: { totalAmount: true } }),
+    prisma.payment.groupBy({ by: ["method"], where: { settlement: { order: { createdAt: withinRange, state: { not: "DELETED" } } } }, _sum: { amount: true } }),
     prisma.settlementReversal.findMany({ where: { recordedAt: withinRange, settlement: { order: { state: { not: "DELETED" } } } }, select: { settlement: { select: { totalAmount: true } } } }),
     prisma.order.aggregate({ where: { createdAt: withinRange, state: "DELETED" }, _count: { _all: true }, _sum: { totalAmount: true, paidAmount: true } }),
   ]);
