@@ -28,17 +28,17 @@ function utcStartOfTehranDay(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day) - tehranOffsetMilliseconds(localNoon));
 }
 
-export function tehranReportRange(period: DailyReportQuery["period"], now = new Date()) {
-  const current = tehranDateParts(now);
-  const date = new Date(Date.UTC(current.year, current.month - 1, current.day - (period === "yesterday" ? 1 : 0)));
-  const from = utcStartOfTehranDay(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
-  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
+export function tehranReportRange(query: DailyReportQuery) {
+  const [fromYear, fromMonth, fromDay] = query.fromDate.split("-").map(Number);
+  const [toYear, toMonth, toDay] = query.toDate.split("-").map(Number);
+  const from = utcStartOfTehranDay(fromYear!, fromMonth!, fromDay!);
+  const next = new Date(Date.UTC(toYear!, toMonth! - 1, toDay! + 1));
   const to = utcStartOfTehranDay(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate());
   return { from, to };
 }
 
 export async function dailyAccountingReport(prisma: PrismaClient, query: DailyReportQuery) {
-  const range = tehranReportRange(query.period);
+  const range = tehranReportRange(query);
   const withinRange = { gte: range.from, lt: range.to };
   const activeOrdersInRange = { createdAt: withinRange, state: { not: "DELETED" as const } };
   const [orders, itemDiscounts, settlements, paymentMethods, reversals, deletedOrders] = await Promise.all([
