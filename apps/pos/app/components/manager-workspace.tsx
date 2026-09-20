@@ -71,9 +71,10 @@ type PaymentFilterDraft = {
   toTime: string;
 };
 
-function tehranDateParts(now = new Date()) {
+function tehranPersianDateParts(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Tehran",
+    calendar: "persian",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -82,25 +83,45 @@ function tehranDateParts(now = new Date()) {
   return { year: value("year"), month: value("month"), day: value("day") };
 }
 
+function persianDateToGregorianDate(year: string, value: string): string | null {
+  const match = /^(\d{2})\/(\d{2})$/.exec(value);
+  if (!match) return null;
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  // A Persian year overlaps only two Gregorian years. Formatting candidates at
+  // UTC noon avoids an accidental local-day shift, while the calendar itself
+  // is explicitly evaluated in Tehran.
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tehran",
+    calendar: "persian",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const first = Date.UTC(Number(year) + 620, 0, 1, 12);
+  const last = Date.UTC(Number(year) + 622, 4, 1, 12);
+  for (let timestamp = first; timestamp < last; timestamp += 24 * 60 * 60 * 1_000) {
+    const candidate = new Date(timestamp);
+    const parts = formatter.formatToParts(candidate);
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
+    if (part("year") === year && Number(part("month")) === month && Number(part("day")) === day) {
+      return candidate.toISOString().slice(0, 10);
+    }
+  }
+  return null;
+}
+
 function initialPaymentFilterDraft(): PaymentFilterDraft {
-  const { month, day } = tehranDateParts();
+  const { month, day } = tehranPersianDateParts();
   return { currentDay: true, fromDate: `${month}/${day}`, toDate: `${month}/${day}`, fromTime: "", toTime: "" };
 }
 
 function paymentFiltersFromDraft(draft: PaymentFilterDraft): PaymentHistoryFilters | null {
-  const { year, month, day } = tehranDateParts();
-  const date = `${month}/${day}`;
-  const completeDate = (value: string) => {
-    const match = /^(\d{2})\/(\d{2})$/.exec(value);
-    if (!match) return null;
-    const result = `${year}-${match[1]}-${match[2]}`;
-    const parsed = new Date(`${result}T00:00:00.000Z`);
-    return Number.isNaN(parsed.getTime()) || parsed.getUTCMonth() + 1 !== Number(match[1]) || parsed.getUTCDate() !== Number(match[2])
-      ? null
-      : result;
-  };
-  const fromDate = draft.currentDay ? `${year}-${month}-${day}` : completeDate(draft.fromDate);
-  const toDate = draft.currentDay ? `${year}-${month}-${day}` : completeDate(draft.toDate);
+  const { year, month, day } = tehranPersianDateParts();
+  const fromDate = draft.currentDay ? persianDateToGregorianDate(year, `${month}/${day}`) : persianDateToGregorianDate(year, draft.fromDate);
+  const toDate = draft.currentDay ? persianDateToGregorianDate(year, `${month}/${day}`) : persianDateToGregorianDate(year, draft.toDate);
   if (!fromDate || !toDate || fromDate > toDate) return null;
   if ((draft.fromTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.fromTime)) || (draft.toTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.toTime))) return null;
   return {
@@ -618,8 +639,8 @@ function FinancePanel({
       setPayments(result.data);
     } else setMessage(result.error.message);
   }, []);
-  const loadReport = useCallback(async (period: "today" | "yesterday") => {
-    const result = await readDailyReport(period);
+  const loadReport = useCallback(async (filters: PaymentHistoryFilters) => {
+    const result = await readDailyReport(filters);
     if (result.ok) setReport(result.data);
     else setMessage(result.error.message);
   }, []);
@@ -643,7 +664,7 @@ function FinancePanel({
     [],
   );
   useEffect(() => {
-    void Promise.all([loadPayments(appliedPaymentFilters), loadReport("today"), loadAudit()]);
+    void Promise.all([loadPayments(appliedPaymentFilters), loadReport(appliedPaymentFilters), loadAudit()]);
   }, [appliedPaymentFilters, loadAudit, loadPayments, loadReport]);
   const sortedPayments = useMemo(() => {
     const valueFor = (item: PaymentHistory[number]) => {
@@ -703,11 +724,11 @@ function FinancePanel({
           <div className="manager-fields">
             <label>
               <span>از تاریخ</span>
-              <input aria-label="از تاریخ" value={draftPaymentFilters.fromDate} placeholder="MM/DD" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, fromDate: event.target.value }))} />
+              <input aria-label="از تاریخ" value={draftPaymentFilters.fromDate} placeholder="MM/DD شمسی" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, fromDate: event.target.value }))} />
             </label>
             <label>
               <span>تا تاریخ</span>
-              <input aria-label="تا تاریخ" value={draftPaymentFilters.toDate} placeholder="MM/DD" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, toDate: event.target.value }))} />
+              <input aria-label="تا تاریخ" value={draftPaymentFilters.toDate} placeholder="MM/DD شمسی" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, toDate: event.target.value }))} />
             </label>
             <label>
               <span>از ساعت</span>
@@ -806,7 +827,7 @@ function FinancePanel({
                               reason: reason ?? "",
                             }),
                           async () => {
-                            await Promise.all([loadPayments(appliedPaymentFilters), loadReport("today")]);
+                            await Promise.all([loadPayments(appliedPaymentFilters), loadReport(appliedPaymentFilters)]);
                           },
                         );
                       },
@@ -855,15 +876,7 @@ function FinancePanel({
           </section>
         </div>
       )}
-      <ManagerCard title="گزارش روزانه" hint="تنها امروز و دیروز در تقویم تهران قابل مشاهده‌اند.">
-        <div className="manager-actions">
-          <button type="button" onClick={() => void loadReport("today")}>
-            امروز
-          </button>
-          <button type="button" onClick={() => void loadReport("yesterday")}>
-            دیروز
-          </button>
-        </div>
+      <ManagerCard title="گزارش حسابداری" hint="بر اساس فیلتر اعمال‌شده برای پرداخت‌ها.">
         {report && (
           <dl className="report-grid">
             <dt>بازه</dt>
