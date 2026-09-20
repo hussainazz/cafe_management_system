@@ -416,7 +416,7 @@ export const PaymentHistoryResponseSchema = z.object({
   meta: z.object({ requestId: z.string() }),
 });
 
-export const DailyReportQuerySchema = z.object({ period: z.enum(["today", "yesterday"]) }).strict();
+export const DailyReportQuerySchema = PaymentHistoryQuerySchema;
 export type DailyReportQuery = z.infer<typeof DailyReportQuerySchema>;
 
 export const DailyAccountingReportSchema = z.object({
@@ -441,7 +441,6 @@ export const DailyReportResponseSchema = z.object({
   data: DailyAccountingReportSchema,
   meta: z.object({
     requestId: z.string(),
-    period: z.enum(["today", "yesterday"]),
     range: z.object({ from: z.iso.datetime(), to: z.iso.datetime() }),
   }),
 });
