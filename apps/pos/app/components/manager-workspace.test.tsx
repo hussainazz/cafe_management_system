@@ -62,14 +62,14 @@ describe("ManagerWorkspace", () => {
     expect((screen.getByLabelText("از تاریخ") as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByLabelText("امروز"));
     expect((screen.getByLabelText("از تاریخ") as HTMLInputElement).disabled).toBe(false);
-    fireEvent.change(screen.getByLabelText("از تاریخ"), { target: { value: "09/15" } });
-    fireEvent.change(screen.getByLabelText("تا تاریخ"), { target: { value: "09/20" } });
+    fireEvent.change(screen.getByLabelText("از تاریخ"), { target: { value: "06/25" } });
+    fireEvent.change(screen.getByLabelText("تا تاریخ"), { target: { value: "06/29" } });
     fireEvent.change(screen.getByLabelText("از ساعت"), { target: { value: "18:00" } });
     fireEvent.change(screen.getByLabelText("تا ساعت"), { target: { value: "22:30" } });
     expect(api.readPaymentHistory).toHaveBeenCalledTimes(1);
     fireEvent.submit(screen.getByLabelText("از تاریخ").closest("form")!);
     await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(2));
-    expect(api.readPaymentHistory).toHaveBeenLastCalledWith({ fromDate: "2026-09-15", toDate: "2026-09-20", fromTime: "18:00", toTime: "22:30" });
+    expect(api.readPaymentHistory).toHaveBeenLastCalledWith({ fromDate: "2026-09-16", toDate: "2026-09-20", fromTime: "18:00", toTime: "22:30" });
     fireEvent.click(screen.getByRole("button", { name: "پاک کردن" }));
     await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(3));
     expect((screen.getByLabelText("امروز") as HTMLInputElement).checked).toBe(true);
