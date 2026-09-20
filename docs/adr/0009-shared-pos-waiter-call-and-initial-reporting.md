@@ -47,8 +47,10 @@ introducing broad historical aggregation before real usage is measured.
   one `PENDING` call and highlights its card. Opening that card acknowledges and
   resolves the call in one common Staff/Manager action; actor identity is not
   recorded for either handling step.
-- Limit the first Manager report to one daily accounting summary for either the
-  current or immediately previous `Asia/Tehran` calendar day.
+- Bind the Manager accounting summary to the currently applied payment-history
+  date/time filter. The default remains the current `Asia/Tehran` calendar day;
+  custom Persian-calendar date ranges and optional time-of-day windows use the
+  same bounded server-side filter.
 - Treat the report window only as a query/UI boundary. Retain all orders, order
   items, settlements, tenders, reversals, and audit records in PostgreSQL; never
   delete history because it is older than the report window.
@@ -68,8 +70,9 @@ introducing broad historical aggregation before real usage is measured.
 - Product sale-discount configuration remains Manager-only, while reasoned
   item/order discount application remains part of the shared Staff/Manager POS
   workflow.
-- Weekly/monthly and arbitrary-range reporting, exports, product/category/hour
-  analytics, and forecasting remain deferred. They can be added later without a
-  data migration because the complete transactional history is retained.
+- Exports, product/category analytics, forecasting, and saved/standalone
+  reporting remain deferred. The payment-history filter is the only approved
+  custom report window; it does not introduce a separate reporting surface or
+  retention policy.
 - A separate Manager frontend or duplicate Manager table dashboard would
   contradict this decision.
