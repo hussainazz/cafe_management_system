@@ -531,9 +531,9 @@ Exit gate:
 
 - Implement complete Manager-only catalog, product option, image, price, product preparation-deadline, table seating-limit, availability, display-order, Staff account, and settings APIs.
 - Implement Manager-only cursor-paginated payment history while retaining Staff access to individual POS receipts.
-- Implement one daily accounting report limited to the current or immediately previous `Asia/Tehran` calendar day, with sales/paid totals, order count, payment-method totals, discounts, reversals, and deleted-order treatment.
-- Reject arbitrary report ranges and defer weekly/monthly reports, exports, product/category/hour analytics, and forecasting.
-- Retain the complete order/payment/audit history in PostgreSQL regardless of the two-day report window.
+- Implement one accounting summary bound to the applied payment-history date/time filter in `Asia/Tehran`, with sales/paid totals, order count, payment-method totals, discounts, reversals, and deleted-order treatment.
+- Defer weekly/monthly presets, exports, product/category analytics, forecasting, and standalone report filters.
+- Retain the complete order/payment/audit history in PostgreSQL regardless of the applied report window.
 - Add audit queries and required database indexes from measured payment-history and report query plans.
 - Implement permissioned full-settlement reversal instead of editing posted tenders or allocations.
 - Verify today/yesterday totals against fixed fixtures and inspect both permitted query plans.
