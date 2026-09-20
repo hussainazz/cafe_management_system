@@ -81,7 +81,7 @@ There are no application roles beyond Manager and Staff in v1. Both roles use th
 | Print/reprint receipts                                                      |  Yes  |   Yes   |
 | View and handle active waiter-calls in the shared table dashboard           |  Yes  |   Yes   |
 | Browse accounting payment history                                           |  No   |   Yes   |
-| View the initial daily report for today or yesterday                         |  No   |   Yes   |
+| View the accounting summary for the applied payment-history filter          |  No   |   Yes   |
 | Apply a reasoned item-level or order-level discount while permitted          |  Yes  |   Yes   |
 | Configure or remove a catalog product sale discount                          |  No   |   Yes   |
 | Manage categories, products, options, images, prices, and availability      |  No   |   Yes   |
@@ -142,7 +142,7 @@ Corrections and exceptional flows:
 | Payments               | Per-payer settlements for selected item quantities, each with one or more manual cash, card-terminal, or card-to-card transfer tenders; split tender, item allocation, total-paid calculation, optional card-to-card transfer references, and audit trail. No online payments.                                                                                                                                                  |
 | Discounts              | Only a Manager may configure or remove a fixed or percentage sale discount on a catalog product. Staff and Manager may apply a fixed or percentage discount with a required reason to an order item or whole order while settlement immutability permits it. There are no taxes or service charges.                                                                                                                         |
 | Receipts               | Print-friendly HTML has two variants: a concise bar ticket with the order number, local time, table/takeaway context, item quantities, selected options, and notes; and a detailed customer receipt (whole-order or payer-settlement) with item snapshots, Toman totals, tender summary where applicable, order number, and `Asia/Tehran` display time. The bar ticket excludes prices, discounts, totals, and payment details. |
-| Reports                | One Manager-only daily accounting report for either the current `Asia/Tehran` calendar day or the immediately previous day. The report window does not limit storage retention.                                                                                                                                                                                                                                                  |
+| Reports                | One Manager-only accounting summary bound to the applied payment-history filter. It defaults to the current `Asia/Tehran` calendar day and supports the same bounded Persian-calendar date/time window. The report window does not limit storage retention.                                                                                                                                                                        |
 | Manager capabilities   | Role-gated panels inside the shared POS for payment history, discounts, catalog, product preparation deadlines, an optional café-wide seating limit, availability, Staff accounts, settings, the daily report, and audit log.                                                                                                                                                                                                                |
 | Quality and operations | Critical tests, OpenAPI documentation, Docker deployment, HTTPS, backups, restore test, monitoring, and release rollback/forward-fix.                                                                                                                                                                                                                                                                                           |
 
@@ -169,7 +169,7 @@ Pilot acceptance scenarios:
 | Ordering   | Orders, order items, price/preparation snapshots, notes, channel, lifecycle state, payment status, and idempotency.           |
 | Tables     | Physical-table order and labels, seating limits, waiter-call eligibility, current occupancy state, QR-scan occupancy reminders, active table estimates, assignment/clearing of active orders, table QR credentials, and waiter-call lifecycle. |
 | Payments   | Settlements, tender entries, item-quantity allocations, settlement reversal policy, Tehran-business-day sequential order display numbering, and balance calculation. |
-| Reporting  | Manager-only payment history and the bounded today/yesterday daily accounting query over retained committed data.             |
+| Reporting  | Manager-only payment history and the accounting summary for its bounded applied filter over retained committed data.          |
 | Operations | Café settings, audit logs, system health, and operational metadata.                                                           |
 
 Money, pricing, and tax rules:
@@ -310,11 +310,11 @@ Authentication, authorization, and security:
 
 Reporting and audit:
 
-- The first POS reporting implementation contains one Manager-only daily accounting report. The Manager may select only `today` or `yesterday` using `Asia/Tehran` calendar boundaries; arbitrary ranges, weekly/monthly reports, exports, product/category analytics, and forecasting are deferred.
+- The Manager-only accounting summary uses the currently applied, bounded payment-history filter. It defaults to the current `Asia/Tehran` calendar day; custom Persian-calendar date ranges and optional time windows are evaluated server-side. Weekly/monthly presets, exports, product/category analytics, forecasting, and standalone report filters remain deferred.
 - The daily report distinguishes gross item totals, discounts, active settled/paid amounts by payment method, reversed settlements, and logically deleted orders. There are no tax or service-charge fields.
 - Manager-only payment history is a separate cursor-paginated operational view over retained settlements and receipts; it is not available to Staff. Staff may still open and print an individual whole-order or payer-settlement receipt through authorized POS order workflows.
-- The two-day report window is never a retention policy. Orders, order items, settlements, tenders, reversals, receipts derived from snapshots, and audit records remain in PostgreSQL and are not deleted when they become older than yesterday.
-- The daily report queries transactional tables, is verified against known fixtures, and receives supporting indexes based on measured query plans. The two permitted day windows keep reporting bounded so it cannot degrade POS work.
+- The applied report window is never a retention policy. Orders, order items, settlements, tenders, reversals, receipts derived from snapshots, and audit records remain in PostgreSQL regardless of age.
+- The accounting summary queries transactional tables, is verified against known fixtures, and receives supporting indexes based on measured query plans. Required applied date bounds keep reporting bounded so it cannot degrade POS work.
 
 ## Technology Baseline
 
