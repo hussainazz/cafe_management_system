@@ -378,10 +378,16 @@ export const OrderListResponseSchema = z.object({
 
 export const PaymentHistoryQuerySchema = z
   .object({
-    limit: z.coerce.number().int().min(1).max(100).default(50),
-    cursor: z.string().min(1).max(512).optional(),
+    fromDate: z.iso.date(),
+    toDate: z.iso.date(),
+    fromTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+    toTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   })
-  .strict();
+  .strict()
+  .refine((query) => query.fromDate <= query.toDate, {
+    message: "fromDate must not be later than toDate.",
+    path: ["toDate"],
+  });
 export type PaymentHistoryQuery = z.infer<typeof PaymentHistoryQuerySchema>;
 
 export const PaymentHistoryEntrySchema = z.object({
@@ -407,10 +413,7 @@ export const PaymentHistoryEntrySchema = z.object({
 
 export const PaymentHistoryResponseSchema = z.object({
   data: z.object({ payments: z.array(PaymentHistoryEntrySchema) }),
-  meta: z.object({
-    requestId: z.string(),
-    page: z.object({ limit: z.number().int(), nextCursor: z.string().nullable(), hasMore: z.boolean() }),
-  }),
+  meta: z.object({ requestId: z.string() }),
 });
 
 export const DailyReportQuerySchema = z.object({ period: z.enum(["today", "yesterday"]) }).strict();

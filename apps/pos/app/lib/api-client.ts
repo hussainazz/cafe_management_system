@@ -38,6 +38,7 @@ import {
   type CreatedOrder,
   type PosCatalogCategory,
   type PosTable,
+  type PaymentHistoryQuery,
 } from "@cafe/contracts";
 import type { z } from "zod";
 
@@ -57,7 +58,7 @@ export type ManagerCatalog = {
 export type ManagerStaff = z.infer<typeof AdminStaffResponseSchema>["data"]["staff"];
 export type ManagerSettings = z.infer<typeof AdminSettingsResponseSchema>["data"];
 export type PaymentHistory = z.infer<typeof PaymentHistoryResponseSchema>["data"]["payments"];
-export type Page = z.infer<typeof PaymentHistoryResponseSchema>["meta"]["page"];
+export type PaymentHistoryFilters = PaymentHistoryQuery;
 export type DailyReport = z.infer<typeof DailyReportResponseSchema>;
 export type AuditLog = z.infer<typeof AuditLogResponseSchema>;
 
@@ -450,10 +451,10 @@ export async function readManagerSettings(): Promise<ApiResult<ManagerSettings>>
   const parsed = await managerResponse("/admin/settings", AdminSettingsResponseSchema, "تنظیمات کافه معتبر نیست.");
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
-export async function readPaymentHistory(cursor?: string): Promise<ApiResult<{ payments: PaymentHistory; page: Page }>> {
-  const query = new URLSearchParams({ limit: "50", ...(cursor ? { cursor } : {}) });
+export async function readPaymentHistory(filters: PaymentHistoryFilters): Promise<ApiResult<PaymentHistory>> {
+  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined) as [string, string][]);
   const parsed = await managerResponse(`/admin/payments?${query}`, PaymentHistoryResponseSchema, "تاریخچه پرداخت معتبر نیست.");
-  return parsed.ok ? { ok: true, data: { payments: parsed.data.data.payments, page: parsed.data.meta.page }, replayed: parsed.replayed } : parsed;
+  return parsed.ok ? { ok: true, data: parsed.data.data.payments, replayed: parsed.replayed } : parsed;
 }
 export async function readDailyReport(period: "today" | "yesterday"): Promise<ApiResult<DailyReport>> {
   return managerResponse(`/admin/reports/daily?period=${period}`, DailyReportResponseSchema, "گزارش روزانه معتبر نیست.");

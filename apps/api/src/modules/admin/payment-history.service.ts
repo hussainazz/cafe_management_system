@@ -1,40 +1,32 @@
 import type { PaymentHistoryQuery } from "@cafe/contracts";
-import type { PrismaClient } from "../../../generated/prisma/client.js";
-import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
-
-type Cursor = { recordedAt: string; id: string };
-
-function decodeCursor(cursor: string): Cursor {
-  try {
-    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as Cursor;
-    if (!parsed.id || !parsed.recordedAt || Number.isNaN(new Date(parsed.recordedAt).getTime())) {
-      throw new Error("invalid cursor");
-    }
-    return parsed;
-  } catch {
-    throw new ApplicationError(400, ErrorCodes.BAD_REQUEST, "The cursor is invalid.");
-  }
-}
-
-function encodeCursor(settlement: { recordedAt: Date; id: string }): string {
-  return Buffer.from(JSON.stringify({ recordedAt: settlement.recordedAt.toISOString(), id: settlement.id })).toString("base64url");
-}
+import { Prisma, type PrismaClient } from "../../../generated/prisma/client.js";
 
 export async function listPaymentHistory(prisma: PrismaClient, query: PaymentHistoryQuery) {
-  const cursor = query.cursor ? decodeCursor(query.cursor) : undefined;
+  // Dates and times are evaluated in the café's reporting timezone. A partial
+  // time filter applies independently to every selected Tehran-local date;
+  // `fromTime > toTime` is an overnight window for each such date.
+  // Prisma persists UTC DateTime values in PostgreSQL `timestamp` columns, so
+  // attach UTC before projecting the instant into the Tehran-local clock.
+  const localRecordedAt = Prisma.sql`("recordedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran')`;
+  const dateFilter = Prisma.sql`${localRecordedAt}::date >= ${query.fromDate}::date AND ${localRecordedAt}::date <= ${query.toDate}::date`;
+  const timeFilter = query.fromTime && query.toTime
+    ? query.fromTime <= query.toTime
+      ? Prisma.sql`AND ${dateFilter} AND ${localRecordedAt}::time >= ${query.fromTime}::time AND ${localRecordedAt}::time < ${query.toTime}::time`
+      : Prisma.sql`AND ((${dateFilter} AND ${localRecordedAt}::time >= ${query.fromTime}::time) OR (${localRecordedAt}::date > ${query.fromDate}::date AND ${localRecordedAt}::date <= (${query.toDate}::date + 1) AND ${localRecordedAt}::time < ${query.toTime}::time))`
+    : query.fromTime
+      ? Prisma.sql`AND ${dateFilter} AND ${localRecordedAt}::time >= ${query.fromTime}::time`
+      : query.toTime
+        ? Prisma.sql`AND ${dateFilter} AND ${localRecordedAt}::time < ${query.toTime}::time`
+        : Prisma.sql`AND ${dateFilter}`;
+  const ids = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT id
+    FROM payment_settlements
+    WHERE 1 = 1 ${timeFilter}
+    ORDER BY "recordedAt" DESC, id DESC
+  `);
   const records = await prisma.paymentSettlement.findMany({
-    ...(cursor
-      ? {
-          where: {
-            OR: [
-              { recordedAt: { lt: new Date(cursor.recordedAt) } },
-              { recordedAt: new Date(cursor.recordedAt), id: { lt: cursor.id } },
-            ],
-          },
-        }
-      : {}),
+    where: { id: { in: ids.map((row) => row.id) } },
     orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
-    take: query.limit + 1,
     include: {
       order: { select: { id: true, orderNumber: true, dailyOrderNumber: true, channel: true, table: { select: { id: true, name: true } } } },
       recordedBy: { select: { id: true, username: true, role: true } },
@@ -42,10 +34,8 @@ export async function listPaymentHistory(prisma: PrismaClient, query: PaymentHis
       reversal: { select: { recordedAt: true } },
     },
   });
-  const hasMore = records.length > query.limit;
-  const settlements = records.slice(0, query.limit);
   return {
-    payments: settlements.map((settlement) => ({
+    payments: records.map((settlement) => ({
       id: settlement.id,
       orderId: settlement.order.id,
       orderNumber: settlement.order.orderNumber,
@@ -59,10 +49,5 @@ export async function listPaymentHistory(prisma: PrismaClient, query: PaymentHis
       payments: settlement.payments,
       settlementReceiptPath: `/api/v1/orders/${settlement.order.id}/settlements/${settlement.id}/receipt`,
     })),
-    page: {
-      limit: query.limit,
-      nextCursor: hasMore ? encodeCursor(settlements[settlements.length - 1]!) : null,
-      hasMore,
-    },
   };
 }
