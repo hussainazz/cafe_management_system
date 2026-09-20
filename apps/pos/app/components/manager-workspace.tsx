@@ -30,6 +30,7 @@ import {
   type ManagerSettings,
   type ManagerStaff,
   type PaymentHistory,
+  type PaymentHistoryFilters,
   type PosOrderDetail,
 } from "../lib/api-client";
 import { formatOrderNumber, formatToman } from "../lib/pos-utils";
@@ -60,6 +61,54 @@ function paymentContext(item: PaymentHistory[number]) {
 
 function paymentMethods(item: PaymentHistory[number]) {
   return item.payments.map((payment) => paymentMethodLabel[payment.method]).join("، ") || "—";
+}
+
+type PaymentFilterDraft = {
+  currentDay: boolean;
+  fromDate: string;
+  toDate: string;
+  fromTime: string;
+  toTime: string;
+};
+
+function tehranDateParts(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tehran",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return { year: value("year"), month: value("month"), day: value("day") };
+}
+
+function initialPaymentFilterDraft(): PaymentFilterDraft {
+  const { month, day } = tehranDateParts();
+  return { currentDay: true, fromDate: `${month}/${day}`, toDate: `${month}/${day}`, fromTime: "", toTime: "" };
+}
+
+function paymentFiltersFromDraft(draft: PaymentFilterDraft): PaymentHistoryFilters | null {
+  const { year, month, day } = tehranDateParts();
+  const date = `${month}/${day}`;
+  const completeDate = (value: string) => {
+    const match = /^(\d{2})\/(\d{2})$/.exec(value);
+    if (!match) return null;
+    const result = `${year}-${match[1]}-${match[2]}`;
+    const parsed = new Date(`${result}T00:00:00.000Z`);
+    return Number.isNaN(parsed.getTime()) || parsed.getUTCMonth() + 1 !== Number(match[1]) || parsed.getUTCDate() !== Number(match[2])
+      ? null
+      : result;
+  };
+  const fromDate = draft.currentDay ? `${year}-${month}-${day}` : completeDate(draft.fromDate);
+  const toDate = draft.currentDay ? `${year}-${month}-${day}` : completeDate(draft.toDate);
+  if (!fromDate || !toDate || fromDate > toDate) return null;
+  if ((draft.fromTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.fromTime)) || (draft.toTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.toTime))) return null;
+  return {
+    fromDate,
+    toDate,
+    ...(draft.fromTime ? { fromTime: draft.fromTime } : {}),
+    ...(draft.toTime ? { toTime: draft.toTime } : {}),
+  };
 }
 
 export function ManagerWorkspace({
@@ -537,7 +586,12 @@ function FinancePanel({
   requestConfirm: (confirm: Confirm) => void;
 }) {
   const [payments, setPayments] = useState<PaymentHistory>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [draftPaymentFilters, setDraftPaymentFilters] = useState<PaymentFilterDraft>(initialPaymentFilterDraft);
+  const [appliedPaymentFilters, setAppliedPaymentFilters] = useState<PaymentHistoryFilters>(() => {
+    const filters = paymentFiltersFromDraft(initialPaymentFilterDraft());
+    if (!filters) throw new Error("Unable to resolve the current Tehran date.");
+    return filters;
+  });
   const [report, setReport] = useState<any>(null);
   const [audit, setAudit] = useState<any>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -558,13 +612,10 @@ function FinancePanel({
   useEffect(() => {
     auditFiltersRef.current = auditFilters;
   }, [auditFilters]);
-  const loadPayments = useCallback(async (next?: string, append = false) => {
-    const result = await readPaymentHistory(next);
+  const loadPayments = useCallback(async (filters: PaymentHistoryFilters) => {
+    const result = await readPaymentHistory(filters);
     if (result.ok) {
-      setPayments((current) =>
-        append ? [...current, ...result.data.payments] : result.data.payments,
-      );
-      setCursor(result.data.page.nextCursor);
+      setPayments(result.data);
     } else setMessage(result.error.message);
   }, []);
   const loadReport = useCallback(async (period: "today" | "yesterday") => {
@@ -592,8 +643,8 @@ function FinancePanel({
     [],
   );
   useEffect(() => {
-    void Promise.all([loadPayments(), loadReport("today"), loadAudit()]);
-  }, [loadAudit, loadPayments, loadReport]);
+    void Promise.all([loadPayments(appliedPaymentFilters), loadReport("today"), loadAudit()]);
+  }, [appliedPaymentFilters, loadAudit, loadPayments, loadReport]);
   const sortedPayments = useMemo(() => {
     const valueFor = (item: PaymentHistory[number]) => {
       switch (paymentSort.key) {
@@ -628,6 +679,58 @@ function FinancePanel({
         hint="فقط تسویه‌های ثبت‌شده و نگهداری‌شده نمایش داده می‌شوند."
       >
         {message && <p className="form-error">{message}</p>}
+        <form
+          className="manager-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const filters = paymentFiltersFromDraft(draftPaymentFilters);
+            if (!filters) {
+              setMessage("تاریخ را به صورت MM/DD و ساعت را به صورت HH:MM وارد کنید؛ تاریخ شروع نباید بعد از پایان باشد.");
+              return;
+            }
+            setMessage(null);
+            setAppliedPaymentFilters(filters);
+          }}
+        >
+          <label>
+            <input
+              type="checkbox"
+              checked={draftPaymentFilters.currentDay}
+              onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, currentDay: event.target.checked }))}
+            />
+            امروز
+          </label>
+          <div className="manager-fields">
+            <label>
+              <span>از تاریخ</span>
+              <input aria-label="از تاریخ" value={draftPaymentFilters.fromDate} placeholder="MM/DD" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, fromDate: event.target.value }))} />
+            </label>
+            <label>
+              <span>تا تاریخ</span>
+              <input aria-label="تا تاریخ" value={draftPaymentFilters.toDate} placeholder="MM/DD" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, toDate: event.target.value }))} />
+            </label>
+            <label>
+              <span>از ساعت</span>
+              <input aria-label="از ساعت" value={draftPaymentFilters.fromTime} placeholder="HH:MM" inputMode="numeric" onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, fromTime: event.target.value }))} />
+            </label>
+            <label>
+              <span>تا ساعت</span>
+              <input aria-label="تا ساعت" value={draftPaymentFilters.toTime} placeholder="HH:MM" inputMode="numeric" onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, toTime: event.target.value }))} />
+            </label>
+          </div>
+          <div className="manager-actions">
+            <button type="button" className="secondary-button" onClick={() => {
+              const initial = initialPaymentFilterDraft();
+              const filters = paymentFiltersFromDraft(initial);
+              if (filters) {
+                setDraftPaymentFilters(initial);
+                setAppliedPaymentFilters(filters);
+                setMessage(null);
+              }
+            }}>پاک کردن</button>
+            <button type="submit">اعمال فیلتر</button>
+          </div>
+        </form>
         <div className="manager-payment-table-wrap">
           <table className="manager-payment-table" aria-label="تاریخچه پرداخت‌ها">
             <thead>
@@ -703,7 +806,7 @@ function FinancePanel({
                               reason: reason ?? "",
                             }),
                           async () => {
-                            await Promise.all([loadPayments(), loadReport("today")]);
+                            await Promise.all([loadPayments(appliedPaymentFilters), loadReport("today")]);
                           },
                         );
                       },
@@ -722,15 +825,6 @@ function FinancePanel({
             </tbody>
           </table>
         </div>
-        {cursor && (
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void loadPayments(cursor, true)}
-          >
-            بارگذاری بیشتر
-          </button>
-        )}
       </ManagerCard>
       {selectedOrder && (
         <div className="manager-dialog-backdrop" role="presentation" onClick={() => setSelectedOrder(null)}>

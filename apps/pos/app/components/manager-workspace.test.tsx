@@ -21,7 +21,7 @@ describe("ManagerWorkspace", () => {
     api.readManagerCatalog.mockResolvedValue({ ok: true, data: catalog });
     api.readManagerStaff.mockResolvedValue({ ok: true, data: [] });
     api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "00000000-0000-4000-8000-000000000001", tableSeatingLimitMinutes: null, updatedAt: new Date().toISOString() } });
-    api.readPaymentHistory.mockResolvedValue({ ok: true, data: { payments: [], page: { nextCursor: null } } });
+    api.readPaymentHistory.mockResolvedValue({ ok: true, data: [] });
     api.readDailyReport.mockResolvedValue({ ok: true, data: null });
     api.readAuditLog.mockResolvedValue({ ok: true, data: { data: { entries: [] }, meta: { page: { nextCursor: null } } } });
   });
@@ -51,12 +51,34 @@ describe("ManagerWorkspace", () => {
     await waitFor(() => expect(api.readAuditLog).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByLabelText("عملیات"), { target: { value: "UPDATE_PRODUCT" } });
     expect(api.readAuditLog).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByText("اعمال فیلتر"));
+    fireEvent.submit(screen.getByLabelText("عملیات").closest("form")!);
     await waitFor(() => expect(api.readAuditLog).toHaveBeenCalledTimes(2));
   });
 
+  it("applies complete Tehran-date payment filters only after Apply and resets to today", async () => {
+    render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(1));
+    expect(api.readPaymentHistory).toHaveBeenLastCalledWith(expect.objectContaining({ fromDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), toDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }));
+    expect((screen.getByLabelText("از تاریخ") as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByLabelText("امروز"));
+    expect((screen.getByLabelText("از تاریخ") as HTMLInputElement).disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText("از تاریخ"), { target: { value: "09/15" } });
+    fireEvent.change(screen.getByLabelText("تا تاریخ"), { target: { value: "09/20" } });
+    fireEvent.change(screen.getByLabelText("از ساعت"), { target: { value: "18:00" } });
+    fireEvent.change(screen.getByLabelText("تا ساعت"), { target: { value: "22:30" } });
+    expect(api.readPaymentHistory).toHaveBeenCalledTimes(1);
+    fireEvent.submit(screen.getByLabelText("از تاریخ").closest("form")!);
+    await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(2));
+    expect(api.readPaymentHistory).toHaveBeenLastCalledWith({ fromDate: "2026-09-15", toDate: "2026-09-20", fromTime: "18:00", toTime: "22:30" });
+    fireEvent.click(screen.getByRole("button", { name: "پاک کردن" }));
+    await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(3));
+    expect((screen.getByLabelText("امروز") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("از ساعت") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByText("بارگذاری بیشتر")).toBeNull();
+  });
+
   it("keeps a settlement reversal open until its required reason is entered", async () => {
-    api.readPaymentHistory.mockResolvedValue({ ok: true, data: { payments: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH" }] }], page: { nextCursor: null } } });
+    api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH" }] }] });
     api.readOrder.mockResolvedValue({ ok: true, data: { version: 3, dailyOrderNumber: 1 } });
     api.reverseSettlement.mockResolvedValue({ ok: true });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
@@ -84,13 +106,10 @@ describe("ManagerWorkspace", () => {
   it("renders payment history as a sortable table", async () => {
     api.readPaymentHistory.mockResolvedValue({
       ok: true,
-      data: {
-        payments: [
+      data: [
           { id: "settlement-2", orderId: "order-2", orderNumber: "1002", dailyOrderNumber: 2, totalAmount: 40_000, recordedAt: "2026-09-13T09:00:00.000Z", recordedBy: { username: "z" }, channel: "TAKEAWAY", table: null, reversedAt: null, payments: [{ method: "CASH" }] },
           { id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 20_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "a" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CARD_TERMINAL" }] },
         ],
-        page: { nextCursor: null },
-      },
     });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
     await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
