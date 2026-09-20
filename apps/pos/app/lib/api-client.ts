@@ -456,8 +456,9 @@ export async function readPaymentHistory(filters: PaymentHistoryFilters): Promis
   const parsed = await managerResponse(`/admin/payments?${query}`, PaymentHistoryResponseSchema, "تاریخچه پرداخت معتبر نیست.");
   return parsed.ok ? { ok: true, data: parsed.data.data.payments, replayed: parsed.replayed } : parsed;
 }
-export async function readDailyReport(period: "today" | "yesterday"): Promise<ApiResult<DailyReport>> {
-  return managerResponse(`/admin/reports/daily?period=${period}`, DailyReportResponseSchema, "گزارش روزانه معتبر نیست.");
+export async function readDailyReport(filters: PaymentHistoryFilters): Promise<ApiResult<DailyReport>> {
+  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined) as [string, string][]);
+  return managerResponse(`/admin/reports/daily?${query}`, DailyReportResponseSchema, "گزارش حسابداری معتبر نیست.");
 }
 export async function readAuditLog(cursor?: string, filters: Record<string, string> = {}): Promise<ApiResult<AuditLog>> {
   const query = new URLSearchParams({ limit: "50", ...filters, ...(cursor ? { cursor } : {}) });
