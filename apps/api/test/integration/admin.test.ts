@@ -261,46 +261,60 @@ describe("Manager administration", () => {
     expect((await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).isActive).toBe(true);
   });
 
-  it("lists retained payment settlements only for Managers with stable cursor pagination", async () => {
-    expect((await app.inject({ method: "GET", url: "/api/v1/admin/payments" })).statusCode).toBe(401);
+  it("lists Manager payment history using required Tehran-local date and time filters", async () => {
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/payments?fromDate=2026-09-15&toDate=2026-09-15" })).statusCode).toBe(401);
     const staff = await session(UserRole.STAFF, "payments.staff");
-    expect((await app.inject({ method: "GET", url: "/api/v1/admin/payments", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/payments?fromDate=2026-09-15&toDate=2026-09-15", cookies: staff })).statusCode).toBe(403);
     const manager = await session(UserRole.MANAGER, "payments.manager");
     const staffUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "payments.staff" } });
     const managerUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "payments.manager" } });
     const table = await app.prisma.cafeTable.create({ data: { name: "۱۲", displayOrder: 12 } });
-    const sameTime = new Date("2026-09-09T08:00:00.000Z");
-    await recordedSettlement({ orderNumber: "PAY-001", actorId: staffUser.id, recordedAt: new Date("2026-09-09T07:00:00.000Z"), amount: 10_000 });
-    const second = await recordedSettlement({ orderNumber: "PAY-002", actorId: staffUser.id, recordedAt: sameTime, amount: 20_000, tableId: table.id, reversedById: managerUser.id });
-    await recordedSettlement({ orderNumber: "PAY-003", actorId: managerUser.id, recordedAt: sameTime, amount: 30_000 });
+    const settlement = async (orderNumber: string, recordedAt: string, actorId = staffUser.id, tableId?: string) =>
+      recordedSettlement({ orderNumber, actorId, ...(tableId ? { tableId } : {}), recordedAt: new Date(recordedAt), amount: 10_000 });
+    const lower = await settlement("PAY-LOWER", "2026-09-14T20:30:00.000Z"); // 09/15 00:00 Tehran
+    const daytime = await settlement("PAY-DAY", "2026-09-15T08:30:00.000Z"); // 12:00 Tehran
+    const normalLower = await settlement("PAY-NORMAL-LOWER", "2026-09-15T14:30:00.000Z"); // 18:00 Tehran
+    const normalUpper = await settlement("PAY-NORMAL-UPPER", "2026-09-15T19:00:00.000Z"); // 22:30 Tehran
+    const overnightStart = await settlement("PAY-OVERNIGHT-START", "2026-09-15T18:30:00.000Z"); // 22:00 Tehran
+    const overnightEnd = await settlement("PAY-OVERNIGHT-END", "2026-09-15T22:29:00.000Z"); // 09/16 01:59 Tehran
+    const second = await settlement("PAY-SECOND-DAY", "2026-09-16T15:00:00.000Z", staffUser.id, table.id); // 09/16 18:30 Tehran
+    const outside = await settlement("PAY-OUTSIDE", "2026-09-16T20:30:00.000Z", managerUser.id); // 09/17 00:00 Tehran
+    await app.prisma.settlementReversal.create({ data: { settlementId: second.settlement.id, recordedById: managerUser.id, reason: "Test reversal" } });
 
-    const expected = await app.prisma.paymentSettlement.findMany({ orderBy: [{ recordedAt: "desc" }, { id: "desc" }], select: { id: true } });
-    const firstPage = await app.inject({ method: "GET", url: "/api/v1/admin/payments?limit=2", cookies: manager });
-    expect(firstPage.statusCode).toBe(200);
-    expect(firstPage.json().meta.page).toMatchObject({ limit: 2, hasMore: true, nextCursor: expect.any(String) });
-    expect(firstPage.json().data.payments.map((payment: { id: string }) => payment.id)).toEqual(expected.slice(0, 2).map((payment) => payment.id));
-    expect(firstPage.json().data.payments).toEqual(expect.arrayContaining([
+    const request = (query: string) => app.inject({ method: "GET", url: `/api/v1/admin/payments?${query}`, cookies: manager });
+    const ignoredLegacyLimit = await request("fromDate=2026-09-15&toDate=2026-09-15&limit=2");
+    expect(ignoredLegacyLimit.statusCode).toBe(200);
+    expect(ignoredLegacyLimit.json().data.payments).toHaveLength(5);
+    expect((await request("fromDate=2026-09-16&toDate=2026-09-15")).statusCode).toBe(400);
+    expect((await request("fromDate=2026-09-15&toDate=2026-09-15&fromTime=25:00")).statusCode).toBe(400);
+    expect((await request("fromDate=2026-09-31&toDate=2026-09-31")).statusCode).toBe(400);
+
+    const day = await request("fromDate=2026-09-15&toDate=2026-09-15");
+    expect(day.statusCode).toBe(200);
+    expect(day.json().meta).not.toHaveProperty("page");
+    expect(day.json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([normalUpper, overnightStart, normalLower, daytime, lower].map((row) => row.settlement.id));
+    const range = await request("fromDate=2026-09-15&toDate=2026-09-16");
+    expect(range.json().data.payments).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: second.settlement.id,
         orderId: second.order.id,
-        orderNumber: "PAY-002",
+        orderNumber: "PAY-SECOND-DAY",
         dailyOrderNumber: 1,
         channel: "TABLE",
         table: { id: table.id, name: "۱۲" },
-        totalAmount: 20_000,
+        totalAmount: 10_000,
         recordedBy: { id: staffUser.id, username: "payments.staff", role: "STAFF" },
         reversedAt: expect.any(String),
-        payments: [{ method: "CARD_TRANSFER", amount: 20_000, reference: "REF-PAY-002" }],
+        payments: [{ method: "CARD_TRANSFER", amount: 10_000, reference: "REF-PAY-SECOND-DAY" }],
         settlementReceiptPath: `/api/v1/orders/${second.order.id}/settlements/${second.settlement.id}/receipt`,
       }),
     ]));
-    const secondPage = await app.inject({ method: "GET", url: `/api/v1/admin/payments?limit=2&cursor=${encodeURIComponent(firstPage.json().meta.page.nextCursor)}`, cookies: manager });
-    expect(secondPage.statusCode).toBe(200);
-    expect(secondPage.json().data.payments.map((payment: { id: string }) => payment.id)).toEqual(expected.slice(2).map((payment) => payment.id));
-    expect(secondPage.json().meta.page).toMatchObject({ limit: 2, hasMore: false, nextCursor: null });
-    const invalidCursor = await app.inject({ method: "GET", url: "/api/v1/admin/payments?cursor=not-a-cursor", cookies: manager });
-    expect(invalidCursor.statusCode).toBe(400);
-    expect(invalidCursor.json().error.code).toBe("BAD_REQUEST");
+    expect(range.json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([second, overnightEnd, normalUpper, overnightStart, normalLower, daytime, lower].map((row) => row.settlement.id));
+    expect((await request("fromDate=2026-09-15&toDate=2026-09-16&fromTime=18:00")).json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([second, normalUpper, overnightStart, normalLower].map((row) => row.settlement.id));
+    expect((await request("fromDate=2026-09-15&toDate=2026-09-16&toTime=12:00")).json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([overnightEnd, lower].map((row) => row.settlement.id));
+    expect((await request("fromDate=2026-09-15&toDate=2026-09-16&fromTime=18:00&toTime=22:30")).json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([second, overnightStart, normalLower].map((row) => row.settlement.id));
+    expect((await request("fromDate=2026-09-15&toDate=2026-09-15&fromTime=22:00&toTime=02:00")).json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([overnightEnd, normalUpper, overnightStart].map((row) => row.settlement.id));
+    expect(outside.settlement.id).not.toBe(lower.settlement.id);
   });
 
   it("returns only the requested Tehran day with sales, tenders, discounts, reversals, and deleted-order treatment", async () => {
