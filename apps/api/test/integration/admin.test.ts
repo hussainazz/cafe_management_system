@@ -317,14 +317,14 @@ describe("Manager administration", () => {
     expect(outside.settlement.id).not.toBe(lower.settlement.id);
   });
 
-  it("returns only the requested Tehran day with sales, tenders, discounts, reversals, and deleted-order treatment", async () => {
+  it("returns only the requested Tehran date with sales, tenders, discounts, reversals, and deleted-order treatment", async () => {
     const staff = await session(UserRole.STAFF, "report.staff");
     const manager = await session(UserRole.MANAGER, "report.manager");
-    expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-15&toDate=2026-09-15", cookies: staff })).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily", cookies: manager })).statusCode).toBe(400);
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=week", cookies: manager })).statusCode).toBe(400);
-    const todayEmpty = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: manager });
-    const yesterdayEmpty = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
+    const todayEmpty = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-15&toDate=2026-09-15", cookies: manager });
+    const yesterdayEmpty = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-14&toDate=2026-09-14", cookies: manager });
     const todayStart = new Date(todayEmpty.json().meta.range.from);
     const yesterdayStart = new Date(yesterdayEmpty.json().meta.range.from);
     const category = await app.prisma.category.create({ data: { name: "Report category", displayOrder: 1 } });
@@ -344,7 +344,7 @@ describe("Manager administration", () => {
     const yesterdayOpenOrder = await reportOrder({ orderNumber: "RPT-006", actorId: staffUser.id, productId: product.id, createdAt: new Date(yesterdayStart.getTime() + 5 * 60 * 60_000), subtotalAmount: 15_000, totalAmount: 15_000, paidAmount: 0 });
     await app.prisma.paymentSettlement.create({ data: { orderId: yesterdayOpenOrder.id, recordedById: staffUser.id, idempotencyKey: "report-yesterday-paid-today", totalAmount: 15_000, recordedAt: new Date(todayStart.getTime() + 7 * 60 * 60_000), payments: { create: { method: "CARD_TERMINAL", amount: 15_000 } } } });
 
-    const today = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: manager });
+    const today = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-15&toDate=2026-09-15", cookies: manager });
     expect(today.statusCode).toBe(200);
     expect(today.json()).toMatchObject({
       data: {
@@ -356,9 +356,9 @@ describe("Manager administration", () => {
         reversals: { count: 1, amount: 20_000 },
         deletedOrders: { count: 2, totalAmount: 60_000, paidAmount: 40_000 },
       },
-      meta: { period: "today", range: { from: todayEmpty.json().meta.range.from, to: todayEmpty.json().meta.range.to } },
+      meta: { range: { from: todayEmpty.json().meta.range.from, to: todayEmpty.json().meta.range.to } },
     });
-    const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
+    const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-14&toDate=2026-09-14", cookies: manager });
     expect(yesterday.statusCode).toBe(200);
     expect(yesterday.json().data).toMatchObject({ salesAmount: 85_000, paidAmount: 85_000, orderCount: 2, paymentMethodTotals: { cashAmount: 70_000, cardTerminalAmount: 15_000, cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 }, deletedOrders: { count: 0, totalAmount: 0, paidAmount: 0 } });
   });
@@ -367,12 +367,12 @@ describe("Manager administration", () => {
     const manager = await session(UserRole.MANAGER, "cross-day.manager");
     const staffUser = await app.prisma.user.create({ data: { username: "cross-day.staff", passwordHash: await hashPassword("CafePassword2026"), role: "STAFF" } });
     const managerUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "cross-day.manager" } });
-    const emptyToday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: manager });
-    const emptyYesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
+    const emptyToday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-15&toDate=2026-09-15", cookies: manager });
+    const emptyYesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-14&toDate=2026-09-14", cookies: manager });
     const settlement = await recordedSettlement({ orderNumber: "CROSS-DAY-001", actorId: staffUser.id, recordedAt: new Date(new Date(emptyYesterday.json().meta.range.from).getTime() + 3_600_000), amount: 12_000 });
     await app.prisma.settlementReversal.create({ data: { settlementId: settlement.settlement.id, recordedById: managerUser.id, reason: "Next-day correction", recordedAt: new Date(new Date(emptyToday.json().meta.range.from).getTime() + 3_600_000) } });
-    const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=yesterday", cookies: manager });
-    const today = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?period=today", cookies: manager });
+    const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-14&toDate=2026-09-14", cookies: manager });
+    const today = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-15&toDate=2026-09-15", cookies: manager });
     expect(yesterday.json().data).toMatchObject({ paidAmount: 12_000, paymentMethodTotals: { cardTransferAmount: 12_000 }, reversals: { count: 0, amount: 0 } });
     expect(today.json().data.reversals).toMatchObject({ count: 1, amount: 12_000 });
   });
