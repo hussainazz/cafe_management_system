@@ -51,7 +51,7 @@ Current implementation status as of 3 September 2026:
 | 5     | Public-menu deployment preparation | Production web/API release baseline, backup/restore, monitoring, log rotation, release procedure, and public-menu fallback runbook          |
 | 6     | Public-menu VPS deployment and pilot | Iranian VPS public-menu deployment, HTTPS, production secrets, restore drill, CDN measurement, and limited browse-only pilot               |
 | 7     | Shared POS foundation           | One Staff/Manager POS shell and table dashboard: basic order/payment/receipt workflows, ordered physical tables, occupancy/reminder flow, and OTP-authenticated table-scoped waiter-call |
-| 8     | Manager capability backend      | Manager catalog/user/settings, payment history, discounts, audit queries, and today/yesterday daily accounting report                           |
+| 8     | Manager capability backend      | Manager catalog/user/settings, payment history, discounts, audit queries, and accounting summary bound to the applied payment filter          |
 | 9     | Manager panels in shared POS    | Role-gated catalog, Staff-account, settings, payment-history, audit, and daily-report panels inside the existing POS application                 |
 | 10    | Full-system hardening and POS pilot | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, POS stabilization, and limited live shift      |
 | Later | Customer ordering               | Customer cart, table selection, Staff confirmation, and protected public order submission                                                       |
@@ -179,12 +179,12 @@ Exit gate:
   immutability.
 - Implement complete Manager-only catalog, product option, image, price, availability, display-order, Staff account, and settings APIs.
 - Implement Manager-only cursor-paginated payment history while keeping Staff access to individual order and settlement receipts.
-- Implement one bounded daily accounting report whose only valid period is the current or immediately previous `Asia/Tehran` calendar day.
-- Include daily totals, order count, payment-method totals, discounts, settlement reversals, and logically deleted-order treatment. Defer weekly/monthly periods, arbitrary date ranges, exports, product/category/hour analytics, and forecasting.
-- Keep every historical order, item, settlement, tender, reversal, and audit row regardless of the two-day report window.
-- Add audit queries and the database indexes required by measured payment-history and two-day report query plans.
+- Implement one bounded accounting summary using the currently applied payment-history date/time filter in `Asia/Tehran`.
+- Include totals, order count, payment-method totals, discounts, settlement reversals, and logically deleted-order treatment. Defer weekly/monthly presets, exports, product/category analytics, forecasting, and standalone report filters.
+- Keep every historical order, item, settlement, tender, reversal, and audit row regardless of the applied report window.
+- Add audit queries and the database indexes required by measured payment-history and bounded-report query plans.
 - Implement permissioned full-settlement reversal instead of editing posted tenders or allocations.
-- Verify today/yesterday report totals against fixed fixtures and inspect both permitted query plans.
+- Verify applied-filter report totals against fixed fixtures and inspect representative query plans.
 
 Exit gate:
 
@@ -195,7 +195,7 @@ Exit gate:
 - Extend the existing POS shell and navigation according to the authenticated role; do not create a separate Manager application or duplicate the table dashboard.
 - Build category, product, canonical option/subset/override, image, price, product preparation-deadline, optional café-wide seating-limit, availability, and display-order management.
 - Build Staff account creation, deactivation, and session-management interfaces.
-- Build settings, Manager-only payment history, today/yesterday daily accounting, settlement-reversal, and audit-history interfaces.
+- Build settings, Manager-only payment history, its applied-filter accounting summary, settlement-reversal, and audit-history interfaces.
 - Add confirmation, permission, validation, loading, error, and empty states for every Manager action.
 
 Exit gate:
