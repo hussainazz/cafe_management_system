@@ -1,0 +1,97 @@
+{
+  "generatedAt": "2026-09-21T15:13:50.549Z",
+  "baseUrl": "https://runncafe.ir",
+  "credentials": [
+    {
+      "tableId": "40000000-0000-4000-8000-000000000001",
+      "tableName": "1",
+      "displayOrder": 1,
+      "url": "https://runncafe.ir/t/trvSqzZI2RhwYGzsftj5XIxEUXLGhlg2BinoiJ-dhJI",
+      "svg": "table-01.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000002",
+      "tableName": "2",
+      "displayOrder": 2,
+      "url": "https://runncafe.ir/t/wxaMj5wsZUrnxieVz3xCXhfiVCvozOre4Rv6VjkxAmo",
+      "svg": "table-02.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000003",
+      "tableName": "3",
+      "displayOrder": 3,
+      "url": "https://runncafe.ir/t/EYmFf_PeWgAIGYEyujR4orQ8OxSC9J0usv6qiWuBB2M",
+      "svg": "table-03.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000004",
+      "tableName": "4",
+      "displayOrder": 4,
+      "url": "https://runncafe.ir/t/gO25ofP5Y8bAXcUjkcInKxG6t7UhVBd-ceEXnFGFk3w",
+      "svg": "table-04.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000005",
+      "tableName": "5",
+      "displayOrder": 5,
+      "url": "https://runncafe.ir/t/PRVAYPsdu6Z8KN44PDY3DkfPIucNFSWuOOwRaSXT6UU",
+      "svg": "table-05.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000006",
+      "tableName": "6",
+      "displayOrder": 6,
+      "url": "https://runncafe.ir/t/8H7efkJ1gp7ybHaekw_idjqJgbWpC8KHlHtA_tTWpt8",
+      "svg": "table-06.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000007",
+      "tableName": "7",
+      "displayOrder": 7,
+      "url": "https://runncafe.ir/t/oqiCCApLK_EGIp0atW-ebNLzKJju5lCKn6-hn6v8VPM",
+      "svg": "table-07.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000008",
+      "tableName": "8",
+      "displayOrder": 8,
+      "url": "https://runncafe.ir/t/8VNRg1gmy-bEhcXhY52eVNCLWhpUt3cdqf0SIsYE_q4",
+      "svg": "table-08.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000009",
+      "tableName": "9",
+      "displayOrder": 9,
+      "url": "https://runncafe.ir/t/2qTOYHdGH0NRbeVLM2CGcIekJUNz8Tt8dbsKYzR9Rqg",
+      "svg": "table-09.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000010",
+      "tableName": "10",
+      "displayOrder": 10,
+      "url": "https://runncafe.ir/t/E_uhjz4jaGO1duYHwmAV8RqgQaYHk68iM44HzWdkCOI",
+      "svg": "table-10.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000011",
+      "tableName": "11",
+      "displayOrder": 11,
+      "url": "https://runncafe.ir/t/rwJKyVVRV7vimtxEsqSlK3cshqctohkHg0qFMyZT8BQ",
+      "svg": "table-11.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000013",
+      "tableName": "12",
+      "displayOrder": 12,
+      "url": "https://runncafe.ir/t/Zt0F8FW5f7KXf02kHzebhvIu7FEvOzQuHfjBhOxTVwI",
+      "svg": "table-12.svg"
+    },
+    {
+      "tableId": "40000000-0000-4000-8000-000000000014",
+      "tableName": "13",
+      "displayOrder": 13,
+      "url": "https://runncafe.ir/t/H4EJqcuCeVtLTt52Ng_NAQ8suAIr0Sw83oKuOmbL6c4",
+      "svg": "table-13.svg"
+    }
+  ]
+}
