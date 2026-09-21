@@ -13,7 +13,7 @@ const bundledReleaseId = process.env.NEXT_PUBLIC_POS_RELEASE_ID || "development"
 
 async function readReleaseId(): Promise<string | null> {
   try {
-    const response = await fetch("/pos/api/release", { cache: "no-store" });
+    const response = await fetch("/pos/release", { cache: "no-store" });
     if (!response.ok) return null;
     const payload: unknown = await response.json();
     return typeof (payload as { releaseId?: unknown }).releaseId === "string"
