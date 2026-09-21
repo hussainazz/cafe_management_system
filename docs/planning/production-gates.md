@@ -89,6 +89,22 @@ timeouts before staging completed.
   build ID, internal and public `/menu`, representative rendered image URLs,
   service state, logs, and `NRestarts`.
 
+### POS release identity and safe browser update
+
+Every POS activation must build the complete compatible POS/API artifact set
+with one immutable staged release ID. Pass it as `POS_RELEASE_ID` to the local
+POS build; it becomes the POS Next.js `BUILD_ID`, the browser's loaded ID, and
+the deployed `GET /pos/api/release` response. That response must use
+`Cache-Control: no-store`. Do not deploy a POS artifact whose release ID does
+not name the compatible API/migration artifact set.
+
+The POS shell polls that endpoint every 45 seconds. A changed ID shows the
+Persian update banner. It must never force-refresh a draft, an open table or
+takeaway workspace, settlement/dialog, transfer, request, or print workflow.
+When the POS is idle it shows a 10-second warning then reloads; an operator can
+reload immediately, but a dirty draft requires browser confirmation. Verify the
+endpoint both locally and through public `/pos` after every POS release.
+
 ### Prisma native-engine release rule
 
 This repository can be built on a RHEL-family workstation while the VPS runs

@@ -29,6 +29,7 @@ import {
   DailyReportResponseSchema,
   AuditLogResponseSchema,
   ReverseSettlementResponseSchema,
+  EditSettlementResponseSchema,
   type RecordSettlementRequest,
   type UpdateOrderRequest,
   type DeleteOrderRequest,
@@ -465,8 +466,8 @@ export async function readAuditLog(cursor?: string, filters: Record<string, stri
   return managerResponse(`/admin/audit-log?${query}`, AuditLogResponseSchema, "تاریخچه حسابرسی معتبر نیست.");
 }
 
-async function managerMutation<T>(path: string, method: "POST" | "PATCH", body: unknown, schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, message: string): Promise<ApiResult<T>> {
-  return parseResponse(await request<unknown>(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), schema, message);
+async function managerMutation<T>(path: string, method: "POST" | "PATCH", body: unknown, schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, message: string, idempotencyKey?: string): Promise<ApiResult<T>> {
+  return parseResponse(await request<unknown>(path, { method, headers: { "content-type": "application/json", ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) }, body: JSON.stringify(body) }), schema, message);
 }
 export const saveCategory = (id: string | null, body: unknown) => managerMutation(id ? `/admin/categories/${id}` : "/admin/categories", id ? "PATCH" : "POST", body, id ? AdminCategoryResponseSchema : AdminCategoryResponseSchema, "پاسخ دسته معتبر نیست.");
 export const archiveCategory = (id: string) => managerMutation(`/admin/categories/${id}/archive`, "POST", {}, AdminCategoryResponseSchema, "پاسخ بایگانی دسته معتبر نیست.");
@@ -484,6 +485,10 @@ export const deactivateStaff = (id: string) => managerMutation(`/admin/users/${i
 export const reactivateStaff = (id: string) => managerMutation(`/admin/users/${id}/reactivate`, "POST", {}, AdminStaffSingleResponseSchema, "پاسخ فعال‌سازی معتبر نیست.");
 export const saveSettings = (body: unknown) => managerMutation("/admin/settings", "PATCH", body, AdminSettingsResponseSchema, "پاسخ تنظیمات معتبر نیست.");
 export const reverseSettlement = (settlementId: string, body: { expectedVersion: number; reason: string }) => managerMutation(`/admin/settlements/${settlementId}/reverse`, "POST", body, ReverseSettlementResponseSchema, "پاسخ برگشت تسویه معتبر نیست.");
+export async function editSettlement(settlementId: string, body: { expectedVersion: number; payments: unknown[]; reason: string }, idempotencyKey: string): Promise<ApiResult<PosOrderDetail>> {
+  const parsed = await managerMutation(`/admin/settlements/${settlementId}/edit`, "POST", body, EditSettlementResponseSchema, "پاسخ ویرایش پرداخت معتبر نیست.", idempotencyKey);
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
 function uploadRequest(
   path: string,
   form: FormData,

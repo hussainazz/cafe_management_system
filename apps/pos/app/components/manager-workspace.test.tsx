@@ -9,7 +9,8 @@ const catalog = { categories: [{ id: "category-1", name: "قهوه", isActive: t
 const api = vi.hoisted(() => ({
   readManagerCatalog: vi.fn(), readManagerStaff: vi.fn(), readManagerSettings: vi.fn(),
   readPaymentHistory: vi.fn(), readDailyReport: vi.fn(), readAuditLog: vi.fn(), readOrder: vi.fn(),
-  archiveCategory: vi.fn(), archiveOption: vi.fn(), archiveProduct: vi.fn(), archiveProductImage: vi.fn(), archiveTable: vi.fn(), deactivateStaff: vi.fn(), reactivateStaff: vi.fn(), reverseSettlement: vi.fn(), saveCategory: vi.fn(), saveOption: vi.fn(), saveOptionGroup: vi.fn(), saveProduct: vi.fn(), saveSettings: vi.fn(), saveStaff: vi.fn(), saveTable: vi.fn(), uploadProductImage: vi.fn(), reorderCategories: vi.fn(), reorderProducts: vi.fn(),
+  deleteOpenOrder: vi.fn(),
+  archiveCategory: vi.fn(), archiveOption: vi.fn(), archiveProduct: vi.fn(), archiveProductImage: vi.fn(), archiveTable: vi.fn(), deactivateStaff: vi.fn(), reactivateStaff: vi.fn(), saveCategory: vi.fn(), saveOption: vi.fn(), saveOptionGroup: vi.fn(), saveProduct: vi.fn(), saveSettings: vi.fn(), saveStaff: vi.fn(), saveTable: vi.fn(), uploadProductImage: vi.fn(), reorderCategories: vi.fn(), reorderProducts: vi.fn(),
 }));
 
 vi.mock("../lib/api-client", () => api);
@@ -77,30 +78,14 @@ describe("ManagerWorkspace", () => {
     expect(screen.queryByText("بارگذاری بیشتر")).toBeNull();
   });
 
-  it("keeps a settlement reversal open until its required reason is entered", async () => {
+  it("does not expose settlement reversal in payment history", async () => {
     api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH" }] }] });
-    api.readOrder.mockResolvedValue({ ok: true, data: { version: 3, dailyOrderNumber: 1 } });
-    api.reverseSettlement.mockResolvedValue({ ok: true });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
     await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
     fireEvent.click(screen.getByText("حسابداری"));
-    expect(await screen.findByText("برگشت تسویه")).toBeTruthy();
-    fireEvent.click(screen.getByText("برگشت تسویه"));
-    fireEvent.click(screen.getByText("تأیید"));
-    expect(await screen.findByText("ثبت دلیل برای این عملیات الزامی است.")).toBeTruthy();
-    expect(api.reverseSettlement).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("دلیل برگشت تسویه"), { target: { value: "ثبت اشتباه" } });
-    fireEvent.click(screen.getByText("تأیید"));
-    await waitFor(() =>
-      expect(api.reverseSettlement).toHaveBeenCalledWith("settlement-1", {
-        expectedVersion: 3,
-        reason: "ثبت اشتباه",
-      }),
-    );
-    expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.click(screen.getByText("برگشت تسویه"));
-    fireEvent.click(screen.getByText("انصراف"));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByText("برگشت تسویه")).toBeNull();
+    expect(await screen.findByText("ویرایش پرداخت")).toBeTruthy();
+    expect(await screen.findByText("حذف سفارش")).toBeTruthy();
   });
 
   it("renders payment history as a sortable table", async () => {
@@ -118,6 +103,32 @@ describe("ManagerWorkspace", () => {
     expect(table.className).toContain("manager-payment-table");
     fireEvent.click(screen.getByRole("button", { name: "مبلغ" }));
     expect(screen.getByRole("columnheader", { name: "مبلغ ↓" }).getAttribute("aria-sort")).toBe("descending");
+  });
+
+  it("offers logical payment deletion for each payment-history row", async () => {
+    api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 20_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TAKEAWAY", table: null, reversedAt: null, payments: [{ method: "CASH" }] }] });
+    api.readOrder.mockResolvedValue({ ok: true, data: { version: 4, dailyOrderNumber: 1 } });
+    api.deleteOpenOrder.mockResolvedValue({ ok: true });
+    render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    fireEvent.click(await screen.findByText("حسابداری"));
+    fireEvent.click(await screen.findByRole("button", { name: "حذف سفارش" }));
+    fireEvent.click(screen.getByText("تأیید"));
+    await waitFor(() => expect(api.deleteOpenOrder).toHaveBeenCalledWith("order-1", { expectedVersion: 4 }));
+  });
+
+  it("opens the settlement sheet directly instead of the historical order-details dialog", async () => {
+    api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 20_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH", amount: 20_000, reference: null }] }] });
+    api.readOrder.mockResolvedValue({ ok: true, data: {
+      id: "order-1", orderNumber: "1001", dailyOrderNumber: 1, channel: "TABLE", tableId: "table-1", tableName: "1", state: "CLOSED", paymentStatus: "PAID", version: 2,
+      discountAmount: 0, discountKind: null, discountValue: null, discountReason: null, subtotalAmount: 20_000, totalAmount: 20_000, paidAmount: 20_000, balanceAmount: 0, createdAt: "2026-09-13T07:00:00.000Z",
+      items: [{ id: "item-1", productId: "product-1", productNameSnapshot: "قهوه", basePriceSnapshot: 20_000, quantity: 1, note: null, discountKind: null, discountValue: null, discountAmount: 0, discountReason: null, lineTotalAmount: 20_000, options: [] }],
+      settlements: [{ id: "settlement-1", totalAmount: 20_000, recordedAt: "2026-09-13T08:00:00.000Z", reversedAt: null, allocations: [{ orderItemId: "item-1", quantity: 1, amount: 20_000 }], payments: [{ method: "CASH", amount: 20_000, reference: null }] }],
+    } });
+    render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    fireEvent.click(await screen.findByText("حسابداری"));
+    fireEvent.click(await screen.findByRole("button", { name: "ویرایش پرداخت" }));
+    expect(await screen.findByRole("heading", { name: "ویرایش پرداخت #1" })).toBeTruthy();
+    expect(screen.queryByText("سفارش ذخیره‌شده")).toBeNull();
   });
 
   it("shows upload progress while an item image is being sent", async () => {

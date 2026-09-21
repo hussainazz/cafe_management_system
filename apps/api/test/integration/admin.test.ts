@@ -22,6 +22,8 @@ async function recordedSettlement(input: {
   tableId?: string;
   reversedById?: string;
 }) {
+  const category = await app.prisma.category.create({ data: { name: `History ${input.orderNumber}`, displayOrder: 1 } });
+  const product = await app.prisma.product.create({ data: { categoryId: category.id, name: `History ${input.orderNumber}`, priceAmount: input.amount, preparationDeadlineMinutes: 5, displayOrder: 1 } });
   const order = await app.prisma.order.create({
     data: {
       orderNumber: input.orderNumber,
@@ -36,7 +38,9 @@ async function recordedSettlement(input: {
       paidAmount: input.amount,
       balanceAmount: 0,
       createdAt: input.createdAt ?? input.recordedAt,
+      items: { create: { productId: product.id, productNameSnapshot: product.name, basePriceSnapshot: input.amount, quantity: 1, lineTotalAmount: input.amount, displayOrder: 0 } },
     },
+    include: { items: true },
   });
   const settlement = await app.prisma.paymentSettlement.create({
     data: {
@@ -45,6 +49,7 @@ async function recordedSettlement(input: {
       idempotencyKey: `history-${input.orderNumber}`,
       totalAmount: input.amount,
       recordedAt: input.recordedAt,
+      allocations: { create: { orderItemId: order.items[0]!.id, quantity: 1, amount: input.amount } },
       payments: { create: [{ method: "CARD_TRANSFER", amount: input.amount, reference: `REF-${input.orderNumber}` }] },
     },
   });
@@ -92,6 +97,7 @@ async function reportOrder(input: {
         },
       },
     },
+    include: { items: true },
   });
 }
 
@@ -332,28 +338,28 @@ describe("Manager administration", () => {
     const staffUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "report.staff" } });
     const managerUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "report.manager" } });
     const activeOrder = await reportOrder({ orderNumber: "RPT-001", actorId: staffUser.id, productId: product.id, createdAt: new Date(todayStart.getTime() + 60 * 60_000), subtotalAmount: 90_000, totalAmount: 80_000, paidAmount: 80_000, orderDiscountAmount: 10_000, itemDiscountAmount: 10_000 });
-    const reversedOrder = await reportOrder({ orderNumber: "RPT-002", actorId: staffUser.id, productId: product.id, createdAt: new Date(todayStart.getTime() + 2 * 60 * 60_000), subtotalAmount: 20_000, totalAmount: 20_000, paidAmount: 0 });
+    const reversedOrder = await reportOrder({ orderNumber: "RPT-002", actorId: staffUser.id, productId: product.id, createdAt: new Date(todayStart.getTime() + 2 * 60 * 60_000), subtotalAmount: 100_000, totalAmount: 100_000, paidAmount: 0 });
     const deletedPaidOrder = await reportOrder({ orderNumber: "RPT-003", actorId: staffUser.id, productId: product.id, createdAt: new Date(todayStart.getTime() + 3 * 60 * 60_000), subtotalAmount: 40_000, totalAmount: 40_000, paidAmount: 40_000, deleted: true });
     await reportOrder({ orderNumber: "RPT-005", actorId: staffUser.id, productId: product.id, createdAt: new Date(todayStart.getTime() + 3 * 60 * 60_000), subtotalAmount: 20_000, totalAmount: 20_000, paidAmount: 0, deleted: true });
     const yesterdayOrder = await reportOrder({ orderNumber: "RPT-004", actorId: staffUser.id, productId: product.id, createdAt: new Date(yesterdayStart.getTime() + 60 * 60_000), subtotalAmount: 70_000, totalAmount: 70_000, paidAmount: 70_000 });
-    await app.prisma.paymentSettlement.create({ data: { orderId: activeOrder.id, recordedById: staffUser.id, idempotencyKey: "report-active", totalAmount: 80_000, recordedAt: new Date(todayStart.getTime() + 4 * 60 * 60_000), payments: { create: [{ method: "CASH", amount: 30_000 }, { method: "CARD_TERMINAL", amount: 50_000 }] } } });
-    await app.prisma.paymentSettlement.create({ data: { orderId: deletedPaidOrder.id, recordedById: staffUser.id, idempotencyKey: "report-deleted-paid", totalAmount: 40_000, recordedAt: new Date(todayStart.getTime() + 4 * 60 * 60_000), payments: { create: { method: "CASH", amount: 40_000 } } } });
-    const reversedSettlement = await app.prisma.paymentSettlement.create({ data: { orderId: reversedOrder.id, recordedById: staffUser.id, idempotencyKey: "report-reversed", totalAmount: 20_000, recordedAt: new Date(todayStart.getTime() + 5 * 60 * 60_000), payments: { create: { method: "CARD_TRANSFER", amount: 20_000, reference: "REPORT-REVERSAL" } } } });
+    await app.prisma.paymentSettlement.create({ data: { orderId: activeOrder.id, recordedById: staffUser.id, idempotencyKey: "report-active", totalAmount: 80_000, recordedAt: new Date(todayStart.getTime() + 4 * 60 * 60_000), allocations: { create: { orderItemId: activeOrder.items[0]!.id, quantity: 1, amount: 80_000 } }, payments: { create: [{ method: "CASH", amount: 30_000 }, { method: "CARD_TERMINAL", amount: 50_000 }] } } });
+    await app.prisma.paymentSettlement.create({ data: { orderId: deletedPaidOrder.id, recordedById: staffUser.id, idempotencyKey: "report-deleted-paid", totalAmount: 40_000, recordedAt: new Date(todayStart.getTime() + 4 * 60 * 60_000), allocations: { create: { orderItemId: deletedPaidOrder.items[0]!.id, quantity: 1, amount: 40_000 } }, payments: { create: { method: "CASH", amount: 40_000 } } } });
+    const reversedSettlement = await app.prisma.paymentSettlement.create({ data: { orderId: reversedOrder.id, recordedById: staffUser.id, idempotencyKey: "report-reversed", totalAmount: 100_000, recordedAt: new Date(todayStart.getTime() + 5 * 60 * 60_000), allocations: { create: { orderItemId: reversedOrder.items[0]!.id, quantity: 1, amount: 100_000 } }, payments: { create: [{ method: "CASH", amount: 30_000 }, { method: "CARD_TERMINAL", amount: 70_000 }] } } });
     await app.prisma.settlementReversal.create({ data: { settlementId: reversedSettlement.id, recordedById: managerUser.id, reason: "Report fixture", recordedAt: new Date(todayStart.getTime() + 6 * 60 * 60_000) } });
-    await app.prisma.paymentSettlement.create({ data: { orderId: yesterdayOrder.id, recordedById: staffUser.id, idempotencyKey: "report-yesterday", totalAmount: 70_000, recordedAt: new Date(yesterdayStart.getTime() + 2 * 60 * 60_000), payments: { create: { method: "CASH", amount: 70_000 } } } });
+    await app.prisma.paymentSettlement.create({ data: { orderId: yesterdayOrder.id, recordedById: staffUser.id, idempotencyKey: "report-yesterday", totalAmount: 70_000, recordedAt: new Date(yesterdayStart.getTime() + 2 * 60 * 60_000), allocations: { create: { orderItemId: yesterdayOrder.items[0]!.id, quantity: 1, amount: 70_000 } }, payments: { create: { method: "CASH", amount: 70_000 } } } });
     const yesterdayOpenOrder = await reportOrder({ orderNumber: "RPT-006", actorId: staffUser.id, productId: product.id, createdAt: new Date(yesterdayStart.getTime() + 5 * 60 * 60_000), subtotalAmount: 15_000, totalAmount: 15_000, paidAmount: 0 });
-    await app.prisma.paymentSettlement.create({ data: { orderId: yesterdayOpenOrder.id, recordedById: staffUser.id, idempotencyKey: "report-yesterday-paid-today", totalAmount: 15_000, recordedAt: new Date(todayStart.getTime() + 7 * 60 * 60_000), payments: { create: { method: "CARD_TERMINAL", amount: 15_000 } } } });
+    await app.prisma.paymentSettlement.create({ data: { orderId: yesterdayOpenOrder.id, recordedById: staffUser.id, idempotencyKey: "report-yesterday-paid-today", totalAmount: 15_000, recordedAt: new Date(todayStart.getTime() + 7 * 60 * 60_000), allocations: { create: { orderItemId: yesterdayOpenOrder.items[0]!.id, quantity: 1, amount: 15_000 } }, payments: { create: { method: "CARD_TERMINAL", amount: 15_000 } } } });
 
     const today = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-15&toDate=2026-09-15", cookies: manager });
     expect(today.statusCode).toBe(200);
     expect(today.json()).toMatchObject({
       data: {
-        salesAmount: 100_000,
-        paidAmount: 100_000,
+        salesAmount: 180_000,
+        paidAmount: 80_000,
         orderCount: 2,
-        paymentMethodTotals: { cashAmount: 30_000, cardTerminalAmount: 50_000, cardTransferAmount: 20_000 },
+        paymentMethodTotals: { cashAmount: 30_000, cardTerminalAmount: 50_000, cardTransferAmount: 0 },
         discounts: { orderAmount: 10_000, itemAmount: 10_000, totalAmount: 20_000 },
-        reversals: { count: 1, amount: 20_000 },
+        reversals: { count: 1, amount: 100_000 },
         deletedOrders: { count: 2, totalAmount: 60_000, paidAmount: 40_000 },
       },
       meta: { range: { from: todayEmpty.json().meta.range.from, to: todayEmpty.json().meta.range.to } },
@@ -363,7 +369,7 @@ describe("Manager administration", () => {
     expect(yesterday.json().data).toMatchObject({ salesAmount: 85_000, paidAmount: 85_000, orderCount: 2, paymentMethodTotals: { cashAmount: 70_000, cardTerminalAmount: 15_000, cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 }, deletedOrders: { count: 0, totalAmount: 0, paidAmount: 0 } });
   });
 
-  it("keeps yesterday's tender while reporting its reversal today", async () => {
+  it("excludes a reversed settlement from every report date while retaining its reversal event date", async () => {
     const manager = await session(UserRole.MANAGER, "cross-day.manager");
     const staffUser = await app.prisma.user.create({ data: { username: "cross-day.staff", passwordHash: await hashPassword("CafePassword2026"), role: "STAFF" } });
     const managerUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "cross-day.manager" } });
@@ -373,7 +379,7 @@ describe("Manager administration", () => {
     await app.prisma.settlementReversal.create({ data: { settlementId: settlement.settlement.id, recordedById: managerUser.id, reason: "Next-day correction", recordedAt: new Date(new Date(emptyToday.json().meta.range.from).getTime() + 3_600_000) } });
     const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-14&toDate=2026-09-14", cookies: manager });
     const today = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-15&toDate=2026-09-15", cookies: manager });
-    expect(yesterday.json().data).toMatchObject({ paidAmount: 12_000, paymentMethodTotals: { cardTransferAmount: 12_000 }, reversals: { count: 0, amount: 0 } });
+    expect(yesterday.json().data).toMatchObject({ paidAmount: 0, paymentMethodTotals: { cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 } });
     expect(today.json().data.reversals).toMatchObject({ count: 1, amount: 12_000 });
   });
 

@@ -12,6 +12,7 @@ import {
   readPosTables,
   readWaiterCalls,
   recordSettlement,
+  editSettlement,
   transferOrderTable,
   makeTableAvailable,
   updateOpenOrder,
@@ -34,15 +35,17 @@ import {
   settlementAllocationAmount,
   settlementAvailability,
   sumAmounts,
+  weightedPricePreview,
 } from "../lib/pos-utils";
 import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon, WifiIcon } from "./icons";
+import type { PosActivity } from "./release-update-guard";
 
 
 type Channel = "TABLE" | "TAKEAWAY";
 type OrderDetail = PosOrderDetail;
 type Option = PosCatalogProduct["optionGroups"][number]["options"][number];
-type Draft = { key: string; product: PosCatalogProduct; options: Option[]; quantity: number; note: string };
-type SavedDraft = { id: string; productId: string; name: string; quantity: number; originalQuantity: number; note: string; originalNote: string | null; options: Array<{ optionId: string; quantity: number }>; lineTotalAmount: number };
+type Draft = { key: string; product: PosCatalogProduct; options: Option[]; quantity: number; weightGrams: number | null; note: string };
+type SavedDraft = { id: string; productId: string; name: string; quantity: number; originalQuantity: number; weightGrams: number | null; pricingModeSnapshot: "FIXED" | "WEIGHTED_PER_KG"; note: string; originalNote: string | null; options: Array<{ optionId: string; quantity: number }>; lineTotalAmount: number };
 type ProductCard = { key: string; name: string; products: PosCatalogProduct[] };
 type Data = {
   catalog: PosCatalogCategory[];
@@ -78,6 +81,7 @@ function savedDrafts(order: OrderDetail | null): SavedDraft[] {
   return (order?.items ?? []).map((item) => ({
     id: item.id, productId: item.productId, name: item.productNameSnapshot,
     quantity: item.quantity, originalQuantity: item.quantity,
+    weightGrams: item.weightGrams, pricingModeSnapshot: item.pricingModeSnapshot,
     note: item.note ?? "", originalNote: item.note,
     options: item.options.map((option) => ({ optionId: option.optionId, quantity: option.quantity })),
     lineTotalAmount: item.lineTotalAmount,
@@ -86,10 +90,12 @@ function savedDrafts(order: OrderDetail | null): SavedDraft[] {
 
 export function OrdersWorkspace({
   refreshing,
+  onActivityChange,
   onOpenMenu,
   menuOpen,
 }: {
   refreshing: boolean;
+  onActivityChange: (activity: PosActivity) => void;
   onOpenMenu: () => void;
   menuOpen: boolean;
 }) {
@@ -146,6 +152,15 @@ export function OrdersWorkspace({
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    onActivityChange({
+      // An opened table/takeaway workspace is deliberately conservative: it may
+      // contain a draft, payment sheet, transfer, or browser-print interaction.
+      isBusy: loading || Boolean(selected) || channel === "TAKEAWAY" || editingOrder || checkout || Boolean(pendingTableClear) || Boolean(pendingTransfer) || Boolean(pendingChannel) || transferring || retryingTableClear || acknowledgingTableId !== null,
+      hasUnsavedChanges: deskDirty,
+    });
+  }, [acknowledgingTableId, channel, checkout, deskDirty, editingOrder, loading, onActivityChange, pendingChannel, pendingTableClear, pendingTransfer, retryingTableClear, selected, transferring]);
+  useEffect(() => () => onActivityChange({ isBusy: true, hasUnsavedChanges: false }), [onActivityChange]);
   useEffect(() => {
     setOnline(navigator.onLine);
     const offline = () => {
@@ -724,7 +739,7 @@ function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint
       <div><h2>میز {table?.name}</h2><span><ClockIcon /> {elapsedLabel(order.createdAt)} · {status}</span></div>
     </header>
     <div className="occupied-panel__items">
-      {order.items.map((item) => <div className="occupied-panel__item" key={item.id}><div><b>{item.productNameSnapshot} <small>× {englishNumber.format(item.quantity)}</small></b>{item.options.length > 0 && <span>{item.options.map((option) => option.optionNameSnapshot).join("، ")}</span>}</div><strong>{formatToman(item.lineTotalAmount)}</strong></div>)}
+      {order.items.map((item) => <div className="occupied-panel__item" key={item.id}><div><b>{item.productNameSnapshot} {item.pricingModeSnapshot === "WEIGHTED_PER_KG" && item.weightGrams ? <small>{englishNumber.format(item.weightGrams)} گرم × </small> : <small>× </small>}{englishNumber.format(item.quantity)}</b>{item.options.length > 0 && <span>{item.options.map((option) => option.optionNameSnapshot).join("، ")}</span>}</div><strong>{formatToman(item.lineTotalAmount)}</strong></div>)}
     </div>
     <footer className="occupied-panel__footer">
       <div className="occupied-panel__total"><span>جمع کل</span><strong>{formatToman(order.totalAmount)}</strong></div>
@@ -794,19 +809,21 @@ function OrderDesk({
   const cards = productCards(category?.products ?? []);
   const draftTotal = sumAmounts(
     draft.map(
-      (x) => (x.product.priceAmount + sumAmounts(x.options.map((o) => o.priceAmount))) * x.quantity,
+      (x) => x.product.pricingMode === "WEIGHTED_PER_KG"
+        ? weightedPricePreview(x.product.priceAmount, sumAmounts(x.options.map((o) => o.priceAmount)), x.weightGrams ?? 0, x.quantity)
+        : (x.product.priceAmount + sumAmounts(x.options.map((o) => o.priceAmount))) * x.quantity,
     ),
   );
-  const add = (product: PosCatalogProduct, options: Option[] = []) => {
+  const add = (product: PosCatalogProduct, options: Option[] = [], weightGrams: number | null = null) => {
     const signature = `${product.id}:${options
       .map((x) => x.id)
       .sort()
-      .join(",")}`;
+      .join(",")}:${weightGrams ?? ""}`;
     setDraft((current) => {
       const found = current.find((x) => x.key === signature);
       return found
         ? current.map((x) => (x.key === signature ? { ...x, quantity: x.quantity + 1 } : x))
-        : [...current, { key: signature, product, options, quantity: 1, note: "" }];
+        : [...current, { key: signature, product, options, quantity: 1, weightGrams, note: "" }];
     });
     setExpandedCard(null);
     setSelectedProduct(null);
@@ -815,12 +832,14 @@ function OrderDesk({
     draft.map((item) => ({
       productId: item.product.id,
       quantity: item.quantity,
+      ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
       ...(item.note.trim() ? { note: item.note.trim() } : {}),
       options: item.options.map((option) => ({ optionId: option.id, quantity: 1 })),
     }));
   const replacementItems = () => [
     ...saved.filter((item) => item.quantity > 0).map((item) => ({
       productId: item.productId, quantity: item.quantity,
+      ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
       ...(item.note.trim() ? { note: item.note.trim() } : {}), options: item.options,
     })),
     ...payloadItems(),
@@ -1029,7 +1048,7 @@ function OrderDesk({
                   if (!product.optionGroups.length) add(product);
                   else setSelectedProduct(product);
                 }}
-                onSelectOptions={(product, options) => add(product, options)}
+                onSelectOptions={(product, options, weightGrams) => add(product, options, weightGrams)}
               />
             ))}
           </div>
@@ -1129,14 +1148,15 @@ function OrderSummary({
           const edit = saved.find((candidate) => candidate.id === item.id)!;
           const expanded = expandedSavedId === item.id;
           return edit.quantity > 0 && <article className={`order-line order-line--saved${expanded ? " order-line--expanded" : ""}`} key={item.id}>
-            <button className="order-line__summary" type="button" aria-expanded={expanded} onClick={() => setExpandedSavedId((current) => current === item.id ? null : item.id)}><span className="order-line__details"><b>{edit.name} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></span><strong>{formatToman(item.lineTotalAmount)}</strong></button>
+            <button className="order-line__summary" type="button" aria-expanded={expanded} onClick={() => setExpandedSavedId((current) => current === item.id ? null : item.id)}><span className="order-line__details"><b>{edit.name}{edit.weightGrams ? ` · ${englishNumber.format(edit.weightGrams)} گرم` : ""} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></span><strong>{formatToman(item.lineTotalAmount)}</strong></button>
             {expanded && <><div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <input aria-label={`یادداشت ${edit.name}`} value={edit.note} onChange={(event) => onSavedNote(edit.id, event.target.value)} placeholder="یادداشت" /> : <small className="saved-lock">پس از پرداخت فقط افزایش تعداد مجاز است</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
           </article>;
         })}
         {draft.map((item) => {
           const expanded = expandedDraftKey === item.key;
-          const unitPrice =
-            item.product.priceAmount + sumAmounts(item.options.map((x) => x.priceAmount));
+          const unitPrice = item.product.pricingMode === "WEIGHTED_PER_KG"
+            ? weightedPricePreview(item.product.priceAmount, sumAmounts(item.options.map((x) => x.priceAmount)), item.weightGrams ?? 0, item.quantity)
+            : (item.product.priceAmount + sumAmounts(item.options.map((x) => x.priceAmount))) * item.quantity;
           return (
             <article
               className={expanded ? "order-line order-line--expanded" : "order-line"}
@@ -1153,7 +1173,7 @@ function OrderSummary({
               >
                 <span className="order-line__details">
                   <b>
-                    {item.product.name}{" "}
+                    {item.product.name}{item.weightGrams ? ` · ${englishNumber.format(item.weightGrams)} گرم` : ""}{" "}
                     <span className="order-line__inline-count">
                       × {englishNumber.format(item.quantity)}
                     </span>
@@ -1353,11 +1373,12 @@ function ProductPicker({
   onOpen: () => void;
   onClose: () => void;
   onSelectProduct: (product: PosCatalogProduct) => void;
-  onSelectOptions: (product: PosCatalogProduct, options: Option[]) => void;
+  onSelectOptions: (product: PosCatalogProduct, options: Option[], weightGrams?: number) => void;
 }) {
   const pickerRef = useRef<HTMLElement>(null);
   const [picked, setPicked] = useState<Record<string, Option>>({});
-  useEffect(() => setPicked({}), [expanded, selectedProduct?.id]);
+  const [weight, setWeight] = useState("");
+  useEffect(() => { setPicked({}); setWeight(""); }, [expanded, selectedProduct?.id]);
   useEffect(() => {
     if (!expanded) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -1377,7 +1398,7 @@ function ProductPicker({
     const selectedOptions = groups
       .map((group) => next[group.id])
       .filter((candidate): candidate is Option => candidate !== undefined);
-    if (groups.every((group) => (next[group.id] ? 1 : 0) >= group.minSelections)) onSelectOptions(selectedProduct, selectedOptions);
+    if (selectedProduct.pricingMode !== "WEIGHTED_PER_KG" && groups.every((group) => (next[group.id] ? 1 : 0) >= group.minSelections)) onSelectOptions(selectedProduct, selectedOptions);
   };
   const isAvailable = card.products.some((product) => product.isAvailable);
   const showSizeChoices = card.products.length > 1;
@@ -1421,7 +1442,7 @@ function ProductPicker({
                 <section className="product-option-group" key={group.id}>
                   <div>
                     {group.minSelections === 0 && (
-                      <button type="button" onClick={() => onSelectOptions(selectedProduct, groups.map((candidate) => picked[candidate.id]).filter((candidate): candidate is Option => candidate !== undefined))}>
+                      <button type="button" onClick={() => selectedProduct.pricingMode === "WEIGHTED_PER_KG" ? setPicked({}) : onSelectOptions(selectedProduct, groups.map((candidate) => picked[candidate.id]).filter((candidate): candidate is Option => candidate !== undefined))}>
                         بدون افزودنی
                       </button>
                     )}
@@ -1440,6 +1461,15 @@ function ProductPicker({
                   </div>
                 </section>
               ))}
+              {selectedProduct.pricingMode === "WEIGHTED_PER_KG" && groups.every((group) => (picked[group.id] ? 1 : 0) >= group.minSelections) && (() => {
+                const grams = positiveIntegerAmount(weight);
+                const optionDelta = sumAmounts(groups.map((group) => picked[group.id]?.priceAmount ?? 0));
+                return <section className="product-weight-choice">
+                  <label>وزن <input inputMode="numeric" value={weight} onChange={(event) => setWeight(event.target.value.replace(/[^0-9]/g, ""))} placeholder="گرم" /></label>
+                  <small>قیمت هر کیلو: {formatToman(selectedProduct.priceAmount)} · مبلغ: {formatToman(weightedPricePreview(selectedProduct.priceAmount, optionDelta, grams))}</small>
+                  <button type="button" disabled={!grams} onClick={() => onSelectOptions(selectedProduct, Object.values(picked), grams)}>افزودن به سفارش</button>
+                </section>;
+              })()}
             </div>
           )}
         </div>
@@ -1448,14 +1478,16 @@ function ProductPicker({
   );
 }
 
-function SettlementSheet({
+export function SettlementSheet({
   order,
   onClose,
   onSuccess,
+  historicalSettlement,
 }: {
   order: OrderDetail;
   onClose: () => void;
   onSuccess: (order: OrderDetail) => void;
+  historicalSettlement?: OrderDetail["settlements"][number];
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const settlementItems = useMemo(() => {
@@ -1467,20 +1499,25 @@ function SettlementSheet({
       return { ...item, lineTotalAmount: item.lineTotalAmount - (discountAfter - discountBefore) };
     });
   }, [order.discountAmount, order.items, order.subtotalAmount]);
-  const available = useMemo(
-    () => settlementAvailability(settlementItems, order.settlements),
-    [order.settlements, settlementItems],
-  );
+  const available = useMemo(() => historicalSettlement
+    ? historicalSettlement.allocations.flatMap((allocation) => {
+      const item = settlementItems.find((candidate) => candidate.id === allocation.orderItemId);
+      return item ? [{ item, availableQuantity: allocation.quantity, alreadyAllocatedQuantity: 0, fixedAmount: allocation.amount }] : [];
+    })
+    : settlementAvailability(settlementItems, order.settlements).map((entry) => ({ ...entry, fixedAmount: undefined })), [historicalSettlement, order.settlements, settlementItems]);
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>(() =>
     Object.fromEntries(available.map(({ item, availableQuantity }) => [item.id, availableQuantity])),
   );
   const selected = available
     .map((entry) => ({ ...entry, quantity: selectedQuantities[entry.item.id] ?? 0 }))
-    .filter((entry) => entry.quantity > 0);
-  const selectedAmount = sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
-  const [tenders, setTenders] = useState<TenderDraft[]>(() => [
-    { id: requestKey(), method: "CARD_TERMINAL", amount: String(selectedAmount), reference: "" },
-  ]);
+    .filter((entry) => historicalSettlement ? (entry.fixedAmount ?? 0) > 0 : entry.quantity > 0);
+  const selectedAmount = historicalSettlement
+    ? sumAmounts(selected.map((entry) => entry.fixedAmount ?? 0))
+    : sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
+  const [tenders, setTenders] = useState<TenderDraft[]>(() => historicalSettlement
+    ? historicalSettlement.payments.map((payment) => ({ id: requestKey(), method: payment.method, amount: String(payment.amount), reference: payment.reference ?? "" }))
+    : [{ id: requestKey(), method: "CARD_TERMINAL", amount: String(selectedAmount), reference: "" }]);
+  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attemptKey, setAttemptKey] = useState(requestKey);
@@ -1511,7 +1548,13 @@ function SettlementSheet({
   const settle = async () => {
     if (!isReconciled || busy) return;
     setBusy(true);
-    const result = await recordSettlement(
+    const result = historicalSettlement
+      ? await editSettlement(historicalSettlement.id, {
+        expectedVersion: order.version,
+        reason: reason.trim(),
+        payments: tenders.map((tender) => tender.method === "CARD_TRANSFER" && tender.reference.trim() ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() } : { method: tender.method, amount: positiveIntegerAmount(tender.amount) }),
+      }, attemptKey)
+      : await recordSettlement(
       order.id,
       {
         expectedVersion: order.version,
@@ -1534,6 +1577,8 @@ function SettlementSheet({
   };
   useEffect(() => {
     closeButtonRef.current?.focus();
+  }, []);
+  useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busy) onClose();
     };
@@ -1545,7 +1590,8 @@ function SettlementSheet({
       <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
         <div className="modal-header">
           <div>
-            <h2 id="settlement-title">ثبت پرداخت {formatOrderNumber(order.dailyOrderNumber)}</h2>
+            <h2 id="settlement-title">{historicalSettlement ? "ویرایش پرداخت" : "ثبت پرداخت"} {formatOrderNumber(order.dailyOrderNumber)}</h2>
+            {historicalSettlement && <p className="settlement-history-note">این اصلاح فقط سابقه پرداخت را تغییر می‌دهد و به میز یا سفارش زنده دست نمی‌زند.</p>}
           </div>
           <button className="icon-button" type="button" ref={closeButtonRef} onClick={onClose} aria-label="بستن ثبت پرداخت">
             <CloseIcon />
@@ -1564,9 +1610,9 @@ function SettlementSheet({
                   <span>{formatToman(settlementAllocationAmount({ item, alreadyAllocatedQuantity: available.find((entry) => entry.item.id === item.id)?.alreadyAllocatedQuantity ?? 0, quantity: Math.max(quantity, 0) }))}</span>
                 </div>
                 <div className="settlement-quantity" aria-label={`تعداد قابل پرداخت ${item.productNameSnapshot}`}>
-                  <button type="button" disabled={busy || quantity === 0} onClick={() => setSelectedQuantity(item.id, quantity - 1, availableQuantity)} aria-label={`کم کردن ${item.productNameSnapshot}`}>−</button>
+                  <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === 0} onClick={() => setSelectedQuantity(item.id, quantity - 1, availableQuantity)} aria-label={`کم کردن ${item.productNameSnapshot}`}>−</button>
                   <output>{englishNumber.format(quantity)} از {englishNumber.format(availableQuantity)}</output>
-                  <button type="button" disabled={busy || quantity === availableQuantity} onClick={() => setSelectedQuantity(item.id, quantity + 1, availableQuantity)} aria-label={`زیاد کردن ${item.productNameSnapshot}`}>+</button>
+                  <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === availableQuantity} onClick={() => setSelectedQuantity(item.id, quantity + 1, availableQuantity)} aria-label={`زیاد کردن ${item.productNameSnapshot}`}>+</button>
                 </div>
               </div>
             );
@@ -1577,7 +1623,13 @@ function SettlementSheet({
             <h3 id="settlement-tenders-title">روش‌های پرداخت</h3>
             <button type="button" className="text-action" disabled={busy || tenders.length >= 10} onClick={() => {
               resetAttempt();
-              setTenders((current) => [...current, { id: requestKey(), method: "CASH", amount: "", reference: "" }]);
+              setTenders((current) => {
+                const remainingAmount = Math.max(
+                  0,
+                  selectedAmount - sumAmounts(current.map((tender) => positiveIntegerAmount(tender.amount))),
+                );
+                return [...current, { id: requestKey(), method: "CASH", amount: String(remainingAmount), reference: "" }];
+              });
             }}>افزودن روش</button>
           </div>
           {tenders.map((tender, index) => (
@@ -1607,6 +1659,9 @@ function SettlementSheet({
           <span>جمع روش‌های پرداخت <strong>{formatToman(tenderAmount)}</strong></span>
           <b>{selectedAmount === 0 ? "حداقل یک قلم را انتخاب کنید." : isReconciled ? "مبالغ با هم برابرند." : "جمع روش‌های پرداخت باید دقیقاً با مبلغ اقلام برابر باشد."}</b>
         </div>
+        {historicalSettlement && <label className="settlement-reason">دلیل اصلاح
+          <input value={reason} disabled={busy} maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="مثلاً اصلاح روش پرداخت" />
+        </label>}
         {error && <div className="toast toast--error" role="alert">{error}</div>}
         <div className="modal-actions">
           <button className="button button--quiet" onClick={onClose}>
@@ -1614,10 +1669,10 @@ function SettlementSheet({
           </button>
           <button
             className="button button--primary"
-            disabled={busy || !isReconciled}
+            disabled={busy || !isReconciled || (Boolean(historicalSettlement) && reason.trim().length === 0)}
             onClick={() => void settle()}
           >
-            {busy ? "در حال ثبت…" : "تأیید پرداخت"}
+            {busy ? "در حال ثبت…" : historicalSettlement ? "ثبت اصلاح پرداخت" : "تأیید پرداخت"}
           </button>
         </div>
       </section>

@@ -118,6 +118,7 @@ export const PosCatalogProductSchema = z.object({
   id: z.uuid(),
   name: z.string(),
   priceAmount: z.number().int().nonnegative(),
+  pricingMode: z.enum(["FIXED", "WEIGHTED_PER_KG"]),
   preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema,
   isAvailable: z.boolean(),
   image: ProductImageSchema.nullable(),
@@ -181,6 +182,7 @@ export const CreateOrderItemSchema = z
   .object({
     productId: z.uuid(),
     quantity: z.number().int().positive(),
+    weightGrams: z.number().int().positive().optional(),
     note: z.string().trim().min(1).max(1_000).optional(),
     options: z.array(OrderItemOptionInputSchema).max(50),
   })
@@ -249,6 +251,8 @@ export const CreatedOrderItemSchema = z.object({
   productId: z.uuid(),
   productNameSnapshot: z.string(),
   basePriceSnapshot: z.number().int().nonnegative(),
+  pricingModeSnapshot: z.enum(["FIXED", "WEIGHTED_PER_KG"]),
+  weightGrams: z.number().int().positive().nullable(),
   quantity: z.number().int().positive(),
   note: z.string().nullable(),
   discountKind: z.enum(["FIXED", "PERCENTAGE"]).nullable(),
@@ -482,6 +486,7 @@ export const ExistingOrderItemUpdateSchema = z
   .object({
     orderItemId: z.uuid(),
     quantity: z.number().int().positive().optional(),
+    weightGrams: z.number().int().positive().optional(),
     note: z.string().trim().min(1).max(1_000).nullable().optional(),
     discount: ReasonedDiscountInputSchema.optional(),
   })
@@ -573,15 +578,25 @@ export const ReverseSettlementRequestSchema = z.object({ expectedVersion: z.numb
 export type ReverseSettlementRequest = z.infer<typeof ReverseSettlementRequestSchema>;
 export const ReverseSettlementResponseSchema = OrderDetailResponseSchema;
 
+export const EditSettlementRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  payments: z.array(SettlementPaymentInputSchema).min(1).max(10),
+  reason: z.string().trim().min(1).max(500),
+}).strict();
+export type EditSettlementRequest = z.infer<typeof EditSettlementRequestSchema>;
+export const EditSettlementResponseSchema = OrderDetailResponseSchema;
+
 const ReceiptItemSchema = z.object({
   productName: z.string(),
   quantity: z.number().int().positive(),
+  pricingModeSnapshot: z.enum(["FIXED", "WEIGHTED_PER_KG"]),
+  weightGrams: z.number().int().positive().nullable(),
   options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })),
   lineTotalAmount: z.number().int().nonnegative(),
   paidAmount: z.number().int().nonnegative(),
   isPaid: z.boolean(),
 });
-export const BarTicketResponseSchema = z.object({ data: z.object({ dailyOrderNumber: z.number().int().positive(), context: z.string(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
+export const BarTicketResponseSchema = z.object({ data: z.object({ dailyOrderNumber: z.number().int().positive(), context: z.string(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), pricingModeSnapshot: z.enum(["FIXED", "WEIGHTED_PER_KG"]), weightGrams: z.number().int().positive().nullable(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
 export const OrderReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
 export const SettlementReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
 
@@ -597,7 +612,7 @@ const AdminDisplayOrderSchema = z.number().int().min(0).max(10_000);
 const AdminMoneySchema = z.number().int().nonnegative();
 export const AdminCategoryInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional(), isPosVisible: z.boolean().optional() }).strict();
 const AdminProductOptionGroupInputSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative().default(1), maxSelections: z.number().int().positive().default(1), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable().optional() }).strict()).max(100) }).strict().refine((value) => value.minSelections <= value.maxSelections);
-export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, priceAmount: AdminMoneySchema, preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroups: z.array(AdminProductOptionGroupInputSchema).max(30).optional() }).strict();
+export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, priceAmount: AdminMoneySchema, pricingMode: z.enum(["FIXED", "WEIGHTED_PER_KG"]).optional(), preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroups: z.array(AdminProductOptionGroupInputSchema).max(30).optional() }).strict();
 export const AdminCategoryReorderInputSchema = z.object({ categoryIds: z.array(z.uuid()).min(1).max(500) }).strict();
 export const AdminProductReorderInputSchema = z.object({ productIds: z.array(z.uuid()).min(1).max(2_000) }).strict();
 export const AdminOptionGroupInputSchema = z.object({ name: AdminNameSchema, isActive: z.boolean().optional() }).strict();
@@ -613,7 +628,7 @@ const AdminMetaSchema = z.object({ requestId: z.string() });
 export const AdminCategorySchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isPosVisible: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminProductImageSchema = z.object({ storageKey: z.string(), altText: z.string() });
 const AdminProductOptionGroupSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative(), maxSelections: z.number().int().positive(), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable() })) });
-export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, isPublic: z.boolean(), systemKey: z.string().nullable(), preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroups: z.array(AdminProductOptionGroupSchema) });
+export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, pricingMode: z.enum(["FIXED", "WEIGHTED_PER_KG"]), isPublic: z.boolean(), systemKey: z.string().nullable(), preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroups: z.array(AdminProductOptionGroupSchema) });
 export const AdminOptionSchema = z.object({ id: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminOptionGroupSchema = z.object({ id: z.uuid(), name: z.string(), isActive: z.boolean(), options: z.array(AdminOptionSchema) });
 export const AdminTableSchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), waiterCallEnabled: z.boolean(), archivedAt: z.iso.datetime().nullable() });

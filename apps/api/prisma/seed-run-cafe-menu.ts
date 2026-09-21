@@ -27,6 +27,12 @@ const menu = `
 
 const PACKING_SYSTEM_KEY = "PACKING" as const;
 const PACKING_DEFAULT_NAME = "بسته‌بندی";
+const GROUND_COFFEE_SYSTEM_KEY = "GROUND_COFFEE" as const;
+const GROUND_COFFEE_NAME = "قهوه آسیاب‌شده";
+
+// Placeholder catalog values. The café can set the real per-kg prices from
+// Manager -> کاتالوگ after the product has been synchronized.
+const GROUND_COFFEE_PLACEHOLDER_PRICE_PER_KG = 0;
 
 type OptionConfiguration = {
   name: string;
@@ -186,6 +192,12 @@ const productConfigurations: ProductConfiguration[] = [
   configureProduct("افزودنی", "شات شیر", 35),
 ];
 
+const groundCoffeePrices = {
+  robusta: GROUND_COFFEE_PLACEHOLDER_PRICE_PER_KG,
+  blend: GROUND_COFFEE_PLACEHOLDER_PRICE_PER_KG,
+  arabica: GROUND_COFFEE_PLACEHOLDER_PRICE_PER_KG,
+};
+
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
@@ -301,6 +313,38 @@ async function main() {
       });
       desiredProductIds.push(packingProduct.id);
 
+      if (desiredCategory.name === "قهوه دمی") {
+        const existingGroundCoffee = await tx.product.findUnique({ where: { categoryId_systemKey: { categoryId: category.id, systemKey: GROUND_COFFEE_SYSTEM_KEY } } });
+        const groundCoffee = existingGroundCoffee
+          ?? await tx.product.create({
+            data: {
+              categoryId: category.id,
+              name: GROUND_COFFEE_NAME,
+              priceAmount: groundCoffeePrices.robusta,
+              pricingMode: "WEIGHTED_PER_KG",
+              isPublic: false,
+              systemKey: GROUND_COFFEE_SYSTEM_KEY,
+              preparationDeadlineMinutes: 10,
+              displayOrder: desiredCategory.products.length + 2,
+            },
+          });
+        await tx.product.update({
+          where: { id: groundCoffee.id },
+          data: {
+            name: GROUND_COFFEE_NAME,
+            priceAmount: existingGroundCoffee?.priceAmount ?? groundCoffeePrices.robusta,
+            pricingMode: "WEIGHTED_PER_KG",
+            isPublic: false,
+            isActive: true,
+            isAvailable: true,
+            displayOrder: desiredCategory.products.length + 2,
+            archivedAt: null,
+          },
+        });
+        desiredProductIds.push(groundCoffee.id);
+        productIdsByCatalogKey.set(`${desiredCategory.name}|${GROUND_COFFEE_NAME}`, groundCoffee.id);
+      }
+
       const archived = await tx.product.updateMany({
         where: {
           categoryId: category.id,
@@ -370,6 +414,28 @@ async function main() {
         data: { productId, optionGroupId: optionGroup.id, displayOrder: 1, minSelections: configuration.optionGroup.minSelections, maxSelections: configuration.optionGroup.maxSelections, allowedOptions: { create: allowedOptions } },
       });
     }
+
+    const groundCoffeeId = productIdsByCatalogKey.get(`قهوه دمی|${GROUND_COFFEE_NAME}`);
+    if (!groundCoffeeId) throw new Error("Ground coffee product is missing from the قهوه دمی category.");
+    const coffeeLine = await tx.optionGroup.findFirst({ where: { name: "لاین قهوه", archivedAt: null } })
+      ?? await tx.optionGroup.create({ data: { name: "لاین قهوه" } });
+    await tx.optionGroup.update({ where: { id: coffeeLine.id }, data: { isActive: true, archivedAt: null } });
+    const groundOptions = [
+      ["۸۰/۲۰ روبوستا", 0],
+      ["۵۰/۵۰", groundCoffeePrices.blend - groundCoffeePrices.robusta],
+      ["۱۰۰٪ عربیکا", groundCoffeePrices.arabica - groundCoffeePrices.robusta],
+    ] as const;
+    if (groundOptions.some(([, delta]) => delta < 0)) throw new Error("Ground coffee line prices must be ordered from base to Arabica.");
+    const allowedOptions = [] as Array<{ optionId: string; displayOrder: number; priceAmountOverride: number }>;
+    for (const [optionOrder, [name, delta]] of groundOptions.entries()) {
+      const option = await tx.option.findFirst({ where: { optionGroupId: coffeeLine.id, name } })
+        ?? await tx.option.create({ data: { optionGroupId: coffeeLine.id, name, priceAmount: delta, displayOrder: optionOrder + 1 } });
+      await tx.option.update({ where: { id: option.id }, data: { priceAmount: option.priceAmount, displayOrder: optionOrder + 1, isActive: true, isAvailable: true, archivedAt: null } });
+      allowedOptions.push({ optionId: option.id, displayOrder: optionOrder + 1, priceAmountOverride: option.priceAmount });
+    }
+    await tx.productOptionGroup.create({
+      data: { productId: groundCoffeeId, optionGroupId: coffeeLine.id, displayOrder: 1, minSelections: 1, maxSelections: 1, allowedOptions: { create: allowedOptions } },
+    });
 
     const categoriesToArchive = await tx.category.findMany({
       where: { archivedAt: null, id: { notIn: categoryIds } },

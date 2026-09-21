@@ -36,6 +36,11 @@ enum DiscountKind {
   PERCENTAGE
 }
 
+enum ProductPricingMode {
+  FIXED
+  WEIGHTED_PER_KG
+}
+
 enum PaymentMethod {
   CASH
   CARD_TERMINAL
@@ -116,6 +121,7 @@ model Product {
   categoryId                 String
   name                       String
   priceAmount                Int
+  pricingMode                ProductPricingMode @default(FIXED)
   isPublic                   Boolean       @default(true)
   systemKey                 String?
   saleDiscountKind           DiscountKind?
@@ -398,6 +404,8 @@ model OrderItem {
   productId                          String
   productNameSnapshot                String
   basePriceSnapshot                  Int
+  pricingModeSnapshot                ProductPricingMode @default(FIXED)
+  weightGrams                        Int?
   quantity                           Int
   note                               String?
   discountKind                       DiscountKind?

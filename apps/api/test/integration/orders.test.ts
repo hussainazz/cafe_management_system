@@ -530,6 +530,82 @@ describe("logical order deletion", () => {
     expect(await app.prisma.paymentSettlement.count()).toBe(0);
     expect(await app.prisma.idempotencyRecord.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(0);
   });
+
+  it("lets Staff logically delete a fully paid order while retaining settlement history", async () => {
+    const cookies = await userSession(UserRole.STAFF, "delete-paid.staff");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(
+      cookies,
+      { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] },
+      "delete-paid-order-create-0001",
+    );
+    const order = created.json().data;
+    const settled = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies,
+      headers: { "idempotency-key": "delete-paid-order-settlement-0001" },
+      payload: {
+        expectedVersion: order.version,
+        allocations: [{ orderItemId: order.items[0].id, quantity: 1 }],
+        payments: [{ method: "CASH", amount: 50_000 }],
+      },
+    });
+    expect(settled.statusCode).toBe(201);
+    expect(settled.json().data).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", version: 2 });
+
+    const deleted = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/delete`,
+      cookies,
+      payload: { expectedVersion: 2 },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json().data).toMatchObject({ state: "DELETED", paymentStatus: "PAID", version: 3 });
+    await expect(app.prisma.order.findUniqueOrThrow({ where: { id: order.id } })).resolves.toMatchObject({ state: "DELETED", version: 3 });
+    await expect(app.prisma.paymentSettlement.findMany({ where: { orderId: order.id }, include: { allocations: true, payments: true } })).resolves.toMatchObject([
+      { orderId: order.id, totalAmount: 50_000, allocations: [{ orderItemId: order.items[0].id, quantity: 1, amount: 50_000 }], payments: [{ amount: 50_000, method: "CASH" }] },
+    ]);
+    expect(await app.prisma.auditLog.count({ where: { entityId: order.id, operation: "DELETE_ORDER" } })).toBe(1);
+  });
+
+  it("removes every active settlement of a deleted order from the accounting report", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "delete-report.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "delete-report.manager");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(
+      staffCookies,
+      { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 2, options: [] }] },
+      "delete-report-order-create-0001",
+    );
+    const order = created.json().data;
+    const firstSettlement = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies: staffCookies,
+      headers: { "idempotency-key": "delete-report-settlement-0001" },
+      payload: { expectedVersion: 1, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] },
+    });
+    expect(firstSettlement.statusCode).toBe(201);
+    const secondSettlement = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies: staffCookies,
+      headers: { "idempotency-key": "delete-report-settlement-0002" },
+      payload: { expectedVersion: 2, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CARD_TERMINAL", amount: 50_000 }] },
+    });
+    expect(secondSettlement.statusCode).toBe(201);
+    expect(secondSettlement.json().data).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", version: 3 });
+
+    const deleted = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/delete`, cookies: staffCookies, payload: { expectedVersion: 3 } });
+    expect(deleted.statusCode).toBe(200);
+    const dateParts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).map((part) => [part.type, part.value]));
+    const fromDate = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+    const report = await app.inject({ method: "GET", url: `/api/v1/admin/reports/daily?fromDate=${fromDate}&toDate=${fromDate}`, cookies: managerCookies });
+    expect(report.statusCode).toBe(200);
+    expect(report.json().data).toMatchObject({ paidAmount: 0, paymentMethodTotals: { cashAmount: 0, cardTerminalAmount: 0, cardTransferAmount: 0 }, deletedOrders: { count: 1, totalAmount: 100_000, paidAmount: 100_000 } });
+    expect(await app.prisma.paymentSettlement.count({ where: { orderId: order.id } })).toBe(2);
+  });
 });
 
 describe("settlement recording", () => {
@@ -578,6 +654,50 @@ describe("settlement recording", () => {
     });
     expect(finalPayment.statusCode).toBe(201);
     expect(finalPayment.json().data).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", paidAmount: 100_000, balanceAmount: 0 });
+  });
+
+  it("protects an item with an amount-based allocation from quantity, note, and discount edits", async () => {
+    const cookies = await userSession(UserRole.STAFF, "settlement.amount-edit.staff");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(
+      cookies,
+      { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 2, options: [] }] },
+      "settlement-amount-edit-order-create-1",
+    );
+    const order = created.json().data;
+    const item = order.items[0];
+
+    const partialPayment = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies,
+      headers: { "idempotency-key": "settlement-amount-edit-record-0001" },
+      payload: { expectedVersion: order.version, allocationMode: "AMOUNT", amount: 25_000, payments: [{ method: "CASH", amount: 25_000 }] },
+    });
+    expect(partialPayment.statusCode).toBe(201);
+    expect(partialPayment.json().data.settlements[0].allocations).toEqual([{ orderItemId: item.id, quantity: 0, amount: 25_000 }]);
+
+    const beforeEdit = await app.prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { items: true } });
+    const attempts = [
+      { quantity: 1 },
+      { note: "Changed after payment" },
+      { discount: { kind: "FIXED", value: 1_000, reason: "Post-payment edit" } },
+    ];
+
+    for (const [index, itemUpdate] of attempts.entries()) {
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/orders/${order.id}`,
+        cookies,
+        payload: { expectedVersion: partialPayment.json().data.version, itemUpdates: [{ orderItemId: item.id, ...itemUpdate }] },
+      });
+      expect(response.statusCode, `attempt ${index + 1}`).toBe(409);
+      expect(response.json().error.code, `attempt ${index + 1}`).toBe("INVALID_STATE");
+    }
+
+    const afterEdits = await app.prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { items: true } });
+    expect(afterEdits).toMatchObject({ version: beforeEdit.version, subtotalAmount: beforeEdit.subtotalAmount, totalAmount: beforeEdit.totalAmount, paidAmount: beforeEdit.paidAmount, balanceAmount: beforeEdit.balanceAmount });
+    expect(afterEdits.items).toEqual(beforeEdit.items);
   });
 
   it("commits only one of two simultaneous settlements for the same order version", async () => {
@@ -768,6 +888,56 @@ describe("settlement recording", () => {
     expect(over.json().error.code).toBe("SETTLEMENT_ALLOCATION_CONFLICT");
     expect(await app.prisma.paymentSettlement.count()).toBe(0);
   });
+
+  it("rejects duplicate allocation IDs without any settlement side effects", async () => {
+    const cookies = await userSession(UserRole.STAFF, "duplicate-allocation.staff");
+    const first = await sellableProduct();
+    const second = await sellableProduct();
+    const created = await createOrderRequest(
+      cookies,
+      {
+        channel: "TAKEAWAY",
+        items: [
+          { productId: first.product.id, quantity: 1, options: [] },
+          { productId: second.product.id, quantity: 1, options: [] },
+        ],
+      },
+      "duplicate-allocation-order-0001",
+    );
+    expect(created.statusCode).toBe(201);
+    const order = created.json().data;
+
+    const settlement = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies,
+      headers: { "idempotency-key": "duplicate-allocation-settlement-0001" },
+      payload: {
+        expectedVersion: 1,
+        allocations: [
+          { orderItemId: order.items[0].id, quantity: 1 },
+          { orderItemId: order.items[0].id, quantity: 1 },
+        ],
+        payments: [{ method: "CASH", amount: 100_000 }],
+      },
+    });
+
+    expect(settlement.statusCode).toBe(400);
+
+    const stored = await app.prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      include: { items: true, paymentSettlements: { include: { allocations: true, payments: true } } },
+    });
+    expect(stored.items).toHaveLength(2);
+    expect(stored.state).toBe("OPEN");
+    expect(stored.paymentStatus).toBe("UNPAID");
+    expect(stored.paidAmount).toBe(0);
+    expect(stored.balanceAmount).toBe(100_000);
+    expect(stored.paymentSettlements).toHaveLength(0);
+    await expect(app.prisma.idempotencyRecord.findFirst({ where: { key: "duplicate-allocation-settlement-0001" } })).resolves.toBeNull();
+    const settlementAudits = await app.prisma.auditLog.findMany({ where: { entityType: "PAYMENT_SETTLEMENT", operation: "RECORD_SETTLEMENT" } });
+    expect(settlementAudits.some((audit) => (audit.afterSnapshot as { orderId?: string } | null)?.orderId === order.id)).toBe(false);
+  });
 });
 
 describe("settlement reversal and print data", () => {
@@ -794,9 +964,9 @@ describe("settlement reversal and print data", () => {
     const forbidden = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: staffCookies, payload: { expectedVersion: 2, reason: "Wrong tender" } });
     expect(forbidden.statusCode).toBe(403);
     const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: 2, reason: "Wrong tender" } });
-    expect(reversed.statusCode).toBe(200);
-    expect(reversed.json().data).toMatchObject({ paymentStatus: "UNPAID", paidAmount: 0, balanceAmount: 55_000, version: 3, settlements: [{ reversedAt: expect.any(String) }] });
-    expect(await app.prisma.settlementReversal.count()).toBe(1);
+    expect(reversed.statusCode).toBe(409);
+    expect(reversed.json().error.code).toBe("INVALID_STATE");
+    expect(await app.prisma.settlementReversal.count()).toBe(0);
     expect(await app.prisma.payment.count()).toBe(1);
     const payerReceipt = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/settlements/${settlementId}/receipt`, cookies: staffCookies });
     expect(payerReceipt.statusCode).toBe(200);
@@ -823,18 +993,10 @@ describe("settlement reversal and print data", () => {
     expect(settled.statusCode).toBe(201);
     const settlementId = settled.json().data.settlements[0].id;
     expect((await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).occupancyState).toBe("AVAILABLE");
-
     const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: 2, reason: "Cash entry was incorrect" } });
-    expect(reversed.statusCode).toBe(200);
-    expect(reversed.json().data).toMatchObject({ state: "OPEN", paymentStatus: "UNPAID", paidAmount: 0, balanceAmount: 50_000, version: 3, settlements: [{ id: settlementId, totalAmount: 50_000, reversedAt: expect.any(String) }] });
-    expect((await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).occupancyState).toBe("OCCUPIED");
-    expect(await app.prisma.payment.findMany({ where: { settlementId }, select: { method: true, amount: true } })).toEqual([{ method: "CASH", amount: 50_000 }]);
-    expect(await app.prisma.settlementAllocation.count({ where: { settlementId } })).toBe(1);
-    expect(await app.prisma.auditLog.findFirst({ where: { operation: "REVERSE_SETTLEMENT", entityId: settlementId, reason: "Cash entry was incorrect" } })).toBeTruthy();
-
-    const repeated = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: 3, reason: "Repeated request" } });
-    expect(repeated.statusCode).toBe(409);
-    expect(repeated.json().error.code).toBe("INVALID_STATE");
+    expect(reversed.statusCode).toBe(409);
+    expect(reversed.json().error.code).toBe("INVALID_STATE");
+    expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(0);
   });
 
   it("rejects reversal of an old table settlement after the table has been reused", async () => {
@@ -869,5 +1031,92 @@ describe("settlement reversal and print data", () => {
     ]);
     expect([[200, 409], [409, 201]]).toContainEqual([reversal.statusCode, reuse.statusCode]);
     expect(await app.prisma.order.count({ where: { tableId: table.id, channel: "TABLE", state: "OPEN" } })).toBe(1);
+  });
+
+  it("edits a historical table settlement without touching the reused table order", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "edit-payment.reuse.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "edit-payment.reuse.manager");
+    const { product } = await sellableProduct();
+    const table = await app.prisma.cafeTable.create({ data: { name: "Edit payment reuse", displayOrder: 157 } });
+    const first = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "edit-payment-reuse-first");
+    const original = first.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${original.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "edit-payment-reuse-settlement" }, payload: { expectedVersion: original.version, allocations: [{ orderItemId: original.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
+    const second = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "edit-payment-reuse-second");
+    const liveOrder = second.json().data;
+    await app.prisma.cafeTable.update({ where: { id: table.id }, data: { occupancyState: "OCCUPIED", occupiedAt: new Date() } });
+    const edited = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settled.json().data.settlements[0].id}/edit`, cookies: managerCookies, headers: { "idempotency-key": "edit-payment-reuse-correction" }, payload: { expectedVersion: settled.json().data.version, reason: "اصلاح روش پرداخت", payments: [{ method: "CARD_TERMINAL", amount: 50_000 }] } });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().data).toMatchObject({ id: original.id, state: "CLOSED", paymentStatus: "PAID", paidAmount: 50_000, balanceAmount: 0, version: 3 });
+    expect(await app.prisma.order.findUniqueOrThrow({ where: { id: liveOrder.id }, select: { state: true, tableId: true, version: true } })).toEqual({ state: "OPEN", tableId: table.id, version: 1 });
+    expect(await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id }, select: { occupancyState: true } })).toEqual({ occupancyState: "OCCUPIED" });
+    expect(await app.prisma.payment.findMany({ where: { settlement: { orderId: original.id } }, orderBy: { recordedAt: "asc" }, select: { method: true, amount: true } })).toEqual([{ method: "CASH", amount: 50_000 }, { method: "CARD_TERMINAL", amount: 50_000 }]);
+    expect(await app.prisma.auditLog.count({ where: { operation: "EDIT_SETTLEMENT", entityType: "PAYMENT_SETTLEMENT" } })).toBeGreaterThan(0);
+  });
+
+  it("edits a historical settlement while its old table remains empty", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "edit-payment.empty.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "edit-payment.empty.manager");
+    const { product } = await sellableProduct();
+    const table = await app.prisma.cafeTable.create({ data: { name: "Edit payment empty", displayOrder: 158 } });
+    const created = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "edit-payment-empty-order");
+    const order = created.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "edit-payment-empty-settlement" }, payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
+    const settlementId = settled.json().data.settlements[0].id;
+    const edited = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/edit`, cookies: managerCookies, headers: { "idempotency-key": "edit-payment-empty-correction" }, payload: { expectedVersion: settled.json().data.version, reason: "اصلاح کارتخوان", payments: [{ method: "CARD_TERMINAL", amount: 50_000 }] } });
+    expect(edited.statusCode).toBe(200);
+    expect(await app.prisma.order.count({ where: { tableId: table.id, state: "OPEN" } })).toBe(0);
+    expect(await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id }, select: { occupancyState: true } })).toEqual({ occupancyState: "AVAILABLE" });
+    expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(1);
+  });
+
+  it("edits takeaway tender history and leaves the original state intact on a failed correction", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "edit-payment.takeaway.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "edit-payment.takeaway.manager");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(staffCookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] }, "edit-payment-takeaway-order");
+    const order = created.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "edit-payment-takeaway-settlement" }, payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
+    const settlementId = settled.json().data.settlements[0].id;
+    const failed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/edit`, cookies: managerCookies, headers: { "idempotency-key": "edit-payment-takeaway-failed" }, payload: { expectedVersion: settled.json().data.version, reason: "مبلغ اشتباه", payments: [{ method: "CARD_TRANSFER", amount: 49_999 }] } });
+    expect(failed.statusCode).toBe(422);
+    expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(0);
+    const edited = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/edit`, cookies: managerCookies, headers: { "idempotency-key": "edit-payment-takeaway-success" }, payload: { expectedVersion: settled.json().data.version, reason: "اصلاح روش پرداخت", payments: [{ method: "CARD_TRANSFER", amount: 50_000, reference: "NEW-REF" }] } });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().data).toMatchObject({ channel: "TAKEAWAY", state: "CLOSED", paymentStatus: "PAID", version: 3 });
+    expect(await app.prisma.payment.findMany({ where: { settlement: { orderId: order.id }, method: "CARD_TRANSFER" }, select: { amount: true, reference: true } })).toEqual([{ amount: 50_000, reference: "NEW-REF" }]);
+  });
+
+  it("calculates weighted items from grams while keeping quantity as bag count", async () => {
+    const cookies = await userSession(UserRole.STAFF, "weighted.basic.staff");
+    const category = await app.prisma.category.create({ data: { name: "Weighted coffee", displayOrder: 300 } });
+    const product = await app.prisma.product.create({ data: { categoryId: category.id, name: "Ground coffee", priceAmount: 2_000_000, pricingMode: "WEIGHTED_PER_KG", preparationDeadlineMinutes: 5, displayOrder: 1 } });
+    const response = await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 2, weightGrams: 250, options: [] }] }, "weighted-basic-order-0001");
+    expect(response.statusCode).toBe(201);
+    expect(response.json().data).toMatchObject({ totalAmount: 1_000_000, items: [{ quantity: 2, weightGrams: 250, pricingModeSnapshot: "WEIGHTED_PER_KG", basePriceSnapshot: 2_000_000, lineTotalAmount: 1_000_000 }] });
+  });
+
+  it("requires weight only for weighted products and rejects it for fixed products", async () => {
+    const cookies = await userSession(UserRole.STAFF, "weighted.validation.staff");
+    const category = await app.prisma.category.create({ data: { name: "Weight validation", displayOrder: 301 } });
+    const weighted = await app.prisma.product.create({ data: { categoryId: category.id, name: "Weighted", priceAmount: 1_000_000, pricingMode: "WEIGHTED_PER_KG", preparationDeadlineMinutes: 5, displayOrder: 1 } });
+    const fixed = await app.prisma.product.create({ data: { categoryId: category.id, name: "Fixed", priceAmount: 100_000, preparationDeadlineMinutes: 5, displayOrder: 2 } });
+    expect((await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: weighted.id, quantity: 1, options: [] }] }, "weighted-missing-weight-0001")).statusCode).toBe(422);
+    expect((await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: fixed.id, quantity: 1, weightGrams: 250, options: [] }] }, "fixed-with-weight-0001")).statusCode).toBe(422);
+  });
+
+  it("keeps weighted snapshots immutable and protects allocated weight edits", async () => {
+    const cookies = await userSession(UserRole.STAFF, "weighted.edit.staff");
+    const category = await app.prisma.category.create({ data: { name: "Weighted edit", displayOrder: 302 } });
+    const product = await app.prisma.product.create({ data: { categoryId: category.id, name: "Weighted edit coffee", priceAmount: 1_800_000, pricingMode: "WEIGHTED_PER_KG", preparationDeadlineMinutes: 5, displayOrder: 1 } });
+    const created = await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, weightGrams: 250, options: [] }] }, "weighted-edit-order-0001");
+    const order = created.json().data;
+    await app.prisma.product.update({ where: { id: product.id }, data: { priceAmount: 2_000_000 } });
+    const changed = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[0].id, weightGrams: 300 }] } });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().data.items[0]).toMatchObject({ weightGrams: 300, basePriceSnapshot: 1_800_000, lineTotalAmount: 540_000 });
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "weighted-edit-settle-0001" }, payload: { expectedVersion: changed.json().data.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 540_000 }] } });
+    expect(settled.statusCode).toBe(201);
+    const rejected = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: settled.json().data.version, itemUpdates: [{ orderItemId: order.items[0].id, weightGrams: 400 }] } });
+    expect(rejected.statusCode).toBe(409);
   });
 });

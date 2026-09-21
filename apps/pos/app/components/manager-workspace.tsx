@@ -8,6 +8,7 @@ import {
   archiveProductImage,
   archiveTable,
   deactivateStaff,
+  deleteOpenOrder,
   readAuditLog,
   readDailyReport,
   readManagerCatalog,
@@ -16,7 +17,6 @@ import {
   readOrder,
   readPaymentHistory,
   reactivateStaff,
-  reverseSettlement,
   saveCategory,
   saveOption,
   saveOptionGroup,
@@ -37,6 +37,7 @@ import { formatOrderNumber, formatToman } from "../lib/pos-utils";
 import { printDocument, printRoute } from "../lib/print-routes";
 import { AlertIcon, MenuIcon, RefreshIcon, WifiIcon } from "./icons";
 import { CatalogPanel } from "./catalog-panel";
+import { SettlementSheet } from "./orders-workspace";
 
 type Panel = "catalog" | "tables" | "finance" | "settings";
 type Confirm = {
@@ -617,6 +618,7 @@ function FinancePanel({
   const [audit, setAudit] = useState<any>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PosOrderDetail | null>(null);
+  const [editingSettlementId, setEditingSettlementId] = useState<string | null>(null);
   const [paymentSort, setPaymentSort] = useState<{ key: PaymentSortKey; direction: "asc" | "desc" }>({
     key: "recordedAt",
     direction: "desc",
@@ -696,8 +698,8 @@ function FinancePanel({
   return (
     <div className="manager-grid">
       <ManagerCard
-        title="پرداخت‌ها و برگشت تسویه"
-        hint="فقط تسویه‌های ثبت‌شده و نگهداری‌شده نمایش داده می‌شوند."
+        title="پرداخت‌ها و حذف سفارش‌ها"
+        hint="تسویه‌های ثبت‌شده نگهداری می‌شوند؛ حذف سفارش همه تسویه‌های فعال همان سفارش را از گزارش جاری خارج می‌کند."
       >
         {message && <p className="form-error">{message}</p>}
         <form
@@ -805,38 +807,46 @@ function FinancePanel({
               >
                 جزئیات سفارش
               </button>
-              {!item.reversedAt && (
-                <button
-                  className="danger-button"
-                  type="button"
-                  onClick={() =>
-                    requestConfirm({
-                      title: "برگشت تسویه",
-                      detail: `برگشت تسویه سفارش ${formatOrderNumber(item.dailyOrderNumber)}، پرداخت ثبت‌شده را حذف نمی‌کند؛ آن را با دلیل شما برگشت‌خورده ثبت می‌کند و وضعیت سفارش را دوباره محاسبه می‌کند.`,
-                      reasonLabel: "دلیل برگشت تسویه",
-                      run: async (reason) => {
-                        const order = await readOrder(item.orderId);
-                        if (!order.ok) {
-                          setMessage(order.error.message);
-                          throw new Error(order.error.message);
-                        }
-                        await mutate(
-                          () =>
-                            reverseSettlement(item.id, {
-                              expectedVersion: order.data.version,
-                              reason: reason ?? "",
-                            }),
-                          async () => {
-                            await Promise.all([loadPayments(appliedPaymentFilters), loadReport(appliedPaymentFilters)]);
-                          },
-                        );
-                      },
-                    })
+              {!item.reversedAt && <button
+                className="secondary-button"
+                type="button"
+                onClick={async () => {
+                  const result = await readOrder(item.orderId);
+                  if (!result.ok) {
+                    setMessage(result.error.message);
+                    return;
                   }
-                >
-                  برگشت تسویه
-                </button>
-              )}
+                  setSelectedOrder(result.data);
+                  setEditingSettlementId(item.id);
+                }}
+              >
+                ویرایش پرداخت
+              </button>}
+              {!item.reversedAt && <button
+                className="danger-button"
+                type="button"
+                onClick={() =>
+                  requestConfirm({
+                    title: "حذف سفارش",
+                    detail: `سفارش ${formatOrderNumber(item.dailyOrderNumber)} به‌صورت منطقی حذف می‌شود؛ همه تسویه‌های فعال این سفارش از گزارش جاری خارج می‌شوند، اما تسویه‌ها، روش‌های پرداخت، تخصیص‌ها و سابقه حسابرسی باقی می‌مانند.`,
+                    run: async () => {
+                      const order = await readOrder(item.orderId);
+                      if (!order.ok) {
+                        setMessage(order.error.message);
+                        throw new Error(order.error.message);
+                      }
+                      await mutate(
+                        () => deleteOpenOrder(item.orderId, { expectedVersion: order.data.version }),
+                        async () => {
+                          await Promise.all([loadPayments(appliedPaymentFilters), loadReport(appliedPaymentFilters)]);
+                        },
+                      );
+                    },
+                  })
+                }
+              >
+                حذف سفارش
+              </button>}
                   </td>
                 </tr>
               ))}
@@ -847,7 +857,7 @@ function FinancePanel({
           </table>
         </div>
       </ManagerCard>
-      {selectedOrder && (
+      {selectedOrder && !editingSettlementId && (
         <div className="manager-dialog-backdrop" role="presentation" onClick={() => setSelectedOrder(null)}>
           <section className="manager-dialog" role="dialog" aria-modal="true" aria-labelledby="historical-order-title" onClick={(event) => event.stopPropagation()}>
             <header className="manager-dialog__header">
@@ -876,6 +886,24 @@ function FinancePanel({
           </section>
         </div>
       )}
+      {selectedOrder && editingSettlementId && (() => {
+        const settlement = selectedOrder.settlements.find((candidate) => candidate.id === editingSettlementId);
+        return settlement ? (
+          <SettlementSheet
+            order={selectedOrder}
+            historicalSettlement={settlement}
+            onClose={() => {
+              setEditingSettlementId(null);
+              setSelectedOrder(null);
+            }}
+            onSuccess={async () => {
+              setEditingSettlementId(null);
+              setSelectedOrder(null);
+              await Promise.all([loadPayments(appliedPaymentFilters), loadReport(appliedPaymentFilters)]);
+            }}
+          />
+        ) : null;
+      })()}
       <ManagerCard title="گزارش حسابداری" hint="بر اساس فیلتر اعمال‌شده برای پرداخت‌ها.">
         {report && (
           <dl className="report-grid">

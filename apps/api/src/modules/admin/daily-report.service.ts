@@ -47,8 +47,8 @@ export async function dailyAccountingReport(prisma: PrismaClient, query: DailyRe
     // A settlement confirms an order but does not move that order to the
     // confirmation day. Attribute order payments to the order's immutable
     // initialization date; reversals below remain event-based.
-    prisma.paymentSettlement.aggregate({ where: { order: { createdAt: withinRange, state: { not: "DELETED" } } }, _sum: { totalAmount: true } }),
-    prisma.payment.groupBy({ by: ["method"], where: { settlement: { order: { createdAt: withinRange, state: { not: "DELETED" } } } }, _sum: { amount: true } }),
+    prisma.paymentSettlement.aggregate({ where: { reversal: null, order: { createdAt: withinRange, state: { not: "DELETED" } } }, _sum: { totalAmount: true } }),
+    prisma.payment.groupBy({ by: ["method"], where: { settlement: { reversal: null, order: { createdAt: withinRange, state: { not: "DELETED" } } } }, _sum: { amount: true } }),
     prisma.settlementReversal.findMany({ where: { recordedAt: withinRange, settlement: { order: { state: { not: "DELETED" } } } }, select: { settlement: { select: { totalAmount: true } } } }),
     prisma.order.aggregate({ where: { createdAt: withinRange, state: "DELETED" }, _count: { _all: true }, _sum: { totalAmount: true, paidAmount: true } }),
   ]);

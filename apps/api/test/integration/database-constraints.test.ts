@@ -42,6 +42,8 @@ async function createUser(username = `db.${randomUUID().slice(0, 8)}`) {
 
 async function createOrderFixture() {
   const user = await createUser();
+  const category = await app.prisma.category.create({ data: { name: `DB category ${randomUUID()}`, displayOrder: 1 } });
+  const product = await app.prisma.product.create({ data: { categoryId: category.id, name: `DB product ${randomUUID()}`, priceAmount: 100_000, preparationDeadlineMinutes: 5, displayOrder: 1 } });
   const order = await app.prisma.order.create({
     data: {
       orderNumber: `DB-${randomUUID()}`,
@@ -54,7 +56,9 @@ async function createOrderFixture() {
       totalAmount: 100_000,
       paidAmount: 0,
       balanceAmount: 100_000,
+      items: { create: { productId: product.id, productNameSnapshot: product.name, basePriceSnapshot: 100_000, quantity: 1, lineTotalAmount: 100_000, displayOrder: 0 } },
     },
+    include: { items: true },
   });
 
   return { order, user };
@@ -237,6 +241,8 @@ describe("database-native constraints", () => {
         recordedById: user.id,
         idempotencyKey: "reference-check",
         totalAmount: 1,
+        allocations: { create: { orderItemId: order.items[0]!.id, quantity: 1, amount: 1 } },
+        payments: { create: { method: "CASH", amount: 1 } },
       },
     });
     await expectDatabaseError(

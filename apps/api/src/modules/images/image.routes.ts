@@ -61,11 +61,11 @@ export const imageRoutes: FastifyPluginAsync = async (app) => {
         throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested product was not found.");
       }
       const part = await request.file();
+      const content = part ? await part.toBuffer() : Buffer.alloc(0);
       const altText = typeof part?.fields.altText?.value === "string"
         ? part.fields.altText.value.trim()
         : "";
       const format = part ? formats.get(part.mimetype) : undefined;
-      const content = part ? await part.toBuffer() : Buffer.alloc(0);
       if (!part || !format || !altText || altText.length > 500 || !format.signature.every((value, index) => content[index] === value)) {
         throw new ApplicationError(400, ErrorCodes.VALIDATION_ERROR, "A valid JPEG, PNG, or WebP image and alt text are required.");
       }

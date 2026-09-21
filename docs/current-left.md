@@ -1,5 +1,18 @@
 # Current Backend Stage Status
 
+## 21 September 2026 duplicate settlement allocation hardening
+
+- Complete in code and isolated API verification: the `app.inject` regression
+  reproduced duplicate `orderItemId` allocations closing a two-item order with
+  one item allocated twice and persisted settlement/tender/idempotency/audit
+  rows. The route now parses `RecordSettlementRequestSchema`, the service
+  aggregates requested quantities before allocation checks, and the new
+  deferred PostgreSQL integrity triggers enforce allocation ownership,
+  settlement allocation/tender sums, and active per-item quantity limits.
+  Regression and database-constraint fixtures now assert atomic valid writes;
+  the full isolated API suite and API typecheck pass. Left: production
+  migration/release and live POS acceptance gates.
+
 ## 18 September 2026 POS-only Packing catalog invariant
 
 - Complete in code: every active category now has one real `PACKING` product,
@@ -98,6 +111,7 @@
 ## 14 September 2026 partial settlement and takeaway popup pass
 
 - Complete in code and automated verification: a settlement may allocate selected item quantities or an entered integer-Toman amount up to the remaining balance. Amount payments are allocated deterministically across immutable item snapshots; completed receipt lines are marked paid and print with a strike-through, while tender references remain private. The POS payment sheet offers both methods, and selecting an existing takeaway from its queue opens edit/payment/receipt actions in a modal instead of expanding the main takeaway workspace. Table-order behavior is unchanged.
+- Complete in code and automated verification: amount-based allocations with `quantity = 0` now count as live settlement protection, so quantity reductions, item note/discount edits, full item replacement, and order-discount edits cannot rewrite the posted commercial basis. Regression coverage verifies `409 INVALID_STATE` responses and unchanged item/order snapshots.
 - Left: attached-browser and physical-receipt validation remain part of the existing Stage 7/10 operational gates.
 
 ## 13 September 2026 API and migration audit
@@ -168,6 +182,14 @@
   part of the archived order model.
 
 This file is the active completion checklist and current stage status for the backend phase. Check it for every related request.
+
+- 21 September 2026 weighted per-kilogram pricing: implementation is in progress in the schema, reviewed forward migration, shared contracts, authoritative order pricing, POS catalog/draft preview, receipts, manager catalog labels, and focused API/POS regression coverage. Existing quantity-based settlement semantics remain discrete bag/item counts. Left: café-supplied per-kilogram seed values via the required `GROUND_COFFEE_*_PRICE_PER_KG` environment variables, full seed synchronization with those real values, browser/device POS acceptance, and production migration/release gates.
+
+- 21 September 2026 paid-order deletion workflow: complete in code and focused regression coverage. `CLOSED` orders now support CAS-protected logical deletion while retaining settlements, payment tenders, allocations, and audit history; Manager payment-history rows expose an explicit `حذف سفارش` action, and accounting regression coverage proves all active settlements of the deleted order leave the report while remaining in history. The settlement-reversal action is no longer exposed in this POS panel. Focused API/POS tests, API/POS typechecks, and live local POS verification pass; broader release and physical acceptance gates remain.
+
+- 21 September 2026 historical payment correction: complete in code, focused/full isolated API coverage, POS tests, and attached local-browser verification. Manager payment history now exposes `ویرایش پرداخت` between `جزئیات سفارش` and `حذف سفارش`; the shared settlement panel loads the historical allocation/tenders in a locked historical mode and opens directly without the order-details dialog. The API atomically records reversal plus replacement settlement/audit rows with idempotency and preserves the historical order version/state without touching tables, waiter calls, live orders, or QR context. Reused-table, empty-table, takeaway, failed-correction, tender-reference, and overlay cases are covered. Left: physical-device and production release gates.
+
+- 21 September 2026 POS safe-release notification: complete in code. The POS exposes a non-cached release identity at `/pos/api/release`, polls every 45 seconds, shows a Persian update banner on a compatible release change, and only auto-reloads after a 10-second idle warning. Active order/takeaway work, drafts, payments, transfers, dialogs, requests, and printing remain operator-controlled; dirty drafts require confirmation. Left: production release-ID manifest, public endpoint, and café-device acceptance evidence.
 
 - 16 September 2026 category visibility split completed: Manager category settings now separately control public-menu visibility and POS order-entry visibility; the migration defaults existing categories to visible on both surfaces, and POS order validation enforces the POS visibility flag.
 

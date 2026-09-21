@@ -13,6 +13,7 @@ import { unlockWaiterCallSound } from "../lib/waiter-call-sound";
 import { OrdersIcon } from "./icons";
 import { OrdersWorkspace } from "./orders-workspace";
 import { ManagerWorkspace } from "./manager-workspace";
+import { ReleaseUpdateGuard, type PosActivity } from "./release-update-guard";
 
 type SessionState =
   | { kind: "loading" }
@@ -63,6 +64,7 @@ export function PosSessionBoundary() {
   const [session, setSession] = useState<SessionState>({ kind: "loading" });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [workspace, setWorkspace] = useState<"orders" | "manager">("orders");
+  const [ordersActivity, setOrdersActivity] = useState<PosActivity>({ isBusy: true, hasUnsavedChanges: false });
   const opener = useRef<HTMLButtonElement | null>(null);
   const { theme, toggle } = usePosTheme();
 
@@ -184,8 +186,9 @@ export function PosSessionBoundary() {
       </aside>
 
       <main className="pos-main">
-        {workspace === "orders" ? <OrdersWorkspace refreshing={session.refreshing} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
+        {workspace === "orders" ? <OrdersWorkspace refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
       </main>
+      <ReleaseUpdateGuard activity={workspace === "orders" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
     </div>
   );
 }

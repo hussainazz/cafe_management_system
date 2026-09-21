@@ -6,6 +6,7 @@ import {
   settlementAllocationAmount,
   settlementAvailability,
   sumAmounts,
+  weightedPricePreview,
 } from "./pos-utils";
 
 describe("POS display utilities", () => {
@@ -45,5 +46,12 @@ describe("POS display utilities", () => {
     expect(positiveIntegerAmount("50000")).toBe(50_000);
     expect(positiveIntegerAmount("50.5")).toBe(0);
     expect(positiveIntegerAmount("0")).toBe(0);
+  });
+
+  it("previews weighted prices with integer per-kilogram arithmetic", () => {
+    expect(weightedPricePreview(2_000_000, 0, 250)).toBe(500_000);
+    expect(weightedPricePreview(1_500_000, 300_000, 250)).toBe(450_000);
+    expect(weightedPricePreview(1_800_000, 0, 250, 2)).toBe(900_000);
+    expect(weightedPricePreview(1_800_000, 0, 0)).toBe(0);
   });
 });

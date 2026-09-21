@@ -100,6 +100,7 @@ describe("POS catalog and table reads", () => {
             id: product.id,
             name: "Latte",
             priceAmount: 85_000,
+            pricingMode: "FIXED",
             preparationDeadlineMinutes: 8,
             isAvailable: false,
             image: { storageKey: "products/latte.webp", altText: "Latte" },

@@ -77,3 +77,8 @@ export function positiveIntegerAmount(value: string) {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
 }
+
+export function weightedPricePreview(pricePerKg: number, optionDeltaPerKg: number, weightGrams: number, quantity = 1) {
+  if (![pricePerKg, optionDeltaPerKg, weightGrams, quantity].every(Number.isSafeInteger) || weightGrams <= 0 || quantity <= 0) return 0;
+  return Math.floor((pricePerKg * weightGrams * quantity) / 1000) + Math.floor((optionDeltaPerKg * weightGrams * quantity) / 1000);
+}

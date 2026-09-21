@@ -30,7 +30,7 @@ function SortableProduct({ row, categoryName, index, onEdit }: any) {
     <div className="catalog-product-card__top"><span className="catalog-order">#{index + 1}</span><DragHandle attributes={sortable.attributes} listeners={sortable.listeners} /></div>
     <button type="button" className="catalog-product-card__open" onClick={onEdit}>
       {catalogProductImageUrl(row, categoryName) ? <img src={catalogProductImageUrl(row, categoryName)!} alt={row.image?.altText ?? row.name} /> : <span className="catalog-product-card__placeholder" aria-hidden="true">☕</span>}
-      <strong>{row.name}</strong><b>{formatToman(row.priceAmount)}</b><small>{row.isAvailable ? "موجود" : "ناموجود"} · {row.isActive ? "فعال" : "غیرفعال"}</small>
+      <strong>{row.name}</strong><b>{formatToman(row.priceAmount)}</b><small>{row.pricingMode === "WEIGHTED_PER_KG" ? "قیمت هر کیلو" : "قیمت هر واحد"} · {row.isAvailable ? "موجود" : "ناموجود"} · {row.isActive ? "فعال" : "غیرفعال"}</small>
     </button>
   </article>;
 }
