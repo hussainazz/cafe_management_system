@@ -94,7 +94,7 @@ timeouts before staging completed.
 Every POS activation must build the complete compatible POS/API artifact set
 with one immutable staged release ID. Pass it as `POS_RELEASE_ID` to the local
 POS build; it becomes the POS Next.js `BUILD_ID`, the browser's loaded ID, and
-the deployed `GET /pos/api/release` response. That response must use
+the deployed `GET /pos/release` response. That response must use
 `Cache-Control: no-store`. Do not deploy a POS artifact whose release ID does
 not name the compatible API/migration artifact set.
 
