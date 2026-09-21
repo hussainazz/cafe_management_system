@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deployedReleaseId } from "../../lib/release-id";
+import { deployedReleaseId } from "../lib/release-id";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
