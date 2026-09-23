@@ -399,6 +399,7 @@ export const PaymentHistoryEntrySchema = z.object({
   orderId: z.uuid(),
   orderNumber: z.string(),
   dailyOrderNumber: z.number().int().positive(),
+  orderState: OrderStateSchema,
   channel: OrderChannelSchema,
   table: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   totalAmount: z.number().int().nonnegative(),
