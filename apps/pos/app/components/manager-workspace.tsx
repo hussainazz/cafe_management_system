@@ -677,7 +677,7 @@ function FinancePanel({
         case "amount": return item.totalAmount;
         case "method": return paymentMethods(item);
         case "recordedBy": return item.recordedBy.username;
-        case "status": return item.reversedAt ? "برگشت خورده" : "ثبت شده";
+        case "status": return item.orderState === "DELETED" ? "حذف شده" : item.reversedAt ? "برگشت خورده" : "ثبت شده";
       }
     };
     return [...payments].sort((left, right) => {
@@ -783,7 +783,7 @@ function FinancePanel({
                   <td>{formatToman(item.totalAmount)}</td>
                   <td>{paymentMethods(item)}</td>
                   <td>{item.recordedBy.username}</td>
-                  <td>{item.reversedAt ? "برگشت خورده" : "ثبت شده"}</td>
+                  <td>{item.orderState === "DELETED" ? "حذف شده" : item.reversedAt ? "برگشت خورده" : "ثبت شده"}</td>
                   <td className="manager-payment-table__actions">
                     <button
                 className="secondary-button"
@@ -807,7 +807,7 @@ function FinancePanel({
               >
                 جزئیات سفارش
               </button>
-              {!item.reversedAt && <button
+              {item.orderState !== "DELETED" && !item.reversedAt && <button
                 className="secondary-button"
                 type="button"
                 onClick={async () => {
@@ -822,7 +822,7 @@ function FinancePanel({
               >
                 ویرایش پرداخت
               </button>}
-              {!item.reversedAt && <button
+              {item.orderState !== "DELETED" && !item.reversedAt && <button
                 className="danger-button"
                 type="button"
                 onClick={() =>
