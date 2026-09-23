@@ -281,6 +281,7 @@ describe("Manager administration", () => {
     const daytime = await settlement("PAY-DAY", "2026-09-15T08:30:00.000Z"); // 12:00 Tehran
     const normalLower = await settlement("PAY-NORMAL-LOWER", "2026-09-15T14:30:00.000Z"); // 18:00 Tehran
     const normalUpper = await settlement("PAY-NORMAL-UPPER", "2026-09-15T19:00:00.000Z"); // 22:30 Tehran
+    await app.prisma.order.update({ where: { id: normalUpper.order.id }, data: { state: "DELETED", deletedAt: new Date("2026-09-15T19:01:00.000Z"), deletedById: staffUser.id } });
     const overnightStart = await settlement("PAY-OVERNIGHT-START", "2026-09-15T18:30:00.000Z"); // 22:00 Tehran
     const overnightEnd = await settlement("PAY-OVERNIGHT-END", "2026-09-15T22:29:00.000Z"); // 09/16 01:59 Tehran
     const second = await settlement("PAY-SECOND-DAY", "2026-09-16T15:00:00.000Z", staffUser.id, table.id); // 09/16 18:30 Tehran
@@ -301,11 +302,13 @@ describe("Manager administration", () => {
     expect(day.json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([normalUpper, overnightStart, normalLower, daytime, lower].map((row) => row.settlement.id));
     const range = await request("fromDate=2026-09-15&toDate=2026-09-16");
     expect(range.json().data.payments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: normalUpper.settlement.id, orderState: "DELETED" }),
       expect.objectContaining({
         id: second.settlement.id,
         orderId: second.order.id,
         orderNumber: "PAY-SECOND-DAY",
         dailyOrderNumber: 1,
+        orderState: "CLOSED",
         channel: "TABLE",
         table: { id: table.id, name: "۱۲" },
         totalAmount: 10_000,
