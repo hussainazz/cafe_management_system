@@ -79,7 +79,7 @@ describe("ManagerWorkspace", () => {
   });
 
   it("does not expose settlement reversal in payment history", async () => {
-    api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH" }] }] });
+    api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, orderState: "CLOSED", totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH" }] }] });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
     await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
     fireEvent.click(screen.getByText("حسابداری"));
@@ -106,7 +106,7 @@ describe("ManagerWorkspace", () => {
   });
 
   it("offers logical payment deletion for each payment-history row", async () => {
-    api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, totalAmount: 20_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TAKEAWAY", table: null, reversedAt: null, payments: [{ method: "CASH" }] }] });
+    api.readPaymentHistory.mockResolvedValueOnce({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, orderState: "CLOSED", totalAmount: 20_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TAKEAWAY", table: null, reversedAt: null, payments: [{ method: "CASH" }] }] }).mockResolvedValueOnce({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, orderState: "DELETED", totalAmount: 20_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TAKEAWAY", table: null, reversedAt: null, payments: [{ method: "CASH" }] }] });
     api.readOrder.mockResolvedValue({ ok: true, data: { version: 4, dailyOrderNumber: 1 } });
     api.deleteOpenOrder.mockResolvedValue({ ok: true });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
@@ -114,6 +114,9 @@ describe("ManagerWorkspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "حذف سفارش" }));
     fireEvent.click(screen.getByText("تأیید"));
     await waitFor(() => expect(api.deleteOpenOrder).toHaveBeenCalledWith("order-1", { expectedVersion: 4 }));
+    expect(await screen.findByText("حذف شده")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "ویرایش پرداخت" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "حذف سفارش" })).toBeNull();
   });
 
   it("opens the settlement sheet directly instead of the historical order-details dialog", async () => {
