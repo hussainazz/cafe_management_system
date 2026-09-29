@@ -598,9 +598,10 @@ Verified:
   share one attempt, and playback failures report their error name.
 - Verified: all 13 POS test files / 56 tests pass, including six sound regression
   cases; POS typecheck passes.
-- Left: browser/device audible acceptance after a genuine user interaction,
-  including successive calls on the same table and a full data reload. No local
-  POS server was reachable for this check; production release remains pending.
+- Left: café-device audible acceptance after a genuine user interaction,
+  including successive calls on the same table and a full data reload. POS
+  release `3cc4719-20260929T063258Z` is deployed and its release endpoint and
+  routes are healthy.
 
 ## 29 September 2026 waiter-call cooldown removal
 
@@ -610,3 +611,5 @@ Verified:
   public button's cooldown fill and its obsolete progress contract field.
 - Updated the existing API integration scenario to expect immediate availability
   after resolution. Contracts build, API typecheck, and web typecheck pass.
+- Deployed in release `3cc4719-20260929T063258Z`; API readiness and public menu/POS
+  routes pass, and all three services remain active with zero restarts.
