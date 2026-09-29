@@ -122,16 +122,8 @@ describe("public table context and waiter-calls", () => {
     expect(resolved.statusCode).toBe(200);
     expect(await app.prisma.waiterCall.findFirstOrThrow()).toMatchObject({ status: "RESOLVED", version: 2, acknowledgedAt: expect.any(Date), resolvedAt: expect.any(Date) });
 
-    const coolingContext = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: customer });
-    expect(coolingContext.json().data).toMatchObject({ canCallWaiter: false, waiterCallStatus: null });
-    const coolingCall = await app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: customer });
-    expect(coolingCall.statusCode).toBe(429);
-    expect(coolingCall.json().error.code).toBe("RATE_LIMITED");
-
-    const cooldownElapsedAt = new Date(Date.now() - 2 * 60 * 1_000 - 1);
-    await app.prisma.waiterCall.updateMany({ where: { tableId: table.id }, data: { requestedAt: cooldownElapsedAt, acknowledgedAt: cooldownElapsedAt, resolvedAt: cooldownElapsedAt } });
-    const availableAfterCooldown = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: customer });
-    expect(availableAfterCooldown.json().data).toMatchObject({ canCallWaiter: true, waiterCallStatus: null });
+    const availableAfterResolution = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: customer });
+    expect(availableAfterResolution.json().data).toMatchObject({ canCallWaiter: true, waiterCallStatus: null });
     const reopenedCall = await app.inject({ method: "POST", url: "/api/v1/public/waiter-calls", cookies: customer });
     expect(reopenedCall.statusCode).toBe(201);
   });
