@@ -204,7 +204,7 @@ Exit gate:
 
 ### Stage 10 — Full-System Hardening And POS Pilot
 
-- Run the critical browser E2E suite across public menu, POS, bar-ticket printing, selected-item settlement, mixed tender, card transfer, deletion, customer whole-order/settlement receipts, Manager, and reporting journeys.
+- Run the critical browser E2E suite with the repository browser-check workflow in `browser-testing.md` across public menu, POS, bar-ticket printing, selected-item settlement, mixed tender, card transfer, deletion, customer whole-order/settlement receipts, Manager, and reporting journeys.
 - Complete integration/contract test coverage for authorization, idempotency, concurrency, settlement allocation, reversals, reports, and public-response safety.
 - Run the security review for cookies/tokens, CSRF, rate limits, uploads, secrets, input limits, and safe logs.
 - Rehearse migrations on both a fresh database and a restored production-like database.
