@@ -70,8 +70,8 @@ export function PosSessionBoundary() {
 
   useEffect(() => {
     const unlock = () => { void unlockWaiterCallSound(); };
-    document.addEventListener("pointerdown", unlock, { capture: true, once: true });
-    document.addEventListener("keydown", unlock, { capture: true, once: true });
+    document.addEventListener("pointerdown", unlock, { capture: true });
+    document.addEventListener("keydown", unlock, { capture: true });
     return () => {
       document.removeEventListener("pointerdown", unlock, true);
       document.removeEventListener("keydown", unlock, true);
