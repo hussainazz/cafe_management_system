@@ -505,8 +505,8 @@ Done:
 - Product popups show the supplied final prices for product-specific coffee blends, coffee amounts, cup quantities, syrups, and flavors. The synchronizer applies 55 explicit price/availability configurations and 34 option-bearing product configurations, including unavailable Mini Tiramisu.
 - The visual direction was refreshed around Run Cafe's warm, dark, intimate specialty-coffee identity with restrained amber lighting, wood tones, and low-distraction browsing.
 - The revised customer menu passes frontend typecheck, all 3 focused web tests, production build, and a representative 390×844 browser rendering against the synchronized development catalog.
-- The mobile menu was hardened against the six highest-priority Iranian phone viewports (360×800, 384×832, 385×854, 390×844, 393×873, and 412×915): hero density, safe-area spacing, consistent branding, category-scroll affordance, 44px touch targets, and persistent compact option sheets were verified with Playwright without horizontal overflow or browser errors.
-- Development access from phones on the `192.168.1.x` LAN is explicitly allowed by Next.js; Playwright verified hydration through the LAN URL, working category navigation, and working product dialogs without blocked client chunks.
+- Historical verification of the mobile menu across the six highest-priority Iranian phone viewports (360×800, 384×832, 385×854, 390×844, 393×873, and 412×915) used Playwright and found no horizontal overflow or browser errors. Future interactive browser checks use the `agent-browser` workflow in `docs/planning/browser-testing.md`.
+- Historical LAN verification used Playwright to check hydration, category navigation, and product dialogs without blocked client chunks. Future interactive browser checks use the `agent-browser` workflow in `docs/planning/browser-testing.md`.
 - The public menu hero now uses the concise Run Cafe title and requested food description without welcome/stat lines; the redundant all-category chip was removed, category chips navigate the continuously scrollable full menu, and scroll-spy keeps the active category synchronized while browsing.
 - Public-menu category visuals now use four consistent semantic icon groups: sparkle for special/new, one shared drink icon (including Matcha Bar), one dessert icon, and one food icon.
 - The mobile category strip now uses momentum horizontal scrolling without a native scrollbar; active-chip centering no longer affects vertical page position, and the edge cue hides correctly when the final RTL category is reached.
@@ -588,3 +588,25 @@ Verified:
   text and public `/pos` returns HTTP 200.
 - Left: run the POS browser and physical thermal-printer acceptance checks for
   the updated receipt layout.
+
+## 29 September 2026 waiter-call sound reliability
+
+- Complete in code: waiter-call sound de-duplication uses the unique call ID;
+  full loads and operational polls share one observer. Active calls remain
+  queued until playback succeeds, retry on polls or user interaction, and are
+  removed when resolved. Audio unlock retries after failure, concurrent unlocks
+  share one attempt, and playback failures report their error name.
+- Verified: all 13 POS test files / 56 tests pass, including six sound regression
+  cases; POS typecheck passes.
+- Left: browser/device audible acceptance after a genuine user interaction,
+  including successive calls on the same table and a full data reload. No local
+  POS server was reachable for this check; production release remains pending.
+
+## 29 September 2026 waiter-call cooldown removal
+
+- Complete in code: removed the waiter-call cooldown from the public table
+  context and submission API. An authenticated eligible table can submit a
+  new call immediately after Staff resolves its previous call. Removed the
+  public button's cooldown fill and its obsolete progress contract field.
+- Updated the existing API integration scenario to expect immediate availability
+  after resolution. Contracts build, API typecheck, and web typecheck pass.
