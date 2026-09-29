@@ -25,7 +25,7 @@ import { printDocument, printRoute, type PrintKind } from "../lib/print-routes";
 import { acknowledgeAndOpenWaiterCall } from "../lib/waiter-call-workflow";
 import { operationalRefreshIntervalMs } from "../lib/operational-refresh";
 import { canChangeDiscount, discountPayload } from "../lib/discount-workflow";
-import { newWaiterCallSoundKeys, playWaiterCallSound, waiterCallSoundKey } from "../lib/waiter-call-sound";
+import { createWaiterCallSoundObserver } from "../lib/waiter-call-sound";
 import {
   elapsedLabel,
   englishNumber,
@@ -118,7 +118,7 @@ export function OrdersWorkspace({
   const [recovering, setRecovering] = useState(false);
   const [online, setOnline] = useState(true);
   const [liveDataLimited, setLiveDataLimited] = useState(false);
-  const knownWaiterCallKeys = useRef<Set<string> | null>(null);
+  const observeWaiterCalls = useRef(createWaiterCallSoundObserver());
   const submitDeskRef = useRef<(() => void) | null>(null);
   const load = useCallback(async (): Promise<boolean> => {
     setLoading(true);
@@ -143,7 +143,7 @@ export function OrdersWorkspace({
       openOrders: orders.ok ? orders.data : current?.openOrders ?? [],
     }));
     if (calls.ok) {
-      knownWaiterCallKeys.current = new Set(calls.data.map(waiterCallSoundKey));
+      observeWaiterCalls.current(calls.data);
     }
     setLiveDataLimited(!calls.ok || !orders.ok);
     setLoading(false);
@@ -194,9 +194,7 @@ export function OrdersWorkspace({
       return;
     }
     if (calls.ok) {
-      const incoming = newWaiterCallSoundKeys(calls.data, knownWaiterCallKeys.current);
-      if (incoming.length > 0) playWaiterCallSound();
-      knownWaiterCallKeys.current = new Set(calls.data.map(waiterCallSoundKey));
+      observeWaiterCalls.current(calls.data);
     }
     setData((current) => current && {
       ...current,
