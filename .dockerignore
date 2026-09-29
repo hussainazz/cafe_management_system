@@ -6,7 +6,5 @@
 **/node_modules
 apps/*/.env*
 coverage
-playwright-report
 test-results
 *.log
-
