@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-export const WAITER_CALL_COOLDOWN_MS = 2 * 60 * 1_000;
 
 export const DEFAULT_TABLE_SEATING_LIMIT_MINUTES = 45;
 
@@ -721,7 +720,6 @@ export const PublicTableContextSchema = z.object({
   occupancyState: z.enum(["AVAILABLE", "OCCUPIED"]).nullable(),
   waiterCallStatus: z.enum(["PENDING"]).nullable(),
   canCallWaiter: z.boolean(),
-  waiterCallCooldownProgress: z.number().min(0).max(1),
   authenticationRequired: z.boolean().optional(),
   customerAuthenticated: z.boolean().optional(),
   visitActive: z.boolean().optional(),
