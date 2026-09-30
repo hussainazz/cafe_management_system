@@ -832,13 +832,23 @@ function OrderDesk({
       quantity: item.quantity,
       ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
       ...(item.note.trim() ? { note: item.note.trim() } : {}),
-      options: item.options.map((option) => ({ optionId: option.id, quantity: 1 })),
+      options: item.options.map((option) => ({
+        optionId: option.id,
+        // Fixed-price options apply to every unit in this grouped draft line.
+        // Weighted prices multiply by item quantity in the API calculation,
+        // so their option quantity remains one.
+        quantity: item.product.pricingMode === "FIXED" ? item.quantity : 1,
+      })),
     }));
   const replacementItems = () => [
     ...saved.filter((item) => item.quantity > 0).map((item) => ({
       productId: item.productId, quantity: item.quantity,
       ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
-      ...(item.note.trim() ? { note: item.note.trim() } : {}), options: item.options,
+      ...(item.note.trim() ? { note: item.note.trim() } : {}),
+      options: item.options.map((option) => ({
+        ...option,
+        quantity: item.pricingModeSnapshot === "FIXED" ? item.quantity : 1,
+      })),
     })),
     ...payloadItems(),
   ];
