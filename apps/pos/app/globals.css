@@ -209,7 +209,7 @@ body {
 }
 .release-update-banner {
   position: fixed;
-  z-index: 120;
+  z-index: 2147483647;
   inset-inline: 20px;
   bottom: max(20px, env(safe-area-inset-bottom));
   display: flex;
