@@ -1,4 +1,5 @@
 "use client";
+import { useRecoveryState, requestAutomaticRecovery, recoveryNoticeEvent, finishRecoveryEpisode } from "../lib/automatic-recovery";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -140,7 +141,7 @@ export function ManagerWorkspace({
   onOpenMenu: () => void;
   menuOpen: boolean;
 }) {
-  const [panel, setPanel] = useState<Panel>("finance");
+  const [panel, setPanel] = useRecoveryState<Panel>("manager-panel", "finance");
   const [catalog, setCatalog] = useState<ManagerCatalog | null>(null);
   const [staff, setStaff] = useState<ManagerStaff | null>(null);
   const [settings, setSettings] = useState<ManagerSettings | null>(null);
@@ -149,6 +150,19 @@ export function ManagerWorkspace({
   const [online, setOnline] = useState(true);
   const [confirm, setConfirm] = useState<Confirm>(null);
 
+  useEffect(() => {
+    let cancelRecovery: (() => void) | undefined;
+    const failed = (event: Event) => { setFailure((event as CustomEvent<ApiFailure>).detail); cancelRecovery?.(); cancelRecovery = requestAutomaticRecovery(); };
+    const notified = (event: Event) => setFailure({ kind: "network", message: (event as CustomEvent<string>).detail });
+    window.addEventListener("run-cafe:api-failure", failed);
+    window.addEventListener(recoveryNoticeEvent, notified);
+    return () => { cancelRecovery?.(); window.removeEventListener("run-cafe:api-failure", failed); window.removeEventListener(recoveryNoticeEvent, notified); };
+  }, []);
+  useEffect(() => {
+    if (loading || failure || !catalog || !staff || !settings) return;
+    const healthy = window.setTimeout(finishRecoveryEpisode, 30_000);
+    return () => window.clearTimeout(healthy);
+  }, [loading, failure, catalog, staff, settings]);
   const reloadCatalog = useCallback(async () => {
     const result = await readManagerCatalog();
     if (result.ok) setCatalog(result.data);
@@ -608,8 +622,8 @@ function FinancePanel({
   requestConfirm: (confirm: Confirm) => void;
 }) {
   const [payments, setPayments] = useState<PaymentHistory>([]);
-  const [draftPaymentFilters, setDraftPaymentFilters] = useState<PaymentFilterDraft>(initialPaymentFilterDraft);
-  const [appliedPaymentFilters, setAppliedPaymentFilters] = useState<PaymentHistoryFilters>(() => {
+  const [draftPaymentFilters, setDraftPaymentFilters] = useRecoveryState<PaymentFilterDraft>("payment-draft-filters", initialPaymentFilterDraft);
+  const [appliedPaymentFilters, setAppliedPaymentFilters] = useRecoveryState<PaymentHistoryFilters>("payment-applied-filters", () => {
     const filters = paymentFiltersFromDraft(initialPaymentFilterDraft());
     if (!filters) throw new Error("Unable to resolve the current Tehran date.");
     return filters;
@@ -623,7 +637,7 @@ function FinancePanel({
     key: "recordedAt",
     direction: "desc",
   });
-  const [auditFilters, setAuditFilters] = useState({
+  const [auditFilters, setAuditFilters] = useRecoveryState("audit-filters", {
     operation: "",
     entityType: "",
     actorId: "",
