@@ -1,7 +1,7 @@
 import type { PaymentHistoryQuery } from "@cafe/contracts";
 import { Prisma, type PrismaClient } from "../../../generated/prisma/client.js";
 
-export async function listPaymentHistory(prisma: PrismaClient, query: PaymentHistoryQuery) {
+export async function settlementIdsForPaymentWindow(prisma: PrismaClient, query: PaymentHistoryQuery) {
   // Dates and times are evaluated in the café's reporting timezone. A partial
   // time filter applies independently to every selected Tehran-local date;
   // `fromTime > toTime` is an overnight window for each such date.
@@ -24,8 +24,13 @@ export async function listPaymentHistory(prisma: PrismaClient, query: PaymentHis
     WHERE 1 = 1 ${timeFilter}
     ORDER BY "recordedAt" DESC, id DESC
   `);
+  return ids.map((row) => row.id);
+}
+
+export async function listPaymentHistory(prisma: PrismaClient, query: PaymentHistoryQuery) {
+  const ids = await settlementIdsForPaymentWindow(prisma, query);
   const records = await prisma.paymentSettlement.findMany({
-    where: { id: { in: ids.map((row) => row.id) } },
+    where: { id: { in: ids } },
     orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
     include: {
       order: { select: { id: true, orderNumber: true, dailyOrderNumber: true, state: true, channel: true, table: { select: { id: true, name: true } } } },
