@@ -119,6 +119,8 @@ export function PosSessionBoundary() {
         onRetry={() => void loadSession(true)}
         onReady={(user) => {
           setRecoveryUser(user.id);
+          setWorkspace(readRecovery<"orders" | "manager">("workspace") === "manager" && user.role === "MANAGER" ? "manager" : "orders");
+          setDrawerOpen(false);
           setSession({ kind: "ready", user, refreshing: false });
         }}
       />
@@ -167,6 +169,8 @@ export function PosSessionBoundary() {
             type="button"
             onClick={() => {
               void endSession().then(() => {
+                setWorkspace("orders");
+                setDrawerOpen(false);
                 setSession({ kind: "authentication-required" });
               });
             }}
@@ -192,9 +196,9 @@ export function PosSessionBoundary() {
       </aside>
 
       <main className="pos-main">
-        {workspace === "orders" ? <OrdersWorkspace refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
+        {workspace !== "manager" || session.user.role !== "MANAGER" ? <OrdersWorkspace refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
       </main>
-      <ReleaseUpdateGuard activity={workspace === "orders" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
+      <ReleaseUpdateGuard activity={workspace !== "manager" || session.user.role !== "MANAGER" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
     </div>
   );
 }
