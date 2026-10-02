@@ -383,6 +383,9 @@ model Order {
   deletedBy          User?               @relation("OrderDeletedBy", fields: [deletedById], references: [id])
   items              OrderItem[]
   paymentSettlements PaymentSettlement[]
+  barTicketSnapshot  Json?
+  barTicketSequence  Int @default(0)
+  barTicketPreparations BarTicketPreparation[]
 
   @@index([tableId, state])
   @@index([state, paymentStatus])
@@ -551,4 +554,16 @@ model CafeSettings {
   updatedBy User? @relation(fields: [updatedById], references: [id])
 
   @@map("cafe_settings")
+}
+
+model BarTicketPreparation {
+  id String @id @default(uuid())
+  sequence Int @unique @default(autoincrement())
+  orderId String
+  snapshot Json
+  createdAt DateTime @default(now())
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("bar_ticket_preparations")
 }
