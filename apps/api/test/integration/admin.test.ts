@@ -386,6 +386,30 @@ describe("Manager administration", () => {
     expect(today.json().data.reversals).toMatchObject({ count: 1, amount: 12_000 });
   });
 
+  it("counts receipts in the applied payment-history window, including orders opened on another day", async () => {
+    const manager = await session(UserRole.MANAGER, "report-window.manager");
+    const actor = await app.prisma.user.findUniqueOrThrow({ where: { username: "report-window.manager" } });
+    const yesterdayOrder = await recordedSettlement({
+      orderNumber: "REPORT-WINDOW-001", actorId: actor.id,
+      createdAt: new Date("2026-09-14T18:00:00.000Z"),
+      recordedAt: new Date("2026-09-15T06:00:00.000Z"), amount: 20_000,
+    });
+    await recordedSettlement({
+      orderNumber: "REPORT-WINDOW-002", actorId: actor.id,
+      createdAt: new Date("2026-09-15T06:30:00.000Z"),
+      recordedAt: new Date("2026-09-15T11:00:00.000Z"), amount: 30_000,
+    });
+    const query = "fromDate=2026-09-15&toDate=2026-09-15&fromTime=09:00&toTime=10:00";
+    const history = await app.inject({ method: "GET", url: `/api/v1/admin/payments?${query}`, cookies: manager });
+    const report = await app.inject({ method: "GET", url: `/api/v1/admin/reports/daily?${query}`, cookies: manager });
+    expect(history.json().data.payments.map((entry: { id: string }) => entry.id)).toEqual([yesterdayOrder.settlement.id]);
+    expect(report.statusCode).toBe(200);
+    expect(report.json().data).toMatchObject({
+      paidAmount: 20_000,
+      paymentMethodTotals: { cashAmount: 0, cardTerminalAmount: 0, cardTransferAmount: 20_000 },
+    });
+  });
+
   it("lists safe filtered audit history only for Managers with stable cursors", async () => {
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log" })).statusCode).toBe(401);
     const staff = await session(UserRole.STAFF, "audit.staff");
