@@ -3,7 +3,8 @@
 ## 2 October 2026 isolated TODO implementation
 
 - Approved scope: tasks #2–6 and #8–13; #1 and #7 excluded.
-- In progress: A order workflow, B payment shifts, C printing; then D recovery, E compact UI, and final integration.
+- Complete in code and focused verification: A (#2, #4, #10, #11) and B (#3), merged into the local final-test branch. Order API 32 tests and Manager API 14 tests pass; respective POS regressions/typechecks pass.
+- In progress: C printing; then D recovery, E compact UI, and final integration.
 - Left: implementation, focused checks, integrated suite/build, authenticated browser acceptance at 469×343 and desktop/mobile, physical café-printer acceptance.
 - Local worktrees/commits/integration are authorized for this increment only; main, remote publication, development/production databases, and deployment remain unchanged.
 
