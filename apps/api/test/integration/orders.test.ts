@@ -296,10 +296,26 @@ describe("Staff order creation", () => {
     expect(conflicting.json().error.code).toBe("IDEMPOTENCY_CONFLICT");
   });
 
-  it("rejects unavailable products and rolls back all order records", async () => {
+  it("allows active unavailable products in POS creation and additions", async () => {
     const cookies = await staffSession();
     const { product } = await sellableProduct();
     await app.prisma.product.update({ where: { id: product.id }, data: { isAvailable: false } });
+    const created = await createOrderRequest(cookies,
+      { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] },
+      "pos-unavailable-product");
+    expect(created.statusCode).toBe(201);
+    const order = created.json().data;
+    const added = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`,
+      cookies,
+      payload: { expectedVersion: order.version, addItems: [{ productId: product.id, quantity: 2, options: [] }] } });
+    expect(added.statusCode).toBe(200);
+    expect(added.json().data.totalAmount).toBe(150_000);
+  });
+
+  it("rejects inactive products and rolls back all order records", async () => {
+    const cookies = await staffSession();
+    const { product } = await sellableProduct();
+    await app.prisma.product.update({ where: { id: product.id }, data: { isActive: false } });
 
     const response = await createOrderRequest(
       cookies,
