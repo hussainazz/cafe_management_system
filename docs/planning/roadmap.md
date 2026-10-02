@@ -223,3 +223,15 @@ Exit gate:
 - All full-system production readiness gates in `production-gates.md` have
   evidence and the POS pilot finishes without an unreconciled financial
   difference.
+
+## 2 October 2026 approved POS TODO increment
+
+This increment completes tasks #2–6 and #8–13; #1 and #7 are excluded.
+A (order workflow), B (payment shifts), and C (printing) start from the same
+reviewed baseline and integrate in that order. D (automatic recovery) starts
+from the combined checkpoint; E (469×343 layout and accounting-card scrolling)
+follows D. The coordinator maintains `docs/current-left.md` and verifies the
+combined branch before user acceptance. This does not complete outstanding
+Stage 7/9 browser-device or Stage 10 pilot gates. Local worktrees, file-scoped
+commits, and merges into `codex/todo-final-test` are explicitly authorized for
+this increment only; main, remote publication, and deployment remain unchanged.
