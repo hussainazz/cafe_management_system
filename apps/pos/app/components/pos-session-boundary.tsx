@@ -15,6 +15,8 @@ import { OrdersWorkspace } from "./orders-workspace";
 import { ManagerWorkspace } from "./manager-workspace";
 import { ReleaseUpdateGuard, type PosActivity } from "./release-update-guard";
 
+import { setRecoveryUser, readRecovery, writeRecovery } from "../lib/automatic-recovery";
+
 type SessionState =
   | { kind: "loading" }
   | { kind: "ready"; user: AuthenticatedUser; refreshing: boolean }
@@ -84,6 +86,8 @@ export function PosSessionBoundary() {
     );
     const current = await currentSession();
     if (current.ok) {
+      setRecoveryUser(current.data.id);
+      setWorkspace(readRecovery<"orders" | "manager">("workspace") === "manager" && current.data.role === "MANAGER" ? "manager" : "orders");
       setSession({ kind: "ready", user: current.data, refreshing: false });
       return;
     }
@@ -92,6 +96,7 @@ export function PosSessionBoundary() {
       (current.error.status === 401 || current.error.code === "SESSION_EXPIRED")
     ) {
       const refreshed = await refreshSession();
+      if (refreshed.ok) { setRecoveryUser(refreshed.data.id); setWorkspace(readRecovery<"orders" | "manager">("workspace") === "manager" && refreshed.data.role === "MANAGER" ? "manager" : "orders"); }
       setSession(
         refreshed.ok
           ? { kind: "ready", user: refreshed.data, refreshing: false }
@@ -113,6 +118,7 @@ export function PosSessionBoundary() {
         state={session}
         onRetry={() => void loadSession(true)}
         onReady={(user) => {
+          setRecoveryUser(user.id);
           setSession({ kind: "ready", user, refreshing: false });
         }}
       />
@@ -172,12 +178,12 @@ export function PosSessionBoundary() {
           <button
             className={`nav-item ${workspace === "orders" ? "is-active" : ""}`}
             type="button"
-            onClick={() => { setWorkspace("orders"); setDrawerOpen(false); opener.current?.focus(); }}
+            onClick={() => { setWorkspace("orders"); writeRecovery("workspace", "orders"); setDrawerOpen(false); opener.current?.focus(); }}
           >
             <OrdersIcon />
             <span>سفارش</span>
           </button>
-          {session.user.role === "MANAGER" && <button className={`nav-item ${workspace === "manager" ? "is-active" : ""}`} type="button" onClick={() => { setWorkspace("manager"); setDrawerOpen(false); opener.current?.focus(); }}><span aria-hidden="true">⚙</span><span>مدیریت</span></button>}
+          {session.user.role === "MANAGER" && <button className={`nav-item ${workspace === "manager" ? "is-active" : ""}`} type="button" onClick={() => { setWorkspace("manager"); writeRecovery("workspace", "manager"); setDrawerOpen(false); opener.current?.focus(); }}><span aria-hidden="true">⚙</span><span>مدیریت</span></button>}
         </nav>
         <button className="theme-toggle" type="button" onClick={toggle} aria-label={theme === "dark" ? "تغییر به حالت روشن" : "تغییر به حالت تاریک"}>
           <span>{theme === "dark" ? "حالت تاریک" : "حالت روشن"}</span>
