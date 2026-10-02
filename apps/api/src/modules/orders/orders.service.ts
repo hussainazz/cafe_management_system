@@ -22,6 +22,8 @@ import { ApplicationError, ErrorCodes } from "../../errors/application-error.js"
 import type { AuthenticatedUser } from "../auth/auth.service.js";
 import { requireRole } from "../auth/permissions.js";
 
+import { preparationItems, type PreparationItem } from "./bar-ticket.js";
+
 const CREATE_ORDER_OPERATION = "CREATE_ORDER";
 const RECORD_SETTLEMENT_OPERATION = "RECORD_SETTLEMENT";
 const EDIT_SETTLEMENT_OPERATION = "EDIT_SETTLEMENT";
@@ -710,6 +712,18 @@ export async function updateOrder(
           displayOrder: input.items ? index : order.items.length + index, options,
         };
       });
+      // A full unpaid replacement must retain preparation identities for equivalent
+      // content, even if quantity or current catalog prices change. Match duplicates
+      // one-to-one so distinct lines can never share an ID.
+      const preparationKey = (item: { productId: string; pricingModeSnapshot: string; weightGrams: number | null; note: string | null; quantity: number; options: Array<{ optionId: string; quantity: number }> }) =>
+        JSON.stringify({ productId: item.productId, pricingMode: item.pricingModeSnapshot, weightGrams: item.weightGrams, note: item.note,
+          options: item.options.map((option) => ({ id: option.optionId, quantity: item.pricingModeSnapshot === "FIXED" ? option.quantity / item.quantity : option.quantity })).sort((a, b) => a.id.localeCompare(b.id) || a.quantity - b.quantity) });
+      const existingIds = new Map<string, string[]>();
+      if (input.items) for (const item of order.items) {
+        const key = preparationKey(item);
+        existingIds.set(key, [...(existingIds.get(key) ?? []), item.id]);
+      }
+      const preparedIds = prepared.map((item) => existingIds.get(preparationKey(item))?.shift() ?? randomUUID());
       if (input.items) {
         // Option snapshots are dependent rows with a restrictive foreign key.
         // Remove them before replacing unpaid order items as one transaction.
@@ -718,7 +732,7 @@ export async function updateOrder(
         });
         await transaction.orderItem.deleteMany({ where: { orderId } });
       }
-      await transaction.orderItem.createMany({ data: prepared.map(({ options, ...item }) => ({ ...item, orderId })) });
+      await transaction.orderItem.createMany({ data: prepared.map(({ options, ...item }, index) => ({ ...item, id: preparedIds[index]!, orderId })) });
       for (const item of prepared) {
         const created = await transaction.orderItem.findFirstOrThrow({ where: { orderId, displayOrder: item.displayOrder }, select: { id: true } });
         await transaction.orderItemOption.createMany({ data: item.options.map((option) => ({ ...option, orderItemId: created.id })) });
@@ -1170,6 +1184,33 @@ export async function barTicket(prisma: PrismaClient, actor: AuthenticatedUser, 
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
   return { dailyOrderNumber: order.dailyOrderNumber, context: order.channel === OrderChannel.TABLE ? `میز ${order.table!.name}` : "بیرون‌بر", items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, pricingModeSnapshot: item.pricingModeSnapshot, weightGrams: item.weightGrams, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note })) };
+}
+
+// Serialize snapshot capture with edits and acknowledgments on the order row.
+export async function prepareBarTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
+  requireRole(actor, ["STAFF", "MANAGER"]);
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`);
+    const order = await tx.order.findUnique({ where: { id: orderId }, include: receiptInclude });
+    if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+    const snapshot: PreparationItem[] = order.items.map((item) => ({ id: item.id, productName: item.productNameSnapshot,
+      quantity: item.quantity, pricingModeSnapshot: item.pricingModeSnapshot, weightGrams: item.weightGrams,
+      options: item.options.map((option) => ({ optionId: option.optionId, name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note }));
+    const prepared = await tx.barTicketPreparation.create({ data: { orderId, snapshot: snapshot as Prisma.InputJsonValue } });
+    return { preparationId: prepared.id, dailyOrderNumber: order.dailyOrderNumber,
+      context: order.channel === OrderChannel.TABLE ? `میز ${order.table!.name}` : "بیرون‌بر",
+      items: preparationItems(snapshot, order.barTicketSnapshot as PreparationItem[] | null) };
+  });
+}
+
+export async function acknowledgeBarTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, preparationId: string) {
+  requireRole(actor, ["STAFF", "MANAGER"]);
+  const prepared = await prisma.barTicketPreparation.findFirst({ where: { id: preparationId, orderId } });
+  if (!prepared) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested preparation was not found.");
+  // A newer snapshot can never be replaced by an older or retried acknowledgment.
+  await prisma.order.updateMany({ where: { id: orderId, barTicketSequence: { lt: prepared.sequence } },
+    data: { barTicketSequence: prepared.sequence, barTicketSnapshot: prepared.snapshot as Prisma.InputJsonValue } });
+  return { acknowledged: true as const };
 }
 
 export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
