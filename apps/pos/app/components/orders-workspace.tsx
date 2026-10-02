@@ -19,6 +19,7 @@ import {
   type PosOrderDetail,
   posApiFailureEvent,
 } from "../lib/api-client";
+import { readRecentItemNotes, rememberItemNotes } from "../lib/recent-item-notes";
 import { recoveryStateFor, type RecoveryState } from "../lib/recovery-state";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
 import { printDocument, printRoute, type PrintKind } from "../lib/print-routes";
@@ -381,7 +382,8 @@ export function OrdersWorkspace({
           takeawayOrders={data.openOrders.filter((item) => item.channel === "TAKEAWAY" && item.paymentStatus !== "PAID")}
           onOpenTakeaway={async (orderId) => {
             const result = await readOrder(orderId);
-            if (result.ok) setOrder(result.data);
+            if (result.ok && result.data.state === "OPEN") setOrder(result.data);
+            else if (result.ok) { setOrder(null); await load(); setMessage({ tone: "notice", text: "این سفارش بسته شده است و قابل ویرایش نیست." }); }
             else setMessage({ tone: "error", text: result.error.message });
           }}
           onOrder={async (updated) => {
@@ -751,7 +753,7 @@ function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint
   </aside>;
 }
 
-function OrderDesk({
+export function OrderDesk({
   catalog,
   table,
   channel,
@@ -860,6 +862,7 @@ function OrderDesk({
     };
   }, [onDirtyChange]);
   const finishSuccessfulSave = async (updatedOrder: OrderDetail) => {
+    rememberItemNotes([...draft.map((item) => ({ productId: item.product.id, note: item.note })), ...saved.filter((item) => item.quantity > 0 && item.note !== (item.originalNote ?? "")).map((item) => ({ productId: item.productId, note: item.note }))]);
     setDraft([]);
     setSaved(savedDrafts(updatedOrder));
     setCreateAttemptKey(requestKey());
@@ -900,6 +903,7 @@ function OrderDesk({
         if (channel === "TABLE") await onCreateFailure(result.error.message);
         return;
       }
+      rememberItemNotes(draft.map((item) => ({ productId: item.product.id, note: item.note })));
       const detail = await readOrder(result.data.id);
       if (!detail.ok) {
         setError(detail.error.message);
@@ -946,8 +950,8 @@ function OrderDesk({
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [busy, onCloseTakeawayPanel, takeawayOrderPanelOpen]);
   const orderPanel = (
-    <aside className={`order-panel${takeawayOrderPanelOpen ? " takeaway-order-panel-popup" : ""}`} {...(takeawayOrderPanelOpen ? { role: "dialog", "aria-modal": true, "aria-label": `سفارش بیرون‌بر ${formatOrderNumber(initialOrder!.dailyOrderNumber)}` } : {})}>
-      {takeawayOrderPanelOpen && <button className="icon-button takeaway-order-panel-popup__close" type="button" ref={takeawayCloseRef} disabled={busy} onClick={onCloseTakeawayPanel} aria-label="بستن سفارش بیرون‌بر"><CloseIcon /></button>}
+    <aside className="order-panel" aria-label={takeawayOrderPanelOpen ? `سفارش بیرون‌بر ${formatOrderNumber(initialOrder!.dailyOrderNumber)}` : "خلاصه سفارش"}>
+      {takeawayOrderPanelOpen && <button className="icon-button" type="button" ref={takeawayCloseRef} disabled={busy} onClick={onCloseTakeawayPanel} aria-label="بستن سفارش بیرون‌بر"><CloseIcon /></button>}
       <OrderSummary
         order={initialOrder}
         draft={draft}
@@ -1061,7 +1065,7 @@ function OrderDesk({
             ))}
           </div>
         </section>
-        {takeawayOrderPanelOpen ? <div className="modal-backdrop takeaway-order-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCloseTakeawayPanel(); }}>{orderPanel}</div> : orderPanel}
+        {orderPanel}
       </div>
       {checkout && initialOrder && (
         <SettlementSheet
@@ -1100,6 +1104,12 @@ function OrderDesk({
       )}
     </>
   );
+}
+
+function ItemNoteInput({ productId, name, value, onChange }: { productId: string; name: string; value: string; onChange: (value: string) => void }) {
+  const [notes, setNotes] = useState<string[]>([]);
+  useEffect(() => { setNotes(readRecentItemNotes(productId)); }, [productId]);
+  return <><input className="order-note" aria-label={`یادداشت ${name}`} value={value} onChange={(event) => onChange(event.target.value)} placeholder="یادداشت" />{notes.length > 0 && <select aria-label={`یادداشت‌های اخیر ${name}`} value="" onChange={(event) => onChange(event.target.value)}><option value="">یادداشت‌های اخیر</option>{notes.map((note) => <option key={note} value={note}>{note}</option>)}</select>}</>;
 }
 
 function OrderSummary({
@@ -1157,7 +1167,7 @@ function OrderSummary({
           const expanded = expandedSavedId === item.id;
           return edit.quantity > 0 && <article className={`order-line order-line--saved${expanded ? " order-line--expanded" : ""}`} key={item.id}>
             <button className="order-line__summary" type="button" aria-expanded={expanded} onClick={() => setExpandedSavedId((current) => current === item.id ? null : item.id)}><span className="order-line__details"><b>{edit.name}{edit.weightGrams ? ` · ${englishNumber.format(edit.weightGrams)} گرم` : ""} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></span><strong>{formatToman(item.lineTotalAmount)}</strong></button>
-            {expanded && <><div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <input aria-label={`یادداشت ${edit.name}`} value={edit.note} onChange={(event) => onSavedNote(edit.id, event.target.value)} placeholder="یادداشت" /> : <small className="saved-lock">پس از پرداخت فقط افزایش تعداد مجاز است</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
+            {expanded && <><div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <ItemNoteInput productId={edit.productId} name={edit.name} value={edit.note} onChange={(note) => onSavedNote(edit.id, note)} /> : <small className="saved-lock">پس از پرداخت فقط افزایش تعداد مجاز است</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
           </article>;
         })}
         {draft.map((item) => {
@@ -1214,9 +1224,9 @@ function OrderSummary({
                     +
                   </button>
                   <strong className="quantity__total">
-                    {formatToman(unitPrice * item.quantity)}
+                    {formatToman(unitPrice)}
                   </strong>
-                  <input className="order-note" aria-label={`یادداشت ${item.product.name}`} value={item.note} onChange={(event) => onDraftNote(item.key, event.target.value)} placeholder="یادداشت" />
+                  <ItemNoteInput productId={item.product.id} name={item.product.name} value={item.note} onChange={(note) => onDraftNote(item.key, note)} />
                 </div>
               )}
             </article>
@@ -1408,13 +1418,11 @@ function ProductPicker({
       .filter((candidate): candidate is Option => candidate !== undefined);
     if (selectedProduct.pricingMode !== "WEIGHTED_PER_KG" && groups.every((group) => (next[group.id] ? 1 : 0) >= group.minSelections)) onSelectOptions(selectedProduct, selectedOptions);
   };
-  const isAvailable = card.products.some((product) => product.isAvailable);
   const showSizeChoices = card.products.length > 1;
   return (
     <article className="product-picker" ref={pickerRef}>
       <button
         className="product-card"
-        disabled={!isAvailable}
         onClick={onOpen}
         aria-expanded={expanded}
       >
