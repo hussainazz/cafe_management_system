@@ -16,6 +16,14 @@ describe("POS recovery state", () => {
     });
   });
 
+  it("does not mislabel an idempotency-key collision as a stale-order conflict", () => {
+    expect(recoveryStateFor({ kind: "response", status: 409, code: "IDEMPOTENCY_CONFLICT", message: "collision" })).toMatchObject({
+      kind: "failure",
+      title: "درخواست قبلی با اطلاعات دیگری ثبت شده است",
+      action: "بازخوانی وضعیت",
+    });
+  });
+
   it("keeps an ordinary API failure recoverable", () => {
     expect(recoveryStateFor({ kind: "response", status: 500, message: "خطای سرویس" })).toMatchObject({
       kind: "failure",
