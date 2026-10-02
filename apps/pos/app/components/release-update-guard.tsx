@@ -69,18 +69,20 @@ export function ReleaseUpdateGuard({ activity }: { activity: PosActivity }) {
   };
 
   return (
-    <section className="release-update-banner" role="status" aria-live="polite">
-      <div>
-        <strong>نسخه جدید سامانه فروش آماده است.</strong>
-        <span>
-          {waitingForWork
-            ? "پس از پایان عملیات فعلی، صندوق به‌روزرسانی می‌شود."
-            : `صندوق در ${countdown ?? idleCountdownSeconds} ثانیه به‌روزرسانی می‌شود.`}
-        </span>
-      </div>
-      <button className="button button--primary" type="button" onClick={refresh}>
-        بارگذاری نسخه جدید
-      </button>
-    </section>
+    <div className="release-update-backdrop">
+      <section className="release-update-banner" role="status" aria-live="polite">
+        <div>
+          <strong>نسخه جدید سامانه فروش آماده است.</strong>
+          <span>
+            {waitingForWork
+              ? "پس از پایان عملیات فعلی، صندوق به‌روزرسانی می‌شود."
+              : `صندوق در ${countdown ?? idleCountdownSeconds} ثانیه به‌روزرسانی می‌شود.`}
+          </span>
+        </div>
+        <button className="button button--primary" type="button" onClick={refresh}>
+          بارگذاری نسخه جدید
+        </button>
+      </section>
+    </div>
   );
 }
