@@ -596,7 +596,7 @@ const ReceiptItemSchema = z.object({
   paidAmount: z.number().int().nonnegative(),
   isPaid: z.boolean(),
 });
-export const BarTicketResponseSchema = z.object({ data: z.object({ dailyOrderNumber: z.number().int().positive(), context: z.string(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), pricingModeSnapshot: z.enum(["FIXED", "WEIGHTED_PER_KG"]), weightGrams: z.number().int().positive().nullable(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
+export const BarTicketResponseSchema = z.object({ data: z.object({ preparationId: z.string().uuid().optional(), dailyOrderNumber: z.number().int().positive(), context: z.string(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), pricingModeSnapshot: z.enum(["FIXED", "WEIGHTED_PER_KG"]), weightGrams: z.number().int().positive().nullable(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
 export const OrderReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
 export const SettlementReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
 
@@ -804,3 +804,6 @@ export function calculateTableEta(input: TableEtaInput): TableEta {
     estimatedReleaseAt: new Date(input.seatedAt.getTime() + estimatedTableMinutes * 60_000),
   };
 }
+
+export const AcknowledgeBarTicketRequestSchema = z.object({ preparationId: z.string().uuid() });
+export const AcknowledgeBarTicketResponseSchema = z.object({ data: z.object({ acknowledged: z.literal(true) }), meta: z.object({ requestId: z.string() }) });

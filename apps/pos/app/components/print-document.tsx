@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  readBarTicket,
+  prepareBarTicket,
+  acknowledgeBarTicket,
   readOrderReceipt,
   readSettlementReceipt,
   type BarTicket,
@@ -18,7 +19,7 @@ function ReceiptItems({ receipt, className = "" }: { receipt: Receipt; className
   return (
     <div className={`thermal-items ${className}`}>
       {receipt.items.map((item, index) => (
-        <article className={`thermal-item${item.isPaid ? " thermal-item--paid" : ""}`} key={`${item.productName}-${index}`}>
+        <article className="thermal-item" key={`${item.productName}-${index}`}>
           <div className="thermal-item__main">
             <b>{item.productName}</b>
             <span>×{englishNumber.format(item.quantity)}</span>
@@ -114,7 +115,7 @@ export function PrintDocument({
     const load = async () => {
       const result =
         kind === "bar-ticket"
-          ? await readBarTicket(orderId)
+          ? await prepareBarTicket(orderId)
           : kind === "receipt"
             ? await readOrderReceipt(orderId)
             : await readSettlementReceipt(orderId, settlementId!);
@@ -126,10 +127,43 @@ export function PrintDocument({
 
   useEffect(() => {
     if (!data || printed.current) return;
-    printed.current = true;
-    const timer = window.setTimeout(() => window.print(), 120);
-    return () => window.clearTimeout(timer);
-  }, [data]);
+    let completing = false;
+    const complete = async () => {
+      if (completing) return;
+      completing = true;
+      if (kind === "bar-ticket") {
+        const preparationId = (data as BarTicket).preparationId;
+        if (!preparationId) {
+          setError("شناسه چاپ فیش بار معتبر نیست.");
+          window.dispatchEvent(new CustomEvent("cafe-print-complete", { detail: { error: "شناسه چاپ فیش بار معتبر نیست." } }));
+          return;
+        }
+        let failure = "ثبت چاپ فیش بار ناموفق بود؛ چاپ بعدی ممکن است اقلام را تکرار کند.";
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const result = await acknowledgeBarTicket(orderId, preparationId);
+          if (result.ok) {
+            window.dispatchEvent(new CustomEvent("cafe-print-complete"));
+            return;
+          }
+          failure = result.error.message;
+        }
+        setError(failure);
+        window.dispatchEvent(new CustomEvent("cafe-print-complete", { detail: { error: failure } }));
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("cafe-print-complete"));
+    };
+    window.addEventListener("afterprint", complete, { once: true });
+    const timer = window.setTimeout(() => {
+      printed.current = true;
+      try { window.print(); }
+      catch { window.dispatchEvent(new CustomEvent("cafe-print-complete", { detail: { error: "مرورگر چاپ را آغاز نکرد." } })); }
+    }, 120);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("afterprint", complete);
+    };
+  }, [data, kind, orderId]);
 
   if (error)
     return (

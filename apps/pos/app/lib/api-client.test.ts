@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readWaiterCalls } from "./api-client";
+import { acknowledgeBarTicket, readWaiterCalls } from "./api-client";
 
 const authenticationError = {
   error: {
@@ -80,5 +80,19 @@ describe("POS API session recovery", () => {
       { ok: true, data: [] },
     ]);
     expect(fetch.mock.calls.filter(([url]) => String(url).endsWith("/auth/refresh"))).toHaveLength(1);
+  });
+});
+
+
+describe("bar ticket acknowledgment transport", () => {
+  it("sends exact preparation ID as JSON to the authenticated POS route", async () => {
+    const fetch = vi.fn().mockResolvedValue(jsonResponse({ data: { acknowledged: true }, meta: { requestId: "ack" } }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await acknowledgeBarTicket("order", "11111111-1111-4111-8111-111111111111")).toMatchObject({ ok: true });
+    const [url, options] = fetch.mock.calls[0]!;
+    expect(url).toBe("/pos/api/v1/orders/order/bar-ticket/acknowledge");
+    expect(options.method).toBe("POST");
+    expect(options.headers.get("content-type")).toBe("application/json");
+    expect(JSON.parse(options.body)).toEqual({ preparationId: "11111111-1111-4111-8111-111111111111" });
   });
 });

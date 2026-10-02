@@ -17,9 +17,12 @@ export function printDocument(url: string): Promise<void> {
     iframe.style.pointerEvents = "none";
 
     let settled = false;
+    let prepared = false;
+    let completionTimeout: number | undefined;
     let observer: MutationObserver | null = null;
     const cleanup = () => {
       observer?.disconnect();
+      window.clearTimeout(completionTimeout);
       iframe.remove();
     };
     const fail = (message: string) => {
@@ -30,13 +33,20 @@ export function printDocument(url: string): Promise<void> {
       reject(new Error(message));
     };
     const ready = () => {
-      if (settled) return;
-      settled = true;
+      if (settled || prepared) return;
+      prepared = true;
       window.clearTimeout(preparationTimeout);
       const printWindow = iframe.contentWindow;
-      if (printWindow) printWindow.addEventListener("afterprint", cleanup, { once: true });
-      window.setTimeout(cleanup, 120_000);
-      resolve();
+      if (!printWindow) { fail("صفحه چاپ در دسترس نیست."); return; }
+      // Completion follows afterprint AND server acknowledgment, never document load.
+      printWindow.addEventListener("cafe-print-complete", ((event: CustomEvent<{ error?: string }>) => {
+        if (event.detail?.error) { fail(event.detail.error); return; }
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      }) as EventListener, { once: true });
+      completionTimeout = window.setTimeout(() => fail("پایان چاپ تأیید نشد؛ وضعیت چاپ ثبت نشده است."), 120_000);
     };
     const inspect = () => {
       try {
