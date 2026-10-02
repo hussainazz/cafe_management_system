@@ -1120,3 +1120,72 @@ describe("settlement reversal and print data", () => {
     expect(rejected.statusCode).toBe(409);
   });
 });
+
+
+describe("persisted bar-ticket preparation", () => {
+  it("acknowledges exact snapshots, preserves additions and ignores old/retried acknowledgments", async () => {
+    const cookies = await userSession(UserRole.STAFF, "ticket.staff");
+    const { product } = await sellableProduct();
+    const response = await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 2, options: [] }] }, "ticket-create-0000001");
+    const order = response.json().data;
+    const prepare = async () => {
+      const result = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/bar-ticket/prepare`, cookies });
+      expect(result.statusCode).toBe(200);
+      return result.json().data;
+    };
+    const ack = async (preparationId: string) => {
+      const result = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/bar-ticket/acknowledge`, cookies, payload: { preparationId } });
+      expect(result.statusCode).toBe(200);
+    };
+    const first = await prepare();
+    expect(first.items[0].quantity).toBe(2);
+    expect((await prepare()).items[0].quantity).toBe(2); // Preparation alone never advances.
+    expect((await app.prisma.order.findUniqueOrThrow({ where: { id: order.id } })).barTicketSnapshot).toBeNull();
+    const update = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[0].id, quantity: 3 }] } });
+    expect(update.statusCode).toBe(200);
+    await ack(first.preparationId); // The concurrently added unit was not in first snapshot.
+    const addition = await prepare();
+    expect(addition.items[0].quantity).toBe(1);
+    await ack(addition.preparationId);
+    await ack(first.preparationId);
+    await ack(addition.preparationId);
+    expect((await prepare()).items[0].quantity).toBe(3); // Unchanged content is full reprint.
+    const stored = await app.prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect((stored.barTicketSnapshot as Array<{ quantity: number }>)[0]!.quantity).toBe(3);
+    const reduced = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: update.json().data.version, itemUpdates: [{ orderItemId: order.items[0].id, quantity: 1 }] } });
+    expect(reduced.statusCode).toBe(200);
+    const reduction = await prepare();
+    expect(reduction.items).toEqual([]);
+    await ack(reduction.preparationId);
+    expect((await prepare()).items[0].quantity).toBe(1);
+    const missing = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/bar-ticket/acknowledge`, cookies, payload: { preparationId: "00000000-0000-4000-8000-000000000000" } });
+    expect(missing.statusCode).toBe(404);
+    const anonymous = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/bar-ticket/prepare` });
+    expect(anonymous.statusCode).toBe(401);
+  });
+});
+
+
+describe("bar ticket unpaid replacement identity", () => {
+  it("actual full-items POS save retains old preparation lines and prints only new addition", async () => {
+    const cookies = await userSession(UserRole.STAFF, "replacement-ticket.staff");
+    const { product, option } = await sellableProduct();
+    const other = await sellableProduct();
+    const created = await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 2, options: [{ optionId: option.id, quantity: 2 }] }] }, "replace-ticket-create-0001");
+    const order = created.json().data;
+    const prepared = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/bar-ticket/prepare`, cookies });
+    const acknowledged = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/bar-ticket/acknowledge`, cookies, payload: { preparationId: prepared.json().data.preparationId } });
+    expect(acknowledged.statusCode).toBe(200);
+    await app.prisma.product.update({ where: { id: product.id }, data: { priceAmount: 60_000 } });
+    const changed = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version,
+      items: [{ productId: product.id, quantity: 3, options: [{ optionId: option.id, quantity: 3 }] }, { productId: other.product.id, quantity: 1, options: [] }] } });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().data.items[0].id).toBe(order.items[0].id);
+    const added = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/bar-ticket/prepare`, cookies });
+    expect(added.statusCode).toBe(200);
+    expect(added.json().data.items).toHaveLength(2);
+    expect(added.json().data.items[0].quantity).toBe(1);
+    expect(added.json().data.items[0].options[0].quantity).toBe(1);
+    expect(added.json().data.items[1].quantity).toBe(1);
+  });
+});
