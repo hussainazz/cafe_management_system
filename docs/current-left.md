@@ -4,7 +4,8 @@
 
 - Approved scope: tasks #2–6 and #8–13; #1 and #7 excluded.
 - Complete in code and focused verification: A (#2, #4, #10, #11) and B (#3), merged into the local final-test branch. Order API 32 tests and Manager API 14 tests pass; respective POS regressions/typechecks pass.
-- In progress: C printing; then D recovery, E compact UI, and final integration.
+- Complete in code and focused verification: C (#8, #9), including exact server print snapshots and afterprint acknowledgment. All 27 migrations applied in the isolated reset; 38 focused API and 12 print frontend tests pass. A/B/C merged without conflicts.
+- In progress: D recovery and integrated backend suite; then E compact UI and browser acceptance.
 - Left: implementation, focused checks, integrated suite/build, authenticated browser acceptance at 469×343 and desktop/mobile, physical café-printer acceptance.
 - Local worktrees/commits/integration are authorized for this increment only; main, remote publication, development/production databases, and deployment remain unchanged.
 
