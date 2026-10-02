@@ -65,15 +65,6 @@ const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${M
 const shotName = /^(.*)\s(سینگل|دبل)$/;
 const coffeeRatio = (name: string) => name.replace(/\s*(روبوستا|عربیکا)/g, "").replace("٪", "%");
 
-function RecoveryReview({ value }: { value: unknown }) {
-  const snapshot = value as { additions?: Draft[]; edits?: SavedDraft[]; payment?: TenderDraft[]; quantities?: Record<string, number> };
-  return <ul>
-    {(snapshot.additions ?? []).map(item => <li key={item.key}>{item.product.name} · تعداد {item.quantity}{item.weightGrams ? ` · ${item.weightGrams} گرم` : ""}{item.note ? ` · ${item.note}` : ""}</li>)}
-    {(snapshot.edits ?? []).map(item => <li key={item.id}>{item.name} · تعداد {item.quantity}{item.note ? ` · ${item.note}` : ""}</li>)}
-    {(snapshot.payment ?? []).map(item => <li key={item.id}>{item.method === "CASH" ? "نقد" : item.method === "CARD_TERMINAL" ? "کارت‌خوان" : "کارت به کارت"} · مبلغ {item.amount}{item.reference ? ` · مرجع ${item.reference}` : ""}</li>)}
-  </ul>;
-}
-
 function productCards(products: PosCatalogProduct[]): ProductCard[] {
   const grouped = new Map<string, PosCatalogProduct[]>();
   products.forEach((product) => {
@@ -97,6 +88,16 @@ function savedDrafts(order: OrderDetail | null): SavedDraft[] {
     options: item.options.map((option) => ({ optionId: option.optionId, quantity: option.quantity })),
     lineTotalAmount: item.lineTotalAmount,
   }));
+}
+
+function clearDeskRecovery(channel: Channel, tableId: string | null, orderId: string | null) {
+  const prefix = `desk:${channel}:${tableId ?? "takeaway"}:${orderId ?? "new"}`;
+  for (const suffix of ["draft", "saved", "version", "create-key", "create-fingerprint", "checkout"]) writeRecovery(`${prefix}:${suffix}`, undefined);
+}
+
+function clearPaymentRecovery(orderId: string, version: number | null) {
+  if (version === null) return;
+  for (const suffix of ["tenders", "quantities"]) writeRecovery(`payment:${orderId}:${version}:new:${suffix}`, undefined);
 }
 
 export function OrdersWorkspace({
@@ -123,6 +124,7 @@ export function OrdersWorkspace({
   const [transferring, setTransferring] = useState(false);
   const [retryingTableClear, setRetryingTableClear] = useState(false);
   const [deskDirty, setDeskDirty] = useState(false);
+  const [deskGeneration, setDeskGeneration] = useState(0);
   const [pendingChannel, setPendingChannel] = useState<Channel | null>(null);
   const [acknowledgingTableId, setAcknowledgingTableId] = useState<string | null>(null);
   const [recovery, setRecovery] = useState<RecoveryState | null>(null);
@@ -131,7 +133,6 @@ export function OrdersWorkspace({
   const [liveDataLimited, setLiveDataLimited] = useState(false);
   const observeWaiterCalls = useRef(createWaiterCallSoundObserver());
   const submitDeskRef = useRef<(() => void) | null>(null);
-  const [recoveryReview, setRecoveryReview] = useState<unknown>(null);
   const restoredContext = useRef(readRecovery<{ tableId: string | null; orderId: string | null; version: number | null; editing: boolean; checkout: boolean }>("order-context"));
   const restorePending = useRef(Boolean(restoredContext.current));
   const [restoringContext, setRestoringContext] = useState(Boolean(restoredContext.current));
@@ -139,21 +140,28 @@ export function OrdersWorkspace({
     if (!data || !restorePending.current) return;
     restorePending.current = false;
     const context = restoredContext.current!;
+    const restoredOrderId = context.orderId;
     setSelected(data.tables.find(table => table.id === context.tableId) ?? null);
-    if (!context.orderId) { setRestoringContext(false); return; }
-    void readOrder(context.orderId).then(result => {
+    if (!restoredOrderId) { setRestoringContext(false); return; }
+    void readOrder(restoredOrderId).then(result => {
       if (!result.ok || result.data.state !== "OPEN") {
-        const prefix = `desk:${channel}:${context.tableId ?? "takeaway"}:${context.orderId}`;
-        setRecoveryReview({ additions: readRecovery(`${prefix}:draft`), edits: readRecovery(`${prefix}:saved`), payment: readRecovery(`payment:${context.orderId}:${context.version}:new:tenders`) });
-        setMessage({ tone: "notice", text: "سفارش قبلی بسته یا در دسترس نیست؛ ویرایش‌های ذخیره‌شده را پیش از ادامه بررسی کنید." });
+        clearDeskRecovery(channel, context.tableId, restoredOrderId);
+        clearPaymentRecovery(restoredOrderId, context.version);
+        setOrder(null);
+        setEditingOrder(false);
+        setCheckout(false);
+        setRestoringContext(false);
         return;
       }
-      if (result.data.version === context.version) setRestoringContext(false);
+      const changed = result.data.version !== context.version;
+      if (changed) {
+        clearDeskRecovery(channel, context.tableId, restoredOrderId);
+        clearPaymentRecovery(restoredOrderId, context.version);
+      }
       setOrder(result.data);
       setEditingOrder(context.editing);
-      setCheckout(context.checkout && result.data.version === context.version);
-      if (result.data.version !== context.version) setRecoveryReview({ additions: readRecovery(`desk:${channel}:${context.tableId ?? "takeaway"}:${context.orderId}:draft`), edits: readRecovery(`desk:${channel}:${context.tableId ?? "takeaway"}:${context.orderId}:saved`), payment: readRecovery(`payment:${context.orderId}:${context.version}:new:tenders`), quantities: readRecovery(`payment:${context.orderId}:${context.version}:new:quantities`) });
-      if (result.data.version !== context.version) setMessage({ tone: "notice", text: "سفارش تغییر کرده است؛ ویرایش قبلی برای بررسی نگه داشته شده است." });
+      setCheckout(context.checkout && !changed);
+      setRestoringContext(false);
     });
   }, [data]);
   useEffect(() => {
@@ -384,7 +392,6 @@ export function OrdersWorkspace({
           <button onClick={() => setMessage(null)}>×</button>
         </div>
       )}
-      {recoveryReview !== null && <section className="recovery-banner" role="alert"><p>کار قبلی فقط برای بررسی نگه داشته شده و به سفارش فعلی اعمال نشده است.</p><RecoveryReview value={recoveryReview} /><button type="button" onClick={() => { setRecoveryReview(null); setRestoringContext(false); }}>بستن بررسی</button></section>}
       {recovery && (
         <section className={`recovery-banner recovery-banner--${recovery.kind}`} role={recovery.kind === "conflict" ? "alert" : "status"} aria-live="polite">
           <AlertIcon />
@@ -429,7 +436,7 @@ export function OrdersWorkspace({
       )}
       {editingOrder || (selected && !order) || channel === "TAKEAWAY" ? (
         <OrderDesk
-          key={`${channel}:${selected?.id ?? "takeaway"}:${order?.id ?? "new"}`}
+          key={`${channel}:${selected?.id ?? "takeaway"}:${order?.id ?? "new"}:${deskGeneration}`}
           catalog={data.catalog}
           table={selected}
           channel={channel}
@@ -548,7 +555,12 @@ export function OrdersWorkspace({
         <LeaveDraftDialog
           busy={false}
           onContinue={() => setPendingChannel(null)}
-          onDiscard={() => { setDeskDirty(false); setChannel(pendingChannel); setSelected(null); setOrder(null); setEditingOrder(false); setPendingChannel(null); }}
+          onDiscard={() => {
+            clearDeskRecovery(channel, selected?.id ?? null, order?.id ?? null);
+            if (order) clearPaymentRecovery(order.id, order.version);
+            writeRecovery("order-context", { tableId: null, orderId: null, version: null, editing: false, checkout: false });
+            setDeskDirty(false); setDeskGeneration((generation) => generation + 1); setChannel(pendingChannel); setSelected(null); setOrder(null); setEditingOrder(false); setCheckout(false); setPendingChannel(null);
+          }}
           onSubmit={() => { submitDeskRef.current?.(); setPendingChannel(null); }}
         />
       )}
@@ -838,7 +850,6 @@ export function OrderDesk({
   );
   const recoveryPrefix = `desk:${channel}:${table?.id ?? "takeaway"}:${initialOrder?.id ?? "new"}`;
   const restoredVersion = useRef(readRecovery<number>(`${recoveryPrefix}:version`));
-  const [reviewRequired, setReviewRequired] = useState(Boolean(initialOrder) && restoredVersion.current !== undefined && restoredVersion.current !== initialOrder?.version);
   const [categoryId, setCategoryId] = useState("");
   const [draft, setDraft] = useRecoveryState<Draft[]>(`${recoveryPrefix}:draft`, []);
   const [saved, setSaved] = useRecoveryState<SavedDraft[]>(`${recoveryPrefix}:saved`, () => savedDrafts(initialOrder));
@@ -856,18 +867,24 @@ export function OrderDesk({
   const previousDeskOrder = useRef(`${initialOrder?.id ?? "new"}:${initialOrder?.version ?? 0}`);
   useEffect(() => {
     const identity = `${initialOrder?.id ?? "new"}:${initialOrder?.version ?? 0}`;
-    if (previousDeskOrder.current === identity) { if (!reviewRequired) writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0); return; }
+    if (previousDeskOrder.current === identity) { writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0); return; }
     previousDeskOrder.current = identity;
-    if (dirty) { setReviewRequired(true); return; }
+    restoredVersion.current = initialOrder?.version ?? 0;
     writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0);
     setSaved(savedDrafts(initialOrder));
     setDraft([]);
     setCreateAttemptKey(requestKey());
   }, [initialOrder?.id, initialOrder?.version]);
+  const savedIdsMatchOrder = !initialOrder || (initialOrder.items.length === saved.length && initialOrder.items.every((item) => saved.some((candidate) => candidate.id === item.id)));
+  const recoveredVersionIsStale = Boolean(initialOrder) && restoredVersion.current !== undefined && restoredVersion.current !== initialOrder?.version;
+  const recoveredEditorIsDirty = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+  const discardRecoveredEdits = Boolean(initialOrder) && (recoveredVersionIsStale || (!savedIdsMatchOrder && recoveredEditorIsDirty));
+  const draftForOrder = discardRecoveredEdits ? [] : draft;
+  const savedForOrder = initialOrder && (!savedIdsMatchOrder || discardRecoveredEdits) ? savedDrafts(initialOrder) : saved;
   const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
   const cards = productCards(category?.products ?? []);
   const draftTotal = sumAmounts(
-    draft.map(
+    draftForOrder.map(
       (x) => x.product.pricingMode === "WEIGHTED_PER_KG"
         ? weightedPricePreview(x.product.priceAmount, sumAmounts(x.options.map((o) => o.priceAmount)), x.weightGrams ?? 0, x.quantity)
         : (x.product.priceAmount + sumAmounts(x.options.map((o) => o.priceAmount))) * x.quantity,
@@ -888,7 +905,7 @@ export function OrderDesk({
     setSelectedProduct(null);
   };
   const payloadItems = () =>
-    draft.map((item) => ({
+    draftForOrder.map((item) => ({
       productId: item.product.id,
       quantity: item.quantity,
       ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
@@ -901,8 +918,22 @@ export function OrderDesk({
         quantity: item.product.pricingMode === "FIXED" ? item.quantity : 1,
       })),
     }));
+  const createRequestFingerprint = JSON.stringify({
+    channel,
+    tableId: channel === "TABLE" ? table?.id ?? null : null,
+    items: payloadItems(),
+  });
+  const attemptedCreateFingerprint = useRef(readRecovery<string>(`${recoveryPrefix}:create-fingerprint`));
+  useEffect(() => {
+    if (attemptedCreateFingerprint.current === undefined || attemptedCreateFingerprint.current === createRequestFingerprint) return;
+    // Keep the key for an identical uncertain retry. A changed request needs a
+    // new key so the API does not treat the edited draft as a conflicting replay.
+    attemptedCreateFingerprint.current = undefined;
+    writeRecovery(`${recoveryPrefix}:create-fingerprint`, undefined);
+    setCreateAttemptKey(requestKey());
+  }, [createRequestFingerprint]);
   const replacementItems = () => [
-    ...saved.filter((item) => item.quantity > 0).map((item) => ({
+    ...savedForOrder.filter((item) => item.quantity > 0).map((item) => ({
       productId: item.productId, quantity: item.quantity,
       ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
       ...(item.note.trim() ? { note: item.note.trim() } : {}),
@@ -913,7 +944,17 @@ export function OrderDesk({
     })),
     ...payloadItems(),
   ];
-  const dirty = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+  const dirty = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+  // Recovery storage can lag an authoritative order refresh. Render current
+  // server snapshots immediately, then persist the reconciled editor state.
+  useEffect(() => {
+    if (!initialOrder || (savedIdsMatchOrder && !discardRecoveredEdits)) return;
+    restoredVersion.current = initialOrder.version;
+    writeRecovery(`${recoveryPrefix}:version`, initialOrder.version);
+    writeRecovery(`${recoveryPrefix}:draft`, []);
+    setSaved(savedDrafts(initialOrder));
+    setDraft([]);
+  }, [initialOrder?.id, initialOrder?.version, savedIdsMatchOrder, discardRecoveredEdits]);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => {
     return () => {
@@ -921,27 +962,29 @@ export function OrderDesk({
     };
   }, [onDirtyChange]);
   const finishSuccessfulSave = async (updatedOrder: OrderDetail) => {
-    rememberItemNotes([...draft.map((item) => ({ productId: item.product.id, note: item.note })), ...saved.filter((item) => item.quantity > 0 && item.note !== (item.originalNote ?? "")).map((item) => ({ productId: item.productId, note: item.note }))]);
+    rememberItemNotes([...draftForOrder.map((item) => ({ productId: item.product.id, note: item.note })), ...savedForOrder.filter((item) => item.quantity > 0 && item.note !== (item.originalNote ?? "")).map((item) => ({ productId: item.productId, note: item.note }))]);
     setDraft([]);
     setSaved(initialOrder ? savedDrafts(updatedOrder) : []);
     writeRecovery(`${recoveryPrefix}:version`, initialOrder ? updatedOrder.version : 0);
     setCreateAttemptKey(requestKey());
+    attemptedCreateFingerprint.current = undefined;
+    writeRecovery(`${recoveryPrefix}:create-fingerprint`, undefined);
+    if (!initialOrder) clearDeskRecovery(channel, table?.id ?? null, null);
     onDirtyChange(false);
     await onOrder(updatedOrder);
   };
   const save = async () => {
-    if (reviewRequired) { setError("سفارش تغییر کرده است؛ ابتدا ویرایش قبلی را بررسی و پاک کنید."); return; }
-    if (!draft.length && !saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""))) return;
+    if (!draftForOrder.length && !savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""))) return;
     setBusy(true);
     setError(null);
     if (initialOrder) {
       const isUnpaid = initialOrder.paymentStatus === "UNPAID";
-      const changedSaved = saved.filter((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+      const changedSaved = savedForOrder.filter((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
       const result = await updateOpenOrder(initialOrder.id, isUnpaid
         ? { expectedVersion: initialOrder.version, items: replacementItems() }
         : {
             expectedVersion: initialOrder.version,
-            ...(draft.length ? { addItems: payloadItems() } : {}),
+            ...(draftForOrder.length ? { addItems: payloadItems() } : {}),
             ...(changedSaved.length ? { itemUpdates: changedSaved.map((item) => ({ orderItemId: item.id, quantity: item.quantity })) } : {}),
           });
       setBusy(false);
@@ -951,6 +994,8 @@ export function OrderDesk({
       }
       await finishSuccessfulSave(result.data);
     } else {
+      attemptedCreateFingerprint.current = createRequestFingerprint;
+      writeRecovery(`${recoveryPrefix}:create-fingerprint`, createRequestFingerprint);
       const result = await createOpenOrder(
         channel === "TABLE"
           ? { channel, tableId: table!.id, items: payloadItems() }
@@ -964,7 +1009,7 @@ export function OrderDesk({
         if (channel === "TABLE") await onCreateFailure(result.error.message);
         return;
       }
-      rememberItemNotes(draft.map((item) => ({ productId: item.product.id, note: item.note })));
+      rememberItemNotes(draftForOrder.map((item) => ({ productId: item.product.id, note: item.note })));
       const detail = await readOrder(result.data.id);
       if (!detail.ok) {
         setError(detail.error.message);
@@ -1010,14 +1055,13 @@ export function OrderDesk({
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [busy, onCloseTakeawayPanel, takeawayOrderPanelOpen]);
-  if (reviewRequired) return <section role="alert"><p>سفارش از زمان ذخیره ویرایش تغییر کرده است. ویرایش قبلی فقط برای بررسی نگه داشته شده؛ ثبت آن متوقف است.</p><RecoveryReview value={{ additions: draft, edits: saved }} /><button type="button" onClick={() => { setDraft([]); setSaved(savedDrafts(initialOrder)); setReviewRequired(false); writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0); }}>پاک کردن ویرایش قبلی و ادامه</button></section>;
   const orderPanel = (
     <aside className="order-panel" aria-label={takeawayOrderPanelOpen ? `سفارش بیرون‌بر ${formatOrderNumber(initialOrder!.dailyOrderNumber)}` : "خلاصه سفارش"}>
       {takeawayOrderPanelOpen && <button className="icon-button" type="button" ref={takeawayCloseRef} disabled={busy} onClick={onCloseTakeawayPanel} aria-label="بستن سفارش بیرون‌بر"><CloseIcon /></button>}
       <OrderSummary
         order={initialOrder}
-        draft={draft}
-        saved={saved}
+        draft={draftForOrder}
+        saved={savedForOrder}
         canEditSaved={initialOrder?.paymentStatus === "UNPAID"}
         total={draftTotal}
         onQuantity={(key, value) =>
