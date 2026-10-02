@@ -3157,13 +3157,6 @@ svg {
   margin-top: 1mm;
   text-align: left;
 }
-.thermal-item--paid {
-  text-decoration: line-through;
-  text-decoration-thickness: 1px;
-}
-.thermal-item--paid strong {
-  text-decoration: line-through;
-}
 .thermal-note {
   margin: 1.5mm 0 0;
   padding: 1.5mm 2mm;
