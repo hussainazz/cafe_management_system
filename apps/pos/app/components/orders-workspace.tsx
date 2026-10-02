@@ -838,7 +838,7 @@ export function OrderDesk({
   );
   const recoveryPrefix = `desk:${channel}:${table?.id ?? "takeaway"}:${initialOrder?.id ?? "new"}`;
   const restoredVersion = useRef(readRecovery<number>(`${recoveryPrefix}:version`));
-  const [reviewRequired, setReviewRequired] = useState(restoredVersion.current !== undefined && restoredVersion.current !== (initialOrder?.version ?? 0));
+  const [reviewRequired, setReviewRequired] = useState(Boolean(initialOrder) && restoredVersion.current !== undefined && restoredVersion.current !== initialOrder?.version);
   const [categoryId, setCategoryId] = useState("");
   const [draft, setDraft] = useRecoveryState<Draft[]>(`${recoveryPrefix}:draft`, []);
   const [saved, setSaved] = useRecoveryState<SavedDraft[]>(`${recoveryPrefix}:saved`, () => savedDrafts(initialOrder));
@@ -853,9 +853,11 @@ export function OrderDesk({
   const discountTriggerRef = useRef<HTMLElement | null>(null);
   const takeawayCloseRef = useRef<HTMLButtonElement>(null);
   const takeawayOrderPanelOpen = channel === "TAKEAWAY" && initialOrder !== null;
-  const firstDeskMount = useRef(true);
+  const previousDeskOrder = useRef(`${initialOrder?.id ?? "new"}:${initialOrder?.version ?? 0}`);
   useEffect(() => {
-    if (firstDeskMount.current) { firstDeskMount.current = false; if (!reviewRequired) writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0); return; }
+    const identity = `${initialOrder?.id ?? "new"}:${initialOrder?.version ?? 0}`;
+    if (previousDeskOrder.current === identity) { if (!reviewRequired) writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0); return; }
+    previousDeskOrder.current = identity;
     if (dirty) { setReviewRequired(true); return; }
     writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0);
     setSaved(savedDrafts(initialOrder));
@@ -921,7 +923,8 @@ export function OrderDesk({
   const finishSuccessfulSave = async (updatedOrder: OrderDetail) => {
     rememberItemNotes([...draft.map((item) => ({ productId: item.product.id, note: item.note })), ...saved.filter((item) => item.quantity > 0 && item.note !== (item.originalNote ?? "")).map((item) => ({ productId: item.productId, note: item.note }))]);
     setDraft([]);
-    setSaved(savedDrafts(updatedOrder));
+    setSaved(initialOrder ? savedDrafts(updatedOrder) : []);
+    writeRecovery(`${recoveryPrefix}:version`, initialOrder ? updatedOrder.version : 0);
     setCreateAttemptKey(requestKey());
     onDirtyChange(false);
     await onOrder(updatedOrder);
@@ -1565,7 +1568,6 @@ export function SettlementSheet({
   historicalSettlement?: OrderDetail["settlements"][number];
 }) {
   const paymentPrefix = `payment:${order.id}:${order.version}:${historicalSettlement?.id ?? "new"}`;
-  const restoredPayment = useRef(readRecovery(`${paymentPrefix}:tenders`) !== undefined);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const settlementItems = useMemo(() => {
     let runningSubtotal = 0;
@@ -1600,8 +1602,10 @@ export function SettlementSheet({
   const [attemptKey, setAttemptKey] = useRecoveryState<string>(`${paymentPrefix}:attempt-key`, requestKey);
   const tenderAmount = sumAmounts(tenders.map((tender) => positiveIntegerAmount(tender.amount)));
   const isReconciled = selectedAmount > 0 && tenderAmount === selectedAmount;
+  const previousSelectedAmount = useRef(selectedAmount);
   useEffect(() => {
-    if (restoredPayment.current) { restoredPayment.current = false; return; }
+    if (previousSelectedAmount.current === selectedAmount) return;
+    previousSelectedAmount.current = selectedAmount;
     setTenders((current) => {
       const primaryTender = current[0];
       if (!primaryTender || primaryTender.amount === String(selectedAmount)) return current;
