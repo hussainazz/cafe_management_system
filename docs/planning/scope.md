@@ -95,7 +95,7 @@ v1 staff-created order flow:
 
 1. A Staff user selects the order type: table or takeaway.
 2. They add products, options, quantities, and notes in POS.
-3. The server validates availability and calculates all totals from current catalog data.
+3. The server validates active, non-archived POS-visible products and available options, and calculates all totals from current catalog data. Active products marked unavailable remain orderable by Staff/Manager in POS; public-menu availability is unchanged.
 4. The server creates the order with state `OPEN`, payment status `UNPAID`, and snapshots the item names and finished Toman prices.
 5. For each payer checkout, Staff either selects one or more order-item quantities or enters an integer Toman amount up to the remaining balance, then records one or more cash, card-terminal, or card-to-card transfer tenders as one settlement. For amount-based settlement, the server allocates the amount across remaining immutable item snapshots in display order.
 6. The payment status is `PARTIALLY_PAID` until active settlements cover every item quantity, then becomes `PAID`. A fully paid order closes immediately: table orders atomically free their table and invalidate its guest context; takeaway orders leave the active POS list.
