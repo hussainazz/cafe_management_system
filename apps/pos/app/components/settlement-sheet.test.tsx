@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { StrictMode } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -36,7 +37,7 @@ function renderSettlement(totalAmount = 500_000) {
     items: [item],
     settlements: [],
   } as never;
-  render(<SettlementSheet order={order} onClose={vi.fn()} onSuccess={vi.fn()} />);
+  render(<StrictMode><SettlementSheet order={order} onClose={vi.fn()} onSuccess={vi.fn()} /></StrictMode>);
 }
 
 function amountInput(index: number) {
@@ -159,4 +160,14 @@ it("does not replay uncertain payment after remount and preserves its retry key"
   fireEvent.click(screen.getByRole("button", { name: "تأیید پرداخت" }));
   await waitFor(() => expect(api.recordSettlement).toHaveBeenCalledTimes(2));
   expect(api.recordSettlement.mock.calls[1]![2]).toBe(key);
+});
+
+
+it("preserves deliberately unreconciled single tender through actual reload and StrictMode effect replay", () => {
+  setRecoveryUser("unreconciled-reload"); renderSettlement(100000);
+  fireEvent.change(amountInput(1), { target: { value: "50000" } });
+  cleanup(); setRecoveryUser("other-user"); setRecoveryUser("unreconciled-reload");
+  renderSettlement(100000);
+  expect(amountInput(1).value).toBe("50000");
+  expect((screen.getByRole("button", { name: "تأیید پرداخت" }) as HTMLButtonElement).disabled).toBe(true);
 });
