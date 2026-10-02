@@ -723,6 +723,31 @@ function FinancePanel({
             />
             امروز
           </label>
+          <label>
+            <span>شیفت پرداخت</span>
+            <select aria-label="شیفت پرداخت" value={
+              draftPaymentFilters.fromTime === "08:00" && draftPaymentFilters.toTime === "16:00" ? "morning"
+                : draftPaymentFilters.fromTime === "16:00" && !draftPaymentFilters.toTime ? "evening"
+                  : !draftPaymentFilters.fromTime && !draftPaymentFilters.toTime ? "all" : "custom"
+            } onChange={(event) => {
+              const shift = event.target.value;
+              if (shift === "custom") return;
+              // An omitted upper bound means the end of each selected local
+              // date, including 23:59:59. Using 00:00 would create an overnight window.
+              const draft = { ...draftPaymentFilters, fromTime: shift === "morning" ? "08:00" : shift === "evening" ? "16:00" : "", toTime: shift === "morning" ? "16:00" : "" };
+              setDraftPaymentFilters(draft);
+              const filters = paymentFiltersFromDraft(draft);
+              if (filters) {
+                setMessage(null);
+                setAppliedPaymentFilters(filters);
+              } else setMessage("تاریخ را به صورت MM/DD وارد کنید؛ تاریخ شروع نباید بعد از پایان باشد.");
+            }}>
+              <option value="all">همه ساعت‌ها</option>
+              <option value="morning">شیفت اول — ۰۸:۰۰ تا ۱۶:۰۰</option>
+              <option value="evening">شیفت دوم — ۱۶:۰۰ تا پایان روز</option>
+              <option value="custom" disabled>ساعت دلخواه</option>
+            </select>
+          </label>
           <div className="manager-fields">
             <label>
               <span>از تاریخ</span>
