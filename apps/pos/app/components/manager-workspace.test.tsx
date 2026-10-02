@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecoveryUser } from "../lib/automatic-recovery";
 import { ManagerWorkspace } from "./manager-workspace";
 
 const catalog = { categories: [{ id: "category-1", name: "قهوه", isActive: true, isPosVisible: true }], products: [], optionGroups: [], tables: [] };
@@ -18,6 +19,7 @@ vi.mock("../lib/api-client", () => api);
 describe("ManagerWorkspace", () => {
   afterEach(cleanup);
   beforeEach(() => {
+    setRecoveryUser(`manager-test-${crypto.randomUUID()}`);
     vi.clearAllMocks();
     api.readManagerCatalog.mockResolvedValue({ ok: true, data: catalog });
     api.readManagerStaff.mockResolvedValue({ ok: true, data: [] });
@@ -25,6 +27,26 @@ describe("ManagerWorkspace", () => {
     api.readPaymentHistory.mockResolvedValue({ ok: true, data: [] });
     api.readDailyReport.mockResolvedValue({ ok: true, data: null });
     api.readAuditLog.mockResolvedValue({ ok: true, data: { data: { entries: [] }, meta: { page: { nextCursor: null } } } });
+  });
+
+  it("restores applied and draft finance filters and table panel from actual session storage", async () => {
+    setRecoveryUser("manager-remount"); sessionStorage.clear();
+    const mount = () => render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    mount(); await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByLabelText("امروز"));
+    fireEvent.change(screen.getByLabelText("از ساعت"), { target: { value: "09:00" } });
+    fireEvent.change(screen.getByLabelText("تا ساعت"), { target: { value: "15:00" } });
+    fireEvent.submit(screen.getByLabelText("از تاریخ").closest("form")!);
+    await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(2));
+    fireEvent.change(screen.getByLabelText("از ساعت"), { target: { value: "10:00" } });
+    cleanup(); setRecoveryUser("other-user"); setRecoveryUser("manager-remount"); mount();
+    await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(3));
+    expect(api.readPaymentHistory).toHaveBeenLastCalledWith(expect.objectContaining({ fromTime: "09:00", toTime: "15:00" }));
+    expect((screen.getByLabelText("از ساعت") as HTMLInputElement).value).toBe("10:00");
+    expect((screen.getByLabelText("امروز") as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByText("میزها")); cleanup();
+    setRecoveryUser("other-user"); setRecoveryUser("manager-remount"); mount();
+    expect(await screen.findByText("افزودن میز")).toBeTruthy();
   });
 
   it("keeps a partial initial-load failure visible after sibling reads succeed", async () => {
