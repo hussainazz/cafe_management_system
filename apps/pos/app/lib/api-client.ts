@@ -1,6 +1,7 @@
 import {
   AuthenticationResponseSchema,
   BarTicketResponseSchema,
+  AcknowledgeBarTicketResponseSchema,
   CreateOrderResponseSchema,
   OrderDetailResponseSchema,
   ErrorResponseSchema,
@@ -302,6 +303,15 @@ export async function readBarTicket(orderId: string): Promise<ApiResult<BarTicke
     BarTicketResponseSchema,
     "اطلاعات فیش بار معتبر نیست.",
   );
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export async function prepareBarTicket(orderId: string): Promise<ApiResult<BarTicket>> {
+  const parsed = parseResponse(await request<unknown>(`/orders/${encodeURIComponent(orderId)}/bar-ticket/prepare`, { method: "POST" }, false), BarTicketResponseSchema, "اطلاعات فیش بار معتبر نیست.");
+  return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+export async function acknowledgeBarTicket(orderId: string, preparationId: string): Promise<ApiResult<{ acknowledged: true }>> {
+  const parsed = parseResponse(await request<unknown>(`/orders/${encodeURIComponent(orderId)}/bar-ticket/acknowledge`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ preparationId }) }, false), AcknowledgeBarTicketResponseSchema, "ثبت چاپ فیش بار ناموفق بود.");
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
 
