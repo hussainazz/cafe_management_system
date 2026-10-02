@@ -943,7 +943,7 @@ function FinancePanel({
           />
         ) : null;
       })()}
-      <ManagerCard title="گزارش حسابداری" hint="بر اساس فیلتر اعمال‌شده برای پرداخت‌ها.">
+      <ManagerCard className="manager-card--accounting" title="گزارش حسابداری" hint="بر اساس فیلتر اعمال‌شده برای پرداخت‌ها.">
         {report && (
           <dl className="report-grid">
             <dt>بازه</dt>
@@ -1096,16 +1096,18 @@ function SettingsPanel({
   );
 }
 function ManagerCard({
+  className,
   title,
   hint,
   children,
 }: {
+  className?: string;
   title: string;
   hint: string;
   children: ReactNode;
 }) {
   return (
-    <section className="manager-card">
+    <section className={["manager-card", className].filter(Boolean).join(" ")}>
       <header>
         <h2>{title}</h2>
         <p>{hint}</p>

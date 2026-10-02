@@ -643,7 +643,7 @@ export function TableBoard({
   };
   const totals = new Map(orders.filter((x) => x.tableId).map((x) => [x.tableId!, x.totalAmount]));
   return (
-    <div className={selectedOrder ? "table-board table-board--inspecting" : "table-board"}>
+    <div role="region" aria-label="مدیریت میزها" className={selectedOrder ? "table-board table-board--inspecting" : "table-board"}>
       {selectedOrder && (
         <>
           <button
@@ -667,11 +667,6 @@ export function TableBoard({
         </>
       )}
       <div className="table-board__content">
-        <div className="table-board__heading">
-          <div>
-            <h1>مدیریت میزها</h1>
-          </div>
-        </div>
       {transferSourceId && <p className="table-transfer-hint" role="status">مقصد انتقال میز را انتخاب کنید. میزهای دارای فراخوان میزبان قابل انتخاب نیستند.</p>}
       <div className="table-grid" id="table-transfer-targets" tabIndex={-1}>
         {tables.map((table) => {
