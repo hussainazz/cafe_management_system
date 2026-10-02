@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setRecoveryUser } from "../lib/automatic-recovery";
 import { SettlementSheet } from "./orders-workspace";
 
 const api = vi.hoisted(() => ({
@@ -122,4 +124,39 @@ describe("SettlementSheet payment methods", () => {
     expect(screen.queryByRole("button", { name: "حذف روش پرداخت 1" })).toBeNull();
     expect(screen.getByText("مبالغ با هم برابرند.")).toBeTruthy();
   });
+});
+
+
+describe("payment recovery", () => {
+  it("restores tender inputs after remount and isolates another user", () => {
+    setRecoveryUser("recovery-user-a");
+    sessionStorage.clear();
+    renderSettlement();
+    fireEvent.change(amountInput(1), { target: { value: "300000" } });
+    fireEvent.click(screen.getByRole("button", { name: "افزودن روش" }));
+    cleanup();
+    renderSettlement();
+    expect(amountInput(1).value).toBe("300000");
+    expect(amountInput(2).value).toBe("200000");
+    cleanup();
+    setRecoveryUser("recovery-user-b");
+    renderSettlement();
+    expect(amountInput(1).value).toBe("500000");
+    expect(screen.queryByLabelText("مبلغ روش پرداخت 2")).toBeNull();
+  });
+});
+
+
+it("does not replay uncertain payment after remount and preserves its retry key", async () => {
+  setRecoveryUser("uncertain-payment"); api.recordSettlement.mockClear();
+  api.recordSettlement.mockResolvedValue({ ok: false, error: { message: "uncertain payment" } });
+  renderSettlement();
+  fireEvent.click(screen.getByRole("button", { name: "تأیید پرداخت" }));
+  await screen.findByText("uncertain payment");
+  const key = api.recordSettlement.mock.calls[0]![2];
+  cleanup(); renderSettlement();
+  expect(api.recordSettlement).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "تأیید پرداخت" }));
+  await waitFor(() => expect(api.recordSettlement).toHaveBeenCalledTimes(2));
+  expect(api.recordSettlement.mock.calls[1]![2]).toBe(key);
 });
