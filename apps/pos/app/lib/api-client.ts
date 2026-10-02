@@ -1,3 +1,4 @@
+import { beginRecoveryActivity } from "./automatic-recovery";
 import {
   AuthenticationResponseSchema,
   BarTicketResponseSchema,
@@ -85,6 +86,7 @@ function reportFailure(error: ApiFailure) {
 }
 
 async function requestOnce<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
+  const endActivity = beginRecoveryActivity();
   try {
     const headers = new Headers(init?.headers);
     if (!headers.has("accept")) headers.set("accept", "application/json");
@@ -119,7 +121,7 @@ async function requestOnce<T>(path: string, init?: RequestInit): Promise<ApiResu
   } catch {
     const error = { kind: "network" as const, message: "ارتباط با سرویس برقرار نشد." };
     return { ok: false, error };
-  }
+  } finally { endActivity(); }
 }
 
 function isAuthenticationFailure(error: ApiFailure): boolean {
@@ -504,7 +506,8 @@ function uploadRequest(
   form: FormData,
   onProgress?: (percentage: number | null) => void,
 ): Promise<ApiResult<unknown>> {
-  return new Promise((resolve) => {
+  const endActivity = beginRecoveryActivity();
+  return new Promise<ApiResult<unknown>>((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", `${posBasePath}/api/v1${path}`);
     xhr.withCredentials = true;
@@ -537,7 +540,7 @@ function uploadRequest(
       resolve({ ok: false, error });
     };
     xhr.send(form);
-  });
+  }).finally(endActivity);
 }
 
 export async function uploadProductImage(
