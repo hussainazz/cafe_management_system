@@ -170,7 +170,6 @@ async function nextDailyOrderNumber(transaction: Prisma.TransactionClient, creat
 function isAvailableProduct(product: ProductForOrder): boolean {
   return (
     product.isActive &&
-    product.isAvailable &&
     !product.archivedAt &&
     product.category.isActive &&
     product.category.isPosVisible &&
