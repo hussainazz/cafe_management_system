@@ -358,9 +358,10 @@ describe("Manager administration", () => {
     expect(today.json()).toMatchObject({
       data: {
         salesAmount: 180_000,
-        paidAmount: 80_000,
+        // The 15,000 receipt recorded today belongs here even though its order opened yesterday.
+        paidAmount: 95_000,
         orderCount: 2,
-        paymentMethodTotals: { cashAmount: 30_000, cardTerminalAmount: 50_000, cardTransferAmount: 0 },
+        paymentMethodTotals: { cashAmount: 30_000, cardTerminalAmount: 65_000, cardTransferAmount: 0 },
         discounts: { orderAmount: 10_000, itemAmount: 10_000, totalAmount: 20_000 },
         reversals: { count: 1, amount: 100_000 },
         deletedOrders: { count: 2, totalAmount: 60_000, paidAmount: 40_000 },
@@ -369,7 +370,7 @@ describe("Manager administration", () => {
     });
     const yesterday = await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-09-14&toDate=2026-09-14", cookies: manager });
     expect(yesterday.statusCode).toBe(200);
-    expect(yesterday.json().data).toMatchObject({ salesAmount: 85_000, paidAmount: 85_000, orderCount: 2, paymentMethodTotals: { cashAmount: 70_000, cardTerminalAmount: 15_000, cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 }, deletedOrders: { count: 0, totalAmount: 0, paidAmount: 0 } });
+    expect(yesterday.json().data).toMatchObject({ salesAmount: 85_000, paidAmount: 70_000, orderCount: 2, paymentMethodTotals: { cashAmount: 70_000, cardTerminalAmount: 0, cardTransferAmount: 0 }, reversals: { count: 0, amount: 0 }, deletedOrders: { count: 0, totalAmount: 0, paidAmount: 0 } });
   });
 
   it("excludes a reversed settlement from every report date while retaining its reversal event date", async () => {
@@ -408,6 +409,50 @@ describe("Manager administration", () => {
       paidAmount: 20_000,
       paymentMethodTotals: { cashAmount: 0, cardTerminalAmount: 0, cardTransferAmount: 20_000 },
     });
+  });
+
+  it("partitions Tehran shift boundaries and cross-shift partial settlements consistently with the summary", async () => {
+    const manager = await session(UserRole.MANAGER, "shift.manager");
+    const actor = await app.prisma.user.findUniqueOrThrow({ where: { username: "shift.manager" } });
+    const fixture = (name: string, localTime: string, reversed = false) => recordedSettlement({
+      orderNumber: `SHIFT-${name}`, actorId: actor.id, amount: 10_000,
+      createdAt: new Date("2026-08-01T01:00:00+03:30"),
+      recordedAt: new Date(`2026-08-02T${localTime}+03:30`),
+      ...(reversed ? { reversedById: actor.id } : {}),
+    });
+    await fixture("BEFORE", "07:59:59");
+    const morning = await fixture("MORNING", "08:00:00");
+    const beforeEnd = await fixture("BEFORE-END", "15:59:59");
+    const evening = await fixture("EVENING", "16:00:00");
+    const lastMinute = await fixture("LAST", "23:59:59");
+    const reversed = await fixture("REVERSED", "17:00:00", true);
+    await recordedSettlement({ orderNumber: "SHIFT-MIDNIGHT", actorId: actor.id, amount: 10_000, recordedAt: new Date("2026-08-03T00:00:00+03:30") });
+
+    // One order is paid in two shifts; its creation date and eventual paid
+    // state must not pull both receipts into either shift.
+    const partial = await fixture("PARTIAL", "09:00:00");
+    await app.prisma.orderItem.update({ where: { id: partial.order.items[0]!.id }, data: { quantity: 2, lineTotalAmount: 20_000 } });
+    await app.prisma.order.update({ where: { id: partial.order.id }, data: { state: "OPEN", paymentStatus: "PARTIALLY_PAID", subtotalAmount: 20_000, totalAmount: 20_000, balanceAmount: 10_000 } });
+    const laterPartial = await app.prisma.paymentSettlement.create({ data: {
+      orderId: partial.order.id, recordedById: actor.id, idempotencyKey: "shift-partial-later", totalAmount: 10_000,
+      recordedAt: new Date("2026-08-02T18:00:00+03:30"),
+      allocations: { create: { orderItemId: partial.order.items[0]!.id, quantity: 1, amount: 10_000 } },
+      payments: { create: { method: "CASH", amount: 10_000 } },
+    } });
+    for (const [bounds, expected, activeAmount] of [
+      ["fromTime=08:00&toTime=16:00", [morning.settlement.id, beforeEnd.settlement.id, partial.settlement.id], 30_000],
+      ["fromTime=16:00", [evening.settlement.id, lastMinute.settlement.id, reversed.settlement.id, laterPartial.id], 30_000],
+    ] as const) {
+      const query = `fromDate=2026-08-02&toDate=2026-08-02&${bounds}`;
+      const history = await app.inject({ method: "GET", url: `/api/v1/admin/payments?${query}`, cookies: manager });
+      const report = await app.inject({ method: "GET", url: `/api/v1/admin/reports/daily?${query}`, cookies: manager });
+      expect(history.statusCode).toBe(200);
+      expect(history.json().data.payments.map((entry: { id: string }) => entry.id).sort()).toEqual([...expected].sort());
+      expect(report.statusCode).toBe(200);
+      expect(report.json().data.paidAmount).toBe(activeAmount);
+      const totals = report.json().data.paymentMethodTotals;
+      expect(totals.cashAmount + totals.cardTerminalAmount + totals.cardTransferAmount).toBe(activeAmount);
+    }
   });
 
   it("lists safe filtered audit history only for Managers with stable cursors", async () => {
