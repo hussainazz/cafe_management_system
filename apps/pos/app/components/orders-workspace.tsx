@@ -20,6 +20,7 @@ import {
   posApiFailureEvent,
 } from "../lib/api-client";
 import { readRecentItemNotes, rememberItemNotes } from "../lib/recent-item-notes";
+import { useRecoveryState, readRecovery, writeRecovery, finishRecoveryEpisode, requestAutomaticRecovery, recoveryNoticeEvent } from "../lib/automatic-recovery";
 import { recoveryStateFor, type RecoveryState } from "../lib/recovery-state";
 import { canClearTableAfterDeletion, deleteAndClearTableOrder } from "../lib/order-clear-workflow";
 import { printDocument, printRoute, type PrintKind } from "../lib/print-routes";
@@ -64,6 +65,15 @@ const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${M
 const shotName = /^(.*)\s(سینگل|دبل)$/;
 const coffeeRatio = (name: string) => name.replace(/\s*(روبوستا|عربیکا)/g, "").replace("٪", "%");
 
+function RecoveryReview({ value }: { value: unknown }) {
+  const snapshot = value as { additions?: Draft[]; edits?: SavedDraft[]; payment?: TenderDraft[]; quantities?: Record<string, number> };
+  return <ul>
+    {(snapshot.additions ?? []).map(item => <li key={item.key}>{item.product.name} · تعداد {item.quantity}{item.weightGrams ? ` · ${item.weightGrams} گرم` : ""}{item.note ? ` · ${item.note}` : ""}</li>)}
+    {(snapshot.edits ?? []).map(item => <li key={item.id}>{item.name} · تعداد {item.quantity}{item.note ? ` · ${item.note}` : ""}</li>)}
+    {(snapshot.payment ?? []).map(item => <li key={item.id}>{item.method === "CASH" ? "نقد" : item.method === "CARD_TERMINAL" ? "کارت‌خوان" : "کارت به کارت"} · مبلغ {item.amount}{item.reference ? ` · مرجع ${item.reference}` : ""}</li>)}
+  </ul>;
+}
+
 function productCards(products: PosCatalogProduct[]): ProductCard[] {
   const grouped = new Map<string, PosCatalogProduct[]>();
   products.forEach((product) => {
@@ -101,7 +111,7 @@ export function OrdersWorkspace({
   menuOpen: boolean;
 }) {
   const [data, setData] = useState<Data | null>(null);
-  const [channel, setChannel] = useState<Channel>("TABLE");
+  const [channel, setChannel] = useRecoveryState<Channel>("channel", "TABLE");
   const [selected, setSelected] = useState<PosTable | null>(null);
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [editingOrder, setEditingOrder] = useState(false);
@@ -121,6 +131,35 @@ export function OrdersWorkspace({
   const [liveDataLimited, setLiveDataLimited] = useState(false);
   const observeWaiterCalls = useRef(createWaiterCallSoundObserver());
   const submitDeskRef = useRef<(() => void) | null>(null);
+  const [recoveryReview, setRecoveryReview] = useState<unknown>(null);
+  const restoredContext = useRef(readRecovery<{ tableId: string | null; orderId: string | null; version: number | null; editing: boolean; checkout: boolean }>("order-context"));
+  const restorePending = useRef(Boolean(restoredContext.current));
+  const [restoringContext, setRestoringContext] = useState(Boolean(restoredContext.current));
+  useEffect(() => {
+    if (!data || !restorePending.current) return;
+    restorePending.current = false;
+    const context = restoredContext.current!;
+    setSelected(data.tables.find(table => table.id === context.tableId) ?? null);
+    if (!context.orderId) { setRestoringContext(false); return; }
+    void readOrder(context.orderId).then(result => {
+      if (!result.ok || result.data.state !== "OPEN") {
+        const prefix = `desk:${channel}:${context.tableId ?? "takeaway"}:${context.orderId}`;
+        setRecoveryReview({ additions: readRecovery(`${prefix}:draft`), edits: readRecovery(`${prefix}:saved`), payment: readRecovery(`payment:${context.orderId}:${context.version}:new:tenders`) });
+        setMessage({ tone: "notice", text: "سفارش قبلی بسته یا در دسترس نیست؛ ویرایش‌های ذخیره‌شده را پیش از ادامه بررسی کنید." });
+        return;
+      }
+      if (result.data.version === context.version) setRestoringContext(false);
+      setOrder(result.data);
+      setEditingOrder(context.editing);
+      setCheckout(context.checkout && result.data.version === context.version);
+      if (result.data.version !== context.version) setRecoveryReview({ additions: readRecovery(`desk:${channel}:${context.tableId ?? "takeaway"}:${context.orderId}:draft`), edits: readRecovery(`desk:${channel}:${context.tableId ?? "takeaway"}:${context.orderId}:saved`), payment: readRecovery(`payment:${context.orderId}:${context.version}:new:tenders`), quantities: readRecovery(`payment:${context.orderId}:${context.version}:new:quantities`) });
+      if (result.data.version !== context.version) setMessage({ tone: "notice", text: "سفارش تغییر کرده است؛ ویرایش قبلی برای بررسی نگه داشته شده است." });
+    });
+  }, [data]);
+  useEffect(() => {
+    if (restorePending.current || restoringContext || loading) return;
+    writeRecovery("order-context", { tableId: selected?.id ?? null, orderId: order?.id ?? null, version: order?.version ?? null, editing: editingOrder, checkout });
+  }, [selected, order, editingOrder, checkout, loading, restoringContext]);
   const load = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     setMessage(null);
@@ -187,6 +226,20 @@ export function OrdersWorkspace({
       window.removeEventListener(posApiFailureEvent, failure);
     };
   }, []);
+  useEffect(() => {
+    const show = (event: Event) => setMessage({ tone: "error", text: (event as CustomEvent<string>).detail });
+    window.addEventListener(recoveryNoticeEvent, show);
+    return () => window.removeEventListener(recoveryNoticeEvent, show);
+  }, []);
+  useEffect(() => {
+    if (!recovery) return;
+    return requestAutomaticRecovery();
+  }, [recovery]);
+  useEffect(() => {
+    if (!data || loading || liveDataLimited || recovery || restoringContext) return;
+    const healthy = window.setTimeout(finishRecoveryEpisode, 30_000);
+    return () => window.clearTimeout(healthy);
+  }, [data, loading, liveDataLimited, recovery, restoringContext]);
   const refreshOperationalData = useCallback(async () => {
     const [tables, calls, orders] = await Promise.all([readPosTables(), readWaiterCalls(), readOpenOrders()]);
     if (!tables.ok) {
@@ -268,6 +321,7 @@ export function OrdersWorkspace({
     if (loaded && orderLoaded) {
       setOnline(true);
       setRecovery(null);
+      finishRecoveryEpisode();
       setMessage({ tone: "notice", text: "وضعیت صندوق از سرویس دوباره دریافت شد." });
     }
   };
@@ -330,6 +384,7 @@ export function OrdersWorkspace({
           <button onClick={() => setMessage(null)}>×</button>
         </div>
       )}
+      {recoveryReview !== null && <section className="recovery-banner" role="alert"><p>کار قبلی فقط برای بررسی نگه داشته شده و به سفارش فعلی اعمال نشده است.</p><RecoveryReview value={recoveryReview} /><button type="button" onClick={() => { setRecoveryReview(null); setRestoringContext(false); }}>بستن بررسی</button></section>}
       {recovery && (
         <section className={`recovery-banner recovery-banner--${recovery.kind}`} role={recovery.kind === "conflict" ? "alert" : "status"} aria-live="polite">
           <AlertIcon />
@@ -786,21 +841,28 @@ export function OrderDesk({
     () => catalog.filter((item) => item.name !== "ویژه و جدید"),
     [catalog],
   );
+  const recoveryPrefix = `desk:${channel}:${table?.id ?? "takeaway"}:${initialOrder?.id ?? "new"}`;
+  const restoredVersion = useRef(readRecovery<number>(`${recoveryPrefix}:version`));
+  const [reviewRequired, setReviewRequired] = useState(restoredVersion.current !== undefined && restoredVersion.current !== (initialOrder?.version ?? 0));
   const [categoryId, setCategoryId] = useState("");
-  const [draft, setDraft] = useState<Draft[]>([]);
-  const [saved, setSaved] = useState<SavedDraft[]>(() => savedDrafts(initialOrder));
-  const [createAttemptKey, setCreateAttemptKey] = useState(requestKey);
+  const [draft, setDraft] = useRecoveryState<Draft[]>(`${recoveryPrefix}:draft`, []);
+  const [saved, setSaved] = useRecoveryState<SavedDraft[]>(`${recoveryPrefix}:saved`, () => savedDrafts(initialOrder));
+  const [createAttemptKey, setCreateAttemptKey] = useRecoveryState<string>(`${recoveryPrefix}:create-key`, requestKey);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<PosCatalogProduct | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checkout, setCheckout] = useState(false);
+  const [checkout, setCheckout] = useRecoveryState(`${recoveryPrefix}:checkout`, false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [discountTarget, setDiscountTarget] = useState<DiscountTarget | null>(null);
   const discountTriggerRef = useRef<HTMLElement | null>(null);
   const takeawayCloseRef = useRef<HTMLButtonElement>(null);
   const takeawayOrderPanelOpen = channel === "TAKEAWAY" && initialOrder !== null;
+  const firstDeskMount = useRef(true);
   useEffect(() => {
+    if (firstDeskMount.current) { firstDeskMount.current = false; if (!reviewRequired) writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0); return; }
+    if (dirty) { setReviewRequired(true); return; }
+    writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0);
     setSaved(savedDrafts(initialOrder));
     setDraft([]);
     setCreateAttemptKey(requestKey());
@@ -870,6 +932,7 @@ export function OrderDesk({
     await onOrder(updatedOrder);
   };
   const save = async () => {
+    if (reviewRequired) { setError("سفارش تغییر کرده است؛ ابتدا ویرایش قبلی را بررسی و پاک کنید."); return; }
     if (!draft.length && !saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""))) return;
     setBusy(true);
     setError(null);
@@ -949,6 +1012,7 @@ export function OrderDesk({
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [busy, onCloseTakeawayPanel, takeawayOrderPanelOpen]);
+  if (reviewRequired) return <section role="alert"><p>سفارش از زمان ذخیره ویرایش تغییر کرده است. ویرایش قبلی فقط برای بررسی نگه داشته شده؛ ثبت آن متوقف است.</p><RecoveryReview value={{ additions: draft, edits: saved }} /><button type="button" onClick={() => { setDraft([]); setSaved(savedDrafts(initialOrder)); setReviewRequired(false); writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0); }}>پاک کردن ویرایش قبلی و ادامه</button></section>;
   const orderPanel = (
     <aside className="order-panel" aria-label={takeawayOrderPanelOpen ? `سفارش بیرون‌بر ${formatOrderNumber(initialOrder!.dailyOrderNumber)}` : "خلاصه سفارش"}>
       {takeawayOrderPanelOpen && <button className="icon-button" type="button" ref={takeawayCloseRef} disabled={busy} onClick={onCloseTakeawayPanel} aria-label="بستن سفارش بیرون‌بر"><CloseIcon /></button>}
@@ -1505,6 +1569,8 @@ export function SettlementSheet({
   onSuccess: (order: OrderDetail) => void;
   historicalSettlement?: OrderDetail["settlements"][number];
 }) {
+  const paymentPrefix = `payment:${order.id}:${order.version}:${historicalSettlement?.id ?? "new"}`;
+  const restoredPayment = useRef(readRecovery(`${paymentPrefix}:tenders`) !== undefined);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const settlementItems = useMemo(() => {
     let runningSubtotal = 0;
@@ -1521,7 +1587,7 @@ export function SettlementSheet({
       return item ? [{ item, availableQuantity: allocation.quantity, alreadyAllocatedQuantity: 0, fixedAmount: allocation.amount }] : [];
     })
     : settlementAvailability(settlementItems, order.settlements).map((entry) => ({ ...entry, fixedAmount: undefined })), [historicalSettlement, order.settlements, settlementItems]);
-  const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>(() =>
+  const [selectedQuantities, setSelectedQuantities] = useRecoveryState<Record<string, number>>(`${paymentPrefix}:quantities`, () =>
     Object.fromEntries(available.map(({ item, availableQuantity }) => [item.id, availableQuantity])),
   );
   const selected = available
@@ -1530,16 +1596,17 @@ export function SettlementSheet({
   const selectedAmount = historicalSettlement
     ? sumAmounts(selected.map((entry) => entry.fixedAmount ?? 0))
     : sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
-  const [tenders, setTenders] = useState<TenderDraft[]>(() => historicalSettlement
+  const [tenders, setTenders] = useRecoveryState<TenderDraft[]>(`${paymentPrefix}:tenders`, () => historicalSettlement
     ? historicalSettlement.payments.map((payment) => ({ id: requestKey(), method: payment.method, amount: String(payment.amount), reference: payment.reference ?? "" }))
     : [{ id: requestKey(), method: "CARD_TERMINAL", amount: String(selectedAmount), reference: "" }]);
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useRecoveryState(`${paymentPrefix}:reason`, "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [attemptKey, setAttemptKey] = useState(requestKey);
+  const [attemptKey, setAttemptKey] = useRecoveryState<string>(`${paymentPrefix}:attempt-key`, requestKey);
   const tenderAmount = sumAmounts(tenders.map((tender) => positiveIntegerAmount(tender.amount)));
   const isReconciled = selectedAmount > 0 && tenderAmount === selectedAmount;
   useEffect(() => {
+    if (restoredPayment.current) { restoredPayment.current = false; return; }
     setTenders((current) => {
       const primaryTender = current[0];
       if (!primaryTender || primaryTender.amount === String(selectedAmount)) return current;
@@ -1589,6 +1656,9 @@ export function SettlementSheet({
       setError(result.error.message);
       return;
     }
+    writeRecovery(`${paymentPrefix}:tenders`, undefined);
+    writeRecovery(`${paymentPrefix}:quantities`, undefined);
+    writeRecovery(`${paymentPrefix}:attempt-key`, undefined);
     onSuccess(result.data);
   };
   useEffect(() => {
