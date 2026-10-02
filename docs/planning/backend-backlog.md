@@ -217,7 +217,7 @@ Implement table and takeaway order creation by Staff.
 
 Acceptance criteria:
 
-- The server validates availability and calculates all prices, discounts,
+- The server validates active, non-archived POS-visible products and available options (active unavailable products remain orderable in POS), and calculates all prices, discounts,
   totals, timing, and table estimates from authoritative data.
 - Order items store immutable product, option, price, and timing snapshots.
 - `POST /api/v1/orders` requires an idempotency key and retries do not create
@@ -553,3 +553,10 @@ Full-system hardening may pass only when:
 - Security review covers cookies/tokens, CSRF, rate limits, uploads, secrets, input limits, and safe logs.
 - Seed/bootstrap, backup, restore, and rollback/forward-fix procedures are documented.
 - Remaining backend changes are treated as controlled contract changes rather than informal UI-driven edits.
+
+## 2 October 2026 approved TODO increment
+
+- POS product availability is advisory for active products; inactive/archived products and unavailable options remain blocked. Public-menu availability remains unchanged.
+- Payment shift presets use each settlement recordedAt in Asia/Tehran, including partial payments: 08:00–16:00 and 16:00–midnight.
+- Bar-ticket reads do not mutate print state. Authenticated preparation and retry-safe afterprint acknowledgment persist the exact preparation snapshot; edits print additions only, unchanged preparation content reprints the whole order. Browser cancellation may trigger afterprint.
+- Recovery retains local work and never automatically repeats authoritative mutations or prints.
