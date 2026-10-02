@@ -2888,7 +2888,7 @@ svg {
   }
 }
 /* Keep the accounting summary beside history without moving its initial grid position. */
-@media (min-width: 701px) and (min-height: 700px) {
+@media (min-width: 701px) and (min-height: 501px) {
   .manager-card--accounting {
     position: sticky;
     top: 16px;
