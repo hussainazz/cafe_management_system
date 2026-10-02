@@ -1,5 +1,12 @@
 # Current Backend Stage Status
 
+## 2 October 2026 isolated TODO implementation
+
+- Approved scope: tasks #2–6 and #8–13; #1 and #7 excluded.
+- In progress: A order workflow, B payment shifts, C printing; then D recovery, E compact UI, and final integration.
+- Left: implementation, focused checks, integrated suite/build, authenticated browser acceptance at 469×343 and desktop/mobile, physical café-printer acceptance.
+- Local worktrees/commits/integration are authorized for this increment only; main, remote publication, development/production databases, and deployment remain unchanged.
+
 ## 21 September 2026 duplicate settlement allocation hardening
 
 - Complete in code and isolated API verification: the `app.inject` regression
