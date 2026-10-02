@@ -1,9 +1,11 @@
+import { beginRecoveryActivity } from "./automatic-recovery";
 export type PrintKind = "bar-ticket" | "receipt" | "settlement";
 
 export function printDocument(url: string): Promise<void> {
   if (typeof document === "undefined") return Promise.reject(new Error("چاپ فقط در مرورگر در دسترس است."));
 
-  return new Promise((resolve, reject) => {
+  const endActivity = beginRecoveryActivity();
+  return new Promise<void>((resolve, reject) => {
     const iframe = document.createElement("iframe");
     iframe.src = url;
     iframe.title = "سند چاپی کافه";
@@ -77,7 +79,7 @@ export function printDocument(url: string): Promise<void> {
       }
     }, { once: true });
     document.body.appendChild(iframe);
-  });
+  }).finally(endActivity);
 }
 
 export function printRoute(orderId: string, kind: PrintKind, settlementId?: string): string {
