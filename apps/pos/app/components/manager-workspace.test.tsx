@@ -78,6 +78,25 @@ describe("ManagerWorkspace", () => {
     expect(screen.queryByText("بارگذاری بیشتر")).toBeNull();
   });
 
+  it("applies shift presets to history and summary together without excluding the last minute", async () => {
+    render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(1));
+    const dates = api.readPaymentHistory.mock.calls[0]![0];
+    for (const [shift, bounds] of [
+      ["morning", { fromTime: "08:00", toTime: "16:00" }],
+      ["evening", { fromTime: "16:00" }],
+      ["all", {}],
+    ] as const) {
+      fireEvent.change(screen.getByLabelText("شیفت پرداخت"), { target: { value: shift } });
+      await waitFor(() => expect(api.readPaymentHistory).toHaveBeenLastCalledWith({ ...dates, ...bounds }));
+      expect(api.readDailyReport).toHaveBeenLastCalledWith({ ...dates, ...bounds });
+    }
+    fireEvent.change(screen.getByLabelText("از ساعت"), { target: { value: "10:00" } });
+    expect((screen.getByLabelText("شیفت پرداخت") as HTMLSelectElement).value).toBe("custom");
+    fireEvent.click(screen.getByRole("button", { name: "پاک کردن" }));
+    expect((screen.getByLabelText("شیفت پرداخت") as HTMLSelectElement).value).toBe("all");
+  });
+
   it("does not expose settlement reversal in payment history", async () => {
     api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, orderState: "CLOSED", totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH" }] }] });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
