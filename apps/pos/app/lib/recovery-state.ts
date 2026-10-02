@@ -17,7 +17,16 @@ export function recoveryStateFor(error: ApiFailure): RecoveryState {
     };
   }
 
-  if (error.status === 409 || error.code === "STALE_VERSION") {
+  if (error.code === "IDEMPOTENCY_CONFLICT") {
+    return {
+      kind: "failure",
+      title: "درخواست قبلی با اطلاعات دیگری ثبت شده است",
+      detail: "فهرست سفارش‌های فعال را تازه کنید و پیش از تلاش دوباره، سفارش‌های ثبت‌شده را بررسی کنید.",
+      action: "بازخوانی وضعیت",
+    };
+  }
+
+  if (error.code === "STALE_VERSION") {
     return {
       kind: "conflict",
       title: "این سفارش یا میز هم‌زمان تغییر کرده است",
