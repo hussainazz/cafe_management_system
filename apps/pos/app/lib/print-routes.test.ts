@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { requestAutomaticRecovery, setRecoveryUser, writeRecovery } from "./automatic-recovery";
 import { printDocument, printRoute } from "./print-routes";
 
 afterEach(() => document.querySelectorAll('iframe[title="سند چاپی کافه"]').forEach((iframe) => iframe.remove()));
@@ -58,4 +59,23 @@ describe("printRoute", () => {
     } finally { vi.useRealTimers(); }
   });
 
+});
+
+
+it("delays automatic reload until mounted print workflow completes", async () => {
+  vi.useFakeTimers();
+  setRecoveryUser("print-delay"); writeRecovery("episode", false);
+  const reload = vi.fn();
+  const printing = printDocument("/pos/print/order/receipt");
+  const cancel = requestAutomaticRecovery(reload);
+  const frame = document.querySelector<HTMLIFrameElement>("iframe")!;
+  const doc = document.implementation.createHTMLDocument("print");
+  doc.body.innerHTML = '<main class="thermal-print">receipt</main>';
+  Object.defineProperty(frame, "contentDocument", { configurable: true, value: doc });
+  frame.dispatchEvent(new Event("load"));
+  vi.advanceTimersByTime(1000); expect(reload).not.toHaveBeenCalled();
+  frame.contentWindow!.dispatchEvent(new CustomEvent("cafe-print-complete"));
+  await printing;
+  vi.advanceTimersByTime(300); expect(reload).toHaveBeenCalledTimes(1);
+  cancel(); vi.useRealTimers();
 });
