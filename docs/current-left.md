@@ -8,8 +8,9 @@
 - Complete in code and focused verification: D (#6), with 87 final POS tests and typecheck passing. A/B/C/D are integrated; the full isolated API suite passes (16 files / 102 tests).
 - Complete in code and browser acceptance: E (#5, #12, #13), verified with Staff and Manager at 469×343, 390×844 and desktop sizes. The accounting report is sticky only where space permits; dialogs remain scrollable. Live recovery also verified editable draft/note, tender amount and Manager filter restoration, bounded repeated failures, and Manager-to-Staff role isolation.
 - Verified: combined POS suite 18 files / 87 tests; isolated API suite 16 files / 102 tests; contracts build and API/POS typechecks. POS production build and final diff checks pass.
-- Left: physical café-printer/device acceptance and future production migration/release gates. All eleven retained tasks are complete in code; roadmap-wide historical Left items remain active. See `docs/todo-final-test.md`.
-- Local worktrees/commits/integration are authorized for this increment only; main, remote publication, development/production databases, and deployment remain unchanged.
+- Deployed to the VPS POS as release `pos-20261002-e356173`; public `/pos` and `/pos/release` return 200, API readiness is healthy, all services are active with zero restarts, and production reports 27 migrations up to date. The additive bar-ticket migration was applied after taking a verified database backup; the database was not reset.
+- Left: physical café-printer/device acceptance and roadmap-wide historical operational gates. All eleven retained tasks are complete in code; see `docs/todo-final-test.md`.
+- This increment is committed on `codex/todo-final-test` and integrated and pushed on `main`. Local archives remain untracked release artifacts.
 
 ## 21 September 2026 duplicate settlement allocation hardening
 
