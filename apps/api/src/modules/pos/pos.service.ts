@@ -43,7 +43,7 @@ export async function readPosCatalog(prisma: PrismaClient) {
         pricingMode: product.pricingMode,
         preparationDeadlineMinutes: product.preparationDeadlineMinutes,
         isAvailable: product.isAvailable,
-        image: product.image,
+        image: product.image ? { storageKey: product.image.storageKey, altText: product.name } : null,
         optionGroups: product.productOptionGroups
           .filter(({ optionGroup }) => optionGroup.isActive && optionGroup.archivedAt === null)
           .map(({ optionGroup, minSelections, maxSelections, allowedOptions }) => ({
