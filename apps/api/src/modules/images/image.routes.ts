@@ -4,7 +4,6 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import {
   AdminImageArchiveResponseSchema,
-  AdminImageMetadataSchema,
   AdminImageResponseSchema,
   AuthRequestHeadersSchema,
   ErrorResponseSchema,
@@ -56,18 +55,16 @@ export const imageRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request: any) => {
       const productId = request.params.productId as string;
-      const product = await app.prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+      const product = await app.prisma.product.findUnique({ where: { id: productId }, select: { id: true, name: true } });
       if (!product) {
         throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested product was not found.");
       }
       const part = await request.file();
       const content = part ? await part.toBuffer() : Buffer.alloc(0);
-      const altText = typeof part?.fields.altText?.value === "string"
-        ? part.fields.altText.value.trim()
-        : "";
+      const altText = product.name;
       const format = part ? formats.get(part.mimetype) : undefined;
-      if (!part || !format || !altText || altText.length > 500 || !format.signature.every((value, index) => content[index] === value)) {
-        throw new ApplicationError(400, ErrorCodes.VALIDATION_ERROR, "A valid JPEG, PNG, or WebP image and alt text are required.");
+      if (!part || !format || !format.signature.every((value, index) => content[index] === value)) {
+        throw new ApplicationError(400, ErrorCodes.VALIDATION_ERROR, "A valid JPEG, PNG, or WebP image is required.");
       }
 
       const old = await app.prisma.productImage.findUnique({ where: { productId } });
@@ -94,25 +91,6 @@ export const imageRoutes: FastifyPluginAsync = async (app) => {
         if (!committed) await unlink(imagePath(storageKey)).catch(() => undefined);
         throw error;
       }
-    },
-  );
-
-  app.patch(
-    "/admin/products/:productId/image",
-    {
-      preHandler: requireManagerRoute,
-      schema: { tags: ["Manager administration"], summary: "Update product image alt text", headers, params: productParams, body: zodToJsonSchema(AdminImageMetadataSchema), response: { 200: zodToJsonSchema(AdminImageResponseSchema), ...errors } },
-    },
-    async (request: any) => {
-      const { altText } = AdminImageMetadataSchema.parse(request.body);
-      const image = await app.prisma.$transaction(async (tx) => {
-        const updated = await tx.productImage.update({ where: { productId: request.params.productId }, data: { altText } });
-        await tx.auditLog.create({
-          data: { actorId: request.authenticatedUser!.id, requestId: request.id, operation: "UPDATE_PRODUCT_IMAGE", entityType: "PRODUCT", entityId: request.params.productId, afterSnapshot: updated },
-        });
-        return updated;
-      });
-      return { data: { storageKey: image.storageKey, altText: image.altText }, meta: { requestId: request.id } };
     },
   );
 
