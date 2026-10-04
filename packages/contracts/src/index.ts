@@ -211,8 +211,8 @@ export type DiscountInput = z.infer<typeof DiscountInputSchema>;
 
 export const ReasonedDiscountInputSchema = z
   .discriminatedUnion("kind", [
-    z.object({ kind: z.literal("FIXED"), value: z.number().int().positive(), reason: z.string().trim().min(1).max(500) }).strict(),
-    z.object({ kind: z.literal("PERCENTAGE"), value: z.number().int().min(1).max(100), reason: z.string().trim().min(1).max(500) }).strict(),
+    z.object({ kind: z.literal("FIXED"), value: z.number().int().positive(), reason: z.string().trim().min(1).max(500).optional() }).strict(),
+    z.object({ kind: z.literal("PERCENTAGE"), value: z.number().int().min(1).max(100), reason: z.string().trim().min(1).max(500).optional() }).strict(),
   ])
   .nullable();
 
@@ -581,7 +581,7 @@ export const ReverseSettlementResponseSchema = OrderDetailResponseSchema;
 export const EditSettlementRequestSchema = z.object({
   expectedVersion: z.number().int().positive(),
   payments: z.array(SettlementPaymentInputSchema).min(1).max(10),
-  reason: z.string().trim().min(1).max(500),
+  reason: z.string().trim().min(1).max(500).optional(),
 }).strict();
 export type EditSettlementRequest = z.infer<typeof EditSettlementRequestSchema>;
 export const EditSettlementResponseSchema = OrderDetailResponseSchema;
@@ -589,6 +589,7 @@ export const EditSettlementResponseSchema = OrderDetailResponseSchema;
 const ReceiptItemSchema = z.object({
   productName: z.string(),
   quantity: z.number().int().positive(),
+  basePriceSnapshot: z.number().int().nonnegative(),
   pricingModeSnapshot: z.enum(["FIXED", "WEIGHTED_PER_KG"]),
   weightGrams: z.number().int().positive().nullable(),
   options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })),
@@ -621,7 +622,6 @@ export const AdminTableInputSchema = z.object({ name: AdminNameSchema, displayOr
 export const AdminStaffInputSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/), password: z.string().min(12).max(128) }).strict();
 export const AdminStaffUpdateSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/).optional(), password: z.string().min(12).max(128).optional() }).strict().refine((input) => input.username !== undefined || input.password !== undefined);
 export const AdminSettingsUpdateSchema = z.object({ tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable() }).strict();
-export const AdminImageMetadataSchema = z.object({ altText: z.string().trim().min(1).max(500) }).strict();
 export const AdminIdPathSchema = z.object({ id: z.uuid() });
 
 const AdminMetaSchema = z.object({ requestId: z.string() });
