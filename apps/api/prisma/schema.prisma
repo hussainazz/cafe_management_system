@@ -495,7 +495,7 @@ model SettlementReversal {
   id           String   @id @default(uuid())
   settlementId String   @unique
   recordedById String
-  reason       String
+  reason       String?
   recordedAt   DateTime @default(now())
 
   settlement PaymentSettlement @relation(fields: [settlementId], references: [id])
