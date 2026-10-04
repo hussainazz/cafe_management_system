@@ -1393,7 +1393,7 @@ function DiscountDialog({ order, target, onCancel, onSuccess }: { order: OrderDe
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const discount = discountPayload({ kind, value, reason });
-    if (!discount) { setError("مبلغ یا درصد و دلیل تخفیف را وارد کنید."); return; }
+    if (!discount) { setError("مبلغ یا درصد تخفیف را درست وارد کنید."); return; }
     setBusy(true); setError(null);
     const result = await updateOpenOrder(order.id, target.type === "order"
       ? { expectedVersion: order.version, orderDiscount: discount }
@@ -1406,7 +1406,7 @@ function DiscountDialog({ order, target, onCancel, onSuccess }: { order: OrderDe
     <div className="modal-header"><div><h2 id="discount-title">{target.type === "order" ? "تخفیف سفارش" : `تخفیف ${target.name}`}</h2><p>مبلغ نهایی فقط توسط سرور محاسبه می‌شود.</p></div><button ref={closeRef} type="button" className="icon-button" onClick={onCancel} aria-label="بستن"><CloseIcon /></button></div>
     <fieldset disabled={busy}><legend>نوع تخفیف</legend><label><input type="radio" checked={kind === "FIXED"} onChange={() => setKind("FIXED")} /> مبلغ (تومان)</label><label><input type="radio" checked={kind === "PERCENTAGE"} onChange={() => setKind("PERCENTAGE")} /> درصد</label></fieldset>
     <label> {kind === "FIXED" ? "مبلغ تومان" : "درصد"}<input inputMode="numeric" value={value} onChange={(event) => setValue(event.target.value.replace(/\D/g, ""))} required /></label>
-    <label>دلیل تخفیف<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} required /></label>
+    <label>دلیل تخفیف (اختیاری)<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} /></label>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="modal-actions"><button className="button button--quiet" type="button" onClick={onCancel} disabled={busy}>انصراف</button><button className="button button--primary" type="submit" disabled={busy}>{busy ? "در حال ثبت…" : "ثبت تخفیف"}</button></div>
   </form></div>;
@@ -1677,7 +1677,7 @@ export function SettlementSheet({
     const result = historicalSettlement
       ? await editSettlement(historicalSettlement.id, {
         expectedVersion: order.version,
-        reason: reason.trim(),
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
         payments: tenders.map((tender) => tender.method === "CARD_TRANSFER" && tender.reference.trim() ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() } : { method: tender.method, amount: positiveIntegerAmount(tender.amount) }),
       }, attemptKey)
       : await recordSettlement(
@@ -1788,9 +1788,6 @@ export function SettlementSheet({
           <span>جمع روش‌های پرداخت <strong>{formatToman(tenderAmount)}</strong></span>
           <b>{selectedAmount === 0 ? "حداقل یک قلم را انتخاب کنید." : isReconciled ? "مبالغ با هم برابرند." : "جمع روش‌های پرداخت باید دقیقاً با مبلغ اقلام برابر باشد."}</b>
         </div>
-        {historicalSettlement && <label className="settlement-reason">دلیل اصلاح
-          <input value={reason} disabled={busy} maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="مثلاً اصلاح روش پرداخت" />
-        </label>}
         {error && <div className="toast toast--error" role="alert">{error}</div>}
         <div className="modal-actions">
           <button className="button button--quiet" onClick={onClose}>
@@ -1798,7 +1795,7 @@ export function SettlementSheet({
           </button>
           <button
             className="button button--primary"
-            disabled={busy || !isReconciled || (Boolean(historicalSettlement) && reason.trim().length === 0)}
+            disabled={busy || !isReconciled}
             onClick={() => void settle()}
           >
             {busy ? "در حال ثبت…" : historicalSettlement ? "ثبت اصلاح پرداخت" : "تأیید پرداخت"}
