@@ -798,7 +798,11 @@ function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint
   return <aside className="occupied-panel" aria-label={`جزئیات سفارش میز ${table?.name ?? ""}`}>
     <header className="occupied-panel__header">
       <button className="icon-button" type="button" onClick={onClose} aria-label="بستن جزئیات"><CloseIcon /></button>
-      <div><h2>میز {table?.name}</h2><span><ClockIcon /> {elapsedLabel(order.createdAt)} · {status}</span></div>
+      <div className="occupied-panel__heading">
+        <h2>میز {table?.name}</h2>
+        <span className="occupied-panel__elapsed"><ClockIcon /> {elapsedLabel(order.createdAt)}</span>
+      </div>
+      <span className="status-badge">{status}</span>
     </header>
     <div className="occupied-panel__items">
       {order.items.map((item) => <div className="occupied-panel__item" key={item.id}><div><b>{item.productNameSnapshot} {item.pricingModeSnapshot === "WEIGHTED_PER_KG" && item.weightGrams ? <small>{englishNumber.format(item.weightGrams)} گرم × </small> : <small>× </small>}{englishNumber.format(item.quantity)}</b>{item.options.length > 0 && <span>{item.options.map((option) => option.optionNameSnapshot).join("، ")}</span>}</div><strong>{formatToman(item.lineTotalAmount)}</strong></div>)}
