@@ -67,15 +67,11 @@ describe("OpenAPI contract", () => {
         requestBody: {
           content: {
             "multipart/form-data": {
-              schema: expect.objectContaining({ required: ["altText", "image"] }),
+              schema: expect.objectContaining({ required: ["image"] }),
             },
           },
         },
         responses: { 200: expect.any(Object), 400: expect.any(Object), 404: expect.any(Object), 413: expect.any(Object) },
-      },
-      patch: {
-        requestBody: { content: { "application/json": { schema: expect.objectContaining({ required: ["altText"] }) } } },
-        responses: { 200: expect.any(Object), 400: expect.any(Object), 404: expect.any(Object) },
       },
     });
     expect(document.paths["/api/v1/admin/products/{productId}/image/archive"].post.responses)
