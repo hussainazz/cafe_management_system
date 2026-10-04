@@ -46,6 +46,15 @@ second chronological backlog.
 
 ## Latest Implementation Notes
 
+- 4 October: POS and thermal print typography now uses Manrope for ASCII digit
+  glyphs only, with Estedad retained for Persian glyphs and RTL unchanged.
+  Stage 10 browser and printer acceptance remains open.
+- 4 October: table-order payment status now uses the takeaway panel's blue badge
+  styling at the left of the occupied-panel header; elapsed time remains below
+  the table title. Stage 10 browser and café-device acceptance remains open.
+- 4 October: the occupied-order panel no longer has a 42px top margin, so its
+  border aligns with the table grid when a table order is selected. Stage 10
+  browser and café-device acceptance remains open.
 - 4 October: thermal-ticket option text now uses Estedad Medium (500) for
   stronger readability on the café printer. Physical printer acceptance stays
   open in Stage 10.
