@@ -497,7 +497,7 @@ export const deactivateStaff = (id: string) => managerMutation(`/admin/users/${i
 export const reactivateStaff = (id: string) => managerMutation(`/admin/users/${id}/reactivate`, "POST", {}, AdminStaffSingleResponseSchema, "پاسخ فعال‌سازی معتبر نیست.");
 export const saveSettings = (body: unknown) => managerMutation("/admin/settings", "PATCH", body, AdminSettingsResponseSchema, "پاسخ تنظیمات معتبر نیست.");
 export const reverseSettlement = (settlementId: string, body: { expectedVersion: number; reason: string }) => managerMutation(`/admin/settlements/${settlementId}/reverse`, "POST", body, ReverseSettlementResponseSchema, "پاسخ برگشت تسویه معتبر نیست.");
-export async function editSettlement(settlementId: string, body: { expectedVersion: number; payments: unknown[]; reason: string }, idempotencyKey: string): Promise<ApiResult<PosOrderDetail>> {
+export async function editSettlement(settlementId: string, body: { expectedVersion: number; payments: unknown[]; reason?: string }, idempotencyKey: string): Promise<ApiResult<PosOrderDetail>> {
   const parsed = await managerMutation(`/admin/settlements/${settlementId}/edit`, "POST", body, EditSettlementResponseSchema, "پاسخ ویرایش پرداخت معتبر نیست.", idempotencyKey);
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
@@ -546,10 +546,9 @@ function uploadRequest(
 export async function uploadProductImage(
   productId: string,
   file: File,
-  altText: string,
   onProgress?: (percentage: number | null) => void,
 ) {
-  const form = new FormData(); form.set("file", file); form.set("altText", altText);
+  const form = new FormData(); form.set("file", file);
   return parseResponse(await uploadRequest(`/admin/products/${productId}/image`, form, onProgress), AdminImageResponseSchema, "پاسخ تصویر معتبر نیست.");
 }
 export const archiveProductImage = (productId: string) => managerMutation(`/admin/products/${productId}/image/archive`, "POST", {}, AdminImageArchiveResponseSchema, "پاسخ حذف تصویر معتبر نیست.");
