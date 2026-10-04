@@ -20,9 +20,17 @@ function ReceiptItems({ receipt, className = "" }: { receipt: Receipt; className
     <div className={`thermal-items ${className}`}>
       {receipt.items.map((item, index) => (
         <article className="thermal-item" key={`${item.productName}-${index}`}>
-          <div className="thermal-item__main">
-            <b>{item.productName}</b>
-            <span>×{englishNumber.format(item.quantity)}</span>
+          <div className="thermal-item__main thermal-item__main--receipt">
+            <b className="thermal-item__description">
+              {item.productName} ×{englishNumber.format(item.quantity)}
+              {item.pricingModeSnapshot === "WEIGHTED_PER_KG" && item.weightGrams != null
+                ? ` · ${englishNumber.format(item.weightGrams)} گرم`
+                : ""}
+            </b>
+            <span className="thermal-item__base-price">
+              {item.pricingModeSnapshot === "WEIGHTED_PER_KG" && <small>قیمت هر کیلو</small>}
+              <strong>{formatToman(item.basePriceSnapshot)}</strong>
+            </span>
           </div>
           {item.options.length > 0 && (
             <small>
@@ -31,7 +39,6 @@ function ReceiptItems({ receipt, className = "" }: { receipt: Receipt; className
                 .join("، ")}
             </small>
           )}
-          <strong>{formatToman(item.lineTotalAmount)}</strong>
         </article>
       ))}
     </div>
@@ -73,7 +80,7 @@ function BarTicket({ ticket }: { ticket: BarTicket }) {
 function ReceiptDocument({ receipt }: { receipt: Receipt }) {
   return (
     <main className="thermal-print thermal-print--receipt">
-      <header className="thermal-receipt-header">کافه ران</header>
+      <header className="thermal-receipt-header">RUN Cafe</header>
       <div className="thermal-contact" aria-label="اطلاعات تماس کافه">
         <span className="thermal-contact__item thermal-contact__item--instagram">
           <b>@Runcafe_</b>
@@ -89,7 +96,10 @@ function ReceiptDocument({ receipt }: { receipt: Receipt }) {
       <ReceiptItems receipt={receipt} className="thermal-items--receipt" />
       <div className="thermal-receipt-total" aria-label="مجموع">
         <span>مجموع</span>
-        <strong>{formatToman(receipt.totalAmount)}</strong>
+        <span className="thermal-receipt-total__amount">
+          <strong>{formatToman(receipt.totalAmount)}</strong>
+          <small>تومان</small>
+        </span>
       </div>
       <div className="thermal-divider" aria-hidden="true" />
       <p className="thermal-time thermal-time--footer">{receipt.displayTime}</p>
