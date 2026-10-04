@@ -2,13 +2,15 @@
 
 ## Document Control
 
-**Status:** design-direction baseline; implementation intentionally pending  
+**Status:** design baseline and implementation record; the POS is implemented in `apps/pos`
 **Applies to:** `apps/pos`, the shared Staff and Manager POS only  
 **Companion authorities:** `scope.md`, `roadmap.md`, ADR 0009, and
 `current-left.md` remain authoritative for product scope, roles, business
 rules, delivery order, and stage status.
 
-This document records the POS visual direction. It does not authorize a
+This document records the selected POS visual direction and the bounded
+implementation passes that followed. Current implementation and acceptance
+status live in `docs/current-left.md`. This document does not authorize a
 product-scope or backend-contract change.
 
 ## Purpose
@@ -18,11 +20,9 @@ dashboard. It must make fast, safe Persian RTL service work legible during a
 busy shift, while preserving the server as the authority for prices,
 availability, permissions, totals, idempotency, and concurrency.
 
-This is a documentation-first reset. No replacement UI code is implied by this
-document. The user will provide an initial visual and experiential description
-before implementation; the remaining design decisions may be developed
-creatively inside the constraints below and presented for review in bounded
-passes.
+The initial visual and experiential brief was recorded before implementation.
+The implementation history below records how the POS grew from the first
+bounded order-entry view into the shared operational and Manager workspaces.
 
 ## Design Method
 
@@ -94,7 +94,7 @@ confirm these decisions in a dated section below before implementation:
 - appetite for density, illustration, photography, animation, and sound;
 - any required desktop hardware context or normal-mobile constraints.
 
-### Active Creative Brief
+### Initial Approved Creative Brief — 5 September 2026
 
 **Status:** approved for the first UI-only pass on 5 September 2026.
 
@@ -125,7 +125,7 @@ navigation labels.
 | Surface                    | Primary job                                                                                                            | Stage |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----- |
 | Session entry and recovery | Establish the signed-in operator, connection state, logout, and safe recovery                                          | 7     |
-| Service overview           | Orient around the 16 physical tables, occupancy, active order/payment state, reminders, and pending waiter calls       | 7     |
+| Service overview           | Orient around the 15 physical tables, occupancy, active order/payment state, reminders, and pending waiter calls       | 7     |
 | Order workspace            | Start table/takeaway work; browse catalog; choose options, quantities, and notes; show server-confirmed totals         | 7     |
 | Active order               | Review and safely edit allowed `OPEN` order contents and table assignment                                              | 7     |
 | Settlement                 | Select eligible quantities; record cash, terminal, or card-to-card tenders; communicate partial/paid state             | 7     |
@@ -296,5 +296,6 @@ content and surface one compact retryable degraded-data state. Typed Manager
 response DTOs prevent persistence-shaped records from reaching the POS.
 Contracts/API/POS typechecks, focused Manager API integration tests, POS tests,
 the production POS build, and `git diff --check` pass. Authenticated desktop
-and normal-mobile browser validation remains pending before the Stage 9 exit
-gate is fully verified.
+and normal-mobile browser/device acceptance remains open under Stage 10; the
+implementation itself is complete. See `docs/current-left.md` for the active
+checklist.
