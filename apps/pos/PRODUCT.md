@@ -61,7 +61,7 @@ logic in the interface.
 - Stage 7 includes no Manager-only payment history, reports, catalog/product
   management, Staff management, settings, audit search, or product sale
   discount configuration.
-- Staff and Managers may apply reasoned item-level or order-level discounts
+- Staff and Managers may apply item-level or order-level discounts with optional reasons
   only when server settlement rules permit them.
 - An order may be logically deleted/cleared with confirmation appropriate to
   its operational consequence; the interface must not imply physical erasure.
