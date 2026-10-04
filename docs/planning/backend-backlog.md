@@ -4,39 +4,28 @@ This document tracks backend work extracted from the roadmap. Product and busine
 
 ## Current Backend Status
 
-Stages 0 through 3 of the original backend baseline are complete. The
-reprioritized QR-menu frontend Stage 4 is also complete. Public-menu deployment
-Stages 5 and 6 were brought forward for the deadline; the shared POS foundation
-is now Stage 7. Before its exit gate, the backend needs the newly approved
-waiter-call increment.
+Last reconciled: 3 October 2026. The prioritized sections below are the
+authoritative backend acceptance criteria; this summary records whether each
+stage is implemented.
 
-Current verification:
+- **P0 / Stage 1 — Complete.** Foundation, migrations, bootstrap, isolated test
+  database, contracts, health checks, and fresh-environment rehearsal are in
+  place.
+- **P1 / Stage 2 — Complete.** POS auth, orders, settlements, deletion,
+  discounts, receipts, audit, and waiter-call backend increments are in place.
+- **P2 / Stage 3 — Complete.** Browse-only QR-menu API and public response
+  protections are implemented.
+- **P3 / Stage 8 — Complete.** Manager catalog, settings, payment history,
+  accounting, and audit APIs are implemented.
+- **P4 / Stage 10 — Active.** Complete the remaining full-system test,
+  security, migration/restore, and measured-performance evidence before the POS
+  pilot. See `docs/current-left.md` for the live checklist.
 
-- `pnpm typecheck` passes.
-- `pnpm --filter @cafe/api test:database` passes: all six migrations pass
-  fresh/repeat deploy, existing-data upgrade, invalid-data atomic rollback,
-  exact seed, and clean backup/restore rehearsals; the real-PostgreSQL API suite
-  passes 12 files and 52 tests.
-- `pnpm lint` errors are ignored by project rule in `AGENTS.md`.
-- Stage 2 authentication is implemented and verified: unique Staff/Manager
-  usernames, signed access sessions, rotating hashed refresh sessions,
-  logout/logout-all revocation, account-deactivation revocation, and safe auth
-  event records.
-- Stage 2 authorization is implemented and verified: Staff routes allow Staff
-  and Manager users, Manager-only guards return `403 FORBIDDEN` to Staff users,
-  missing sessions return `401 AUTHENTICATION_REQUIRED`, and a Manager-only
-  account-deactivation service check prevents route-bypass authorization.
-- Product sale-discount configuration is Manager-only. Staff and Manager may
-  apply reasoned item-level or order-level discounts to open orders while the
-  settlement immutability rules permit the change; applied discounts are
-  server-calculated, snapshotted, and audited.
-- The 13 August 2026 fresh-environment rehearsal applied both migrations to a
-  new database, created exactly one Manager, rejected a repeat bootstrap, and
-  returned healthy liveness/readiness responses.
-- Stage 3 QR-menu backend is implemented and verified: anonymous public menu
-  and product-detail reads, schema-validated search/category filtering, active
-  catalog visibility, final Toman price calculation, and public-response safety
-  are covered by integration tests.
+Last recorded integrated local verification (2 October 2026): isolated API
+suite 16 files / 102 tests, POS suite 18 files / 87 tests, contracts build,
+API/POS typechecks, production POS build, and attached-browser checks at
+469×343, 390×844, and desktop sizes. This predates the 3 October changes; those
+changes still need their migration and release verification.
 
 ## Stage 0 Backlog — Scope And Domain Baseline
 
@@ -60,7 +49,7 @@ Exit gate:
 
 ## Prioritized Backend Implementation Backlog
 
-### P0 - Stage 1 Foundation Exit Gate
+### P0 - Stage 1 Foundation Exit Gate — Complete
 
 #### P0.1 Initial Database Schema And Migration
 
@@ -170,7 +159,7 @@ Acceptance criteria:
 - Typecheck and the relevant API test suite pass against the fresh database.
 - Any required environment variables are documented and validated at startup.
 
-### P1 - Stage 2 POS Backend
+### P1 - Stage 2 POS Backend — Complete
 
 #### P1.1 Staff And Manager Authentication
 
@@ -236,7 +225,7 @@ Acceptance criteria:
   settlements, timing, table context, and current `version`.
 - Content and table edits require `expectedVersion`.
 - Before the first settlement, Staff and Manager may edit order content,
-  reasoned item/order discounts, notes, and table assignment. Only Manager may
+  item/order discounts with optional reasons, notes, and table assignment. Only Manager may
   configure a product sale discount, and the same settlement immutability rules
   still apply.
 - After the first settlement, Staff may add new items, increase quantities, and
@@ -286,8 +275,9 @@ Implement Manager-only full settlement reversal.
 
 Acceptance criteria:
 
-- A posted settlement can be reversed only as a whole and only with a non-empty
-  reason.
+- An explicitly requested full settlement reversal requires a non-empty
+  reason. Correcting tender methods through the dedicated settlement-edit path
+  does not require a reason.
 - Reversal recalculates order paid amount, balance, and payment status.
 - Posted tenders and allocations are never edited or physically deleted.
 - Reversal writes audit data and increments the order version atomically.
@@ -360,10 +350,10 @@ Acceptance criteria:
   occupied-table validation, table-opening conflicts, reconnect/refetch,
   plaintext-token exclusion, and print artifact mapping.
 - Product sale-discount configuration is Manager-only in routes and services.
-  Staff and Manager may apply reasoned item/order discounts while permitted by
+  Staff and Manager may apply item/order discounts without a required reason while permitted by
   settlement state, and Staff retains settlement and individual-receipt access.
 
-### P2 - Stage 3 QR-Menu Backend
+### P2 - Stage 3 QR-Menu Backend — Complete
 
 Complete. The anonymous, browse-only category/menu and product-detail endpoints,
 their OpenAPI schemas, and public-response integration coverage are implemented.
@@ -399,7 +389,7 @@ Acceptance criteria:
   item behavior, and final Toman price representation.
 - Anonymous access works without cookies or Staff session state.
 
-### P3 - Stage 8 Manager Capability Backend
+### P3 - Stage 8 Manager Capability Backend — Complete
 
 #### P3.1 Manager Catalog, Staff, And Settings APIs
 
@@ -439,7 +429,7 @@ Acceptance criteria:
 - Fixed fixtures prove report totals, payment breakdowns, reversals, and deleted
   order handling.
 
-### P4 - Stage 10 Backend Stabilization
+### P4 - Stage 10 Backend Stabilization — In Progress
 
 #### P4.1 Contract, Security, Migration, And Performance Hardening
 
@@ -458,103 +448,7 @@ Acceptance criteria:
 - Measured backend response targets are recorded for login, order
   create/edit/delete, payments, reports, image handling, and public-menu reads.
 
-## Stage 1 Backlog — Database And Backend Foundation
-
-Done:
-
-- pnpm monorepo workspace.
-- Shared strict TypeScript config.
-- Prettier and ESLint setup.
-- Fastify API skeleton.
-- Environment validation.
-- Request IDs and basic logging.
-- Order-create trace logging that records safe client selection and server resolution fields, including a client-generated request ID, so a table-selection incident can be correlated across the POS browser, API log, audit row, and persisted order without logging secrets or raw request bodies.
-- CORS, Helmet, and Sensible registration.
-- Swagger/OpenAPI plugin registration.
-- PostgreSQL Docker Compose service.
-- Prisma schema/client setup.
-- Liveness and readiness routes.
-- Graceful shutdown.
-- API health integration tests.
-- Initial database tables and reviewed Prisma migrations.
-- First-Manager bootstrap flow.
-- Isolated test-database workflow and documentation.
-- Structured error envelopes with safe validation details and request IDs.
-- Zod DTO schema generation for the current API OpenAPI contract.
-- Fresh-environment exit-gate rehearsal.
-
-Exit gate:
-
-- A fresh environment can start the API and database, apply migrations, seed the first Manager, pass automated tests, and expose healthy endpoints.
-
-## Stage 2 Backlog — POS Backend
-
-- Implement login, logout, access/refresh session rotation, revocation, and account deactivation. The first Manager is created by the Stage 1 operations-only bootstrap command.
-- Enforce the two application roles, Manager and Staff, inside routes and service methods.
-- Implement the catalog, product option, availability, image metadata, product preparation-deadline, physical-table seating-limit, and active table ETA reads required for POS order entry.
-- Implement table and takeaway order creation by Staff.
-- Calculate all prices, totals, estimated preparation minutes, and table release estimates on the server and persist immutable item/option/timing snapshots.
-- Implement controlled edits to `OPEN` orders, table assignment/transfer, and order history; after the first settlement, allow only additive/unsettled-quantity edits and reject rewrites to settled quantities, posted allocations, tenders, or settlement receipts.
-- Implement logical deletion with actor and timestamp; a reason is optional at every payment status. Never physically delete an order.
-- Add order-version concurrency protection and creation idempotency.
-- Implement per-payer settlements that allocate selected order-item quantities and contain one or more cash, card-terminal, or card-to-card transfer tenders.
-- Make each settlement recording idempotent and transactional; update the order's `UNPAID`/`PARTIALLY_PAID`/`PAID` status and audit entry from active allocations.
-- Provide concise bar-ticket and detailed customer-receipt API data with stable order numbers, timing snapshots, and `Asia/Tehran` display timestamps. Bar-ticket data must exclude prices, discounts, totals, and payment information; customer receipts retain the financial detail for whole orders and settlements.
-- Test permissions, duplicate retries, stale edits, invalid transitions, adding items after partial payment, preventing settled-quantity rewrites, unavailable products, historical price/timing stability, selected-item allocation, mixed tender, optional card-transfer references, settlement reversal, payment reconciliation, and transaction rollback.
-
-Left for the revised shared-POS baseline:
-
-- Table QR credential and waiter-call persistence, partial uniqueness, lifecycle
-  constraints, physical-table seed data, and direct database rejection tests are
-  complete. Credential provisioning/rotation, QR-scan reminders, signed
-  table-context exchange, eligible-occupied-table submission, table-opening
-  resolution, refetch behavior, OpenAPI contracts, and service/API integration
-  tests are implemented and the full local database/API gate is green; evidence
-  is tracked in `docs/current-left.md`.
-
-Exit gate:
-
-- Staff can complete every POS backend workflow through documented API calls against real PostgreSQL without any frontend dependency.
-
-## Stage 3 Backlog — QR-Menu Backend
-
-- Implement public read-only category, product, priced option, availability, image metadata, and final Toman price endpoints for the QR menu; keep product preparation deadlines in authenticated POS workflows.
-- Ensure QR-menu browse endpoints expose no cart submission, order creation, payment, tracking, table-management authority, or Staff-only metadata. The Stage 7 waiter-call command is a separate, narrowly scoped exception.
-- Add response schemas and OpenAPI coverage for the public menu API.
-- Test public-response safety, filtering/search behavior, inactive/unavailable items, and historical price boundaries where relevant.
-
-Exit gate:
-
-- Customers can browse the complete current menu through public API calls, with no order-submission capability.
-
-## Stage 8 Backlog — Manager Capability Backend
-
-- Implement complete Manager-only catalog, product option, image, price, product preparation-deadline, table seating-limit, availability, display-order, Staff account, and settings APIs.
-- Implement Manager-only cursor-paginated payment history while retaining Staff access to individual POS receipts.
-- Implement one accounting summary bound to the applied payment-history date/time filter in `Asia/Tehran`, with sales/paid totals, order count, payment-method totals, discounts, reversals, and deleted-order treatment.
-- Defer weekly/monthly presets, exports, product/category analytics, forecasting, and standalone report filters.
-- Retain the complete order/payment/audit history in PostgreSQL regardless of the applied report window.
-- Add audit queries and required database indexes from measured payment-history and report query plans.
-- Implement permissioned full-settlement reversal instead of editing posted tenders or allocations.
-- Verify today/yesterday totals against fixed fixtures and inspect both permitted query plans.
-
-Exit gate:
-
-- Manager capability APIs are documented, permissioned, tested, and bounded; Staff cannot browse payment history or reports, and older financial history remains retained.
-
-## Stage 10 Backlog — Backend Stabilization For Full-System Hardening
-
-Full-system hardening may pass only when:
-
-- All v1 endpoints and events are represented in the reviewed OpenAPI contract.
-- Unit, PostgreSQL integration, API contract, authorization, idempotency, and concurrency suites pass.
-- Migrations work on both a fresh database and a restored production-like database.
-- Login, order creation/edit/deletion, payments, reports, image handling, and public-menu reads meet measured response targets.
-- Security review covers cookies/tokens, CSRF, rate limits, uploads, secrets, input limits, and safe logs.
-- Seed/bootstrap, backup, restore, and rollback/forward-fix procedures are documented.
-- Remaining backend changes are treated as controlled contract changes rather than informal UI-driven edits.
-
-## 2 October 2026 approved TODO increment
+## 2 October 2026 Approved POS Behavior Notes
 
 - POS product availability is advisory for active products; inactive/archived products and unavailable options remain blocked. Public-menu availability remains unchanged.
 - Payment shift presets use each settlement recordedAt in Asia/Tehran, including partial payments: 08:00–16:00 and 16:00–midnight.
