@@ -316,7 +316,7 @@ history by default.
   - `discountKind` and `discountValue` are both null or both valid; a stored
     `discountReason`, when present, is not blank. Catalog sale-discount
     snapshots legitimately have no item-level reason, while the application
-    requires a reason for Staff/Manager item-discount commands.
+    permits an optional reason for Staff/Manager item-discount commands.
 - Indexes:
   - `(orderId, displayOrder)`.
   - `productId`.
@@ -483,5 +483,5 @@ tableSeatingLimitSnapshotMinutes + estimatedPreparationMinutes`.
   payment-history browsing, reports, catalog, users, and settings—are enforced in application authorization and are
   covered by API and integration tests; the database records the actor for
   auditability but does not make role-based write decisions.
-- Staff and Manager may apply reasoned item/order discounts while settlement
+- Staff and Manager may apply item/order discounts with optional reasons while settlement
   immutability permits them; the database preserves the resulting snapshots.
