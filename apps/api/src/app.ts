@@ -56,9 +56,8 @@ export function buildApp() {
             body: {
               type: "object",
               additionalProperties: false,
-              required: ["altText", "image"],
+              required: ["image"],
               properties: {
-                altText: { type: "string", minLength: 1, maxLength: 500 },
                 image: { type: "string", format: "binary" },
               },
             },
