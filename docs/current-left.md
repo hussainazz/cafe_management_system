@@ -1,6 +1,6 @@
 # Current Stage Status
 
-Last reconciled: 3 October 2026. This file is the active completion checklist;
+Last reconciled: 4 October 2026. This file is the active completion checklist;
 implementation history belongs in Git and feature-specific records, not in a
 second chronological backlog.
 
@@ -32,9 +32,10 @@ second chronological backlog.
 - [ ] Verify bar tickets and customer receipts in Chrome on the café POS,
   including the configured printer, Persian output, 80 mm paper, and paper
   advance.
-- [ ] Apply and verify pending 3 October migrations through the release process:
+- [x] Apply and verify the pending 3 October migrations through the release process:
   product-image alt text follows the product name, and discount/payment-method
-  correction reasons are optional. Preserve backup and rollback evidence.
+  correction reasons are optional. Backup and rollback evidence are retained
+  for release `pos-20261004-55f9fe5`.
 - [ ] Complete the Stage 10 backend gate: current OpenAPI coverage, unit and
   isolated PostgreSQL integration/contract/authorization/idempotency/concurrency
   suites, fresh and restored-database migration rehearsals, security review,
@@ -46,6 +47,12 @@ second chronological backlog.
 
 ## Latest Implementation Notes
 
+- 4 October: deployed POS/API release `pos-20261004-55f9fe5` from commit
+  `55f9fe5`. Both 3 October migrations are applied; all 29 migrations are up
+  to date. API readiness, public `/menu`, `/pos`, `/pos/api/v1/health/ready`,
+  and `/pos/release` returned HTTP 200; all three services are active with
+  `NRestarts=0`. Browser, café-device, printer, and full pilot acceptance stays
+  open in Stage 10.
 - 4 October: POS and thermal print typography now uses Manrope for ASCII digit
   glyphs only, with Estedad retained for Persian glyphs and RTL unchanged.
   Stage 10 browser and printer acceptance remains open.
