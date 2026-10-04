@@ -6,6 +6,13 @@
   font-display: swap;
 }
 @font-face {
+  font-family: "Playfair Display";
+  src: url("/pos/fonts/playfair/PlayfairDisplay-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
   font-family: "Estedad";
   src: url("/pos/fonts/estedad/Estedad-Thin.ttf") format("truetype");
   font-style: normal;
@@ -654,7 +661,8 @@ svg {
 }
 .manager-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  container: manager-panels / inline-size;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap: 16px;
 }
 .manager-card {
@@ -673,6 +681,13 @@ svg {
   margin: 5px 0 16px;
   color: var(--muted);
   font-size: var(--text-meta);
+}
+.manager-card--payments > header p {
+  margin-block: 9px 16px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  line-height: 1.65;
 }
 .manager-form {
   display: grid;
@@ -729,6 +744,105 @@ svg {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+.manager-form fieldset > .catalog-option-groups-help {
+  flex: 0 0 100%;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-meta);
+  line-height: 1.6;
+}
+.catalog-edit-fields > fieldset > legend {
+  font-size: var(--text-body);
+  font-weight: 700;
+  line-height: 1.4;
+}
+.catalog-edit-fields > fieldset > .catalog-option-groups-help {
+  max-width: 65ch;
+  font-size: var(--text-body);
+  line-height: 1.65;
+}
+.catalog-edit-fields > fieldset > details {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.catalog-edit-fields > fieldset > details > summary {
+  font-size: var(--text-body);
+  font-weight: 700;
+  line-height: 1.45;
+}
+.catalog-option-group-fields {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-block-start: 6px;
+}
+.catalog-option-item {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  min-width: 0;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--border-subtle);
+}
+.catalog-option-item__select {
+  grid-column: 1 / -1;
+}
+.catalog-option-item > label {
+  min-width: 0;
+}
+.catalog-option-item > label input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.catalog-option-override {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+.catalog-option-override > label {
+  min-width: 0;
+}
+.catalog-option-use-base {
+  min-height: 36px;
+  justify-self: start;
+  padding-inline: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.catalog-option-use-base:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.manager-form .catalog-option-group-fields > label {
+  min-width: 0;
+  flex-wrap: wrap;
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+.catalog-option-group-fields > label input[type="number"] {
+  min-width: 0;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.catalog-option-group-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-body);
+  font-weight: 700;
+  line-height: 1.55;
+}
+.catalog-option-price-help {
+  margin: 6px 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body);
+  line-height: 1.65;
 }
 .image-upload-progress {
   display: grid;
@@ -1065,28 +1179,116 @@ svg {
   background: var(--scrim);
 }
 .catalog-product-drawer {
+  display: flex;
+  flex-direction: column;
   width: min(560px, 100%);
-  height: 100%;
-  overflow: auto;
-  padding: 20px;
+  height: 100dvh;
   background: var(--surface-overlay);
   box-shadow: var(--shadow-overlay);
 }
 .catalog-product-drawer > header {
+  position: sticky;
+  z-index: 1;
+  top: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: 0 0 auto;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-overlay);
 }
 .catalog-product-drawer > header h2 {
   margin: 0;
 }
 .catalog-product-drawer > header button {
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 9px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
   background: var(--surface-2);
-  font-size: 28px;
+  padding: 8px 14px;
+  font-weight: 700;
+}
+.catalog-product-drawer__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 20px 20px;
+}
+.catalog-product-drawer__content > .manager-form {
+  margin-top: 0;
+}
+.catalog-product-drawer__footer {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+  padding: 12px 20px max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--surface-overlay);
+}
+.catalog-product-drawer__footer button {
+  min-height: 46px;
+  flex: 1 1 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  padding: 8px 14px;
+  font-weight: 800;
+}
+.catalog-product-drawer__footer button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+.catalog-product-state {
+  align-items: flex-start !important;
+  grid-column: 1 / -1;
+}
+.catalog-product-state > span {
+  display: grid;
+  gap: 3px;
+}
+.catalog-product-state small,
+.catalog-product-secondary > p {
+  color: var(--muted);
+  font-size: var(--text-meta);
+  line-height: 1.6;
+}
+.catalog-edit-fields {
+  display: grid !important;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+}
+.manager-fields .catalog-price-summary {
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+.catalog-product-message {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-control);
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+  font-weight: 700;
+}
+.catalog-product-message--error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.catalog-product-secondary {
+  margin-top: 18px;
+  padding-top: 4px;
+}
+.catalog-product-secondary > p {
+  margin: 0 0 8px;
 }
 .catalog-image-editor {
   margin-top: 16px;
@@ -1747,6 +1949,7 @@ svg {
 .desk-sidebar {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  align-self: start;
   align-content: start;
   gap: 8px;
   min-width: 0;
@@ -2037,11 +2240,22 @@ svg {
   font-size: 9px;
 }
 .order-panel {
+  position: relative;
   padding: 20px;
   background: var(--surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-raised);
+}
+.order-panel:has(> .icon-button) > .icon-button {
+  position: absolute;
+  top: 20px;
+  inset-inline-start: 20px;
+}
+.order-panel:has(> .icon-button) .section-title {
+  direction: ltr;
+  min-height: 45px;
+  align-items: center;
 }
 .order-lines {
   display: grid;
@@ -2427,14 +2641,19 @@ svg {
 }
 .settlement-section-heading h3 {
   margin: 0;
-  font-size: var(--text-label);
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.5;
 }
 .settlement-section-heading span {
-  color: var(--muted);
-  font-size: var(--text-meta);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 .takeaway-orders {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   align-content: start;
   gap: 8px;
   padding: 14px 10px 12px;
@@ -2443,6 +2662,10 @@ svg {
   background: var(--surface);
   box-shadow: var(--shadow-low);
 }
+.takeaway-orders h2,
+.takeaway-orders p {
+  grid-column: 1 / -1;
+}
 .order-desk--takeaway .takeaway-orders {
   grid-column: 1 / -1;
   grid-row: 2;
@@ -2450,6 +2673,12 @@ svg {
 .order-desk--takeaway .desk-sidebar {
   grid-column: 1;
   grid-row: 1;
+  align-self: stretch;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.order-desk--takeaway .categories {
+  min-height: 0;
+  max-height: none;
 }
 .order-desk--takeaway .products {
   grid-column: 2;
@@ -2469,13 +2698,16 @@ svg {
   font-size: var(--text-meta);
 }
 .takeaway-orders button {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
+  min-height: 48px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--surface);
-  padding: 10px;
+  padding: 8px 12px;
   text-align: right;
 }
 .takeaway-orders button.is-selected {
@@ -2512,11 +2744,14 @@ svg {
   gap: 3px;
 }
 .settlement-item b {
-  font-size: var(--text-label);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.5;
 }
 .settlement-item span {
-  color: var(--muted);
-  font-size: var(--text-meta);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.55;
   font-variant-numeric: tabular-nums;
 }
 .settlement-quantity {
@@ -2539,8 +2774,9 @@ svg {
 }
 .settlement-quantity output {
   min-width: 46px;
-  color: var(--muted);
-  font-size: var(--text-meta);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -2561,9 +2797,10 @@ svg {
 .tender-row label {
   display: grid;
   gap: 5px;
-  color: var(--muted);
-  font-size: var(--text-meta);
-  font-weight: bold;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.5;
 }
 .tender-row input,
 .tender-row select {
@@ -2575,6 +2812,8 @@ svg {
   background: var(--surface);
   color: var(--ink);
   font: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
 .tender-remove {
@@ -2588,16 +2827,20 @@ svg {
   gap: 8px 16px;
 }
 .settlement-total > span {
-  font-size: var(--text-meta);
+  font-size: 0.875rem;
+  line-height: 1.55;
 }
 .settlement-total > span strong {
-  font-size: var(--text-label);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.5;
 }
 .settlement-total > b {
   grid-column: 1 / -1;
   padding-top: 7px;
   border-top: 1px solid var(--line);
-  font-size: var(--text-meta);
+  font-size: 0.875rem;
+  line-height: 1.6;
 }
 .settlement-total--matched {
   background: var(--success-soft);
@@ -2898,6 +3141,13 @@ svg {
     overscroll-behavior: contain;
   }
 }
+@container manager-panels (max-width: 735px) {
+  .manager-card--accounting {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
 /* Short POS windows keep every panel in document flow and dialogs independently scrollable. */
 @media (max-width: 680px), (max-height: 500px) {
   .pos-main { min-width: 0; }
@@ -3087,7 +3337,9 @@ svg {
 .thermal-receipt-header {
   margin: 0;
   font-size: 24px;
-  font-weight: 900;
+  font-family: "Playfair Display", Georgia, serif;
+  font-weight: 700;
+  direction: ltr;
   line-height: 1.2;
   text-align: center;
 }
@@ -3143,17 +3395,56 @@ svg {
 .thermal-items--receipt .thermal-item:last-child {
   border-bottom: 0;
 }
+.thermal-items--receipt .thermal-item {
+  padding-block: 3.5mm;
+}
+.thermal-item__main--receipt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2mm;
+}
+.thermal-item__description {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.thermal-item__base-price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1mm;
+  white-space: nowrap;
+}
+.thermal-item__main--receipt .thermal-item__base-price small {
+  display: inline;
+  margin: 0;
+  font-size: 9px;
+}
+.thermal-item__base-price strong {
+  font-size: 11px;
+}
 .thermal-receipt-total {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 3mm;
   margin-top: 2.5mm;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 900;
+}
+.thermal-receipt-total__amount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1.5mm;
+}
+.thermal-receipt-total__amount small {
+  font-size: 10px;
+  font-weight: 700;
 }
 .thermal-receipt-total strong {
   direction: ltr;
   font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 900;
   white-space: nowrap;
 }
 .thermal-item__main {
@@ -3176,6 +3467,7 @@ svg {
   display: block;
   margin-top: 1mm;
   color: #222;
+  font-weight: 500;
 }
 .thermal-item > strong {
   display: block;
