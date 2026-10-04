@@ -70,12 +70,15 @@ describe("ManagerWorkspace", () => {
   it("does not refetch finance data while audit filters are being typed", async () => {
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
     await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
-    fireEvent.click(screen.getByText("حسابداری"));
+    await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText("حسابرسی"));
     await waitFor(() => expect(api.readAuditLog).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByLabelText("عملیات"), { target: { value: "UPDATE_PRODUCT" } });
     expect(api.readAuditLog).toHaveBeenCalledTimes(1);
+    expect(api.readPaymentHistory).toHaveBeenCalledTimes(1);
     fireEvent.submit(screen.getByLabelText("عملیات").closest("form")!);
     await waitFor(() => expect(api.readAuditLog).toHaveBeenCalledTimes(2));
+    expect(api.readPaymentHistory).toHaveBeenCalledTimes(1);
   });
 
   it("applies complete Tehran-date payment filters only after Apply and resets to today", async () => {
@@ -204,7 +207,6 @@ describe("ManagerWorkspace", () => {
     const imageInput = screen.getByLabelText("تصویر JPEG/PNG/WebP") as HTMLInputElement;
     Object.defineProperty(imageInput, "files", { value: [file] });
     fireEvent.change(imageInput);
-    fireEvent.change(screen.getByLabelText("متن جایگزین"), { target: { value: "فنجان ترک" } });
     fireEvent.submit(imageInput.closest("form")!);
     expect(await screen.findByRole("progressbar", { name: "پیشرفت بارگذاری تصویر" })).toBeTruthy();
     expect(screen.getByText("0٪")).toBeTruthy();
