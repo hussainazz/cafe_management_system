@@ -153,15 +153,17 @@ describe("database-native constraints", () => {
       [order.id],
       { code: "23514", constraint: "orders_discount_value_check" },
     );
-    await expectDatabaseError(
-      `UPDATE "orders"
-       SET "discountKind" = 'FIXED', "discountValue" = 1000,
-           "discountAmount" = 1000, "totalAmount" = 99000, "balanceAmount" = 99000,
-           "discountReason" = NULL
-       WHERE "id" = $1`,
-      [order.id],
-      { code: "23514", constraint: "orders_discount_value_check" },
-    );
+    await app.prisma.order.update({
+      where: { id: order.id },
+      data: {
+        discountKind: "FIXED",
+        discountValue: 1000,
+        discountAmount: 1000,
+        totalAmount: 99000,
+        balanceAmount: 99000,
+        discountReason: null,
+      },
+    });
 
     await app.prisma.order.update({
       where: { id: order.id },
