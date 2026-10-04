@@ -46,7 +46,7 @@ function toPublicProduct(product: PublicCatalogProduct) {
       amount: discountAmount,
     } : null,
     isAvailable: product.isAvailable,
-    image: product.image,
+    image: product.image ? { storageKey: product.image.storageKey, altText: product.name } : null,
     optionGroups: product.productOptionGroups
       .filter(({ optionGroup }) => optionGroup.isActive && optionGroup.archivedAt === null)
       .map(({ optionGroup, minSelections, maxSelections, allowedOptions }) => ({ id: optionGroup.id, name: optionGroup.name, minSelections, maxSelections, options: allowedOptions.filter(({ option }) => option.isActive && !option.archivedAt).map(({ option, priceAmountOverride }) => ({ ...option, priceAmount: priceAmountOverride ?? option.priceAmount })) })),
