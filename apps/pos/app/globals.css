@@ -6,6 +6,30 @@
   font-display: swap;
 }
 @font-face {
+  font-family: "Manrope Digits";
+  src: url("/pos/fonts/manrope/Manrope-Light.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  unicode-range: U+0025, U+002B, U+002C, U+002D, U+002E, U+002F, U+0030-0039, U+003A;
+}
+@font-face {
+  font-family: "Manrope Digits";
+  src: url("/pos/fonts/manrope/Manrope-Medium.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  unicode-range: U+0025, U+002B, U+002C, U+002D, U+002E, U+002F, U+0030-0039, U+003A;
+}
+@font-face {
+  font-family: "Manrope Digits";
+  src: url("/pos/fonts/manrope/Manrope-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  unicode-range: U+0025, U+002B, U+002C, U+002D, U+002E, U+002F, U+0030-0039, U+003A;
+}
+@font-face {
   font-family: "Playfair Display";
   src: url("/pos/fonts/playfair/PlayfairDisplay-Bold.ttf") format("truetype");
   font-style: normal;
@@ -198,7 +222,7 @@
   --text-label: 0.875rem;
   --text-body: 1rem;
   --text-title: clamp(1.5rem, 2.2vw, 2rem);
-  font-family: "Estedad", Tahoma, Arial, sans-serif;
+  font-family: "Manrope Digits", "Estedad", Tahoma, Arial, sans-serif;
   font-size: 15px;
   line-height: 1.6;
   font-synthesis: none;
@@ -1783,7 +1807,7 @@ svg {
 .occupied-panel {
   position: sticky;
   top: clamp(18px, 3vw, 42px);
-  margin-top: 42px;
+  margin-top: 0;
   align-self: start;
   max-height: calc(100vh - clamp(36px, 6vw, 84px));
   display: flex;
@@ -1808,12 +1832,15 @@ svg {
   width: 34px;
   height: 34px;
 }
+.occupied-panel__heading {
+  min-width: 0;
+}
 .occupied-panel__header h2 {
   margin: 0 0 5px;
   font-size: 1.25rem;
   line-height: 1.3;
 }
-.occupied-panel__header span {
+.occupied-panel__header .occupied-panel__elapsed {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1821,9 +1848,21 @@ svg {
   font-size: var(--text-meta);
   line-height: 1.45;
 }
-.occupied-panel__header span svg {
+.occupied-panel__header .occupied-panel__elapsed svg {
   width: 13px;
   height: 13px;
+}
+.occupied-panel__header > .status-badge {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-inline-start: auto;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 .occupied-panel__items {
   display: grid;
@@ -3216,7 +3255,7 @@ svg {
   padding: 4mm 4.5mm;
   background: #fff;
   color: #000;
-  font-family: "Estedad", Tahoma, Arial, sans-serif;
+  font-family: "Manrope Digits", "Estedad", Tahoma, Arial, sans-serif;
   font-size: 11px;
   line-height: 1.42;
 }
