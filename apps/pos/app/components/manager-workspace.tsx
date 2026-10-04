@@ -40,7 +40,7 @@ import { AlertIcon, MenuIcon, RefreshIcon, WifiIcon } from "./icons";
 import { CatalogPanel } from "./catalog-panel";
 import { SettlementSheet } from "./orders-workspace";
 
-type Panel = "catalog" | "tables" | "finance" | "settings";
+type Panel = "catalog" | "tables" | "finance" | "audit" | "settings";
 type Confirm = {
   title: string;
   detail: string;
@@ -243,6 +243,7 @@ export function ManagerWorkspace({
         {(
           [
             ["finance", "حسابداری"],
+            ["audit", "حسابرسی"],
             ["catalog", "کاتالوگ"],
             ["tables", "میزها"],
             ["settings", "تنظیمات"],
@@ -277,8 +278,8 @@ export function ManagerWorkspace({
         />
       )}
       {!loading && panel === "tables" && catalog && <TablesPanel catalog={catalog} mutate={mutate} reload={reloadCatalog} requestConfirm={setConfirm} />}
-      {!loading && panel === "finance" && (
-        <FinancePanel mutate={mutate} requestConfirm={setConfirm} />
+      {!loading && (panel === "finance" || panel === "audit") && (
+        <FinancePanel panel={panel} mutate={mutate} requestConfirm={setConfirm} />
       )}
       {!loading && panel === "settings" && settings && (
         <SettingsPanel settings={settings} staff={staff} mutate={mutate} reload={reloadSettings} reloadStaff={reloadStaff} requestConfirm={setConfirm} />
@@ -386,7 +387,6 @@ function LegacyCatalogPanel({
                 />
                 <ImageForm
                   productId={row.id}
-                  initialAlt={row.image?.altText ?? ""}
                   hasImage={Boolean(row.image)}
                   mutate={mutate}
                   reload={reload}
@@ -615,9 +615,11 @@ function StaffPanel({
 }
 
 function FinancePanel({
+  panel,
   mutate,
   requestConfirm,
 }: {
+  panel: "finance" | "audit";
   mutate: (action: () => Promise<any>, reload: () => Promise<any>) => Promise<void>;
   requestConfirm: (confirm: Confirm) => void;
 }) {
@@ -711,9 +713,11 @@ function FinancePanel({
   };
   return (
     <div className="manager-grid">
+      {panel === "finance" && <>
       <ManagerCard
+        className="manager-card--payments"
         title="پرداخت‌ها و حذف سفارش‌ها"
-        hint="تسویه‌های ثبت‌شده نگهداری می‌شوند؛ حذف سفارش همه تسویه‌های فعال همان سفارش را از گزارش جاری خارج می‌کند."
+        hint="حذف سفارش، تسویه‌های فعال آن را از گزارش جاری خارج می‌کند؛ سوابق مالی و حسابرسی حفظ می‌شوند."
       >
         {message && <p className="form-error">{message}</p>}
         <form
@@ -966,7 +970,8 @@ function FinancePanel({
           </dl>
         )}
       </ManagerCard>
-      <ManagerCard title="تاریخچه حسابرسی" hint="فقط داده‌های امن عملیات نشان داده می‌شوند.">
+      </>}
+      {panel === "audit" && <ManagerCard title="تاریخچه حسابرسی" hint="فقط داده‌های امن عملیات نشان داده می‌شوند.">
         <form
           className="manager-form"
           onSubmit={(event) => {
@@ -1024,6 +1029,7 @@ function FinancePanel({
           </button>
         )}
       </ManagerCard>
+      }
     </div>
   );
 }
@@ -1337,14 +1343,12 @@ function TableForm({
 }
 function ImageForm({
   productId,
-  initialAlt,
   hasImage,
   mutate,
   reload,
   requestConfirm,
 }: {
   productId: string;
-  initialAlt: string;
   hasImage: boolean;
   mutate: (action: () => Promise<any>, reload: () => Promise<any>) => Promise<void>;
   reload: () => Promise<any>;
@@ -1358,13 +1362,12 @@ function ImageForm({
       onSubmit={(event) => {
         event.preventDefault();
         if (busy) return;
-        const data = new FormData(event.currentTarget);
         const image = (event.currentTarget.elements.namedItem("image") as HTMLInputElement | null)?.files?.[0];
         if (!image?.size) return;
         setBusy(true);
         setProgress(0);
         void mutate(
-          () => uploadProductImage(productId, image, text(data.get("altText")), setProgress),
+          () => uploadProductImage(productId, image, setProgress),
           reload,
         )
           .catch(() => undefined)
@@ -1384,10 +1387,6 @@ function ImageForm({
             required
             disabled={busy}
           />
-        </label>
-        <label>
-          <span>متن جایگزین</span>
-          <input name="altText" required defaultValue={initialAlt} disabled={busy} />
         </label>
       </div>
       <button type="submit" disabled={busy}>
