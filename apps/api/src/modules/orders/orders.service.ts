@@ -758,7 +758,7 @@ export async function updateOrder(
       const discount = change.discount;
       const existingDiscount = item.discountKind && item.discountValue ? { kind: item.discountKind, value: item.discountValue } : null;
       const appliedDiscount = discount === undefined ? existingDiscount : discount;
-      const discountBaseAmount = discount === undefined && item.discountReason === null ? pricing.baseAmount : grossLineAmount;
+      const discountBaseAmount = discount === undefined && item.discountKind === null ? pricing.baseAmount : grossLineAmount;
       const discountAmount = calculatedDiscount(discountBaseAmount, appliedDiscount);
       await transaction.orderItem.update({ where: { id: item.id }, data: {
         quantity, weightGrams, ...(change.note !== undefined ? { note: change.note } : {}),
@@ -1137,7 +1137,7 @@ export async function editSettlement(
           payments: { create: input.payments.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.method === "CARD_TRANSFER" ? payment.reference ?? null : null })) },
         },
       });
-      await transaction.settlementReversal.create({ data: { settlementId, recordedById: actor.id, reason: input.reason, recordedAt } });
+      await transaction.settlementReversal.create({ data: { settlementId, recordedById: actor.id, reason: input.reason ?? null, recordedAt } });
       const updated = await transaction.order.updateMany({
         where: { id: original.orderId, version: input.expectedVersion },
         data: { version: { increment: 1 } },
@@ -1145,8 +1145,8 @@ export async function editSettlement(
       if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
       const result = orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: original.orderId }, include: orderDetailInclude }));
       await transaction.auditLog.createMany({ data: [
-        { actorId: actor.id, requestId, operation: "REVERSE_SETTLEMENT", entityType: "PAYMENT_SETTLEMENT", entityId: settlementId, reason: input.reason, beforeSnapshot: { orderId: original.orderId, totalAmount: original.totalAmount, payments: original.payments }, afterSnapshot: { correctedBySettlementId: replacement.id, orderVersion: result.version } },
-        { actorId: actor.id, requestId, operation: EDIT_SETTLEMENT_OPERATION, entityType: "PAYMENT_SETTLEMENT", entityId: replacement.id, reason: input.reason, beforeSnapshot: { replacedSettlementId: settlementId, totalAmount: original.totalAmount, payments: original.payments }, afterSnapshot: { totalAmount: replacement.totalAmount, payments: input.payments, orderVersion: result.version } },
+        { actorId: actor.id, requestId, operation: "REVERSE_SETTLEMENT", entityType: "PAYMENT_SETTLEMENT", entityId: settlementId, reason: input.reason ?? null, beforeSnapshot: { orderId: original.orderId, totalAmount: original.totalAmount, payments: original.payments }, afterSnapshot: { correctedBySettlementId: replacement.id, orderVersion: result.version } },
+        { actorId: actor.id, requestId, operation: EDIT_SETTLEMENT_OPERATION, entityType: "PAYMENT_SETTLEMENT", entityId: replacement.id, reason: input.reason ?? null, beforeSnapshot: { replacedSettlementId: settlementId, totalAmount: original.totalAmount, payments: original.payments }, afterSnapshot: { totalAmount: original.totalAmount, payments: input.payments, orderVersion: result.version } },
       ] });
       await transaction.idempotencyRecord.create({ data: { actorId: actor.id, operation: EDIT_SETTLEMENT_OPERATION, key: idempotencyKey, requestFingerprint: fingerprint, responseStatus: 200, resultSnapshot: result, expiresAt: new Date(recordedAt.getTime() + IDEMPOTENCY_RETENTION_MS) } });
       return result;
@@ -1162,7 +1162,23 @@ export async function editSettlement(
 }
 
 function tehranDisplayTime(value: Date): string {
-  return new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: "Asia/Tehran", dateStyle: "short", timeStyle: "short" }).format(value);
+  const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian-nu-latn", {
+    timeZone: "Asia/Tehran",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "00";
+  const localize = (value: string) => new Intl.NumberFormat("fa-IR-u-nu-arabext", { useGrouping: false }).format(Number(value));
+  const year = localize(part("year"));
+  const month = localize(part("month").padStart(2, "0"));
+  const day = localize(part("day").padStart(2, "0"));
+  const hour = localize(part("hour").padStart(2, "0"));
+  const minute = localize(part("minute").padStart(2, "0"));
+  return `${year}/${month}/${day}  •  ${hour}:${minute}`;
 }
 
 const receiptInclude = {
@@ -1234,6 +1250,7 @@ export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUse
       return {
         productName: item.productNameSnapshot,
         quantity: item.quantity,
+        basePriceSnapshot: item.basePriceSnapshot,
         pricingModeSnapshot: item.pricingModeSnapshot,
         weightGrams: item.weightGrams,
         options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })),
@@ -1257,6 +1274,7 @@ export async function settlementReceipt(prisma: PrismaClient, actor: Authenticat
     items: settlement.allocations.map((allocation) => ({
       productName: allocation.orderItem.productNameSnapshot,
       quantity: allocation.quantity || allocation.orderItem.quantity,
+      basePriceSnapshot: allocation.orderItem.basePriceSnapshot,
       pricingModeSnapshot: allocation.orderItem.pricingModeSnapshot,
       weightGrams: allocation.orderItem.weightGrams,
       options: allocation.orderItem.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })),
