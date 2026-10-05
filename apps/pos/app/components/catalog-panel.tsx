@@ -929,15 +929,32 @@ function ImageEditor({ product, productBusy, onBusyChange, mutate, reload, reque
         setUploadError("");
         setUploadMessage("");
         setProgress(0);
-        void mutate(() => uploadProductImage(product.id, file, setProgress), reload)
-          .then(() => {
+        void uploadProductImage(product.id, file, setProgress)
+          .then(async (result) => {
+            await mutate(() => Promise.resolve(result), reload);
+            if (!result.ok) return;
+
             setHasImage(true);
             setUploadedPreview(
               typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : null,
             );
             setSelectedFile(null);
+            let menuImageResponse: Response;
+            let menuImage: Blob;
+            try {
+              menuImageResponse = await fetch(
+                `/pos/api/v1/product-images/${encodeURIComponent(result.data.data.storageKey)}`,
+                { cache: "no-store" },
+              );
+              menuImage = await menuImageResponse.blob();
+            } catch {
+              throw new Error("تصویر در POS بارگذاری شد، اما دریافت آن از سرویس تصاویر منو ممکن نشد.");
+            }
+            if (!menuImageResponse.ok || !menuImage.size || !menuImage.type.startsWith("image/")) {
+              throw new Error("تصویر در POS بارگذاری شد، اما دریافت آن از سرویس تصاویر تأیید نشد.");
+            }
+            setUploadMessage("تصویر بارگذاری شد و دریافت آن از سرویس تصاویر تأیید شد.");
           })
-          .then(() => setUploadMessage("تصویر محصول بارگذاری شد."))
           .catch((error: unknown) => {
             setUploadError(error instanceof Error ? error.message : "بارگذاری تصویر انجام نشد. دوباره تلاش کنید.");
           })
