@@ -32,6 +32,8 @@ import {
   AuditLogResponseSchema,
   ReverseSettlementResponseSchema,
   EditSettlementResponseSchema,
+  ProductSaleDiscountResponseSchema,
+  type ProductSaleDiscountRequest,
   type RecordSettlementRequest,
   type UpdateOrderRequest,
   type DeleteOrderRequest,
@@ -455,6 +457,9 @@ export async function readManagerCatalog(): Promise<ApiResult<ManagerCatalog>> {
   if (!tables.ok) return tables;
   return { ok: true, replayed: false, data: { categories: categories.data.data.categories, products: products.data.data.products, optionGroups: optionGroups.data.data.optionGroups, tables: tables.data.data.tables } };
 }
+
+export const saveProductSaleDiscount = (productId: string, saleDiscount: ProductSaleDiscountRequest["saleDiscount"] | null) =>
+  managerMutation(`/admin/products/${productId}/sale-discount`, "PATCH", { saleDiscount }, ProductSaleDiscountResponseSchema, "پاسخ تخفیف محصول معتبر نیست.");
 
 export async function readManagerStaff(): Promise<ApiResult<ManagerStaff>> {
   const parsed = await managerResponse("/admin/users", AdminStaffResponseSchema, "فهرست پرسنل معتبر نیست.");
