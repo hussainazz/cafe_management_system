@@ -73,7 +73,9 @@ second chronological backlog.
   intact. Public `/menu`, `/pos`, `/pos/release`, a committed menu image, and
   the POS font returned HTTP 200; API readiness is connected and all three
   services are active with `NRestarts=0`. POS device/printer acceptance and
-  the remaining Stage 10 checks stay open.
+  the remaining Stage 10 checks stay open. The release exposed a missing
+  migration-before-activation check; the incident and new schema gate are
+  recorded in `docs/planning/production-gates.md`.
 
 - 5 October: the public-menu `افزودنی` category now uses two columns, including
   narrow mobile layouts. Items with an uploaded image sort first and span the
