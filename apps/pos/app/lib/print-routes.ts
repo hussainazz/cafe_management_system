@@ -20,11 +20,9 @@ export function printDocument(url: string): Promise<void> {
 
     let settled = false;
     let prepared = false;
-    let completionTimeout: number | undefined;
     let observer: MutationObserver | null = null;
     const cleanup = () => {
       observer?.disconnect();
-      window.clearTimeout(completionTimeout);
       iframe.remove();
     };
     const fail = (message: string) => {
@@ -48,7 +46,6 @@ export function printDocument(url: string): Promise<void> {
         cleanup();
         resolve();
       }) as EventListener, { once: true });
-      completionTimeout = window.setTimeout(() => fail("پایان چاپ تأیید نشد؛ وضعیت چاپ ثبت نشده است."), 120_000);
     };
     const inspect = () => {
       try {
