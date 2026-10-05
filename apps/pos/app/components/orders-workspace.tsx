@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { PosCatalogCategory, PosCatalogProduct, PosTable } from "@cafe/contracts";
+import { roundDiscountedAmount } from "@cafe/contracts";
 import {
   acknowledgeWaiterCall,
   createOpenOrder,
@@ -965,7 +966,14 @@ export function OrderDesk({
       onDirtyChange(false);
     };
   }, [onDirtyChange]);
-  const finishSuccessfulSave = async (updatedOrder: OrderDetail) => {
+  const printBarTicket = async (orderId: string) => {
+    try {
+      await printDocument(printRoute(orderId, "bar-ticket"));
+    } catch (printError) {
+      setError(printError instanceof Error ? printError.message : "سند چاپی آماده نشد.");
+    }
+  };
+  const finishSuccessfulSave = async (updatedOrder: OrderDetail, printAfterSave = false) => {
     rememberItemNotes([...draftForOrder.map((item) => ({ productId: item.product.id, note: item.note })), ...savedForOrder.filter((item) => item.quantity > 0 && item.note !== (item.originalNote ?? "")).map((item) => ({ productId: item.productId, note: item.note }))]);
     setDraft([]);
     setSaved(initialOrder ? savedDrafts(updatedOrder) : []);
@@ -976,9 +984,14 @@ export function OrderDesk({
     if (!initialOrder) clearDeskRecovery(channel, table?.id ?? null, null);
     onDirtyChange(false);
     await onOrder(updatedOrder);
+    if (printAfterSave) await printBarTicket(updatedOrder.id);
   };
-  const save = async () => {
-    if (!draftForOrder.length && !savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""))) return;
+  const save = async (printAfterSave = false) => {
+    const hasChanges = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+    if (!hasChanges) {
+      if (printAfterSave && initialOrder) await printBarTicket(initialOrder.id);
+      return;
+    }
     setBusy(true);
     setError(null);
     if (initialOrder) {
@@ -991,12 +1004,13 @@ export function OrderDesk({
             ...(draftForOrder.length ? { addItems: payloadItems() } : {}),
             ...(changedSaved.length ? { itemUpdates: changedSaved.map((item) => ({ orderItemId: item.id, quantity: item.quantity })) } : {}),
           });
-      setBusy(false);
       if (!result.ok) {
+        setBusy(false);
         setError(result.error.message);
         return;
       }
-      await finishSuccessfulSave(result.data);
+      await finishSuccessfulSave(result.data, printAfterSave);
+      setBusy(false);
     } else {
       attemptedCreateFingerprint.current = createRequestFingerprint;
       writeRecovery(`${recoveryPrefix}:create-fingerprint`, createRequestFingerprint);
@@ -1007,8 +1021,8 @@ export function OrderDesk({
         createAttemptKey,
         { requestId: requestKey(), ...(channel === "TABLE" ? { tableName: table!.name } : {}) },
       );
-      setBusy(false);
       if (!result.ok) {
+        setBusy(false);
         setError(result.error.message);
         if (channel === "TABLE") await onCreateFailure(result.error.message);
         return;
@@ -1016,10 +1030,12 @@ export function OrderDesk({
       rememberItemNotes(draftForOrder.map((item) => ({ productId: item.product.id, note: item.note })));
       const detail = await readOrder(result.data.id);
       if (!detail.ok) {
+        setBusy(false);
         setError(detail.error.message);
         return;
       }
-      await finishSuccessfulSave(detail.data);
+      await finishSuccessfulSave(detail.data, printAfterSave);
+      setBusy(false);
     }
   };
   useEffect(() => { onSubmitReady(() => void save()); }, [onSubmitReady, save]);
@@ -1083,6 +1099,7 @@ export function OrderDesk({
         onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
         onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
         onSave={() => void save()}
+        onSaveAndPrint={() => void save(true)}
         onCheckout={() => setCheckout(true)}
         onPrint={(kind, settlementId) => {
           if (!initialOrder) return;
@@ -1233,6 +1250,7 @@ function OrderSummary({
   onSavedNote,
   onDraftNote,
   onSave,
+  onSaveAndPrint,
   onCheckout,
   onPrint,
   onRequestDelete,
@@ -1249,6 +1267,7 @@ function OrderSummary({
   onSavedNote: (id: string, note: string) => void;
   onDraftNote: (key: string, note: string) => void;
   onSave: () => void;
+  onSaveAndPrint: () => void;
   onCheckout: () => void;
   onPrint: (kind: PrintKind, settlementId?: string) => void;
   onRequestDelete: () => void;
@@ -1282,9 +1301,23 @@ function OrderSummary({
         })}
         {draft.map((item) => {
           const expanded = expandedDraftKey === item.key;
-          const unitPrice = item.product.pricingMode === "WEIGHTED_PER_KG"
-            ? weightedPricePreview(item.product.priceAmount, sumAmounts(item.options.map((x) => x.priceAmount)), item.weightGrams ?? 0, item.quantity)
-            : (item.product.priceAmount + sumAmounts(item.options.map((x) => x.priceAmount))) * item.quantity;
+          const optionAmount = sumAmounts(item.options.map((x) => x.priceAmount));
+          const baseAmount = item.product.pricingMode === "WEIGHTED_PER_KG"
+            ? weightedPricePreview(item.product.priceAmount, 0, item.weightGrams ?? 0, item.quantity)
+            : item.product.priceAmount * item.quantity;
+          const grossAmount = item.product.pricingMode === "WEIGHTED_PER_KG"
+            ? baseAmount + weightedPricePreview(0, optionAmount, item.weightGrams ?? 0, item.quantity)
+            : baseAmount + optionAmount * item.quantity;
+          const saleDiscountAmount = !item.product.saleDiscountKind || !item.product.saleDiscountValue
+            ? 0
+            : item.product.saleDiscountKind === "PERCENTAGE"
+              ? Math.floor(baseAmount * item.product.saleDiscountValue / 100)
+              : item.product.pricingMode === "WEIGHTED_PER_KG"
+                ? Math.floor(item.product.saleDiscountValue * (item.weightGrams ?? 0) * item.quantity / 1000)
+                : item.product.saleDiscountValue * item.quantity;
+          const unitPrice = saleDiscountAmount > 0
+            ? Math.min(grossAmount, roundDiscountedAmount(grossAmount - saleDiscountAmount))
+            : grossAmount;
           return (
             <article
               className={expanded ? "order-line order-line--expanded" : "order-line"}
@@ -1357,6 +1390,11 @@ function OrderSummary({
       {(order || hasUnsavedChanges) && (
         <button className="button button--primary button--wide" disabled={busy || !hasUnsavedChanges} onClick={onSave}>
           {busy ? "در حال ثبت…" : order ? "تأیید و ثبت ویرایش" : "ثبت سفارش"}
+        </button>
+      )}
+      {(order || draft.length > 0) && (
+        <button className="button button--quiet button--wide" type="button" disabled={busy} onClick={onSaveAndPrint}>
+          {busy ? "در حال ثبت…" : "تایید سفارش و چاپ بار"}
         </button>
       )}
       {order && (
