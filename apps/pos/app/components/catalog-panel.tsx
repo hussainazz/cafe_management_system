@@ -26,9 +26,11 @@ import {
   reorderCategories,
   reorderProducts,
   saveCategory,
+  savePromotionalCategoryProducts,
   saveOption,
   saveOptionGroup,
   saveProduct,
+  saveProductSaleDiscount,
   uploadProductImage,
   type ManagerCatalog,
 } from "../lib/api-client";
@@ -251,29 +253,36 @@ function DragHandle({ attributes, listeners }: any) {
   );
 }
 
-function SortableCategory({ row, index, selected, onSelect }: any) {
+function SortableCategory({ row, index, selected, onSelect, mutate, reload, requestConfirm }: any) {
   const sortable = useSortable({ id: row.id });
   return (
-    <li
-      ref={sortable.setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(sortable.transform),
-        transition: sortable.transition,
-      }}
-      className={`catalog-category-row ${selected ? "is-selected" : ""} ${sortable.isDragging ? "is-dragging" : ""}`}
-    >
-      <DragHandle attributes={sortable.attributes} listeners={sortable.listeners} />
-      <button type="button" className="catalog-category-select" onClick={onSelect}>
-        <strong>{row.name}</strong>
-        <small>{row.isActive ? "فعال" : "غیرفعال"}</small>
-      </button>
-      <span className="catalog-order">#{index + 1}</span>
-    </li>
+    <>
+      <li
+        ref={sortable.setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(sortable.transform),
+          transition: sortable.transition,
+        }}
+        className={`catalog-category-row ${selected ? "is-selected" : ""} ${sortable.isDragging ? "is-dragging" : ""}`}
+      >
+        <DragHandle attributes={sortable.attributes} listeners={sortable.listeners} />
+        <button type="button" className="catalog-category-select" onClick={onSelect}>
+          <strong>{row.name}</strong>
+          <small>{row.kind === "PROMOTIONAL" ? "تبلیغاتی" : "اصلی"} · {row.isActive ? "فعال" : "غیرفعال"}</small>
+        </button>
+        <span className="catalog-order">#{index + 1}</span>
+      </li>
+      {selected && (
+        <li className="catalog-category-editor-item">
+          <CategoryEditor row={row} mutate={mutate} reload={reload} requestConfirm={requestConfirm} />
+        </li>
+      )}
+    </>
   );
 }
 
-function SortableProduct({ row, categoryName, index, onEdit }: any) {
-  const sortable = useSortable({ id: row.id });
+function SortableProduct({ row, categoryName, index, onEdit, disabled }: any) {
+  const sortable = useSortable({ id: row.id, disabled: Boolean(disabled) });
   return (
     <article
       ref={sortable.setNodeRef}
@@ -315,6 +324,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
   const [productOrder, setProductOrder] = useState<Record<string, string[]>>({});
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<any | "new" | null>(null);
+  const [promoPickerOpen, setPromoPickerOpen] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -325,9 +335,9 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
       Object.fromEntries(
         catalog.categories.map((category) => [
           category.id,
-          catalog.products
-            .filter((product) => product.categoryId === category.id)
-            .map((product) => product.id),
+          category.kind === "PROMOTIONAL"
+            ? category.productIds.filter((id) => catalog.products.some((product) => product.id === id))
+            : catalog.products.filter((product) => product.categoryId === category.id).map((product) => product.id),
         ]),
       ),
     );
@@ -346,7 +356,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
     () =>
       [
         ...catalog.products.filter(
-          (row) => row.categoryId === selectedId && row.name.includes(query.trim()),
+          (row) => (row.categoryId === selectedId || selected?.kind === "PROMOTIONAL" && selected.productIds.includes(row.id)) && row.name.includes(query.trim()),
         ),
       ].sort(
         (a, b) =>
@@ -366,7 +376,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
     void mutate(() => reorderCategories(ordered), reload);
   };
   const productDrop = (event: DragEndEvent) => {
-    if (!selected || !event.over || event.active.id === event.over.id) return;
+    if (!selected || selected.kind === "PROMOTIONAL" || !event.over || event.active.id === event.over.id) return;
     const ids = productOrder[selected.id] ?? [];
     const ordered = arrayMove(
       ids,
@@ -383,20 +393,6 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
           <h2>دسته‌ها</h2>
           <p>دسته را انتخاب یا با دستگیره مرتب کنید.</p>
         </header>
-        <form
-          className="catalog-create"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const form = new FormData(event.currentTarget);
-            void mutate(
-              () => saveCategory(null, { name: value(form, "name"), isActive: true }),
-              reload,
-            ).then(() => event.currentTarget.reset());
-          }}
-        >
-          <input name="name" required placeholder="نام دسته" aria-label="نام دسته" />
-          <button>افزودن</button>
-        </form>
         {categories.length ? (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={categoryDrop}>
             <SortableContext
@@ -411,6 +407,9 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
                     index={index}
                     selected={selectedId === row.id}
                     onSelect={() => setSelectedId(row.id)}
+                    mutate={mutate}
+                    reload={reload}
+                    requestConfirm={requestConfirm}
                   />
                 ))}
               </ul>
@@ -419,15 +418,46 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
         ) : (
           <div className="catalog-empty">هنوز دسته‌ای ساخته نشده است.</div>
         )}
-        {selected && (
-          <CategoryEditor
-            key={selected.id}
-            row={selected}
-            mutate={mutate}
-            reload={reload}
-            requestConfirm={requestConfirm}
-          />
-        )}
+        <form
+          className="catalog-create"
+          aria-labelledby="catalog-create-title"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const formElement = event.currentTarget;
+            const form = new FormData(formElement);
+            let createdCategoryId: string | null = null;
+            try {
+              await mutate(
+                async () => {
+                  const result = await saveCategory(null, {
+                    name: value(form, "name"),
+                    kind: value(form, "kind"),
+                    isActive: true,
+                  });
+                  if (result.ok) createdCategoryId = result.data.data.id;
+                  return result;
+                },
+                reload,
+              );
+              formElement.reset();
+              if (createdCategoryId) setSelectedId(createdCategoryId);
+            } catch {
+              // The Manager workspace displays the API failure in its status notice.
+            }
+          }}
+        >
+          <h3 id="catalog-create-title" className="catalog-create__title">ایجاد دسته</h3>
+          <input name="name" required placeholder="نام دسته" aria-label="نام دسته" />
+          <label className="catalog-create__kind">
+            نوع دسته
+            <select name="kind" aria-label="نوع دسته" defaultValue="SOURCE">
+              <option value="SOURCE">دسته اصلی</option>
+              <option value="PROMOTIONAL">دسته تبلیغاتی</option>
+            </select>
+            <small>دستهٔ اصلی مالک محصول است؛ دستهٔ تبلیغاتی همان محصول را بدون تغییر مبدأ نمایش می‌دهد.</small>
+          </label>
+          <button type="submit">ایجاد دسته</button>
+        </form>
       </aside>
       <main className="catalog-products">
         <header className="catalog-products__header">
@@ -443,13 +473,12 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
             aria-label="جستجوی محصول"
             disabled={!selected}
           />
-          <button
-            className="catalog-add-product"
-            disabled={!selected}
-            onClick={() => setEditor("new")}
-          >
-            + افزودن محصول
-          </button>
+          {selected?.kind === "PROMOTIONAL" && <button type="button" className="catalog-promo-action" onClick={() => setPromoPickerOpen(true)}>افزودن محصول از دسته‌ها</button>}
+          {selected?.kind === "SOURCE" && (
+            <button className="catalog-add-product" onClick={() => setEditor("new")}>
+              + افزودن محصول
+            </button>
+          )}
         </header>
         {!selected ? (
           <div className="catalog-empty">برای شروع، یک دسته ایجاد کنید.</div>
@@ -463,6 +492,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
                       key={row.id}
                       row={row}
                       categoryName={selected.name}
+                      disabled={selected.kind === "PROMOTIONAL"}
                       index={Math.max(0, (productOrder[selected.id] ?? []).indexOf(row.id))}
                       onEdit={() => setEditor(row)}
                     />
@@ -471,13 +501,14 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
               ) : (
                 <div className="catalog-empty">
                   هیچ محصولی در این دسته وجود ندارد.
-                  <button onClick={() => setEditor("new")}>+ افزودن محصول</button>
+                  {selected.kind === "PROMOTIONAL" ? <button onClick={() => setPromoPickerOpen(true)}>افزودن محصول از دسته‌ها</button> : <button onClick={() => setEditor("new")}>+ افزودن محصول</button>}
                 </div>
               )}
             </SortableContext>
           </DndContext>
         )}
       </main>
+      {promoPickerOpen && selected?.kind === "PROMOTIONAL" && <PromotionalProductPicker category={selected} catalog={catalog} close={() => setPromoPickerOpen(false)} mutate={mutate} reload={reload} />}
       {editor && selected && (
         <ProductDrawer
           initial={editor === "new" ? undefined : editor}
@@ -512,29 +543,215 @@ function CategoryEditor({ row, mutate, reload, requestConfirm }: any) {
       }}
     >
       <strong>ویرایش دسته انتخاب‌شده</strong>
+      <span>{row.kind === "PROMOTIONAL" ? "دسته تبلیغاتی؛ محصولات از دسته‌های اصلی نمایش داده می‌شوند." : "دسته اصلی؛ محصولات به این دسته تعلق دارند."}</span>
       <input name="name" defaultValue={row.name} aria-label="نام دسته انتخاب‌شده" required />
       <label>
         <input name="isActive" type="checkbox" defaultChecked={row.isActive} /> نمایش در منوی عمومی
       </label>
-      <label>
+      {row.kind === "SOURCE" && <label>
         <input name="isPosVisible" type="checkbox" defaultChecked={row.isPosVisible} /> نمایش در
         سفارش‌گیری POS
-      </label>
+      </label>}
       <button>ذخیره تغییرات</button>
-      <button
-        type="button"
-        className="catalog-archive"
-        onClick={() =>
-          requestConfirm({
-            title: "بایگانی دسته",
-            detail: `«${row.name}» از فروش فعال خارج می‌شود و سابقه آن حفظ خواهد شد.`,
-            run: () => mutate(() => archiveCategory(row.id), reload),
-          })
-        }
-      >
-        بایگانی دسته
-      </button>
+      {row.kind === "SOURCE" && (
+        <button
+          type="button"
+          className="catalog-archive"
+          onClick={() =>
+            requestConfirm({
+              title: "بایگانی دسته",
+              detail: `«${row.name}» از فروش فعال خارج می‌شود و سابقه آن حفظ خواهد شد.`,
+              run: () => mutate(() => archiveCategory(row.id), reload),
+            })
+          }
+        >
+          بایگانی دسته
+        </button>
+      )}
     </form>
+  );
+}
+
+
+function PromotionalProductPicker({ category, catalog, close, mutate, reload }: any) {
+  const [selectedIds, setSelectedIds] = useState<string[]>(category.productIds);
+  const [query, setQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  const panel = useRef<HTMLElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const changed = selectedIds.length !== category.productIds.length ||
+    selectedIds.some((id, index) => id !== category.productIds[index]);
+  const search = query.trim().toLocaleLowerCase();
+  const eligibleProducts = catalog.products.filter(
+    (product: any) => product.isPublic && product.systemKey !== "PACKING",
+  );
+  const eligibleProductIds = new Set(eligibleProducts.map((product: any) => product.id));
+  const excludedSelections = catalog.products.filter(
+    (product: any) => category.productIds.includes(product.id) && !eligibleProductIds.has(product.id),
+  );
+  const toggle = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  const sources = catalog.categories.filter((row: any) => row.kind === "SOURCE");
+  const closeSafely = () => {
+    if (saving) return;
+    if (changed && !window.confirm("تغییرات ذخیره‌نشده دور ریخته شوند؟")) return;
+    close();
+  };
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSafely();
+      return;
+    }
+    if (event.key !== "Tab" || !panel.current) return;
+    const focusable = Array.from(
+      panel.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => element.getClientRects().length > 0);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  useEffect(() => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousDocumentOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    searchInput.current?.focus();
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousDocumentOverflow;
+      opener.current?.focus();
+    };
+  }, []);
+
+  const save = async () => {
+    if (saving || !changed) return;
+    setSaving(true);
+    try {
+      await mutate(() => savePromotionalCategoryProducts(category.id, selectedIds), reload);
+      close();
+    } catch {
+      // The Manager workspace reports the save failure in its status notice.
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="catalog-promo-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeSafely();
+      }}
+    >
+      <section
+        ref={panel}
+        className="catalog-promo-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="catalog-promo-title"
+        aria-describedby="catalog-promo-guidance"
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+      >
+        <header>
+          <div>
+            <h2 id="catalog-promo-title">افزودن محصول به «{category.name}»</h2>
+            <p id="catalog-promo-guidance">
+              محصولات انتخاب‌شده با دستهٔ اصلی خود باقی می‌مانند و در این دسته نیز نمایش داده می‌شوند.
+            </p>
+          </div>
+          <button type="button" onClick={closeSafely} disabled={saving}>بستن</button>
+        </header>
+        <div className="catalog-promo-controls">
+          <label>
+            جستجوی محصول یا دسته
+            <input
+              ref={searchInput}
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="نام محصول یا دسته را بنویسید"
+            />
+          </label>
+          <p>
+            فقط محصولات فعال و عمومیِ دسته‌های اصلی، به‌جز بسته‌بندی، قابل انتخاب‌اند.
+            محصولات غیرعمومی و بسته‌بندی در این فهرست نمی‌آیند.
+          </p>
+        </div>
+        <div className="catalog-promo-sources">
+          {sources.map((source: any) => {
+            const sourceProducts = eligibleProducts.filter((product: any) => product.categoryId === source.id);
+            const visibleProducts = sourceProducts.filter((product: any) =>
+              !search || source.name.toLocaleLowerCase().includes(search) || product.name.toLocaleLowerCase().includes(search),
+            );
+            if (search && visibleProducts.length === 0) return null;
+            return (
+              <details className="catalog-promo-source" key={source.id} open={Boolean(search)}>
+                <summary>
+                  <span>{source.name}</span>
+                  <small>{sourceProducts.length} محصول</small>
+                </summary>
+                <fieldset>
+                  <legend>محصول‌های قابل انتخاب</legend>
+                  {visibleProducts.length ? visibleProducts.map((product: any) => (
+                    <label key={product.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(product.id)}
+                        onChange={() => toggle(product.id)}
+                      />
+                      <span>{product.name}</span>
+                    </label>
+                  )) : <p className="catalog-promo-empty">محصول فعالی برای پیشنهاد وجود ندارد.</p>}
+                </fieldset>
+              </details>
+            );
+          })}
+          {search && !sources.some((source: any) =>
+            eligibleProducts.some((product: any) => product.categoryId === source.id &&
+              (source.name.toLocaleLowerCase().includes(search) || product.name.toLocaleLowerCase().includes(search))),
+          ) && <p className="catalog-promo-empty">محصول یا دسته‌ای با این نام پیدا نشد.</p>}
+          {excludedSelections.length > 0 && (
+            <section className="catalog-promo-excluded" aria-label="محصولات فعلی غیرقابل پیشنهاد">
+              <h3>محصولات متصلِ غیرقابل پیشنهاد</h3>
+              <p>این محصولات دیگر عمومی نیستند یا بسته‌بندی‌اند. برای نگه‌داشتن آن‌ها در فهرست تیک را بردارید؛ امکان افزودن دوباره وجود ندارد.</p>
+              {excludedSelections.map((product: any) => (
+                <label key={product.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(product.id)}
+                    onChange={() => toggle(product.id)}
+                  />
+                  <span>{product.name} · غیرقابل افزودن</span>
+                </label>
+              ))}
+            </section>
+          )}
+        </div>
+        <footer>
+          <span>{selectedIds.length} محصول انتخاب شده</span>
+          <div>
+            <button type="button" className="catalog-promo-cancel" onClick={closeSafely} disabled={saving}>انصراف</button>
+            <button type="button" onClick={() => void save()} disabled={!changed || saving}>
+              {saving ? "در حال ذخیره…" : "ذخیره"}
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -557,6 +774,19 @@ function ProductDrawer({
   const [optionGroupErrors, setOptionGroupErrors] = useState<Record<string, string>>({});
   const [pricingMode, setPricingMode] = useState(initial?.pricingMode ?? "FIXED");
   const [priceAmount, setPriceAmount] = useState(initial?.priceAmount ?? 0);
+  const [saleDiscountMode, setSaleDiscountMode] = useState<"PRICE" | "PERCENTAGE">(
+    initial?.saleDiscountKind === "PERCENTAGE" ? "PERCENTAGE" : "PRICE",
+  );
+  const [saleDiscountValue, setSaleDiscountValue] = useState(
+    initial?.saleDiscountValue == null
+      ? ""
+      : String(initial.saleDiscountKind === "PERCENTAGE"
+        ? initial.saleDiscountValue
+        : Math.max(0, initial.priceAmount - initial.saleDiscountValue)),
+  );
+  const [saleDiscountBusy, setSaleDiscountBusy] = useState(false);
+  const [saleDiscountMessage, setSaleDiscountMessage] = useState("");
+  const [saleDiscountError, setSaleDiscountError] = useState("");
   const titleId = "catalog-product-drawer-title";
   const nameInput = useRef<HTMLInputElement>(null);
   const drawer = useRef<HTMLElement>(null);
@@ -583,6 +813,60 @@ function ProductDrawer({
     )) return;
     if (!pendingOptionCreation && dirty && !window.confirm("تغییرات ذخیره‌نشده دور ریخته شوند؟")) return;
     close();
+  };
+
+  const discountValueNumber = Number(saleDiscountValue);
+  const saleDiscountAmount = saleDiscountValue
+    ? saleDiscountMode === "PERCENTAGE"
+      ? Math.floor((priceAmount * discountValueNumber) / 100)
+      : Math.max(0, priceAmount - discountValueNumber)
+    : 0;
+  const resultingSalePrice = Math.max(0, priceAmount - saleDiscountAmount);
+  const calculatedDiscountPercentage = saleDiscountMode === "PERCENTAGE"
+    ? Number.isInteger(discountValueNumber) ? discountValueNumber : 0
+    : priceAmount > 0
+      ? Math.min(100, Math.round((saleDiscountAmount * 100) / priceAmount))
+      : 0;
+
+  const saveSaleDiscount = async (remove = false) => {
+    if (!initial?.id || saleDiscountBusy) return;
+    if (!remove && (!Number.isInteger(discountValueNumber) || discountValueNumber < 0 ||
+      (saleDiscountMode === "PERCENTAGE" && (discountValueNumber < 1 || discountValueNumber > 100)) ||
+      (saleDiscountMode === "PRICE" && discountValueNumber > priceAmount))) {
+      setSaleDiscountError(saleDiscountMode === "PERCENTAGE"
+        ? "درصد تخفیف باید عددی بین ۱ تا ۱۰۰ باشد."
+        : "قیمت پس از تخفیف باید بین صفر و قیمت پایه باشد.");
+      setSaleDiscountMessage("");
+      return;
+    }
+    if (!remove && priceAmount !== initial.priceAmount) {
+      setSaleDiscountError("ابتدا قیمت پایه را ذخیره کنید، سپس تخفیف را ثبت کنید.");
+      setSaleDiscountMessage("");
+      return;
+    }
+    setSaleDiscountBusy(true);
+    setSaleDiscountError("");
+    setSaleDiscountMessage("");
+    try {
+      await mutate(async () => {
+        const result = await saveProductSaleDiscount(
+          initial.id,
+          remove || saleDiscountAmount === 0
+            ? null
+            : saleDiscountMode === "PERCENTAGE"
+              ? { kind: "PERCENTAGE", value: discountValueNumber }
+              : { kind: "FIXED", value: saleDiscountAmount },
+        );
+        if (!result.ok) throw new Error(result.error.message);
+        return result;
+      }, reload);
+      if (remove) setSaleDiscountValue("");
+      setSaleDiscountMessage(remove ? "تخفیف محصول حذف شد." : "تخفیف محصول ذخیره شد.");
+    } catch (error) {
+      setSaleDiscountError(error instanceof Error ? error.message : "ذخیره تخفیف انجام نشد.");
+    } finally {
+      setSaleDiscountBusy(false);
+    }
   };
 
   const handleDialogKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -793,7 +1077,7 @@ function ProductDrawer({
             <label>
               <span>دسته</span>
               <select name="categoryId" defaultValue={initial?.categoryId ?? categoryId}>
-                {catalog.categories.map((item: any) => (
+                {catalog.categories.filter((item: any) => item.kind === "SOURCE").map((item: any) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
                   </option>
@@ -881,6 +1165,38 @@ function ProductDrawer({
         </form>
         {initial && (
           <section className="catalog-product-secondary" aria-label="اقدامات جانبی محصول">
+          <section className="catalog-sale-discount" aria-labelledby="catalog-sale-discount-title">
+            <h3 id="catalog-sale-discount-title">تخفیف منوی عمومی</h3>
+            <p>قیمت پایهٔ محصول حفظ می‌شود و تخفیف روی سفارش‌های جدید اعمال خواهد شد.</p>
+            <div className="manager-fields">
+              <label>
+                <span>نوع تخفیف</span>
+                <select value={saleDiscountMode} onChange={(event) => {
+                  const nextMode = event.currentTarget.value as "PRICE" | "PERCENTAGE";
+                  const nextValue = saleDiscountMode === "PRICE"
+                    ? String(calculatedDiscountPercentage)
+                    : String(resultingSalePrice);
+                  setSaleDiscountMode(nextMode);
+                  setSaleDiscountValue(nextValue);
+                  setSaleDiscountError("");
+                }} disabled={saleDiscountBusy}>
+                  <option value="PRICE">واردکردن قیمت نهایی</option>
+                  <option value="PERCENTAGE">درصد</option>
+                </select>
+              </label>
+              <label>
+                <span>{saleDiscountMode === "PERCENTAGE" ? "درصد تخفیف" : "قیمت پس از تخفیف (تومان)"}</span>
+                <input type="number" min={saleDiscountMode === "PERCENTAGE" ? "1" : "0"} max={saleDiscountMode === "PERCENTAGE" ? "100" : priceAmount} step="1" value={saleDiscountValue} onChange={(event) => setSaleDiscountValue(event.currentTarget.value)} disabled={saleDiscountBusy} />
+              </label>
+            </div>
+            <p className="catalog-price-summary">قیمت پایه: {formatToman(priceAmount)} تومان · قیمت پس از تخفیف: {formatToman(resultingSalePrice)} تومان · درصد قابل نمایش در منو: {formatToman(calculatedDiscountPercentage)}٪</p>
+            {saleDiscountError && <p className="catalog-product-message catalog-product-message--error" role="alert">{saleDiscountError}</p>}
+            {saleDiscountMessage && <p className="catalog-product-message" role="status">{saleDiscountMessage}</p>}
+            <div className="catalog-sale-discount__actions">
+              <button type="button" disabled={saleDiscountBusy || !saleDiscountValue} onClick={() => void saveSaleDiscount(false)}>{saleDiscountBusy ? "در حال ذخیره…" : "ذخیره تخفیف"}</button>
+              <button type="button" className="secondary-button" disabled={saleDiscountBusy || initial.saleDiscountValue == null} onClick={() => void saveSaleDiscount(true)}>حذف تخفیف</button>
+            </div>
+          </section>
           <p>تصویر و بایگانی مستقل از ذخیره مشخصات محصول انجام می‌شوند.</p>
           <ImageEditor
             product={initial}

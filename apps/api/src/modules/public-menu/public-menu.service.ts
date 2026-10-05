@@ -35,14 +35,19 @@ function finalPriceAmount(product: { priceAmount: number; saleDiscountKind: "FIX
 function toPublicProduct(product: PublicCatalogProduct) {
   const priceAmount = finalPriceAmount(product);
   const discountAmount = product.priceAmount - priceAmount;
+  const publicDiscountPercentage = product.saleDiscountKind === "PERCENTAGE"
+    ? product.saleDiscountValue
+    : product.priceAmount > 0
+      ? Math.min(100, Math.max(1, Math.round((discountAmount * 100) / product.priceAmount)))
+      : null;
   return {
     id: product.id,
     name: product.name,
     basePriceAmount: product.priceAmount,
     priceAmount,
-    saleDiscount: product.saleDiscountKind && product.saleDiscountValue ? {
-      kind: product.saleDiscountKind,
-      value: product.saleDiscountValue,
+    saleDiscount: product.saleDiscountKind && product.saleDiscountValue && discountAmount > 0 && publicDiscountPercentage ? {
+      kind: "PERCENTAGE" as const,
+      value: publicDiscountPercentage,
       amount: discountAmount,
     } : null,
     isAvailable: product.isAvailable,
@@ -66,6 +71,11 @@ export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuer
         orderBy: [{ isAvailable: "desc" }, { displayOrder: "asc" }, { name: "asc" }],
         include: publicCatalogInclude,
       },
+      productMemberships: {
+        orderBy: [{ displayOrder: "asc" }, { product: { name: "asc" } }],
+        where: { product: { isActive: true, archivedAt: null, isPublic: true, category: { isActive: true, archivedAt: null } } },
+        include: { product: { include: publicCatalogInclude } },
+      },
     },
   });
 
@@ -74,7 +84,7 @@ export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuer
       .map((category) => ({
         id: category.id,
         name: category.name,
-        products: category.products
+        products: [...category.products, ...category.productMemberships.map(({ product }) => product)]
           .filter((product) => !q || category.name.toLocaleLowerCase("fa-IR").includes(q) || product.name.toLocaleLowerCase("fa-IR").includes(q))
           .map(toPublicProduct),
       }))

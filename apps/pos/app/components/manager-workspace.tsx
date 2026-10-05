@@ -347,18 +347,20 @@ function LegacyCatalogPanel({
                   ["isPosVisible", "نمایش در سفارش‌گیری POS", "checkbox", row.isPosVisible],
                 ]}
               />
-              <DangerButton
-                label="بایگانی دسته"
-                onClick={() =>
-                  requestConfirm({
-                    title: "بایگانی دسته",
-                    detail: `«${row.name}» از فروش فعال خارج می‌شود و سابقه آن حفظ خواهد شد.`,
-                    run: async () => {
-                      await mutate(() => archiveCategory(row.id), reload);
-                    },
-                  })
-                }
-              />
+              {row.kind === "SOURCE" && (
+                <DangerButton
+                  label="بایگانی دسته"
+                  onClick={() =>
+                    requestConfirm({
+                      title: "بایگانی دسته",
+                      detail: `«${row.name}» از فروش فعال خارج می‌شود و سابقه آن حفظ خواهد شد.`,
+                      run: async () => {
+                        await mutate(() => archiveCategory(row.id), reload);
+                      },
+                    })
+                  }
+                />
+              )}
             </li>
           ))}
         </ul>

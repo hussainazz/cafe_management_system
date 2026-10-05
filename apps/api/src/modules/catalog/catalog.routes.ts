@@ -8,6 +8,7 @@ import {
   type ProductSaleDiscountRequest,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
+import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import { requireManagerRoute } from "../auth/authorization.js";
 
 const ProductIdPathSchema = z.object({ productId: z.uuid() });
@@ -30,6 +31,16 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request) => {
       const product = await app.prisma.$transaction(async (tx) => {
+        if (request.body.saleDiscount?.kind === "FIXED") {
+          const current = await tx.product.findUnique({
+            where: { id: request.params.productId },
+            select: { priceAmount: true },
+          });
+          if (!current) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested product was not found.");
+          if (request.body.saleDiscount.value > current.priceAmount) {
+            throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A product offer cannot reduce the unit price below zero.");
+          }
+        }
         const updated = await tx.product.update({
           where: { id: request.params.productId },
           data: {

@@ -115,6 +115,16 @@ describe("Manager administration", () => {
     expect(archived.statusCode).toBe(200);
     expect(archived.json().data).toMatchObject({ isActive: false });
     await expect(app.prisma.auditLog.findFirstOrThrow({ where: { entityId: categoryId, operation: "ARCHIVE_CATEGORY" } })).resolves.toBeDefined();
+
+    const promotional = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "ویژه", kind: "PROMOTIONAL" } });
+    const promotionalId = promotional.json().data.id;
+    const forcePosVisible = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${promotionalId}`, cookies: manager, payload: { isPosVisible: true } });
+    expect(forcePosVisible.statusCode).toBe(200);
+    expect(forcePosVisible.json().data.isPosVisible).toBe(false);
+    const archivePromotional = await app.inject({ method: "POST", url: `/api/v1/admin/categories/${promotionalId}/archive`, cookies: manager });
+    expect(archivePromotional.statusCode).toBe(422);
+    expect(await app.prisma.category.findUniqueOrThrow({ where: { id: promotionalId } })).toMatchObject({ isActive: true, isPosVisible: false, archivedAt: null });
+    expect(await app.prisma.auditLog.count({ where: { entityId: promotionalId, operation: "ARCHIVE_CATEGORY" } })).toBe(0);
   });
 
   it("appends catalog records and persists contiguous, validated category and product reorders", async () => {

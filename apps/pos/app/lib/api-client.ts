@@ -32,6 +32,8 @@ import {
   AuditLogResponseSchema,
   ReverseSettlementResponseSchema,
   EditSettlementResponseSchema,
+  ProductSaleDiscountResponseSchema,
+  type ProductSaleDiscountRequest,
   type RecordSettlementRequest,
   type UpdateOrderRequest,
   type DeleteOrderRequest,
@@ -456,6 +458,9 @@ export async function readManagerCatalog(): Promise<ApiResult<ManagerCatalog>> {
   return { ok: true, replayed: false, data: { categories: categories.data.data.categories, products: products.data.data.products, optionGroups: optionGroups.data.data.optionGroups, tables: tables.data.data.tables } };
 }
 
+export const saveProductSaleDiscount = (productId: string, saleDiscount: ProductSaleDiscountRequest["saleDiscount"] | null) =>
+  managerMutation(`/admin/products/${productId}/sale-discount`, "PATCH", { saleDiscount }, ProductSaleDiscountResponseSchema, "پاسخ تخفیف محصول معتبر نیست.");
+
 export async function readManagerStaff(): Promise<ApiResult<ManagerStaff>> {
   const parsed = await managerResponse("/admin/users", AdminStaffResponseSchema, "فهرست پرسنل معتبر نیست.");
   return parsed.ok ? { ok: true, data: parsed.data.data.staff, replayed: parsed.replayed } : parsed;
@@ -482,6 +487,7 @@ async function managerMutation<T>(path: string, method: "POST" | "PATCH", body: 
   return parseResponse(await request<unknown>(path, { method, headers: { "content-type": "application/json", ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) }, body: JSON.stringify(body) }), schema, message);
 }
 export const saveCategory = (id: string | null, body: unknown) => managerMutation(id ? `/admin/categories/${id}` : "/admin/categories", id ? "PATCH" : "POST", body, id ? AdminCategoryResponseSchema : AdminCategoryResponseSchema, "پاسخ دسته معتبر نیست.");
+export const savePromotionalCategoryProducts = (id: string, productIds: string[]) => managerMutation(`/admin/categories/${id}/products`, "PATCH", { productIds }, AdminCategoryResponseSchema, "فهرست محصولات تبلیغاتی معتبر نیست.");
 export const archiveCategory = (id: string) => managerMutation(`/admin/categories/${id}/archive`, "POST", {}, AdminCategoryResponseSchema, "پاسخ بایگانی دسته معتبر نیست.");
 export const reorderCategories = (categoryIds: string[]) => managerMutation("/admin/categories/reorder", "PATCH", { categoryIds }, AdminCategoriesResponseSchema, "پاسخ ترتیب دسته‌ها معتبر نیست.");
 export const saveProduct = (id: string | null, body: unknown) => managerMutation(id ? `/admin/products/${id}` : "/admin/products", id ? "PATCH" : "POST", body, AdminProductResponseSchema, "پاسخ محصول معتبر نیست.");

@@ -45,6 +45,7 @@ erDiagram
     Category {
         uuid id PK
         string name
+        enum kind "SOURCE or PROMOTIONAL"
         integer displayOrder
         boolean isActive
         datetime archivedAt
@@ -60,6 +61,13 @@ erDiagram
         boolean isActive
         boolean isAvailable
         datetime archivedAt
+    }
+
+    ProductCategoryMembership {
+        uuid categoryId PK, FK
+        uuid productId PK, FK
+        integer displayOrder
+        datetime createdAt
     }
 
     ProductImage {
@@ -244,6 +252,8 @@ erDiagram
     User ||--o{ RefreshSession : owns
     User ||--o{ AuthEvent : produces
     Category ||--o{ Product : groups
+    Category ||--o{ ProductCategoryMembership : promotes
+    Product ||--o{ ProductCategoryMembership : listed_in
     Product ||--o| ProductImage : has
     Product ||--o{ ProductOptionGroup : enables
     OptionGroup ||--o{ ProductOptionGroup : applies_to
@@ -335,6 +345,7 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 | -------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `id`           | Internal identity of a menu category.                                                                                 |
 | `name`         | Staff-facing and customer-facing category name, such as `Coffee` or `Desserts`.                                       |
+| `kind`         | `SOURCE` owns products through their canonical `Product.categoryId`; `PROMOTIONAL` lists products through `ProductCategoryMembership`. |
 | `displayOrder` | The intended order when categories are shown in the menu or POS. It avoids using creation time as presentation order. |
 | `isActive`     | Whether the category is currently shown for normal catalog use.                                                       |
 | `archivedAt`   | When the category was retired. It remains stored when historic products reference it.                                 |
@@ -352,6 +363,15 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 | `isActive`                   | Whether the product is part of the active catalog.                                                                                      |
 | `isAvailable`                | Temporary sellability switch. A product can stay active but be unavailable today without losing its configuration.                      |
 | `archivedAt`                 | When the product was retired. It remains available for historical traceability.                                                         |
+
+#### ProductCategoryMembership
+
+| Field | Explanation |
+| --- | --- |
+| `categoryId` | Promotional category that lists the product. |
+| `productId` | Existing product; its canonical source `categoryId` is unchanged. |
+| `displayOrder` | Product order within this promotional category. |
+| `createdAt` | When the Manager added the promotional membership. |
 
 #### ProductImage
 
@@ -570,7 +590,7 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 | Area          | Model decision                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity      | A `User` has zero or more revocable `RefreshSession` and `AuthEvent` records. Roles remain limited to `MANAGER` and `STAFF`.                                                                                                                                                                                                                                                                                                                                         |
-| Catalog       | A `Category` groups products. Every v1 product goes to the single bar; it can have zero or one image, many option groups through `ProductOptionGroup`, and one preparation deadline in whole minutes.                                                                                                                                                                                                                                                                |
+| Catalog       | A `SOURCE` `Category` owns each product. A `PROMOTIONAL` category lists existing products through `ProductCategoryMembership`; membership does not duplicate product or pricing data. A product can appear in multiple promotional categories while retaining one source category. Products have zero or one image, many option groups through `ProductOptionGroup`, and one preparation deadline in whole minutes. |
 | Tables        | A table order references one `CafeTable`; a takeaway order has no table. A table can have many historical orders. The dashboard preserves the configured physical-table order, explicit `AVAILABLE`/`OCCUPIED` state, eligible-table QR-scan reminders, and pending waiter-call highlight. The active table estimate uses the order's seating-limit snapshot and item prep snapshots. |
 | Order history | `OrderItem` and `OrderItemOption` retain product and option names, prices, and preparation-deadline snapshots. Catalog references support traceability, but historical display, totals, and estimates use the snapshots.                                                                                                                                                                                                                                             |
 | Payments      | An order has payer settlements. Each settlement allocates selected item quantities and contains one or more cash, card-terminal, or card-to-card transfer tenders. Card-terminal tenders store no reconciliation reference because terminal entry is manual and not synchronized with the application. Card-to-card transfer references are optional. A Manager reversal applies to the whole settlement; posted records are retained rather than edited or removed. |
