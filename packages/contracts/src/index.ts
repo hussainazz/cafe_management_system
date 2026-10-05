@@ -3,6 +3,12 @@ import { z } from "zod";
 
 export const DEFAULT_TABLE_SEATING_LIMIT_MINUTES = 45;
 
+export const DISCOUNT_PRICE_ROUNDING_UNIT = 1_000;
+
+export function roundDiscountedAmount(amount: number) {
+  return Math.floor((amount + DISCOUNT_PRICE_ROUNDING_UNIT / 2) / DISCOUNT_PRICE_ROUNDING_UNIT) * DISCOUNT_PRICE_ROUNDING_UNIT;
+}
+
 export const HealthResponseSchema = z.object({
   status: z.literal("ok"),
   service: z.string(),
@@ -118,6 +124,8 @@ export const PosCatalogProductSchema = z.object({
   name: z.string(),
   priceAmount: z.number().int().nonnegative(),
   pricingMode: z.enum(["FIXED", "WEIGHTED_PER_KG"]),
+  saleDiscountKind: z.enum(["FIXED", "PERCENTAGE"]).nullable(),
+  saleDiscountValue: z.number().int().positive().nullable(),
   preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema,
   isAvailable: z.boolean(),
   image: ProductImageSchema.nullable(),
