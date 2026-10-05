@@ -17,6 +17,7 @@ import {
   type TransferOrderTableRequest,
   type UpdateOrderRequest,
   type DiscountInput,
+  roundDiscountedAmount,
 } from "@cafe/contracts";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import type { AuthenticatedUser } from "../auth/auth.service.js";
@@ -187,6 +188,12 @@ function calculatedDiscount(amount: number, discount: DiscountInput): number {
     throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A discount cannot exceed the item or order amount.");
   }
   return requested;
+}
+
+function discountedFinalAmount(amount: number, discount: DiscountInput) {
+  if (!discount) return { discountAmount: 0, finalAmount: amount };
+  const finalAmount = Math.min(amount, roundDiscountedAmount(amount - calculatedDiscount(amount, discount)));
+  return { discountAmount: amount - finalAmount, finalAmount };
 }
 
 function catalogSaleDiscount(product: ProductForOrder): DiscountInput {
@@ -412,7 +419,8 @@ export async function createOrder(
         const productAmount = pricing.baseAmount;
         const grossLineAmount = pricing.grossLineAmount;
         const saleDiscount = catalogSaleDiscount(product);
-        const discountAmount = catalogSaleDiscountAmount(product as ProductForOrder, productAmount, saleDiscount, item.weightGrams, item.quantity);
+        const requestedDiscount = catalogSaleDiscountAmount(product as ProductForOrder, productAmount, saleDiscount, item.weightGrams, item.quantity);
+        const { discountAmount, finalAmount } = discountedFinalAmount(grossLineAmount, requestedDiscount ? { kind: "FIXED", value: requestedDiscount } : null);
         return {
           productId: product.id,
           productNameSnapshot: product.name,
@@ -425,7 +433,7 @@ export async function createOrder(
           discountValue: saleDiscount?.value ?? null,
           discountAmount,
           discountReason: null,
-          lineTotalAmount: grossLineAmount - discountAmount,
+          lineTotalAmount: finalAmount,
           displayOrder,
           options,
         };
@@ -718,13 +726,14 @@ export async function updateOrder(
         const productAmount = pricing.baseAmount;
         const grossLineAmount = pricing.grossLineAmount;
         const saleDiscount = catalogSaleDiscount(product);
-        const discountAmount = catalogSaleDiscountAmount(product as ProductForOrder, productAmount, saleDiscount, requested.weightGrams, requested.quantity);
+        const requestedDiscount = catalogSaleDiscountAmount(product as ProductForOrder, productAmount, saleDiscount, requested.weightGrams, requested.quantity);
+        const { discountAmount, finalAmount } = discountedFinalAmount(grossLineAmount, requestedDiscount ? { kind: "FIXED", value: requestedDiscount } : null);
         return {
           productId: product.id, productNameSnapshot: product.name, basePriceSnapshot: product.priceAmount,
           pricingModeSnapshot: product.pricingMode, weightGrams: requested.weightGrams ?? null,
           quantity: requested.quantity,
           note: requested.note ?? null, discountKind: saleDiscount?.kind ?? null, discountValue: saleDiscount?.value ?? null,
-          discountAmount, discountReason: null, lineTotalAmount: grossLineAmount - discountAmount,
+          discountAmount, discountReason: null, lineTotalAmount: finalAmount,
           displayOrder: input.items ? index : order.items.length + index, options,
         };
       });
@@ -775,20 +784,21 @@ export async function updateOrder(
       const discount = change.discount;
       const existingDiscount = item.discountKind && item.discountValue ? { kind: item.discountKind, value: item.discountValue } : null;
       const appliedDiscount = discount === undefined ? existingDiscount : discount;
-      const discountBaseAmount = discount === undefined && item.discountKind === null ? pricing.baseAmount : grossLineAmount;
-      const discountAmount = calculatedDiscount(discountBaseAmount, appliedDiscount);
+      const { discountAmount, finalAmount: lineTotalAmount } = discountedFinalAmount(grossLineAmount, appliedDiscount);
       await transaction.orderItem.update({ where: { id: item.id }, data: {
         quantity, weightGrams, ...(change.note !== undefined ? { note: change.note } : {}),
         ...(discount === undefined ? {} : { discountKind: discount?.kind ?? null, discountValue: discount?.value ?? null, discountAmount, discountReason: discount?.reason ?? null }),
-        lineTotalAmount: grossLineAmount - discountAmount,
+        lineTotalAmount,
       } });
     }
     const items = await transaction.orderItem.findMany({ where: { orderId }, include: { options: true } });
     const subtotalAmount = items.reduce((total, item) => total + item.lineTotalAmount, 0);
     if (input.orderDiscount !== undefined && hasActiveAllocations) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The order discount cannot change after settlement.");
-    const orderDiscountAmount = input.orderDiscount === undefined ? order.discountAmount : input.orderDiscount === null ? 0 : calculatedDiscount(subtotalAmount, input.orderDiscount);
+    const activeOrderDiscount = input.orderDiscount === undefined
+      ? order.discountKind && order.discountValue ? { kind: order.discountKind, value: order.discountValue } as DiscountInput : null
+      : input.orderDiscount;
+    const { discountAmount: orderDiscountAmount, finalAmount: totalAmount } = discountedFinalAmount(subtotalAmount, activeOrderDiscount);
     if (orderDiscountAmount > subtotalAmount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The existing order discount exceeds the updated order amount.");
-    const totalAmount = subtotalAmount - orderDiscountAmount;
     const balanceAmount = totalAmount - order.paidAmount;
     const paymentStatus = order.paidAmount === 0 ? PaymentStatus.UNPAID : balanceAmount === 0 ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, version: { increment: 1 } } });
