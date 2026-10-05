@@ -330,6 +330,26 @@ describe("Staff order creation", () => {
     expect(await app.prisma.auditLog.count()).toBe(0);
     expect(await app.prisma.idempotencyRecord.count()).toBe(0);
   });
+
+  it("rejects products whose category is promotional even if it is mistakenly POS-visible", async () => {
+    const cookies = await staffSession();
+    const category = await app.prisma.category.create({
+      data: { name: "Promotional-only", kind: "PROMOTIONAL", isPosVisible: true, displayOrder: 1 },
+    });
+    const product = await app.prisma.product.create({
+      data: { categoryId: category.id, name: "Promotional product", priceAmount: 50_000, preparationDeadlineMinutes: 5, displayOrder: 1 },
+    });
+
+    const response = await createOrderRequest(
+      cookies,
+      { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] },
+      "promotional-category-order",
+    );
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe("UNAVAILABLE_PRODUCT");
+    expect(await app.prisma.order.count()).toBe(0);
+  });
 });
 
 describe("order reads, edits, and discounts", () => {
