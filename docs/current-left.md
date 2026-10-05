@@ -50,6 +50,9 @@ second chronological backlog.
   Focused admin, POS catalog, and order integration coverage passes.
 - [ ] Complete backend-backlog P4.2 membership API/public-menu behavior by
   saving and removing promotional memberships and verifying public-menu output.
+- [ ] Complete backend-backlog P4.3 discounted-price rounding and the POS
+  confirm-order-and-print-bar action. Confirm printing from the operator's
+  successful action; browser/device verification remains part of Stage 10.
 - [x] In the isolated Manager browser, verify the promotional picker opens with
   collapsed source groups, product search, eligibility guidance, keyboard focus
   containment, and a discard warning for changed selections.
@@ -61,6 +64,21 @@ second chronological backlog.
   payment reconciliation and no unresolved financial difference.
 
 ## Latest Implementation Notes
+
+- 5 October: the public-menu `افزودنی` category now uses two columns, including
+  narrow mobile layouts. Items with an uploaded image sort first and span the
+  full category width; items without an uploaded image have no artwork
+  placeholder. Uploaded product images now load through a same-origin web
+  proxy to the API image route. Reloaded the attached browser and confirmed the
+  uploaded add-on photo renders in its full-width card; café-device acceptance
+  remains open.
+
+- 5 October: discounted final amounts now round to the nearest 1,000 Toman
+  (halfway values round up); the public menu retains compact prices in
+  thousands of Toman. POS previews include catalog offers. Added the combined
+  order-save and bar-ticket action; ticket acknowledgment no longer depends on
+  `afterprint`. Stage 10 browser, device, printer, and behavioral verification
+  remains open.
 
 - 5 October: documented that developer-local POS image uploads are café runtime
   data and must stay out of VPS release archives and transfers. Releases must
