@@ -126,6 +126,7 @@ history by default.
 
 - Primary key: `id`.
 - Required: `name`, `displayOrder`, `isActive`.
+- Required: `kind` (`SOURCE` or `PROMOTIONAL`).
 - Optional: `archivedAt`.
 - Checks:
   - `name` is not an empty string.
@@ -150,6 +151,16 @@ history by default.
   - `archivedAt IS NULL OR isActive = false`.
 - Indexes:
   - `(categoryId, isActive, isAvailable, displayOrder)`.
+
+### `product_category_memberships`
+
+- Composite primary key: `(categoryId, productId)`.
+- Required: both foreign keys and `displayOrder`.
+- `categoryId` references a `PROMOTIONAL` category; Manager service validation
+  enforces this cross-table rule.
+- `productId` references an existing product and never changes its canonical
+  source `categoryId`.
+- Indexes: `(productId)` and `(categoryId, displayOrder)`.
 
 ### `product_images`
 

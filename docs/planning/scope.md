@@ -172,6 +172,16 @@ Pilot acceptance scenarios:
 | Reporting  | Manager-only payment history and the accounting summary for its bounded applied filter over retained committed data.          |
 | Operations | Café settings, audit logs, system health, and operational metadata.                                                           |
 
+Catalog category membership has two kinds. A source category owns each
+product's canonical `categoryId`. A promotional category owns no products;
+it displays products through explicit category memberships while each product
+retains its source category. A product may appear in its source category and in
+multiple active promotional categories. Manager catalog edits can create
+promotional categories and add or remove their memberships. The public menu
+uses the same product and price data in every category listing, so the source
+category remains authoritative and promotion membership never copies product
+records or pricing.
+
 Money, pricing, and tax rules:
 
 - The database stores money as signed-safe integer Toman values. It never stores Rial or floating-point money.

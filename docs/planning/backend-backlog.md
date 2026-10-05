@@ -431,6 +431,28 @@ Acceptance criteria:
 
 ### P4 - Stage 10 Backend Stabilization — In Progress
 
+#### P4.2 Promotional Catalog Categories — In Progress
+
+Support Manager-created promotional categories that list existing products
+without changing their canonical source category.
+
+Acceptance criteria:
+
+- Categories distinguish source and promotional behavior; promotional
+  categories cannot own products.
+- A product retains one canonical source category and may have membership in
+  multiple promotional categories.
+- Manager APIs validate membership changes and preserve source ownership.
+- Public-menu category responses list promotional memberships with the same
+  current product data and prices as the source category.
+- Manager catalog provides a source-category/product picker to add and remove
+  promotional memberships.
+
+Left:
+
+- Apply and verify the migration; complete promotional membership API and
+  public-menu behavioral checks and Manager browser acceptance.
+
 #### P4.1 Contract, Security, Migration, And Performance Hardening
 
 Complete backend hardening needed before the shared POS pilot.

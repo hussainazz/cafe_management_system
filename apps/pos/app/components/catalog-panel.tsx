@@ -26,6 +26,7 @@ import {
   reorderCategories,
   reorderProducts,
   saveCategory,
+  savePromotionalCategoryProducts,
   saveOption,
   saveOptionGroup,
   saveProduct,
@@ -265,15 +266,15 @@ function SortableCategory({ row, index, selected, onSelect }: any) {
       <DragHandle attributes={sortable.attributes} listeners={sortable.listeners} />
       <button type="button" className="catalog-category-select" onClick={onSelect}>
         <strong>{row.name}</strong>
-        <small>{row.isActive ? "فعال" : "غیرفعال"}</small>
+        <small>{row.kind === "PROMOTIONAL" ? "تبلیغاتی" : "اصلی"} · {row.isActive ? "فعال" : "غیرفعال"}</small>
       </button>
       <span className="catalog-order">#{index + 1}</span>
     </li>
   );
 }
 
-function SortableProduct({ row, categoryName, index, onEdit }: any) {
-  const sortable = useSortable({ id: row.id });
+function SortableProduct({ row, categoryName, index, onEdit, disabled }: any) {
+  const sortable = useSortable({ id: row.id, disabled: Boolean(disabled) });
   return (
     <article
       ref={sortable.setNodeRef}
@@ -315,6 +316,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
   const [productOrder, setProductOrder] = useState<Record<string, string[]>>({});
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<any | "new" | null>(null);
+  const [promoPickerOpen, setPromoPickerOpen] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -325,9 +327,9 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
       Object.fromEntries(
         catalog.categories.map((category) => [
           category.id,
-          catalog.products
-            .filter((product) => product.categoryId === category.id)
-            .map((product) => product.id),
+          category.kind === "PROMOTIONAL"
+            ? category.productIds.filter((id) => catalog.products.some((product) => product.id === id))
+            : catalog.products.filter((product) => product.categoryId === category.id).map((product) => product.id),
         ]),
       ),
     );
@@ -346,7 +348,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
     () =>
       [
         ...catalog.products.filter(
-          (row) => row.categoryId === selectedId && row.name.includes(query.trim()),
+          (row) => (row.categoryId === selectedId || selected?.kind === "PROMOTIONAL" && selected.productIds.includes(row.id)) && row.name.includes(query.trim()),
         ),
       ].sort(
         (a, b) =>
@@ -366,7 +368,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
     void mutate(() => reorderCategories(ordered), reload);
   };
   const productDrop = (event: DragEndEvent) => {
-    if (!selected || !event.over || event.active.id === event.over.id) return;
+    if (!selected || selected.kind === "PROMOTIONAL" || !event.over || event.active.id === event.over.id) return;
     const ids = productOrder[selected.id] ?? [];
     const ordered = arrayMove(
       ids,
@@ -385,17 +387,41 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
         </header>
         <form
           className="catalog-create"
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
-            const form = new FormData(event.currentTarget);
-            void mutate(
-              () => saveCategory(null, { name: value(form, "name"), isActive: true }),
-              reload,
-            ).then(() => event.currentTarget.reset());
+            const formElement = event.currentTarget;
+            const form = new FormData(formElement);
+            let createdCategoryId: string | null = null;
+            try {
+              await mutate(
+                async () => {
+                  const result = await saveCategory(null, {
+                    name: value(form, "name"),
+                    kind: value(form, "kind"),
+                    isActive: true,
+                  });
+                  if (result.ok) createdCategoryId = result.data.data.id;
+                  return result;
+                },
+                reload,
+              );
+              formElement.reset();
+              if (createdCategoryId) setSelectedId(createdCategoryId);
+            } catch {
+              // The Manager workspace displays the API failure in its status notice.
+            }
           }}
         >
           <input name="name" required placeholder="نام دسته" aria-label="نام دسته" />
-          <button>افزودن</button>
+          <label className="catalog-create__kind">
+            نوع دسته
+            <select name="kind" aria-label="نوع دسته" defaultValue="SOURCE">
+              <option value="SOURCE">دسته اصلی</option>
+              <option value="PROMOTIONAL">دسته تبلیغاتی</option>
+            </select>
+            <small>دستهٔ اصلی مالک محصول است؛ دستهٔ تبلیغاتی همان محصول را بدون تغییر مبدأ نمایش می‌دهد.</small>
+          </label>
+          <button type="submit">ایجاد دسته</button>
         </form>
         {categories.length ? (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={categoryDrop}>
@@ -443,9 +469,10 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
             aria-label="جستجوی محصول"
             disabled={!selected}
           />
+          {selected?.kind === "PROMOTIONAL" && <button type="button" className="catalog-promo-action" onClick={() => setPromoPickerOpen(true)}>افزودن محصول از دسته‌ها</button>}
           <button
             className="catalog-add-product"
-            disabled={!selected}
+            disabled={!selected || selected.kind === "PROMOTIONAL"}
             onClick={() => setEditor("new")}
           >
             + افزودن محصول
@@ -463,6 +490,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
                       key={row.id}
                       row={row}
                       categoryName={selected.name}
+                      disabled={selected.kind === "PROMOTIONAL"}
                       index={Math.max(0, (productOrder[selected.id] ?? []).indexOf(row.id))}
                       onEdit={() => setEditor(row)}
                     />
@@ -471,13 +499,14 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
               ) : (
                 <div className="catalog-empty">
                   هیچ محصولی در این دسته وجود ندارد.
-                  <button onClick={() => setEditor("new")}>+ افزودن محصول</button>
+                  {selected.kind === "PROMOTIONAL" ? <button onClick={() => setPromoPickerOpen(true)}>افزودن محصول از دسته‌ها</button> : <button onClick={() => setEditor("new")}>+ افزودن محصول</button>}
                 </div>
               )}
             </SortableContext>
           </DndContext>
         )}
       </main>
+      {promoPickerOpen && selected?.kind === "PROMOTIONAL" && <PromotionalProductPicker category={selected} catalog={catalog} close={() => setPromoPickerOpen(false)} mutate={mutate} reload={reload} />}
       {editor && selected && (
         <ProductDrawer
           initial={editor === "new" ? undefined : editor}
@@ -512,14 +541,15 @@ function CategoryEditor({ row, mutate, reload, requestConfirm }: any) {
       }}
     >
       <strong>ویرایش دسته انتخاب‌شده</strong>
+      <span>{row.kind === "PROMOTIONAL" ? "دسته تبلیغاتی؛ محصولات از دسته‌های اصلی نمایش داده می‌شوند." : "دسته اصلی؛ محصولات به این دسته تعلق دارند."}</span>
       <input name="name" defaultValue={row.name} aria-label="نام دسته انتخاب‌شده" required />
       <label>
         <input name="isActive" type="checkbox" defaultChecked={row.isActive} /> نمایش در منوی عمومی
       </label>
-      <label>
+      {row.kind === "SOURCE" && <label>
         <input name="isPosVisible" type="checkbox" defaultChecked={row.isPosVisible} /> نمایش در
         سفارش‌گیری POS
-      </label>
+      </label>}
       <button>ذخیره تغییرات</button>
       <button
         type="button"
@@ -535,6 +565,189 @@ function CategoryEditor({ row, mutate, reload, requestConfirm }: any) {
         بایگانی دسته
       </button>
     </form>
+  );
+}
+
+
+function PromotionalProductPicker({ category, catalog, close, mutate, reload }: any) {
+  const [selectedIds, setSelectedIds] = useState<string[]>(category.productIds);
+  const [query, setQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  const panel = useRef<HTMLElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const changed = selectedIds.length !== category.productIds.length ||
+    selectedIds.some((id, index) => id !== category.productIds[index]);
+  const search = query.trim().toLocaleLowerCase();
+  const eligibleProducts = catalog.products.filter(
+    (product: any) => product.isPublic && product.systemKey !== "PACKING",
+  );
+  const eligibleProductIds = new Set(eligibleProducts.map((product: any) => product.id));
+  const excludedSelections = catalog.products.filter(
+    (product: any) => category.productIds.includes(product.id) && !eligibleProductIds.has(product.id),
+  );
+  const toggle = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  const sources = catalog.categories.filter((row: any) => row.kind === "SOURCE");
+  const closeSafely = () => {
+    if (saving) return;
+    if (changed && !window.confirm("تغییرات ذخیره‌نشده دور ریخته شوند؟")) return;
+    close();
+  };
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSafely();
+      return;
+    }
+    if (event.key !== "Tab" || !panel.current) return;
+    const focusable = Array.from(
+      panel.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => element.getClientRects().length > 0);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  useEffect(() => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousDocumentOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    searchInput.current?.focus();
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousDocumentOverflow;
+      opener.current?.focus();
+    };
+  }, []);
+
+  const save = async () => {
+    if (saving || !changed) return;
+    setSaving(true);
+    try {
+      await mutate(() => savePromotionalCategoryProducts(category.id, selectedIds), reload);
+      close();
+    } catch {
+      // The Manager workspace reports the save failure in its status notice.
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="catalog-promo-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeSafely();
+      }}
+    >
+      <section
+        ref={panel}
+        className="catalog-promo-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="catalog-promo-title"
+        aria-describedby="catalog-promo-guidance"
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+      >
+        <header>
+          <div>
+            <h2 id="catalog-promo-title">افزودن محصول به «{category.name}»</h2>
+            <p id="catalog-promo-guidance">
+              محصولات انتخاب‌شده با دستهٔ اصلی خود باقی می‌مانند و در این دسته نیز نمایش داده می‌شوند.
+            </p>
+          </div>
+          <button type="button" onClick={closeSafely} disabled={saving}>بستن</button>
+        </header>
+        <div className="catalog-promo-controls">
+          <label>
+            جستجوی محصول یا دسته
+            <input
+              ref={searchInput}
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="نام محصول یا دسته را بنویسید"
+            />
+          </label>
+          <p>
+            فقط محصولات فعال و عمومیِ دسته‌های اصلی، به‌جز بسته‌بندی، قابل انتخاب‌اند.
+            محصولات غیرعمومی و بسته‌بندی در این فهرست نمی‌آیند.
+          </p>
+        </div>
+        <div className="catalog-promo-sources">
+          {sources.map((source: any) => {
+            const sourceProducts = eligibleProducts.filter((product: any) => product.categoryId === source.id);
+            const visibleProducts = sourceProducts.filter((product: any) =>
+              !search || source.name.toLocaleLowerCase().includes(search) || product.name.toLocaleLowerCase().includes(search),
+            );
+            if (search && visibleProducts.length === 0) return null;
+            return (
+              <details className="catalog-promo-source" key={source.id} open={Boolean(search)}>
+                <summary>
+                  <span>{source.name}</span>
+                  <small>{sourceProducts.length} محصول</small>
+                </summary>
+                <fieldset>
+                  <legend>محصول‌های قابل انتخاب</legend>
+                  {visibleProducts.length ? visibleProducts.map((product: any) => (
+                    <label key={product.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(product.id)}
+                        onChange={() => toggle(product.id)}
+                      />
+                      <span>{product.name}</span>
+                    </label>
+                  )) : <p className="catalog-promo-empty">محصول فعالی برای پیشنهاد وجود ندارد.</p>}
+                </fieldset>
+              </details>
+            );
+          })}
+          {search && !sources.some((source: any) =>
+            eligibleProducts.some((product: any) => product.categoryId === source.id &&
+              (source.name.toLocaleLowerCase().includes(search) || product.name.toLocaleLowerCase().includes(search))),
+          ) && <p className="catalog-promo-empty">محصول یا دسته‌ای با این نام پیدا نشد.</p>}
+          {excludedSelections.length > 0 && (
+            <section className="catalog-promo-excluded" aria-label="محصولات فعلی غیرقابل پیشنهاد">
+              <h3>محصولات متصلِ غیرقابل پیشنهاد</h3>
+              <p>این محصولات دیگر عمومی نیستند یا بسته‌بندی‌اند. برای نگه‌داشتن آن‌ها در فهرست تیک را بردارید؛ امکان افزودن دوباره وجود ندارد.</p>
+              {excludedSelections.map((product: any) => (
+                <label key={product.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(product.id)}
+                    onChange={() => toggle(product.id)}
+                  />
+                  <span>{product.name} · غیرقابل افزودن</span>
+                </label>
+              ))}
+            </section>
+          )}
+        </div>
+        <footer>
+          <span>{selectedIds.length} محصول انتخاب شده</span>
+          <div>
+            <button type="button" className="catalog-promo-cancel" onClick={closeSafely} disabled={saving}>انصراف</button>
+            <button type="button" onClick={() => void save()} disabled={!changed || saving}>
+              {saving ? "در حال ذخیره…" : "ذخیره"}
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -793,7 +1006,7 @@ function ProductDrawer({
             <label>
               <span>دسته</span>
               <select name="categoryId" defaultValue={initial?.categoryId ?? categoryId}>
-                {catalog.categories.map((item: any) => (
+                {catalog.categories.filter((item: any) => item.kind === "SOURCE").map((item: any) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
                   </option>

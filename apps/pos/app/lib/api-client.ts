@@ -482,6 +482,7 @@ async function managerMutation<T>(path: string, method: "POST" | "PATCH", body: 
   return parseResponse(await request<unknown>(path, { method, headers: { "content-type": "application/json", ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) }, body: JSON.stringify(body) }), schema, message);
 }
 export const saveCategory = (id: string | null, body: unknown) => managerMutation(id ? `/admin/categories/${id}` : "/admin/categories", id ? "PATCH" : "POST", body, id ? AdminCategoryResponseSchema : AdminCategoryResponseSchema, "پاسخ دسته معتبر نیست.");
+export const savePromotionalCategoryProducts = (id: string, productIds: string[]) => managerMutation(`/admin/categories/${id}/products`, "PATCH", { productIds }, AdminCategoryResponseSchema, "فهرست محصولات تبلیغاتی معتبر نیست.");
 export const archiveCategory = (id: string) => managerMutation(`/admin/categories/${id}/archive`, "POST", {}, AdminCategoryResponseSchema, "پاسخ بایگانی دسته معتبر نیست.");
 export const reorderCategories = (categoryIds: string[]) => managerMutation("/admin/categories/reorder", "PATCH", { categoryIds }, AdminCategoriesResponseSchema, "پاسخ ترتیب دسته‌ها معتبر نیست.");
 export const saveProduct = (id: string | null, body: unknown) => managerMutation(id ? `/admin/products/${id}` : "/admin/products", id ? "PATCH" : "POST", body, AdminProductResponseSchema, "پاسخ محصول معتبر نیست.");

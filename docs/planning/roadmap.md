@@ -58,7 +58,7 @@ mean its separate operational exit evidence is complete.
 | 7     | Shared POS foundation           | One Staff/Manager POS shell and table dashboard: basic order/payment/receipt workflows, ordered physical tables, occupancy/reminder flow, and credential-bound table-scoped waiter-call | Implemented; acceptance pending |
 | 8     | Manager capability backend      | Manager catalog/user/settings, payment history, discounts, audit queries, and accounting summary bound to the applied payment filter          | Complete |
 | 9     | Manager panels in shared POS    | Role-gated catalog, Staff-account, settings, payment-history, audit, and daily-report panels inside the existing POS application                 | Implemented; acceptance pending |
-| 10    | Full-system hardening and POS pilot | Integration/contract/E2E coverage, security review, migration rehearsal, performance checks, POS stabilization, and limited live shift      | In progress |
+| 10    | Full-system hardening and POS pilot | Integration/contract/E2E coverage, security review, migration rehearsal, promotional catalog categories, performance checks, POS stabilization, and limited live shift | In progress |
 | Later | Customer ordering               | Customer cart, table selection, Staff confirmation, and protected public order submission                                                       | Deferred |
 
 ## Stages
@@ -210,6 +210,10 @@ Exit gate:
 - A Manager can operate all v1 capabilities from role-gated panels inside the shared POS without direct server or database access.
 
 ### Stage 10 — Full-System Hardening And POS Pilot (In Progress)
+
+- Add promotional categories that list products from their canonical source
+  categories without duplicating product or pricing records; expose
+  Manager-controlled category and product membership management.
 
 - Run the critical browser E2E suite with the repository browser-check workflow in `browser-testing.md` across public menu, POS, bar-ticket printing, selected-item settlement, mixed tender, card transfer, deletion, customer whole-order/settlement receipts, Manager, and reporting journeys.
 - Complete integration/contract test coverage for authorization, idempotency, concurrency, settlement allocation, reversals, reports, and public-response safety.

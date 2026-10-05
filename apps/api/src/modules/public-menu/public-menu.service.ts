@@ -66,6 +66,11 @@ export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuer
         orderBy: [{ isAvailable: "desc" }, { displayOrder: "asc" }, { name: "asc" }],
         include: publicCatalogInclude,
       },
+      productMemberships: {
+        orderBy: [{ displayOrder: "asc" }, { product: { name: "asc" } }],
+        where: { product: { isActive: true, archivedAt: null, isPublic: true, category: { isActive: true, archivedAt: null } } },
+        include: { product: { include: publicCatalogInclude } },
+      },
     },
   });
 
@@ -74,7 +79,7 @@ export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuer
       .map((category) => ({
         id: category.id,
         name: category.name,
-        products: category.products
+        products: [...category.products, ...category.productMemberships.map(({ product }) => product)]
           .filter((product) => !q || category.name.toLocaleLowerCase("fa-IR").includes(q) || product.name.toLocaleLowerCase("fa-IR").includes(q))
           .map(toPublicProduct),
       }))

@@ -41,6 +41,11 @@ enum ProductPricingMode {
   WEIGHTED_PER_KG
 }
 
+enum CategoryKind {
+  SOURCE
+  PROMOTIONAL
+}
+
 enum PaymentMethod {
   CASH
   CARD_TERMINAL
@@ -108,9 +113,11 @@ model Category {
   displayOrder Int
   isActive     Boolean   @default(true)
   isPosVisible Boolean   @default(true)
+  kind         CategoryKind @default(SOURCE)
   archivedAt   DateTime?
 
   products Product[]
+  productMemberships ProductCategoryMembership[]
 
   @@index([isActive, displayOrder])
   @@map("categories")
@@ -133,6 +140,7 @@ model Product {
   archivedAt                 DateTime?
 
   category            Category             @relation(fields: [categoryId], references: [id])
+  categoryMemberships ProductCategoryMembership[]
   image               ProductImage?
   productOptionGroups ProductOptionGroup[]
   orderItems          OrderItem[]
@@ -140,6 +148,21 @@ model Product {
   @@index([categoryId, isActive, isAvailable, displayOrder])
   @@unique([categoryId, systemKey])
   @@map("products")
+}
+
+model ProductCategoryMembership {
+  categoryId  String
+  productId   String
+  displayOrder Int @default(0)
+  createdAt   DateTime @default(now())
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([categoryId, productId])
+  @@index([productId])
+  @@index([categoryId, displayOrder])
+  @@map("product_category_memberships")
 }
 
 model ProductImage {
