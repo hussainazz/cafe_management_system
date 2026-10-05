@@ -62,6 +62,11 @@ second chronological backlog.
 
 ## Latest Implementation Notes
 
+- 5 October: documented that developer-local POS image uploads are café runtime
+  data and must stay out of VPS release archives and transfers. Releases must
+  preserve the VPS image directory; static, committed menu images remain part
+  of the application artifact when needed.
+
 - 5 October: approved promotional categories as a Stage 10 catalog increment.
   A product keeps one canonical source category and can be listed in
   promotional categories by membership. Schema, API, contracts, UI, and
