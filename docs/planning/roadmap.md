@@ -214,6 +214,13 @@ Exit gate:
 - Add promotional categories that list products from their canonical source
   categories without duplicating product or pricing records; expose
   Manager-controlled category and product membership management.
+- Round discounted final prices to the nearest 1,000 Toman (halfway values
+  round up) across authoritative order pricing and public/POS presentation;
+  preserve the menu's compact prices in thousands of Toman and use grouped
+  amounts in POS.
+- Add a POS action that saves the current order and starts bar-ticket printing;
+  record the prepared ticket after the browser print call returns rather than
+  depending on `afterprint`.
 
 - Run the critical browser E2E suite with the repository browser-check workflow in `browser-testing.md` across public menu, POS, bar-ticket printing, selected-item settlement, mixed tender, card transfer, deletion, customer whole-order/settlement receipts, Manager, and reporting journeys.
 - Complete integration/contract test coverage for authorization, idempotency, concurrency, settlement allocation, reversals, reports, and public-response safety.
