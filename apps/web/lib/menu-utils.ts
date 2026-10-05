@@ -61,6 +61,10 @@ export function formatCompactToman(amount: number, _language: Language) {
   }).format(amount / 1_000);
 }
 
+export function roundDiscountedAmount(amount: number) {
+  return Math.floor((amount + 500) / 1_000) * 1_000;
+}
+
 export function productImageUrl(storageKey: string) {
   const configuredBase = process.env.NEXT_PUBLIC_PRODUCT_IMAGE_BASE_URL?.replace(/\/$/, "");
   const safePath = storageKey
@@ -69,7 +73,7 @@ export function productImageUrl(storageKey: string) {
     .map((segment) => encodeURIComponent(segment))
     .join("/");
 
-  return `${configuredBase ?? "/product-images"}/${safePath}`;
+  return `${configuredBase ?? "/api/product-images"}/${safePath}`;
 }
 
 export function productImageSources(
