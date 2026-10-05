@@ -431,6 +431,22 @@ Acceptance criteria:
 
 ### P4 - Stage 10 Backend Stabilization — In Progress
 
+#### P4.3 Discounted Price Rounding And POS Bar-Ticket Action — In Progress
+
+Round discounted final amounts to the nearest 1,000 Toman (halfway values
+round up) in the authoritative server calculation. Keep the menu's compact
+price presentation in thousands of Toman and show comma-separated three-digit
+groups for monetary amounts throughout POS. Add a POS action that saves
+the current order and starts its bar-ticket print. Treat invocation of this
+operator action as confirmation to record the prepared ticket; the browser
+cannot verify physical paper output.
+
+Left:
+
+- Complete behavioral verification of discounted catalog, item, and order
+  totals; POS create/edit and settlement amounts; grouped menu prices; and the
+  save-and-print action on the café browser and printer.
+
 #### P4.2 Promotional Catalog Categories — In Progress
 
 Support Manager-created promotional categories that list existing products
@@ -474,5 +490,5 @@ Acceptance criteria:
 
 - POS product availability is advisory for active products; inactive/archived products and unavailable options remain blocked. Public-menu availability remains unchanged.
 - Payment shift presets use each settlement recordedAt in Asia/Tehran, including partial payments: 08:00–16:00 and 16:00–midnight.
-- Bar-ticket reads do not mutate print state. Authenticated preparation and retry-safe afterprint acknowledgment persist the exact preparation snapshot; edits print additions only, unchanged preparation content reprints the whole order. Browser cancellation may trigger afterprint.
+- Bar-ticket reads do not mutate print state. Authenticated preparation and retry-safe acknowledgment persist the exact preparation snapshot; edits print additions only, unchanged preparation content reprints the whole order. The operator's save-and-print action is the confirmation; browser events cannot verify paper output.
 - Recovery retains local work and never automatically repeats authoritative mutations or prints.
