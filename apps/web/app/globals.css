@@ -666,6 +666,18 @@ main {
   gap: 16px;
 }
 
+.category-section--addons .product-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.category-section--addons .product-card--has-image {
+  grid-column: 1 / -1;
+}
+
+.category-section--addons .product-card--add-on {
+  min-height: 112px;
+}
+
 .product-card {
   display: flex;
   min-width: 0;
@@ -1827,6 +1839,14 @@ footer span {
   .product-grid {
     grid-template-columns: 1fr;
     gap: 11px;
+  }
+
+  .category-section--addons .product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .category-section--addons .product-card--add-on {
+    min-height: 104px;
   }
 
   .product-card {
