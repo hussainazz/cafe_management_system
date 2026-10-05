@@ -35,6 +35,7 @@ import {
   type ManagerCatalog,
 } from "../lib/api-client";
 import { formatToman } from "../lib/pos-utils";
+import { roundDiscountedAmount } from "@cafe/contracts";
 import { catalogProductImageUrl } from "../lib/catalog-image";
 
 type Confirm = { title: string; detail: string; run: () => Promise<void> };
@@ -821,7 +822,9 @@ function ProductDrawer({
       ? Math.floor((priceAmount * discountValueNumber) / 100)
       : Math.max(0, priceAmount - discountValueNumber)
     : 0;
-  const resultingSalePrice = Math.max(0, priceAmount - saleDiscountAmount);
+  const resultingSalePrice = saleDiscountAmount > 0
+    ? Math.min(priceAmount, roundDiscountedAmount(Math.max(0, priceAmount - saleDiscountAmount)))
+    : priceAmount;
   const calculatedDiscountPercentage = saleDiscountMode === "PERCENTAGE"
     ? Number.isInteger(discountValueNumber) ? discountValueNumber : 0
     : priceAmount > 0
