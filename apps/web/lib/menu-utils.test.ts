@@ -152,7 +152,7 @@ describe("menu utilities", () => {
     };
 
     expect(productImageSources(product, { name: "بار گرم قهوه" })).toEqual([
-      "/product-images/00000000-0000-4000-8000-000000000001.webp",
+      "/api/product-images/00000000-0000-4000-8000-000000000001.webp",
       "/items_pictures/turkish.webp",
     ]);
   });
