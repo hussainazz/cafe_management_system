@@ -35,14 +35,19 @@ function finalPriceAmount(product: { priceAmount: number; saleDiscountKind: "FIX
 function toPublicProduct(product: PublicCatalogProduct) {
   const priceAmount = finalPriceAmount(product);
   const discountAmount = product.priceAmount - priceAmount;
+  const publicDiscountPercentage = product.saleDiscountKind === "PERCENTAGE"
+    ? product.saleDiscountValue
+    : product.priceAmount > 0
+      ? Math.min(100, Math.max(1, Math.round((discountAmount * 100) / product.priceAmount)))
+      : null;
   return {
     id: product.id,
     name: product.name,
     basePriceAmount: product.priceAmount,
     priceAmount,
-    saleDiscount: product.saleDiscountKind && product.saleDiscountValue ? {
-      kind: product.saleDiscountKind,
-      value: product.saleDiscountValue,
+    saleDiscount: product.saleDiscountKind && product.saleDiscountValue && discountAmount > 0 && publicDiscountPercentage ? {
+      kind: "PERCENTAGE" as const,
+      value: publicDiscountPercentage,
       amount: discountAmount,
     } : null,
     isAvailable: product.isAvailable,
