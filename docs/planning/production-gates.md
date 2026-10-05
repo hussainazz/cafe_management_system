@@ -67,6 +67,47 @@ part of a frontend release. The intended Docker Compose/Caddy architecture stays
 documented as a hardening target until it is deliberately implemented and
 verified.
 
+### Database migration gate and 2026-10-05 incident
+
+Release `pos-20261005-978da8b` activated API code that queried the new
+`product_category_memberships` table before its migration had been staged or
+applied on the VPS. API readiness still returned healthy because it checked
+database connectivity, not whether the deployed schema matched the API. The
+public-menu API then returned HTTP 500, the web proxy returned HTTP 503, and
+the public menu showed its unavailable state even though `/menu` itself returned
+HTTP 200.
+
+Recovery used a PostgreSQL 17-compatible database dump, validated with
+`pg_restore --list`. The release's Prisma schema and
+`20261005120000_promotional_category_memberships` migration were staged on the
+VPS. `prisma migrate status` showed that migration as pending, and
+`prisma migrate deploy` applied it. No reset or seed ran. The API, web proxy,
+and public menu then returned HTTP 200, and the migration status showed all 30
+migrations applied. The migration created schema only; it did not copy local
+category records or uploaded product images.
+
+For every API release that changes Prisma schema:
+
+- Include the matching Prisma schema and complete reviewed migration directory
+  in the versioned release artifact and manifest. Do not activate API code if
+  its required migration is absent from staged files.
+- Before activation, take a PostgreSQL-version-compatible backup and validate
+  it with `pg_restore --list`. Run `prisma migrate status` against the target
+  database and compare every pending migration with the staged, reviewed set.
+- Apply required additive migrations with `prisma migrate deploy` after the
+  verified backup and before activating code that reads the new schema. Never
+  use `migrate reset` or run a seed as part of this release gate. Plan breaking
+  schema changes as separate expand and contract releases.
+- After activation, check the affected API route directly and through its web
+  proxy, then inspect the public page content. For the public menu, verify
+  `/api/v1/public/menu`, `/api/public-menu`, and `/menu`; a 200 from `/menu` or
+  database-connected readiness alone does not prove that the new schema works.
+  Confirm expected category and product data and that the unavailable fallback
+  is absent.
+- If migration status, functional probes, or application logs show a schema
+  mismatch, stop the release. Keep the previous compatible API active or roll
+  back the artifact, then apply the reviewed migration and repeat the probes.
+
 ### Next.js artifact transfer rule
 
 The shared local `.next` directory can retain large Turbopack development and
