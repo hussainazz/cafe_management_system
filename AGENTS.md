@@ -7,6 +7,7 @@
 - Keep `docs/current-left.md` as the active completion checklist and current stage status file for the current backend phase. It must contain the relevant `Left:` items from `docs/planning/backend-backlog.md` plus the active stage progress. Check it for every related request. When the user says a task is completed, remove only that completed item text from `docs/current-left.md` and never delete the file itself.
 - When committing and pushing changes, stage files explicitly. Do not stage all changed files and push them as one commit. Commit and push each changed file separately unless the user explicitly asks for a combined commit.
 - Commit and push changes only when the user explicitly asks for it.
+- Never include or transfer developer-local POS-uploaded product images from `apps/api/data/product-images/` in a VPS release. Treat those uploads as runtime café data. Preserve the VPS `PRODUCT_IMAGE_STORAGE_DIR` during deployment and rollback. Transfer image data only when the user explicitly requests a separate data migration.
 - ignore the pnpm lint errors.
 - Never use the `impeccable` skill or plugin unless the user explicitly invokes it in that same request as `@impeccable` or `$impeccable`. A prior mention, approval, or use of Impeccable never carries forward to a later task, even within the same session.
 - Never create, add, switch to, or use a temporary Git worktree for this project. Work only in the user's existing repository checkout unless the user explicitly revokes this rule in writing.
