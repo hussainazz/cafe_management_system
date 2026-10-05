@@ -172,15 +172,15 @@ function Price({
 }) {
   const text = copy[language];
   return (
-    <span className="price-block">
-      {product.saleDiscount ? (
-        <span className="old-price">{formatCompactToman(product.basePriceAmount, language)}</span>
-      ) : null}
+    <span className={`price-block${product.saleDiscount ? " price-block--discount" : ""}`}>
       <span className="price-line">
         {showFrom ? <small>{text.from}</small> : null}
         <strong>{formatCompactToman(product.finalPriceAmount, language)}</strong>
         <small>{text.toman}</small>
       </span>
+      {product.saleDiscount ? (
+        <span className="old-price">{formatCompactToman(product.basePriceAmount, language)}</span>
+      ) : null}
     </span>
   );
 }
@@ -211,7 +211,7 @@ function ProductCard({
       className={`product-card${product.isAvailable ? "" : " is-unavailable"}`}
       type="button"
       onClick={(event) => onSelect(event.currentTarget)}
-      aria-label={`${localizedName(product, language)}، ${startingPriceDescription}${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${availabilityDescription}${optionsDescription}`}
+      aria-label={`${localizedName(product, language)}، ${startingPriceDescription}${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${product.saleDiscount ? `، ${formatToman(product.saleDiscount.value, language)}٪ ${text.discount}` : ""}${availabilityDescription}${optionsDescription}`}
     >
       <ProductVisual product={product} category={category} />
       <span className="product-card-body">
@@ -236,9 +236,7 @@ function ProductCard({
           <Price product={product} language={language} showFrom={hasVariableOptionPrice} />
           {product.saleDiscount ? (
             <span className="discount-badge">
-              {product.saleDiscount.kind === "PERCENTAGE"
-                ? `${formatToman(product.saleDiscount.value, language)}٪`
-                : formatCompactToman(product.saleDiscount.amount, language)}{" "}
+              {formatToman(product.saleDiscount.value, language)}٪{" "}
               {text.discount}
             </span>
           ) : null}
@@ -443,6 +441,42 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
     return () => window.clearInterval(interval);
   }, [tableContext?.active, tableContext?.canCallWaiter, tableContext?.customerAuthenticated, tableContext?.waiterCallStatus]);
 
+  useEffect(() => {
+    let refreshing = false;
+    const refreshMenu = async () => {
+      if (refreshing || document.visibilityState !== "visible") return;
+      refreshing = true;
+      try {
+        const response = await fetch("/api/public-menu", { cache: "no-store" });
+        if (!response.ok) return;
+        const body = (await response.json()) as { data: PublicMenu };
+        setMenu(body.data);
+        setSelectedProduct((current) => {
+          if (!current) return current;
+          const category = body.data.categories.find((entry) =>
+            entry.products.some((product) => product.id === current.product.id),
+          );
+          const product = category?.products.find((entry) => entry.id === current.product.id);
+          return category && product ? { category, product } : null;
+        });
+        setRequestFailed(false);
+      } catch {
+        // Keep the last successful menu when the network is temporarily unavailable.
+      } finally {
+        refreshing = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refreshMenu();
+    };
+    const interval = window.setInterval(() => void refreshMenu(), 60_000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
   const filteredCategories = useMemo(
     () => (menu ? filterMenu(menu, deferredQuery, null) : []),
     [deferredQuery, menu],
@@ -594,6 +628,14 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
       if (!response.ok) throw new Error("Menu request failed");
       const body = (await response.json()) as { data: PublicMenu };
       setMenu(body.data);
+      setSelectedProduct((current) => {
+        if (!current) return current;
+        const category = body.data.categories.find((entry) =>
+          entry.products.some((product) => product.id === current.product.id),
+        );
+        const product = category?.products.find((entry) => entry.id === current.product.id);
+        return category && product ? { category, product } : null;
+      });
       setRequestFailed(false);
     } catch {
       setRequestFailed(true);
