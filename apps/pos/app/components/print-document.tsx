@@ -163,15 +163,16 @@ export function PrintDocument({
       }
       window.dispatchEvent(new CustomEvent("cafe-print-complete"));
     };
-    window.addEventListener("afterprint", complete, { once: true });
     const timer = window.setTimeout(() => {
       printed.current = true;
-      try { window.print(); }
+      try {
+        window.print();
+        void complete();
+      }
       catch { window.dispatchEvent(new CustomEvent("cafe-print-complete", { detail: { error: "مرورگر چاپ را آغاز نکرد." } })); }
     }, 120);
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener("afterprint", complete);
     };
   }, [data, kind, orderId]);
 
