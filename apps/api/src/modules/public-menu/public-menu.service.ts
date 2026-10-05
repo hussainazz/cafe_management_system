@@ -1,5 +1,5 @@
 import { Prisma, type PrismaClient } from "../../../generated/prisma/client.js";
-import type { PublicMenuQuery } from "@cafe/contracts";
+import { roundDiscountedAmount, type PublicMenuQuery } from "@cafe/contracts";
 
 const publicCatalogInclude = {
   image: { select: { storageKey: true, altText: true } },
@@ -29,7 +29,7 @@ function finalPriceAmount(product: { priceAmount: number; saleDiscountKind: "FIX
   const discount = product.saleDiscountKind === "FIXED"
     ? product.saleDiscountValue
     : Math.floor((product.priceAmount * product.saleDiscountValue) / 100);
-  return Math.max(0, product.priceAmount - discount);
+  return roundDiscountedAmount(Math.max(0, product.priceAmount - discount));
 }
 
 function toPublicProduct(product: PublicCatalogProduct) {
