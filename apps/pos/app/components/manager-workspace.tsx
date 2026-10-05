@@ -1271,7 +1271,7 @@ function ProductForm({
             <label>حداکثر <input name={`max-${item.id}`} type="number" min="1" defaultValue={configured?.maxSelections ?? 1} /></label>
             {item.options.map((option) => {
               const selected = configured?.options?.find((entry: any) => entry.optionId === option.id);
-              return <label key={option.id}><input name={`optionIds-${item.id}`} type="checkbox" value={option.id} defaultChecked={Boolean(selected)} /> {option.name} <input name={`override-${item.id}-${option.id}`} type="number" min="0" placeholder={`پیش‌فرض ${option.priceAmount}`} defaultValue={selected?.priceAmountOverride ?? ""} /></label>;
+              return <label key={option.id}><input name={`optionIds-${item.id}`} type="checkbox" value={option.id} defaultChecked={Boolean(selected)} /> {option.name} <input name={`override-${item.id}-${option.id}`} type="number" min="0" placeholder={`پیش‌فرض ${formatToman(option.priceAmount)}`} defaultValue={selected?.priceAmountOverride ?? ""} /></label>;
             })}
           </details>;
         })}
