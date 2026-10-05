@@ -1,6 +1,6 @@
 # Current Stage Status
 
-Last reconciled: 4 October 2026. This file is the active completion checklist;
+Last reconciled: 5 October 2026. This file is the active completion checklist;
 implementation history belongs in Git and feature-specific records, not in a
 second chronological backlog.
 
@@ -40,8 +40,16 @@ second chronological backlog.
   isolated PostgreSQL integration/contract/authorization/idempotency/concurrency
   suites, fresh and restored-database migration rehearsals, security review,
   and measured response targets.
-- [ ] Complete backend-backlog P4.2: save a promotional membership and verify
-  membership API/public-menu behavior.
+- [x] Add Manager controls to create, edit, and remove product offers by
+  entering a final price or percentage. Show the calculated percentage in POS
+  for final-price offers; show only a percentage in the public menu. The menu
+  refreshes on tab return and once per visible minute. Browser/device
+  acceptance remains open.
+- [x] Enforce source-only categories in POS catalog reads and order creation/editing;
+  prevent promotional categories from becoming POS-visible or being archived.
+  Focused admin, POS catalog, and order integration coverage passes.
+- [ ] Complete backend-backlog P4.2 membership API/public-menu behavior by
+  saving and removing promotional memberships and verifying public-menu output.
 - [x] In the isolated Manager browser, verify the promotional picker opens with
   collapsed source groups, product search, eligibility guidance, keyboard focus
   containment, and a discard warning for changed selections.
