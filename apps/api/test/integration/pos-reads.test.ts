@@ -87,6 +87,18 @@ describe("POS catalog and table reads", () => {
         displayOrder: 1,
       },
     });
+    const promotionalCategory = await app.prisma.category.create({
+      data: { name: "Promotional only", kind: "PROMOTIONAL", isPosVisible: true, displayOrder: 3 },
+    });
+    await app.prisma.product.create({
+      data: {
+        categoryId: promotionalCategory.id,
+        name: "Promotional-only product",
+        priceAmount: 1,
+        preparationDeadlineMinutes: 1,
+        displayOrder: 1,
+      },
+    });
 
     const response = await app.inject({ method: "GET", url: "/api/v1/pos/catalog", cookies });
 
