@@ -41,6 +41,8 @@ export async function readPosCatalog(prisma: PrismaClient) {
         name: product.name,
         priceAmount: product.priceAmount,
         pricingMode: product.pricingMode,
+        saleDiscountKind: product.saleDiscountKind,
+        saleDiscountValue: product.saleDiscountValue,
         preparationDeadlineMinutes: product.preparationDeadlineMinutes,
         isAvailable: product.isAvailable,
         image: product.image ? { storageKey: product.image.storageKey, altText: product.name } : null,
