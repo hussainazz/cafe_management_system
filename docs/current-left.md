@@ -65,6 +65,16 @@ second chronological backlog.
 
 ## Latest Implementation Notes
 
+- 5 October: deployed all committed application updates through `978da8b`
+  as release `pos-20261005-978da8b`. The additive promotional-membership
+  schema migration is applied; migration status reports all 30 migrations
+  current. No category seed ran and no developer-local uploaded images or
+  category records were transferred. The VPS image-storage directory remains
+  intact. Public `/menu`, `/pos`, `/pos/release`, a committed menu image, and
+  the POS font returned HTTP 200; API readiness is connected and all three
+  services are active with `NRestarts=0`. POS device/printer acceptance and
+  the remaining Stage 10 checks stay open.
+
 - 5 October: the public-menu `افزودنی` category now uses two columns, including
   narrow mobile layouts. Items with an uploaded image sort first and span the
   full category width; items without an uploaded image have no artwork
