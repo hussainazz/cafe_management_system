@@ -896,12 +896,32 @@ main {
 }
 
 .old-price {
-  margin-bottom: 4px;
-  color: #736654;
+  position: relative;
+  display: inline-block;
+  align-self: flex-start;
+  padding: 2px 3px;
+  color: #8b7860;
   font:
-    9px/1 Georgia,
+    10px/1.25 Georgia,
     serif;
-  text-decoration: line-through;
+  white-space: nowrap;
+}
+
+.old-price::after {
+  position: absolute;
+  top: 50%;
+  right: -2px;
+  left: -2px;
+  height: 1px;
+  background: currentColor;
+  content: "";
+  transform: rotate(-8deg);
+}
+
+.price-block--discount .price-line strong {
+  color: #e2785f;
+  font-weight: 800;
+  font-size: 18px;
 }
 
 .discount-badge,
@@ -913,8 +933,12 @@ main {
 }
 
 .discount-badge {
-  color: #b6c9a9;
-  background: rgba(127, 156, 119, 0.13);
+  padding: 7px 10px;
+  border: 1px solid var(--amber);
+  color: var(--amber-bright);
+  background: var(--amber-soft);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .unavailable-badge {
