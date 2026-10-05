@@ -42,11 +42,11 @@ describe("printRoute", () => {
     await expect(prepared).rejects.toThrow("رسید پیدا نشد");
     expect(iframe.isConnected).toBe(false);
   });
-  it("rejects missing completion without silently resolving at readiness", async () => {
+  it("does not turn a delayed browser completion signal into a print failure", async () => {
     vi.useFakeTimers();
     try {
       const printing = printDocument("/pos/print/order/bar-ticket");
-      const rejection = expect(printing).rejects.toThrow("پایان چاپ");
+      const completion = expect(printing).resolves.toBeUndefined();
       const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="سند چاپی کافه"]')!;
       const frameDocument = document.implementation.createHTMLDocument("print");
       frameDocument.body.innerHTML = '<main class="thermal-print">ticket</main>';
@@ -54,7 +54,9 @@ describe("printRoute", () => {
       iframe.dispatchEvent(new Event("load"));
       expect(iframe.isConnected).toBe(true);
       await vi.advanceTimersByTimeAsync(120_000);
-      await rejection;
+      expect(iframe.isConnected).toBe(true);
+      iframe.contentWindow!.dispatchEvent(new CustomEvent("cafe-print-complete"));
+      await completion;
       expect(iframe.isConnected).toBe(false);
     } finally { vi.useRealTimers(); }
   });
