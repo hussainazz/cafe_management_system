@@ -4,11 +4,13 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode 
 import type { MenuCategory, MenuProduct, PublicMenu } from "../lib/menu-types";
 import {
   categoryTone,
-  formatCompactToman,
   filterMenu,
+  formatCompactToman,
   formatToman,
   localizedName,
+  normalizeSearch,
   productImageSources,
+  roundDiscountedAmount,
   secondaryName,
   type Language,
 } from "../lib/menu-utils";
@@ -113,6 +115,11 @@ function CategoryMark({
   return <span className={`category-mark category-mark--${tone} ${className}`}>{icon[tone]}</span>;
 }
 
+function isAddOnCategory(category: MenuCategory) {
+  return normalizeSearch(category.name) === normalizeSearch("افزودنی") ||
+    normalizeSearch(category.nameEn ?? "") === "add-ons";
+}
+
 function ProductVisual({
   product,
   category,
@@ -123,7 +130,8 @@ function ProductVisual({
   presentation?: "card" | "dialog";
 }) {
   const [imageIndex, setImageIndex] = useState(0);
-  const imageSources = productImageSources(product, category);
+  const isAddOn = isAddOnCategory(category);
+  const imageSources = isAddOn && !product.image ? [] : productImageSources(product, category);
   const imageSource = imageSources[imageIndex];
 
   if (imageSource) {
@@ -150,6 +158,8 @@ function ProductVisual({
       </span>
     );
   }
+
+  if (isAddOn) return null;
 
   return (
     <span className={`product-visual product-visual--${categoryTone(category)}`} aria-hidden="true">
@@ -179,7 +189,7 @@ function Price({
         <small>{text.toman}</small>
       </span>
       {product.saleDiscount ? (
-        <span className="old-price">{formatCompactToman(product.basePriceAmount, language)}</span>
+      <span className="old-price">{formatCompactToman(product.basePriceAmount, language)}</span>
       ) : null}
     </span>
   );
@@ -198,6 +208,7 @@ function ProductCard({
 }) {
   const text = copy[language];
   const detail = secondaryName(product, language);
+  const hasUploadedImage = Boolean(product.image);
   const optionCount = product.optionGroups.reduce((count, group) => count + group.options.length, 0);
   const hasVariableOptionPrice = product.optionGroups.some(
     (group) => new Set(group.options.map((option) => option.priceAmount)).size > 1,
@@ -208,7 +219,7 @@ function ProductCard({
 
   return (
     <button
-      className={`product-card${product.isAvailable ? "" : " is-unavailable"}`}
+      className={`product-card${product.isAvailable ? "" : " is-unavailable"}${isAddOnCategory(category) ? hasUploadedImage ? " product-card--has-image" : " product-card--add-on" : ""}`}
       type="button"
       onClick={(event) => onSelect(event.currentTarget)}
       aria-label={`${localizedName(product, language)}، ${startingPriceDescription}${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${product.saleDiscount ? `، ${formatToman(product.saleDiscount.value, language)}٪ ${text.discount}` : ""}${availabilityDescription}${optionsDescription}`}
@@ -347,7 +358,9 @@ function ProductDialog({
                         <li key={option.id}>
                           <span>{option.name}</span>
                           <span className="option-price" aria-label={text.finalPriceWithOption}>
-                            {formatCompactToman(product.finalPriceAmount + option.priceAmount, language)}{
+                            {formatCompactToman(product.saleDiscount
+                              ? roundDiscountedAmount(product.finalPriceAmount + option.priceAmount)
+                              : product.finalPriceAmount + option.priceAmount, language)}{
                               " "
                             }
                             {text.toman}
@@ -840,9 +853,15 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
 
         {filteredCategories.length > 0 ? (
           <div className="category-sections">
-            {filteredCategories.map((category, categoryIndex) => (
-              <section
-                className="category-section"
+            {filteredCategories.map((category, categoryIndex) => {
+              const addOnCategory = isAddOnCategory(category);
+              const categoryProducts = addOnCategory
+                ? [...category.products].sort((left, right) =>
+                    Number(Boolean(right.image)) - Number(Boolean(left.image)),
+                  )
+                : category.products;
+              return <section
+                className={`category-section${addOnCategory ? " category-section--addons" : ""}`}
                 id={`category-${category.id}`}
                 key={category.id}
               >
@@ -862,8 +881,8 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
                     {formatToman(category.products.length, language)}
                   </span>
                 </div>
-                <div className="product-grid">
-                  {category.products.map((product) => (
+                <div className={`product-grid${addOnCategory ? " product-grid--addons" : ""}`}>
+                  {categoryProducts.map((product) => (
                     <ProductCard
                       product={product}
                       category={category}
@@ -876,8 +895,8 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
                     />
                   ))}
                 </div>
-              </section>
-            ))}
+              </section>;
+            })}
           </div>
         ) : (
           <section className="empty-state">
