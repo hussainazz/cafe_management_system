@@ -186,6 +186,7 @@ Money, pricing, and tax rules:
 
 - The database stores money as signed-safe integer Toman values. It never stores Rial or floating-point money.
 - Product and option prices are final customer prices before any active Manager-configured product sale discount. No tax, VAT, service charge, or tax calculation exists in v1.
+- Whenever a catalog sale, item, or order discount is applied, round the resulting discounted final amount to the nearest 1,000 Toman (halfway values round up). Apply this to the amount persisted by the server and shown in POS, receipts, and the public menu. Undiscounted amounts retain their exact Toman value. POS monetary amounts use comma-separated groups of three digits; the public menu retains its compact display in thousands of Toman.
 - A product sale discount is configured only by a Manager and applies to new order-item snapshots only; changing or removing it never changes historical orders. Staff and Manager may apply order-item or order-level discounts while the order is open, with an optional reason and subject to settlement immutability.
 - The backend is the only authority for unit price, option price, discount, line total, grand total, settlement total, paid total, and balance.
 - Each order item stores a snapshot of product name, base price, product preparation-deadline minutes, selected options and their prices, quantity, discount allocation, and final line total.
