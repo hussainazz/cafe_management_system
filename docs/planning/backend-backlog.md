@@ -431,7 +431,7 @@ Acceptance criteria:
 
 ### P4 - Stage 10 Backend Stabilization — In Progress
 
-#### P4.3 Discounted Price Rounding And POS Bar-Ticket Action — In Progress
+#### P4.3 Discounted Price Rounding And POS Bar-Ticket Action — Complete
 
 Round discounted final amounts to the nearest 1,000 Toman (halfway values
 round up) in the authoritative server calculation. Keep the menu's compact
@@ -443,11 +443,11 @@ cannot verify physical paper output.
 
 Left:
 
-- Complete behavioral verification of discounted catalog, item, and order
-  totals; POS create/edit and settlement amounts; grouped menu prices; and the
-  save-and-print action on the café browser and printer.
+- None. Contract, API integration, POS summary, save-and-print, and print
+  acknowledgement coverage passes; café browser/printer verification is
+  recorded separately in `docs/current-left.md`.
 
-#### P4.2 Promotional Catalog Categories — In Progress
+#### P4.2 Promotional Catalog Categories — Complete
 
 Support Manager-created promotional categories that list existing products
 without changing their canonical source category.
@@ -466,8 +466,9 @@ Acceptance criteria:
 
 Left:
 
-- Apply and verify the migration; complete promotional membership API and
-  public-menu behavioral checks and Manager browser acceptance.
+- None. API add/remove and public-menu behavior are covered by integration
+  tests; Manager picker add/remove behavior is covered by POS component tests.
+  Migration and browser checks are recorded in `docs/current-left.md`.
 
 #### P4.1 Contract, Security, Migration, And Performance Hardening
 
