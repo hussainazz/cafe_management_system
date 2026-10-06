@@ -80,6 +80,26 @@ function productCards(products: PosCatalogProduct[]): ProductCard[] {
   }));
 }
 
+function discountedDraftLineAmount(item: Draft): number {
+  const optionAmount = sumAmounts(item.options.map((option) => option.priceAmount));
+  const baseAmount = item.product.pricingMode === "WEIGHTED_PER_KG"
+    ? weightedPricePreview(item.product.priceAmount, 0, item.weightGrams ?? 0, item.quantity)
+    : item.product.priceAmount * item.quantity;
+  const grossAmount = item.product.pricingMode === "WEIGHTED_PER_KG"
+    ? baseAmount + weightedPricePreview(0, optionAmount, item.weightGrams ?? 0, item.quantity)
+    : baseAmount + optionAmount * item.quantity;
+  const saleDiscountAmount = !item.product.saleDiscountKind || !item.product.saleDiscountValue
+    ? 0
+    : item.product.saleDiscountKind === "PERCENTAGE"
+      ? Math.floor(baseAmount * item.product.saleDiscountValue / 100)
+      : item.product.pricingMode === "WEIGHTED_PER_KG"
+        ? Math.floor(item.product.saleDiscountValue * (item.weightGrams ?? 0) * item.quantity / 1000)
+        : item.product.saleDiscountValue * item.quantity;
+  return saleDiscountAmount > 0
+    ? Math.min(grossAmount, roundDiscountedAmount(Math.max(0, grossAmount - saleDiscountAmount)))
+    : grossAmount;
+}
+
 function savedDrafts(order: OrderDetail | null): SavedDraft[] {
   return (order?.items ?? []).map((item) => ({
     id: item.id, productId: item.productId, name: item.productNameSnapshot,
@@ -888,13 +908,7 @@ export function OrderDesk({
   const savedForOrder = initialOrder && (!savedIdsMatchOrder || discardRecoveredEdits) ? savedDrafts(initialOrder) : saved;
   const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
   const cards = productCards(category?.products ?? []);
-  const draftTotal = sumAmounts(
-    draftForOrder.map(
-      (x) => x.product.pricingMode === "WEIGHTED_PER_KG"
-        ? weightedPricePreview(x.product.priceAmount, sumAmounts(x.options.map((o) => o.priceAmount)), x.weightGrams ?? 0, x.quantity)
-        : (x.product.priceAmount + sumAmounts(x.options.map((o) => o.priceAmount))) * x.quantity,
-    ),
-  );
+  const draftTotal = sumAmounts(draftForOrder.map(discountedDraftLineAmount));
   const add = (product: PosCatalogProduct, options: Option[] = [], weightGrams: number | null = null) => {
     const signature = `${product.id}:${options
       .map((x) => x.id)
@@ -1301,23 +1315,7 @@ function OrderSummary({
         })}
         {draft.map((item) => {
           const expanded = expandedDraftKey === item.key;
-          const optionAmount = sumAmounts(item.options.map((x) => x.priceAmount));
-          const baseAmount = item.product.pricingMode === "WEIGHTED_PER_KG"
-            ? weightedPricePreview(item.product.priceAmount, 0, item.weightGrams ?? 0, item.quantity)
-            : item.product.priceAmount * item.quantity;
-          const grossAmount = item.product.pricingMode === "WEIGHTED_PER_KG"
-            ? baseAmount + weightedPricePreview(0, optionAmount, item.weightGrams ?? 0, item.quantity)
-            : baseAmount + optionAmount * item.quantity;
-          const saleDiscountAmount = !item.product.saleDiscountKind || !item.product.saleDiscountValue
-            ? 0
-            : item.product.saleDiscountKind === "PERCENTAGE"
-              ? Math.floor(baseAmount * item.product.saleDiscountValue / 100)
-              : item.product.pricingMode === "WEIGHTED_PER_KG"
-                ? Math.floor(item.product.saleDiscountValue * (item.weightGrams ?? 0) * item.quantity / 1000)
-                : item.product.saleDiscountValue * item.quantity;
-          const unitPrice = saleDiscountAmount > 0
-            ? Math.min(grossAmount, roundDiscountedAmount(grossAmount - saleDiscountAmount))
-            : grossAmount;
+          const unitPrice = discountedDraftLineAmount(item);
           return (
             <article
               className={expanded ? "order-line order-line--expanded" : "order-line"}
