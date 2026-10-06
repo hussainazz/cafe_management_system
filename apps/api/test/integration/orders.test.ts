@@ -712,6 +712,79 @@ describe("logical order deletion", () => {
 });
 
 describe("settlement recording", () => {
+  it("rolls back settlement rows, order closure, and table release when audit persistence fails", async () => {
+    const cookies = await userSession(UserRole.STAFF, "settlement-atomic.staff");
+    const { product } = await sellableProduct();
+    const table = await app.prisma.cafeTable.create({ data: { name: "Atomic settlement", displayOrder: 92 } });
+    const created = await createOrderRequest(
+      cookies,
+      { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] },
+      "settlement-atomic-order-0001",
+    );
+    expect(created.statusCode).toBe(201);
+    const order = created.json().data;
+    const occupied = await app.inject({
+      method: "POST",
+      url: `/api/v1/tables/${table.id}/occupy`,
+      cookies,
+      payload: {},
+    });
+    expect(occupied.statusCode).toBe(200);
+    expect(await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } }))
+      .toMatchObject({ occupancyState: "OCCUPIED" });
+
+    await app.prisma.$executeRawUnsafe(`
+      CREATE FUNCTION fail_settlement_audit() RETURNS trigger AS $$
+      BEGIN
+        IF NEW."operation" = 'RECORD_SETTLEMENT' THEN
+          RAISE EXCEPTION 'forced settlement audit failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_settlement_audit_trigger
+      BEFORE INSERT ON "audit_logs"
+      FOR EACH ROW EXECUTE FUNCTION fail_settlement_audit();
+    `);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/v1/orders/${order.id}/record-settlement`,
+        cookies,
+        headers: { "idempotency-key": "settlement-atomic-key-0001" },
+        payload: {
+          expectedVersion: order.version,
+          allocations: [{ orderItemId: order.items[0].id, quantity: 1 }],
+          payments: [{ method: "CASH", amount: 50_000 }],
+        },
+      });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.json().error.code).toBe("INTERNAL_ERROR");
+      await expect(app.prisma.order.findUniqueOrThrow({ where: { id: order.id } })).resolves.toMatchObject({
+        state: "OPEN",
+        paymentStatus: "UNPAID",
+        paidAmount: 0,
+        balanceAmount: 50_000,
+        version: 1,
+      });
+      await expect(app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).resolves.toMatchObject({
+        occupancyState: "OCCUPIED",
+      });
+      expect(await app.prisma.paymentSettlement.count({ where: { orderId: order.id } })).toBe(0);
+      expect(await app.prisma.settlementAllocation.count()).toBe(0);
+      expect(await app.prisma.payment.count()).toBe(0);
+      expect(await app.prisma.idempotencyRecord.count({ where: { key: "settlement-atomic-key-0001" } })).toBe(0);
+      expect(await app.prisma.auditLog.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(0);
+    } finally {
+      await app.prisma.$executeRawUnsafe(`
+        DROP TRIGGER IF EXISTS fail_settlement_audit_trigger ON "audit_logs";
+        DROP FUNCTION IF EXISTS fail_settlement_audit();
+      `);
+    }
+  });
+
   it("allocates an entered partial amount in display order, retains item settlement, and closes with the remaining amount", async () => {
     const cookies = await userSession(UserRole.STAFF, "settlement.amount.staff");
     const { product: first } = await sellableProduct();
