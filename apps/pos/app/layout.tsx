@@ -5,7 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "صندوق | سامانه فروش کافه ران",
   description: "سامانه‌ی مشترک سفارش‌گیری برای پرسنل و مدیران کافه ران.",
-  applicationName: "Run Cafe POS",
+  applicationName: "صندوق کافه ران",
 };
 
 export const viewport: Viewport = {
