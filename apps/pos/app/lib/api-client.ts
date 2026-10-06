@@ -112,7 +112,7 @@ async function requestOnce<T>(path: string, init?: RequestInit): Promise<ApiResu
               message: parsed.data.error.message,
               requestId: parsed.data.error.requestId,
             }
-          : { kind: "response", status: response.status, message: "پاسخ سرویس قابل خواندن نیست." },
+          : { kind: "response", status: response.status, message: "پاسخ سرویس خوانا نیست." },
       };
     }
     return {
@@ -121,7 +121,7 @@ async function requestOnce<T>(path: string, init?: RequestInit): Promise<ApiResu
       replayed: response.headers.get("idempotency-replayed") === "true",
     };
   } catch {
-    const error = { kind: "network" as const, message: "ارتباط با سرویس برقرار نشد." };
+    const error = { kind: "network" as const, message: "اتصال به سرویس برقرار نشد." };
     return { ok: false, error };
   } finally { endActivity(); }
 }
@@ -138,7 +138,7 @@ function refreshSessionOnce(): Promise<ApiResult<AuthenticatedUser>> {
   if (sessionRefreshInFlight) return sessionRefreshInFlight;
 
   const refresh = requestOnce<unknown>("/auth/refresh", { method: "POST" }).then((result) =>
-    parseAuthentication(result, "پاسخ نوسازی نشست معتبر نیست."),
+    parseAuthentication(result, "پاسخ تمدید نشست معتبر نیست."),
   );
   sessionRefreshInFlight = refresh;
   const clear = () => {
@@ -176,7 +176,7 @@ function parseAuthentication(
 }
 
 export async function currentSession() {
-  return parseAuthentication(await request<unknown>("/auth/me", undefined, false, false), "پاسخ نشست معتبر نیست.");
+  return parseAuthentication(await request<unknown>("/auth/me", undefined, false, false), "اطلاعات نشست معتبر نیست.");
 }
 export async function signIn(input: { username: string; password: string }) {
   return parseAuthentication(
@@ -185,7 +185,7 @@ export async function signIn(input: { username: string; password: string }) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
     }, true, false),
-    "پاسخ ورود معتبر نیست.",
+    "اطلاعات ورود معتبر نیست.",
   );
 }
 export async function refreshSession() {
@@ -487,7 +487,7 @@ async function managerMutation<T>(path: string, method: "POST" | "PATCH", body: 
   return parseResponse(await request<unknown>(path, { method, headers: { "content-type": "application/json", ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) }, body: JSON.stringify(body) }), schema, message);
 }
 export const saveCategory = (id: string | null, body: unknown) => managerMutation(id ? `/admin/categories/${id}` : "/admin/categories", id ? "PATCH" : "POST", body, id ? AdminCategoryResponseSchema : AdminCategoryResponseSchema, "پاسخ دسته معتبر نیست.");
-export const savePromotionalCategoryProducts = (id: string, productIds: string[]) => managerMutation(`/admin/categories/${id}/products`, "PATCH", { productIds }, AdminCategoryResponseSchema, "فهرست محصولات تبلیغاتی معتبر نیست.");
+export const savePromotionalCategoryProducts = (id: string, productIds: string[]) => managerMutation(`/admin/categories/${id}/products`, "PATCH", { productIds }, AdminCategoryResponseSchema, "فهرست محصولات این دسته معتبر نیست.");
 export const archiveCategory = (id: string) => managerMutation(`/admin/categories/${id}/archive`, "POST", {}, AdminCategoryResponseSchema, "پاسخ بایگانی دسته معتبر نیست.");
 export const reorderCategories = (categoryIds: string[]) => managerMutation("/admin/categories/reorder", "PATCH", { categoryIds }, AdminCategoriesResponseSchema, "پاسخ ترتیب دسته‌ها معتبر نیست.");
 export const saveProduct = (id: string | null, body: unknown) => managerMutation(id ? `/admin/products/${id}` : "/admin/products", id ? "PATCH" : "POST", body, AdminProductResponseSchema, "پاسخ محصول معتبر نیست.");
