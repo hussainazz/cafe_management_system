@@ -64,7 +64,7 @@ export function ReleaseUpdateGuard({ activity }: { activity: PosActivity }) {
   if (!updateReady) return null;
   const waitingForWork = activity.isBusy || activity.hasUnsavedChanges;
   const refresh = () => {
-    if (activityRef.current.hasUnsavedChanges && !window.confirm("تغییرات ثبت‌نشده دارید. آیا نسخه جدید بارگذاری شود؟")) return;
+    if (activityRef.current.hasUnsavedChanges && !window.confirm("تغییرات ذخیره‌نشده دارید. با به‌روزرسانی صندوق، این تغییرات از دست می‌روند. ادامه می‌دهید؟")) return;
     window.location.reload();
   };
 
@@ -72,15 +72,15 @@ export function ReleaseUpdateGuard({ activity }: { activity: PosActivity }) {
     <div className="release-update-backdrop">
       <section className="release-update-banner" role="status" aria-live="polite">
         <div>
-          <strong>نسخه جدید سامانه فروش آماده است.</strong>
+          <strong>نسخه‌ی تازه‌ی سامانه فروش آماده است.</strong>
           <span>
             {waitingForWork
-              ? "پس از پایان عملیات فعلی، صندوق به‌روزرسانی می‌شود."
-              : `صندوق در ${countdown ?? idleCountdownSeconds} ثانیه به‌روزرسانی می‌شود.`}
+              ? "پس از پایان عملیات فعلی، صندوق به‌روز می‌شود."
+              : `صندوق تا ${countdown ?? idleCountdownSeconds} ثانیه‌ی دیگر به‌روز می‌شود.`}
           </span>
         </div>
         <button className="button button--primary" type="button" onClick={refresh}>
-          بارگذاری نسخه جدید
+          به‌روزرسانی صندوق
         </button>
       </section>
     </div>
