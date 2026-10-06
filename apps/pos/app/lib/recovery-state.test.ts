@@ -5,21 +5,21 @@ describe("POS recovery state", () => {
   it("does not present a network failure as a completed change", () => {
     expect(recoveryStateFor({ kind: "network", message: "unavailable" })).toMatchObject({
       kind: "offline",
-      action: "تلاش برای اتصال و بازخوانی",
+      action: "اتصال و بازخوانی دوباره",
     });
   });
 
   it("asks the operator to refetch rather than retry a stale mutation", () => {
     expect(recoveryStateFor({ kind: "response", status: 409, code: "STALE_VERSION", message: "stale" })).toMatchObject({
       kind: "conflict",
-      action: "دریافت نسخهٔ تازه",
+      action: "دریافت اطلاعات تازه",
     });
   });
 
   it("does not mislabel an idempotency-key collision as a stale-order conflict", () => {
     expect(recoveryStateFor({ kind: "response", status: 409, code: "IDEMPOTENCY_CONFLICT", message: "collision" })).toMatchObject({
       kind: "failure",
-      title: "درخواست قبلی با اطلاعات دیگری ثبت شده است",
+      title: "درخواست با اطلاعات متفاوتی تکرار شد",
       action: "بازخوانی وضعیت",
     });
   });
