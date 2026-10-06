@@ -23,7 +23,7 @@ it("never mounts Manager workspace after Manager logout and Staff login, even wi
   fireEvent.click(screen.getByRole("button", { name: "مدیریت" }));
   await screen.findByText("manager workspace");
   fireEvent.click(screen.getByRole("button", { name: "open menu" }));
-  fireEvent.click(screen.getByRole("button", { name: "خروج" }));
+  fireEvent.click(screen.getByRole("button", { name: "خروج از حساب" }));
   await screen.findByText("ورود به سامانه فروش");
   manager.mockClear();
   fireEvent.change(screen.getByLabelText("نام کاربری"), { target: { value: "staff" } });
