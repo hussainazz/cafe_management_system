@@ -180,7 +180,7 @@ export function OrdersWorkspace({
     ]);
     if (!catalog.ok || !tables.ok) {
       const failure = !catalog.ok ? catalog.error : !tables.ok ? tables.error : null;
-      setMessage({ tone: "error", text: failure?.message ?? "اطلاعات صندوق آماده نشد." });
+      setMessage({ tone: "error", text: failure?.message ?? "اطلاعات صندوق بارگذاری نشد." });
       setLoading(false);
       return false;
     }
@@ -214,14 +214,14 @@ export function OrdersWorkspace({
     setOnline(navigator.onLine);
     const offline = () => {
       setOnline(false);
-      setRecovery(recoveryStateFor({ kind: "network", message: "ارتباط با سرویس برقرار نشد." }));
+      setRecovery(recoveryStateFor({ kind: "network", message: "اتصال به سرویس برقرار نشد." }));
     };
     const online = () => {
       setOnline(true);
       setRecovery((current) => current?.kind === "offline" ? {
         kind: "offline",
-        title: "اتصال بازگشته است",
-        detail: "برای اطمینان، وضعیت میزها و سفارش‌ها را از سرویس دوباره دریافت کنید.",
+        title: "اتصال دوباره برقرار شد",
+        detail: "برای دیدن آخرین وضعیت، میزها و سفارش‌ها را دوباره از سرویس دریافت کنید.",
         action: "بازخوانی وضعیت",
       } : current);
     };
@@ -253,7 +253,7 @@ export function OrdersWorkspace({
     const [tables, calls, orders] = await Promise.all([readPosTables(), readWaiterCalls(), readOpenOrders()]);
     if (!tables.ok) {
       setLiveDataLimited(true);
-      setMessage({ tone: "notice", text: "وضعیت زنده میزها در دسترس نیست؛ برای تازه‌سازی دوباره تلاش کنید." });
+      setMessage({ tone: "notice", text: "وضعیت میزها به‌روز نیست. برای دریافت اطلاعات تازه دوباره تلاش کنید." });
       return;
     }
     if (calls.ok) {
@@ -309,7 +309,7 @@ export function OrdersWorkspace({
       await refreshOperationalData();
       return;
     }
-    setMessage({ tone: "notice", text: `درخواست میز ${result.table.name} پذیرفته شد.` });
+    setMessage({ tone: "notice", text: `به درخواست میز ${result.table.name} رسیدگی شد.` });
   };
   const close = () => {
     setSelected(null);
@@ -331,19 +331,19 @@ export function OrdersWorkspace({
       setOnline(true);
       setRecovery(null);
       finishRecoveryEpisode();
-      setMessage({ tone: "notice", text: "وضعیت صندوق از سرویس دوباره دریافت شد." });
+      setMessage({ tone: "notice", text: "اطلاعات صندوق از سرویس به‌روز شد." });
     }
   };
   if (loading) return <Loading />;
-  if (!data) return <Failure onRetry={load} message={message?.text ?? "صندوق آماده نشد."} />;
+  if (!data) return <Failure onRetry={load} message={message?.text ?? "اطلاعات صندوق بارگذاری نشد."} />;
   return (
     <section className="pos-workspace">
       <header className="workspace-header">
         <div className="header-actions">
-          <span className={`connection ${!online ? "connection--offline" : liveDataLimited || refreshing ? "connection--busy" : "connection--connected"}`} role="status" aria-label={!online ? "اتصال شبکه قطع است" : liveDataLimited ? "داده زنده ناقص است" : refreshing ? "در حال بازخوانی اتصال" : "اتصال برقرار است"}>
+          <span className={`connection ${!online ? "connection--offline" : liveDataLimited || refreshing ? "connection--busy" : "connection--connected"}`} role="status" aria-label={!online ? "اتصال شبکه قطع است" : liveDataLimited ? "بخشی از اطلاعات به‌روز نیست" : refreshing ? "در حال دریافت اطلاعات تازه" : "اتصال برقرار است"}>
             <WifiIcon />
-            <span title={!online ? "اتصال شبکه در دسترس نیست" : liveDataLimited ? "بخشی از داده زنده تازه نشده است؛ با دکمه تازه‌سازی دوباره تلاش کنید." : refreshing ? "در حال بازخوانی وضعیت" : "اتصال برقرار است"}>
-              {!online ? "قطع ارتباط" : liveDataLimited ? "داده زنده ناقص" : refreshing ? "در حال بازخوانی" : "متصل"}
+            <span title={!online ? "اتصال شبکه در دسترس نیست." : liveDataLimited ? "بخشی از اطلاعات به‌روز نیست. برای دریافت دوباره، دکمه‌ی تازه‌سازی را بزنید." : refreshing ? "در حال دریافت اطلاعات تازه…" : "اتصال برقرار است"}>
+              {!online ? "قطع ارتباط" : liveDataLimited ? "اطلاعات ناقص" : refreshing ? "در حال به‌روزرسانی" : "متصل"}
             </span>
           </span>
           <button className={`icon-button refresh-button${refreshing ? " is-refreshing" : ""}`} onClick={() => void load()} aria-label="تازه‌سازی وضعیت" title="تازه‌سازی وضعیت">
@@ -359,7 +359,7 @@ export function OrdersWorkspace({
             <MenuIcon />
           </button>
         </div>
-        <div className="channel-tabs" role="tablist" aria-label="کانال سفارش">
+        <div className="channel-tabs" role="tablist" aria-label="نوع سفارش">
           <button
             className={channel === "TABLE" ? "active" : ""}
             onClick={() => {
@@ -411,7 +411,7 @@ export function OrdersWorkspace({
           <div>
             <b>سفارش {formatOrderNumber(pendingTableClear.dailyOrderNumber)} از فهرست فعال حذف شد.</b>
             <span>
-              میز {pendingTableClear.tableName} هنوز اشغال است و زمینه مهمان قبلی پایان نیافته: {pendingTableClear.error}
+              میز {pendingTableClear.tableName} هنوز اشغال است و نشست مهمان قبلی پایان نیافته است: {pendingTableClear.error}
             </span>
           </div>
           <button
@@ -431,7 +431,7 @@ export function OrdersWorkspace({
               setMessage({ tone: "notice", text: `میز ${pendingTableClear.tableName} آماده پذیرش شد.` });
             }}
           >
-            {retryingTableClear ? "در حال آزادسازی…" : "تلاش دوباره برای آزادسازی میز"}
+            {retryingTableClear ? "در حال آزادسازی…" : "تلاش دوباره برای آماده‌کردن میز"}
           </button>
         </section>
       )}
@@ -446,7 +446,7 @@ export function OrdersWorkspace({
           onOpenTakeaway={async (orderId) => {
             const result = await readOrder(orderId);
             if (result.ok && result.data.state === "OPEN") setOrder(result.data);
-            else if (result.ok) { setOrder(null); await load(); setMessage({ tone: "notice", text: "این سفارش بسته شده است و قابل ویرایش نیست." }); }
+            else if (result.ok) { setOrder(null); await load(); setMessage({ tone: "notice", text: "این سفارش بسته شده است و دیگر نمی‌توانید آن را ویرایش کنید." }); }
             else setMessage({ tone: "error", text: result.error.message });
           }}
           onOrder={async (updated) => {
@@ -507,7 +507,7 @@ export function OrdersWorkspace({
           onCheckout={() => setCheckout(true)}
           onPrint={(kind) => {
             void printDocument(printRoute(order!.id, kind)).catch((error: unknown) => {
-              setMessage({ tone: "error", text: error instanceof Error ? error.message : "سند چاپی آماده نشد." });
+              setMessage({ tone: "error", text: error instanceof Error ? error.message : "سند چاپ آماده نشد." });
             });
           }}
           onRequestTransfer={async (source, destination) => {
@@ -680,7 +680,7 @@ export function TableBoard({
         </>
       )}
       <div className="table-board__content">
-      {transferSourceId && <p className="table-transfer-hint" role="status">مقصد انتقال میز را انتخاب کنید. میزهای دارای فراخوان میزبان قابل انتخاب نیستند.</p>}
+      {transferSourceId && <p className="table-transfer-hint" role="status">میز مقصد را انتخاب کنید. میزی را که درخواست میزبان دارد نمی‌توانید انتخاب کنید.</p>}
       <div className="table-grid" id="table-transfer-targets" tabIndex={-1}>
         {tables.map((table) => {
           const hasOrder = table.activeOrders.length > 0;
@@ -757,9 +757,9 @@ export function TableBoard({
                   {call && <AlertIcon />}
                 </span>
                 <span className="table-tile__details">
-                  <span className="table-status"><i />{call ? "فراخوان میزبان" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال" : "آماده"}</span>
+                  <span className="table-status"><i />{call ? "درخواست میزبان" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال‌شده" : "آماده"}</span>
                   {hasOrder && <span className="table-tile__meta">{[remainingLabel(table.activeOrders[0]!), elapsedLabel(table.activeOrders[0]!.createdAt)].filter(Boolean).join(" · ")}</span>}
-                  {call && <span className="table-tile__meta">{elapsedLabel(call.requestedAt)} پیش درخواست شده</span>}
+                  {call && <span className="table-tile__meta">{elapsedLabel(call.requestedAt)} از ثبت درخواست</span>}
                   {!hasOrder && !call && <span className="table-tile__meta">{table.occupiedAt ? elapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>}
                   {hasOrder && <b>{formatToman(totals.get(table.id) ?? 0)}</b>}
                 </span>
@@ -769,10 +769,10 @@ export function TableBoard({
                   className="table-tile__call-action"
                   type="button"
                   disabled={acknowledgingTableId === table.id}
-                  aria-label={`رسیدگی و باز کردن میز ${table.name}`}
+                  aria-label={`بازکردن میز ${table.name} و ثبت رسیدگی به درخواست`}
                   onClick={() => void onAcknowledgeWaiterCall(table, call)}
                 >
-                  {acknowledgingTableId === table.id ? "در حال رسیدگی…" : "رسیدگی و باز کردن میز"}
+                  {acknowledgingTableId === table.id ? "در حال ثبت رسیدگی…" : "بازکردن میز و رسیدگی"}
                 </button>
               )}
               {!call && !hasOrder && table.occupancyState === "OCCUPIED" && (
@@ -795,7 +795,7 @@ export function TableBoard({
 }
 
 function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint, onTransfer }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void; onPrint: (kind: Exclude<PrintKind, "settlement">) => void; onTransfer: () => void }) {
-  const status = order.paymentStatus === "PAID" ? "تسویه شد" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت شد" : "بدون پرداخت";
+  const status = order.paymentStatus === "PAID" ? "تسویه‌شده" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت‌شده" : "پرداخت‌نشده";
   return <aside className="occupied-panel" aria-label={`جزئیات سفارش میز ${table?.name ?? ""}`}>
     <header className="occupied-panel__header">
       <button className="icon-button" type="button" onClick={onClose} aria-label="بستن جزئیات"><CloseIcon /></button>
@@ -810,12 +810,12 @@ function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint
     </div>
     <footer className="occupied-panel__footer">
       <div className="occupied-panel__total"><span>جمع کل</span><strong>{formatToman(order.totalAmount)}</strong></div>
-      {order.paidAmount > 0 && <div className="occupied-panel__balance">مانده: {formatToman(order.balanceAmount)}</div>}
-      <button className="button button--primary button--wide" disabled={order.balanceAmount === 0} onClick={onCheckout}>تسویه و پرداخت</button>
+      {order.paidAmount > 0 && <div className="occupied-panel__balance">مانده‌ی پرداخت: {formatToman(order.balanceAmount)}</div>}
+      <button className="button button--primary button--wide" disabled={order.balanceAmount === 0} onClick={onCheckout}>ثبت پرداخت</button>
       <button className="button button--quiet button--wide" onClick={() => onPrint("bar-ticket")}>چاپ فیش بار</button>
       <button className="button button--quiet button--wide" onClick={() => onPrint("receipt")}>چاپ رسید</button>
       <button className="button button--quiet button--wide" onClick={onEdit}>ویرایش سفارش</button>
-      <button className="button button--quiet button--wide" onClick={onTransfer}>انتقال میز</button>
+      <button className="button button--quiet button--wide" onClick={onTransfer}>انتقال سفارش به میز دیگر</button>
     </footer>
   </aside>;
 }
@@ -966,14 +966,14 @@ export function OrderDesk({
       onDirtyChange(false);
     };
   }, [onDirtyChange]);
-  const printBarTicket = async (orderId: string) => {
+  const printOrderDocument = async (orderId: string, kind: "bar-ticket" | "receipt") => {
     try {
-      await printDocument(printRoute(orderId, "bar-ticket"));
+      await printDocument(printRoute(orderId, kind));
     } catch (printError) {
-      setError(printError instanceof Error ? printError.message : "سند چاپی آماده نشد.");
+      setError(printError instanceof Error ? printError.message : "سند چاپ آماده نشد.");
     }
   };
-  const finishSuccessfulSave = async (updatedOrder: OrderDetail, printAfterSave = false) => {
+  const finishSuccessfulSave = async (updatedOrder: OrderDetail, printAfterSave: "bar-ticket" | "receipt" | null = null) => {
     rememberItemNotes([...draftForOrder.map((item) => ({ productId: item.product.id, note: item.note })), ...savedForOrder.filter((item) => item.quantity > 0 && item.note !== (item.originalNote ?? "")).map((item) => ({ productId: item.productId, note: item.note }))]);
     setDraft([]);
     setSaved(initialOrder ? savedDrafts(updatedOrder) : []);
@@ -984,12 +984,12 @@ export function OrderDesk({
     if (!initialOrder) clearDeskRecovery(channel, table?.id ?? null, null);
     onDirtyChange(false);
     await onOrder(updatedOrder);
-    if (printAfterSave) await printBarTicket(updatedOrder.id);
+    if (printAfterSave) await printOrderDocument(updatedOrder.id, printAfterSave);
   };
-  const save = async (printAfterSave = false) => {
+  const save = async (printAfterSave: "bar-ticket" | "receipt" | null = null) => {
     const hasChanges = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
     if (!hasChanges) {
-      if (printAfterSave && initialOrder) await printBarTicket(initialOrder.id);
+      if (printAfterSave && initialOrder) await printOrderDocument(initialOrder.id, printAfterSave);
       return;
     }
     setBusy(true);
@@ -1099,12 +1099,12 @@ export function OrderDesk({
         onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
         onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
         onSave={() => void save()}
-        onSaveAndPrint={() => void save(true)}
+        onConfirmAndPrint={(kind) => void save(kind)}
         onCheckout={() => setCheckout(true)}
         onPrint={(kind, settlementId) => {
           if (!initialOrder) return;
           void printDocument(printRoute(initialOrder.id, kind, settlementId)).catch((printError: unknown) => {
-            setError(printError instanceof Error ? printError.message : "سند چاپی آماده نشد.");
+            setError(printError instanceof Error ? printError.message : "سند چاپ آماده نشد.");
           });
         }}
         onRequestDelete={() => setDeleteDialogOpen(true)}
@@ -1123,8 +1123,8 @@ export function OrderDesk({
       )}
       <div className={channel === "TAKEAWAY" ? "order-desk order-desk--takeaway" : "order-desk"}>
         {channel === "TAKEAWAY" && takeawayOrders && <aside className="takeaway-orders" aria-labelledby="takeaway-orders-title">
-          <h2 id="takeaway-orders-title">سفارش‌های پرداخت‌نشده</h2>
-          {takeawayOrders.length === 0 ? <p>سفارش بازی نیست.</p> : takeawayOrders.map((takeaway) => <button key={takeaway.id} type="button" className={initialOrder?.id === takeaway.id ? "is-selected" : ""} onClick={() => void onOpenTakeaway(takeaway.id)}><b>{formatOrderNumber(takeaway.dailyOrderNumber)}</b><span>مانده {formatToman(takeaway.balanceAmount)}</span></button>)}
+          <h2 id="takeaway-orders-title">سفارش‌های بیرون‌برِ تسویه‌نشده</h2>
+          {takeawayOrders.length === 0 ? <p>سفارش تسویه‌نشده‌ای وجود ندارد.</p> : takeawayOrders.map((takeaway) => <button key={takeaway.id} type="button" className={initialOrder?.id === takeaway.id ? "is-selected" : ""} onClick={() => void onOpenTakeaway(takeaway.id)}><b>{formatOrderNumber(takeaway.dailyOrderNumber)}</b><span>مانده: {formatToman(takeaway.balanceAmount)}</span></button>)}
         </aside>}
         <aside className="desk-sidebar">
           <div className="desk-context">
@@ -1133,7 +1133,7 @@ export function OrderDesk({
             </span>
             <span>
               <b>{channel === "TABLE" ? `میز ${table?.name}` : "بیرون‌بر"}</b>
-              <small>{initialOrder ? "ویرایش سفارش" : "سفارش جدید"}</small>
+              <small>{initialOrder ? "ویرایش سفارش" : "سفارش تازه"}</small>
             </span>
           </div>
           <nav className="categories" aria-label="دسته‌های محصولات">
@@ -1250,7 +1250,7 @@ function OrderSummary({
   onSavedNote,
   onDraftNote,
   onSave,
-  onSaveAndPrint,
+  onConfirmAndPrint,
   onCheckout,
   onPrint,
   onRequestDelete,
@@ -1267,7 +1267,7 @@ function OrderSummary({
   onSavedNote: (id: string, note: string) => void;
   onDraftNote: (key: string, note: string) => void;
   onSave: () => void;
-  onSaveAndPrint: () => void;
+  onConfirmAndPrint: (kind: "bar-ticket" | "receipt") => void;
   onCheckout: () => void;
   onPrint: (kind: PrintKind, settlementId?: string) => void;
   onRequestDelete: () => void;
@@ -1283,10 +1283,10 @@ function OrderSummary({
         <div className="section-title">
           <span className="status-badge">
             {order.paymentStatus === "PAID"
-              ? "تسویه شد"
+              ? "تسویه‌شده"
               : order.paymentStatus === "PARTIALLY_PAID"
-                ? "بخشی پرداخت شد"
-                : "بدون پرداخت"}
+                ? "بخشی پرداخت‌شده"
+                : "پرداخت‌نشده"}
           </span>
         </div>
       )}
@@ -1296,7 +1296,7 @@ function OrderSummary({
           const expanded = expandedSavedId === item.id;
           return edit.quantity > 0 && <article className={`order-line order-line--saved${expanded ? " order-line--expanded" : ""}`} key={item.id}>
             <button className="order-line__summary" type="button" aria-expanded={expanded} onClick={() => setExpandedSavedId((current) => current === item.id ? null : item.id)}><span className="order-line__details"><b>{edit.name}{edit.weightGrams ? ` · ${englishNumber.format(edit.weightGrams)} گرم` : ""} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></span><strong>{formatToman(item.lineTotalAmount)}</strong></button>
-            {expanded && <><div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <ItemNoteInput productId={edit.productId} name={edit.name} value={edit.note} onChange={(note) => onSavedNote(edit.id, note)} /> : <small className="saved-lock">پس از پرداخت فقط افزایش تعداد مجاز است</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
+            {expanded && <><div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <ItemNoteInput productId={edit.productId} name={edit.name} value={edit.note} onChange={(note) => onSavedNote(edit.id, note)} /> : <small className="saved-lock">پس از ثبت پرداخت، فقط می‌توانید تعداد را افزایش دهید.</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
           </article>;
         })}
         {draft.map((item) => {
@@ -1383,7 +1383,7 @@ function OrderSummary({
         )}
       </div>
       <div className="order-total">
-        <span>{order ? "مانده پرداخت" : "جمع پیش‌نویس"}</span>
+        <span>{order ? "مانده پرداخت" : "جمع سفارش"}</span>
         <strong>{formatToman(order ? order.balanceAmount : total)}</strong>
       </div>
       {order && order.discountAmount > 0 && <div className="order-discount-summary">تخفیف سفارش: {formatToman(order.discountAmount)}{order.discountReason ? ` · ${order.discountReason}` : ""}</div>}
@@ -1392,10 +1392,15 @@ function OrderSummary({
           {busy ? "در حال ثبت…" : order ? "تأیید و ثبت ویرایش" : "ثبت سفارش"}
         </button>
       )}
-      {(order || draft.length > 0) && (
-        <button className="button button--quiet button--wide" type="button" disabled={busy} onClick={onSaveAndPrint}>
-          {busy ? "در حال ثبت…" : "تایید سفارش و چاپ بار"}
-        </button>
+      {!order && draft.length > 0 && (
+        <>
+          <button className="button button--quiet button--wide" type="button" disabled={busy} onClick={() => onConfirmAndPrint("bar-ticket")}>
+            {busy ? "در حال ثبت…" : "تأیید سفارش و چاپ فیش بار"}
+          </button>
+          <button className="button button--quiet button--wide" type="button" disabled={busy} onClick={() => onConfirmAndPrint("receipt")}>
+            {busy ? "در حال ثبت…" : "تأیید سفارش و چاپ رسید مشتری"}
+          </button>
+        </>
       )}
       {order && (
         <div className="order-actions">
@@ -1404,7 +1409,7 @@ function OrderSummary({
             disabled={order.balanceAmount === 0}
             onClick={onCheckout}
           >
-            تسویه حساب
+            ثبت پرداخت
           </button>
           <button className="button button--quiet" onClick={() => onPrint("bar-ticket")}>
             چاپ فیش بار
@@ -1435,7 +1440,7 @@ function DiscountDialog({ order, target, onCancel, onSuccess }: { order: OrderDe
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const discount = discountPayload({ kind, value, reason });
-    if (!discount) { setError("مبلغ یا درصد تخفیف را درست وارد کنید."); return; }
+    if (!discount) { setError("مبلغ یا درصد تخفیف را به‌درستی وارد کنید."); return; }
     setBusy(true); setError(null);
     const result = await updateOpenOrder(order.id, target.type === "order"
       ? { expectedVersion: order.version, orderDiscount: discount }
@@ -1445,7 +1450,7 @@ function DiscountDialog({ order, target, onCancel, onSuccess }: { order: OrderDe
     await onSuccess(result.data);
   };
   return <div className="modal-backdrop"><form className="modal-card" role="dialog" aria-modal="true" aria-labelledby="discount-title" onSubmit={submit}>
-    <div className="modal-header"><div><h2 id="discount-title">{target.type === "order" ? "تخفیف سفارش" : `تخفیف ${target.name}`}</h2><p>مبلغ نهایی فقط توسط سرور محاسبه می‌شود.</p></div><button ref={closeRef} type="button" className="icon-button" onClick={onCancel} aria-label="بستن"><CloseIcon /></button></div>
+    <div className="modal-header"><div><h2 id="discount-title">{target.type === "order" ? "تخفیف سفارش" : `تخفیف ${target.name}`}</h2><p>مبلغ نهایی را سرویس محاسبه می‌کند.</p></div><button ref={closeRef} type="button" className="icon-button" onClick={onCancel} aria-label="بستن"><CloseIcon /></button></div>
     <fieldset disabled={busy}><legend>نوع تخفیف</legend><label><input type="radio" checked={kind === "FIXED"} onChange={() => setKind("FIXED")} /> مبلغ (تومان)</label><label><input type="radio" checked={kind === "PERCENTAGE"} onChange={() => setKind("PERCENTAGE")} /> درصد</label></fieldset>
     <label> {kind === "FIXED" ? "مبلغ تومان" : "درصد"}<input inputMode="numeric" value={value} onChange={(event) => setValue(event.target.value.replace(/\D/g, ""))} required /></label>
     <label>دلیل تخفیف (اختیاری)<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} /></label>
@@ -1456,7 +1461,7 @@ function DiscountDialog({ order, target, onCancel, onSuccess }: { order: OrderDe
 
 function DeleteOrderDialog({ order, table, clearsTable, busy, onCancel, onConfirm }: { order: OrderDetail; table: PosTable | null; clearsTable: boolean; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
-  const paymentStatus = order.paymentStatus === "PAID" ? "تسویه‌شده" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت‌شده" : "بدون پرداخت";
+  const paymentStatus = order.paymentStatus === "PAID" ? "تسویه‌شده" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت‌شده" : "پرداخت‌نشده";
   useEffect(() => {
     cancelButtonRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -1473,10 +1478,10 @@ function DeleteOrderDialog({ order, table, clearsTable, busy, onCancel, onConfir
           <div><h2 id="delete-order-title">{clearsTable ? "پایان و آزادسازی میز" : "حذف از سفارش‌های فعال"}</h2></div>
           <button className="icon-button" type="button" disabled={busy} onClick={onCancel} aria-label="بستن تأیید حذف"><CloseIcon /></button>
         </div>
-        <p id="delete-order-description">سفارش {formatOrderNumber(order.dailyOrderNumber)} {tableOrder ? `برای میز ${table!.name}` : "بیرون‌بر"} با وضعیت {paymentStatus} از عملیات فعال حذف می‌شود.</p>
-        <p className="deletion-dialog__notice">این حذف فیزیکی نیست؛ اطلاعات مالی و سابقه ثبت‌شده حفظ می‌شود و دلیل حذف لازم نیست.</p>
-        {clearsTable && <p className="deletion-dialog__consequence">پس از حذف، میز آماده پذیرش می‌شود، زمینه مهمان قبلی پایان می‌یابد و فراخوان میزبان باز آن بسته می‌شود.</p>}
-        {tableOrder && !clearsTable && <p className="deletion-dialog__consequence">این میز سفارش باز دیگری دارد؛ فقط این سفارش حذف می‌شود و میز تا پایان سفارش‌های باقی‌مانده آماده پذیرش نخواهد شد.</p>}
+        <p id="delete-order-description">سفارش {formatOrderNumber(order.dailyOrderNumber)} {tableOrder ? `برای میز ${table!.name}` : "بیرون‌بر"} با وضعیت «{paymentStatus}» از فهرست سفارش‌های فعال خارج می‌شود.</p>
+        <p className="deletion-dialog__notice">اطلاعات مالی و سابقه‌ی سفارش حفظ می‌شود. واردکردن دلیل حذف لازم نیست.</p>
+        {clearsTable && <p className="deletion-dialog__consequence">میز برای پذیرش مشتری بعدی آماده می‌شود، نشست مهمان قبلی پایان می‌یابد و درخواست باز میزبان بسته می‌شود.</p>}
+        {tableOrder && !clearsTable && <p className="deletion-dialog__consequence">این میز سفارش باز دیگری دارد. فقط سفارش انتخاب‌شده حذف می‌شود و میز تا پایان سفارش‌های دیگر آزاد نخواهد شد.</p>}
         <div className="modal-actions">
           <button className="button button--quiet" type="button" ref={cancelButtonRef} disabled={busy} onClick={onCancel}>انصراف</button>
           <button className="button button--danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? "در حال ثبت…" : clearsTable ? "پایان و آزادسازی میز" : "حذف از فهرست فعال"}</button>
@@ -1489,7 +1494,7 @@ function DeleteOrderDialog({ order, table, clearsTable, busy, onCancel, onConfir
 function LeaveDraftDialog({ busy, onContinue, onDiscard, onSubmit }: { busy: boolean; onContinue: () => void; onDiscard: () => void; onSubmit: () => void }) {
   const continueRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { continueRef.current?.focus(); }, []);
-  return <div className="modal-backdrop"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="leave-draft-title"><div className="modal-header"><h2 id="leave-draft-title">تغییرات ثبت نشده است</h2><button className="icon-button" type="button" onClick={onContinue} aria-label="ادامه ویرایش"><CloseIcon /></button></div><p>برای خروج، سفارش را ثبت کنید یا تغییرات محلی را دور بریزید.</p><div className="modal-actions"><button className="button button--quiet" type="button" ref={continueRef} onClick={onContinue}>ادامه ویرایش</button><button className="button button--danger" type="button" disabled={busy} onClick={onDiscard}>دور ریختن</button><button className="button button--primary" type="button" disabled={busy} onClick={onSubmit}>ثبت تغییرات</button></div></section></div>;
+  return <div className="modal-backdrop"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="leave-draft-title"><div className="modal-header"><h2 id="leave-draft-title">تغییرات ذخیره‌نشده</h2><button className="icon-button" type="button" onClick={onContinue} aria-label="ادامه ویرایش"><CloseIcon /></button></div><p>برای خروج، سفارش را ثبت کنید یا تغییرات ذخیره‌نشده را حذف کنید.</p><div className="modal-actions"><button className="button button--quiet" type="button" ref={continueRef} onClick={onContinue}>ادامه ویرایش</button><button className="button button--danger" type="button" disabled={busy} onClick={onDiscard}>حذف تغییرات</button><button className="button button--primary" type="button" disabled={busy} onClick={onSubmit}>ثبت تغییرات</button></div></section></div>;
 }
 
 function TransferTableDialog({ transfer, busy, onCancel, onConfirm }: { transfer: PendingTransfer; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
@@ -1514,7 +1519,7 @@ function TransferTableDialog({ transfer, busy, onCancel, onConfirm }: { transfer
           <button className="icon-button" type="button" disabled={busy} onClick={onCancel} aria-label="بستن تأیید انتقال"><CloseIcon /></button>
         </div>
         <p id="transfer-table-description">{description}</p>
-        <p className="deletion-dialog__notice">مبالغ، اقلام و پرداخت‌های ثبت‌شده تغییر نمی‌کنند؛ فقط زمینه میزها به‌صورت ایمن جابه‌جا می‌شود.</p>
+        <p className="deletion-dialog__notice">مبلغ، اقلام و پرداخت‌های ثبت‌شده تغییر نمی‌کنند؛ فقط سفارش‌ها بین میزها جابه‌جا می‌شوند.</p>
         <div className="modal-actions">
           <button className="button button--quiet" type="button" ref={cancelButtonRef} disabled={busy} onClick={onCancel}>انصراف</button>
           <button className="button button--primary" type="button" disabled={busy} onClick={onConfirm}>{busy ? "در حال انتقال…" : transfer.swaps ? "جابه‌جایی میزها" : "انتقال سفارش"}</button>
@@ -1761,8 +1766,8 @@ export function SettlementSheet({
       <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
         <div className="modal-header">
           <div>
-            <h2 id="settlement-title">{historicalSettlement ? "ویرایش پرداخت" : "ثبت پرداخت"} {formatOrderNumber(order.dailyOrderNumber)}</h2>
-            {historicalSettlement && <p className="settlement-history-note">این اصلاح فقط سابقه پرداخت را تغییر می‌دهد و به میز یا سفارش زنده دست نمی‌زند.</p>}
+            <h2 id="settlement-title">{historicalSettlement ? "اصلاح پرداخت" : "ثبت پرداخت"} {formatOrderNumber(order.dailyOrderNumber)}</h2>
+            {historicalSettlement && <p className="settlement-history-note">این اصلاح سابقه‌ی پرداخت را تغییر می‌دهد و وضعیت زنده‌ی سفارش یا میز را عوض نمی‌کند.</p>}
           </div>
           <button className="icon-button" type="button" ref={closeButtonRef} onClick={onClose} aria-label="بستن ثبت پرداخت">
             <CloseIcon />
@@ -1808,7 +1813,7 @@ export function SettlementSheet({
               <label>روش
                 <select value={tender.method} disabled={busy} onChange={(event) => updateTender(tender.id, { method: event.target.value as TenderMethod, reference: "" })}>
                   <option value="CASH">نقدی</option>
-                  <option value="CARD_TERMINAL">کارتخوان</option>
+                  <option value="CARD_TERMINAL">کارت‌خوان</option>
                   <option value="CARD_TRANSFER">کارت‌به‌کارت</option>
                 </select>
               </label>
@@ -1828,7 +1833,7 @@ export function SettlementSheet({
         <div className={`settlement-total ${isReconciled ? "settlement-total--matched" : "settlement-total--mismatch"}`} aria-live="polite">
           <span>جمع اقلام انتخاب‌شده <strong>{formatToman(selectedAmount)}</strong></span>
           <span>جمع روش‌های پرداخت <strong>{formatToman(tenderAmount)}</strong></span>
-          <b>{selectedAmount === 0 ? "حداقل یک قلم را انتخاب کنید." : isReconciled ? "مبالغ با هم برابرند." : "جمع روش‌های پرداخت باید دقیقاً با مبلغ اقلام برابر باشد."}</b>
+          <b>{selectedAmount === 0 ? "برای ثبت پرداخت، دست‌کم یک قلم انتخاب کنید." : isReconciled ? "مبلغ پرداخت با مبلغ اقلام برابر است." : "جمع روش‌های پرداخت باید با مبلغ اقلام برابر باشد."}</b>
         </div>
         {error && <div className="toast toast--error" role="alert">{error}</div>}
         <div className="modal-actions">
