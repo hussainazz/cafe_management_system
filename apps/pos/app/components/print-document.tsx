@@ -103,7 +103,7 @@ function ReceiptDocument({ receipt }: { receipt: Receipt }) {
       </div>
       <div className="thermal-divider" aria-hidden="true" />
       <p className="thermal-time thermal-time--footer">{receipt.displayTime}</p>
-      <p className="thermal-thanks">تشکر از انتخابتون :) </p>
+      <p className="thermal-thanks">از انتخاب شما سپاسگزاریم.</p>
     </main>
   );
 }
@@ -144,11 +144,11 @@ export function PrintDocument({
       if (kind === "bar-ticket") {
         const preparationId = (data as BarTicket).preparationId;
         if (!preparationId) {
-          setError("شناسه چاپ فیش بار معتبر نیست.");
-          window.dispatchEvent(new CustomEvent("cafe-print-complete", { detail: { error: "شناسه چاپ فیش بار معتبر نیست." } }));
+          setError("شناسه‌ی چاپ فیش بار معتبر نیست.");
+          window.dispatchEvent(new CustomEvent("cafe-print-complete", { detail: { error: "شناسه‌ی چاپ فیش بار معتبر نیست." } }));
           return;
         }
-        let failure = "ثبت چاپ فیش بار ناموفق بود؛ چاپ بعدی ممکن است اقلام را تکرار کند.";
+        let failure = "ثبت چاپ فیش بار انجام نشد. پیش از تلاش دوباره، فیش را بررسی کنید تا اقلام تکراری چاپ نشوند.";
         for (let attempt = 0; attempt < 3; attempt++) {
           const result = await acknowledgeBarTicket(orderId, preparationId);
           if (result.ok) {
@@ -169,7 +169,7 @@ export function PrintDocument({
         window.print();
         void complete();
       }
-      catch { window.dispatchEvent(new CustomEvent("cafe-print-complete", { detail: { error: "مرورگر چاپ را آغاز نکرد." } })); }
+      catch { window.dispatchEvent(new CustomEvent("cafe-print-complete", { detail: { error: "مرورگر فرایند چاپ را آغاز نکرد." } })); }
     }, 120);
     return () => {
       window.clearTimeout(timer);
