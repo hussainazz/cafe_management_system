@@ -45,12 +45,12 @@ second chronological backlog.
   the 1 settlement failure.
 - [x] **10.5 — Re-run the complete POS package suite** and record the final
   result after 10.1–10.4.
-- [ ] **10.6 — Reconcile OpenAPI coverage:** compare implemented routes and
+- [x] **10.6 — Reconcile OpenAPI coverage:** compare implemented routes and
   realtime events with the current contract; fill missing request, response,
   and error schemas.
-- [ ] **10.7 — Complete unit coverage:** verify pure domain rules,
+- [x] **10.7 — Complete unit coverage:** verify pure domain rules,
   discount/payment calculations, allocation rules, and state transitions.
-- [ ] **10.8 — Complete API contract coverage:** verify DTO validation,
+- [x] **10.8 — Complete API contract coverage:** verify DTO validation,
   request/response behavior, and structured errors against the contract.
 - [ ] **10.9 — Complete core PostgreSQL integration coverage:** verify order
   creation/edit/deletion and transactional payment workflows.
@@ -108,6 +108,14 @@ second chronological backlog.
   payment reconciliation and no unresolved financial difference.
 
 ## Latest Implementation Notes
+
+- 6 October: completed Stage 10.6–10.8. The generated OpenAPI audit checks
+  every API operation for success/request/path/error schemas; the settlement
+  correction body schema was added and shared structured errors are documented.
+  Added pure pricing, catalog discount, quantity-allocation, payment-status,
+  and order DTO validation coverage. The full API package suite passes all
+  17 files / 114 tests, and API typecheck passes. Later Stage 10 gates remain
+  open.
 
 - 6 October: closed Stage 10.1–10.5. The nine POS suite failures came from
   assertions using Persian labels that had changed in the current UI copy. The
