@@ -201,7 +201,7 @@ describe("discarding a takeaway draft", () => {
     fireEvent.click(await screen.findByRole("button", { name: "قهوه" }));
     expect(screen.getByRole("button", { name: /قهوه × 1/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /سالن/ }));
-    fireEvent.click(screen.getByRole("button", { name: "دور ریختن" }));
+    fireEvent.click(screen.getByRole("button", { name: "حذف تغییرات" }));
 
     expect(readRecovery("desk:TAKEAWAY:takeaway:new:draft")).toBeUndefined();
     fireEvent.click(screen.getByRole("button", { name: /بیرون‌بر/ }));
