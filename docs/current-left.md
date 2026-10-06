@@ -51,8 +51,9 @@ second chronological backlog.
 - [ ] Complete backend-backlog P4.2 membership API/public-menu behavior by
   saving and removing promotional memberships and verifying public-menu output.
 - [ ] Complete backend-backlog P4.3 discounted-price rounding and the POS
-  confirm-order-and-print-bar action. Confirm printing from the operator's
-  successful action; browser/device verification remains part of Stage 10.
+  confirm-order-and-print actions for bar tickets and customer receipts when
+  creating orders. Confirm printing from the operator's successful action;
+  browser/device verification remains part of Stage 10.
 - [x] In the isolated Manager browser, verify the promotional picker opens with
   collapsed source groups, product search, eligibility guidance, keyboard focus
   containment, and a discard warning for changed selections.
@@ -64,6 +65,18 @@ second chronological backlog.
   payment reconciliation and no unresolved financial difference.
 
 ## Latest Implementation Notes
+
+- 6 October: new-order entry now offers separate confirmation actions to save
+  the order and print either a bar ticket or a customer receipt. Editing an
+  existing order keeps its separate print actions and no longer shows the
+  combined save-and-print bar-ticket action. Stage 10 browser and printer
+  acceptance remains open.
+
+- 6 October: completed a Persian copy-editing pass across the shared POS and
+  Manager workspace, including order entry, catalog, payments, accounting,
+  audit, settings, recovery, login, and printed receipts. Standardized wording
+  and clarified action outcomes and error guidance. No workflow behavior
+  changed; Stage 10 browser, café-device, and printer acceptance remains open.
 
 - 5 October: deployed all committed application updates through `978da8b`
   as release `pos-20261005-978da8b`. The additive promotional-membership
