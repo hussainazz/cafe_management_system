@@ -3398,9 +3398,21 @@ svg {
 }
 .manager-audit-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 1240px;
   border-collapse: collapse;
   font-size: 12px;
+}
+.manager-audit-reference-list {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 280px;
+}
+.manager-audit-reference-list code {
+  overflow-wrap: anywhere;
+  font: inherit;
+  direction: ltr;
+  text-align: left;
 }
 .manager-audit-table th,
 .manager-audit-table td {
