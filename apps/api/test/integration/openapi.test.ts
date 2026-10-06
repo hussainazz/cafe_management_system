@@ -80,5 +80,42 @@ describe("OpenAPI contract", () => {
       200: expect.any(Object),
       404: expect.any(Object),
     });
+    expect(document.paths["/api/v1/admin/settlements/{settlementId}/edit"].post.requestBody.content["application/json"].schema)
+      .toMatchObject({ type: "object", required: expect.any(Array) });
+  });
+
+  it("documents success, request, path, and structured error schemas for every API operation", async () => {
+    const response = await app.inject({ method: "GET", url: "/documentation/json" });
+    const document = response.json();
+    const apiPaths = Object.entries(document.paths).filter(([path]) => path.startsWith("/api/v1/"));
+    const errors = [400, 401, 403, 404, 409, 413, 415, 422, 429, 500, 503];
+
+    for (const [path, pathItem] of apiPaths) {
+      for (const [method, operation] of Object.entries(pathItem as Record<string, any>)) {
+        if (!["get", "post", "put", "patch", "delete"].includes(method)) continue;
+        const success = Object.entries(operation.responses).find(([status]) => /^2\d\d$/.test(status));
+        expect(success, `${method.toUpperCase()} ${path} success response`).toBeTruthy();
+        const successSchema = Object.values((success?.[1] as any)?.content ?? {}).map((entry: any) => entry.schema);
+        if (success?.[0] !== "204") {
+          expect(successSchema.some(Boolean), `${method.toUpperCase()} ${path} response schema`).toBe(true);
+        }
+
+        for (const errorStatus of errors) {
+          const errorSchema = operation.responses[errorStatus]?.content?.["application/json"]?.schema;
+          expect(errorSchema, `${method.toUpperCase()} ${path} ${errorStatus} error schema`).toBeTruthy();
+          if (errorStatus !== 503) {
+            expect(errorSchema.required).toEqual(expect.arrayContaining(["error"]));
+          }
+        }
+
+        for (const parameter of operation.parameters ?? []) {
+          expect(parameter.schema, `${method.toUpperCase()} ${path} parameter ${parameter.name}`).toBeTruthy();
+        }
+        if (operation.requestBody) {
+          const requestSchemas = Object.values(operation.requestBody.content ?? {}).map((entry: any) => entry.schema);
+          expect(requestSchemas.some(Boolean), `${method.toUpperCase()} ${path} request body schema`).toBe(true);
+        }
+      }
+    }
   });
 });
