@@ -112,6 +112,8 @@ describe("POS catalog and table reads", () => {
             id: product.id,
             name: "Latte",
             priceAmount: 85_000,
+            saleDiscountKind: null,
+            saleDiscountValue: null,
             pricingMode: "FIXED",
             preparationDeadlineMinutes: 8,
             isAvailable: false,
