@@ -66,6 +66,9 @@ second chronological backlog.
 
 ## Latest Implementation Notes
 
+- 6 October: replaced user-facing “POS” terminology in the POS catalog and
+  Manager controls with «صندوق», including the application name metadata.
+
 - 6 October: new-order entry now offers separate confirmation actions to save
   the order and print either a bar ticket or a customer receipt. Editing an
   existing order keeps its separate print actions and no longer shows the
