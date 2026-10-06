@@ -6,7 +6,9 @@ import { OrderDesk, OrdersWorkspace } from "./orders-workspace";
 import { readRecovery, setRecoveryUser, writeRecovery } from "../lib/automatic-recovery";
 import { readRecentItemNotes } from "../lib/recent-item-notes";
 const api = vi.hoisted(() => ({ posApiFailureEvent: "run-cafe:api-failure", createOpenOrder: vi.fn(), readOrder: vi.fn(), updateOpenOrder: vi.fn(), readPosCatalog: vi.fn(), readPosTables: vi.fn(), readWaiterCalls: vi.fn(), readOpenOrders: vi.fn() }));
+const printing = vi.hoisted(() => ({ printDocument: vi.fn(), printRoute: vi.fn((id: string, kind: string) => `/pos/print/${id}/${kind}`) }));
 vi.mock("../lib/api-client", () => api);
+vi.mock("../lib/print-routes", () => printing);
 afterEach(cleanup);
 beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); });
 function desk(paymentStatus?: "UNPAID" | "PARTIALLY_PAID", weighted = false, itemId = "item", version = 1, includeAddedItem = false) {
@@ -24,6 +26,28 @@ describe("OrderDesk order workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: /قهوه × 2/ }));
     expect(document.querySelector(".quantity__total")?.textContent).toBe("100,000");
     expect(document.querySelector(".order-total strong")?.textContent).toBe("100,000");
+  });
+  it.each([
+    ["bar-ticket", "تأیید سفارش و چاپ فیش بار"],
+    ["receipt", "تأیید سفارش و چاپ رسید مشتری"],
+  ] as const)("saves a discounted order at the rounded POS total and starts the %s print action", async (kind, buttonName) => {
+    const product = { id: "product", name: "قهوه", priceAmount: 50_000, pricingMode: "FIXED", saleDiscountKind: "PERCENTAGE", saleDiscountValue: 11, isAvailable: true, optionGroups: [] };
+    const onOrder = vi.fn(async () => undefined);
+    render(<OrderDesk catalog={[{ id: "category", name: "نوشیدنی", products: [product] }] as never} table={null} channel="TAKEAWAY" initialOrder={null} onOrder={onOrder} onDone={vi.fn()} onTableClearNeeded={vi.fn()} onCreateFailure={vi.fn(async () => undefined)} onDirtyChange={vi.fn()} onSubmitReady={vi.fn()} takeawayOrders={[]} onOpenTakeaway={vi.fn(async () => undefined)} onCloseTakeawayPanel={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "قهوه" }));
+    expect(document.querySelector(".order-total strong")?.textContent).toBe("45,000");
+
+    api.createOpenOrder.mockResolvedValueOnce({ ok: true, data: { id: "saved-order" } });
+    api.readOrder.mockResolvedValueOnce({ ok: true, data: { id: "saved-order", version: 1, items: [] } });
+    printing.printDocument.mockResolvedValueOnce(undefined);
+    fireEvent.click(screen.getByRole("button", { name: buttonName }));
+
+    await waitFor(() => expect(api.createOpenOrder).toHaveBeenCalledOnce());
+    await waitFor(() => expect(printing.printDocument).toHaveBeenCalledOnce());
+    expect(api.createOpenOrder.mock.calls[0]![0].items).toEqual([{ productId: "product", quantity: 1, options: [] }]);
+    expect(onOrder).toHaveBeenCalledOnce();
+    expect(printing.printRoute).toHaveBeenCalledWith("saved-order", kind);
+    expect(printing.printDocument).toHaveBeenCalledWith(`/pos/print/saved-order/${kind}`);
   });
   it("shows a weighted line total once when quantity exceeds one", () => {
     desk(undefined, true);
