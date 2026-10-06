@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrintDocument } from "./print-document";
 import { acknowledgeBarTicket, prepareBarTicket, readOrderReceipt, readSettlementReceipt } from "../lib/api-client";
@@ -15,7 +15,7 @@ describe("print completion", () => {
     await waitFor(() => expect(container.querySelector(".thermal-item")).not.toBeNull());
     expect(container.querySelector(".thermal-item--paid")).toBeNull();
   });
-  it("does not acknowledge loading; waits for afterprint then confirms exact ID", async () => {
+  it("acknowledges the prepared ticket after invoking print without waiting for afterprint", async () => {
     const print = vi.spyOn(window, "print").mockImplementation(() => {});
     vi.mocked(prepareBarTicket).mockResolvedValue({ ok: true, replayed: false, data: { preparationId: "prep", dailyOrderNumber: 1, context: "takeaway", items: [] } });
     vi.mocked(acknowledgeBarTicket).mockResolvedValue({ ok: true, replayed: false, data: { acknowledged: true } });
@@ -23,12 +23,11 @@ describe("print completion", () => {
     window.addEventListener("cafe-print-complete", completed, { once: true });
     render(<PrintDocument kind="bar-ticket" orderId="order" />);
     await waitFor(() => expect(print).toHaveBeenCalledOnce());
-    expect(acknowledgeBarTicket).not.toHaveBeenCalled();
-    await act(async () => { window.dispatchEvent(new Event("afterprint")); });
+    await waitFor(() => expect(acknowledgeBarTicket).toHaveBeenCalledOnce());
     expect(acknowledgeBarTicket).toHaveBeenCalledWith("order", "prep");
     expect(completed).toHaveBeenCalledOnce();
   });
-  it("reports bounded acknowledgment failure after afterprint", async () => {
+  it("reports bounded acknowledgment failure after invoking print", async () => {
     vi.spyOn(window, "print").mockImplementation(() => {});
     vi.mocked(prepareBarTicket).mockResolvedValue({ ok: true, replayed: false, data: { preparationId: "prep", dailyOrderNumber: 1, context: "takeaway", items: [] } });
     vi.mocked(acknowledgeBarTicket).mockResolvedValue({ ok: false, error: { kind: "network", message: "ack failed" } });
@@ -36,7 +35,7 @@ describe("print completion", () => {
     window.addEventListener("cafe-print-complete", completed, { once: true });
     const { container } = render(<PrintDocument kind="bar-ticket" orderId="order" />);
     await waitFor(() => expect(window.print).toHaveBeenCalledOnce());
-    await act(async () => { window.dispatchEvent(new Event("afterprint")); });
+    await waitFor(() => expect(acknowledgeBarTicket).toHaveBeenCalledTimes(3));
     expect(acknowledgeBarTicket).toHaveBeenCalledTimes(3);
     expect(completed.mock.calls[0]![0].detail.error).toBe("ack failed");
     expect(container.querySelector(".thermal-error")?.textContent).toBe("ack failed");
