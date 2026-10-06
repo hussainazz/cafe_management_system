@@ -46,6 +46,34 @@ export const ordersRoutes: FastifyPluginAsync = async (app) => {
   const settlementParams = zodToJsonSchema(SettlementIdPathSchema);
   const settlementOnlyParams = zodToJsonSchema(SettlementPathSchema);
   const errors = { 400: zodToJsonSchema(ErrorResponseSchema), 401: zodToJsonSchema(ErrorResponseSchema), 403: zodToJsonSchema(ErrorResponseSchema), 404: zodToJsonSchema(ErrorResponseSchema), 409: zodToJsonSchema(ErrorResponseSchema), 422: zodToJsonSchema(ErrorResponseSchema) };
+  const editSettlementBodySchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["expectedVersion", "payments"],
+    properties: {
+      expectedVersion: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 500 },
+      payments: {
+        type: "array",
+        minItems: 1,
+        maxItems: 10,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["method", "amount"],
+          properties: {
+            method: { enum: ["CASH", "CARD_TERMINAL", "CARD_TRANSFER"] },
+            amount: { type: "integer", minimum: 1 },
+            reference: { type: "string", minLength: 1, maxLength: 128 },
+          },
+          allOf: [{
+            if: { properties: { method: { enum: ["CASH", "CARD_TERMINAL"] } }, required: ["method"] },
+            then: { not: { required: ["reference"] } },
+          }],
+        },
+      },
+    },
+  };
   app.get<{ Querystring: OrderListQuery }>("/orders", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "List orders", headers, querystring: zodToJsonSchema(OrderListQuerySchema), response: { 200: zodToJsonSchema(OrderListResponseSchema), ...errors } } }, async (request) => { const result = await listOrders(app.prisma, request.authenticatedUser!, request.query); return { data: { orders: result.orders }, meta: { requestId: request.id, page: result.page } }; });
   app.get<{ Params: { orderId: string } }>("/orders/:orderId", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Read an order", headers, params: orderParams, response: { 200: zodToJsonSchema(OrderDetailResponseSchema), ...errors } } }, async (request) => ({ data: await readOrder(app.prisma, request.authenticatedUser!, request.params.orderId), meta: { requestId: request.id } }));
   app.patch<{ Params: { orderId: string }; Body: UpdateOrderRequest }>("/orders/:orderId", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Edit an open order", headers, params: orderParams, body: zodToJsonSchema(UpdateOrderRequestSchema), response: { 200: zodToJsonSchema(OrderDetailResponseSchema), ...errors } } }, async (request) => ({ data: await updateOrder(app.prisma, request.authenticatedUser!, request.params.orderId, request.body, request.id), meta: { requestId: request.id } }));
@@ -59,7 +87,7 @@ export const ordersRoutes: FastifyPluginAsync = async (app) => {
     return reply.status(201).send({ data: result.order, meta: { requestId: request.id } });
   });
   app.post<{ Params: { settlementId: string }; Body: ReverseSettlementRequest }>("/admin/settlements/:settlementId/reverse", { preHandler: requireManagerRoute, schema: { tags: ["Orders"], summary: "Reverse a settlement", headers, params: settlementOnlyParams, body: zodToJsonSchema(ReverseSettlementRequestSchema), response: { 200: zodToJsonSchema(ReverseSettlementResponseSchema), ...errors } } }, async (request) => ({ data: await reverseSettlementById(app.prisma, request.authenticatedUser!, request.params.settlementId, request.body, request.id), meta: { requestId: request.id } }));
-  app.post<{ Params: { settlementId: string }; Body: EditSettlementRequest }>("/admin/settlements/:settlementId/edit", { preHandler: requireManagerRoute, schema: { tags: ["Orders"], summary: "Edit a historical settlement without changing live table state", headers: zodToJsonSchema(IdempotencyRequestHeadersSchema), params: settlementOnlyParams, response: { 200: zodToJsonSchema(EditSettlementResponseSchema), ...errors } } }, async (request) => {
+  app.post<{ Params: { settlementId: string }; Body: EditSettlementRequest }>("/admin/settlements/:settlementId/edit", { preHandler: requireManagerRoute, schema: { tags: ["Orders"], summary: "Edit a historical settlement without changing live table state", headers: zodToJsonSchema(IdempotencyRequestHeadersSchema), params: settlementOnlyParams, body: editSettlementBodySchema, response: { 200: zodToJsonSchema(EditSettlementResponseSchema), ...errors } } }, async (request) => {
     const parsedBody = EditSettlementRequestSchema.parse(request.body) as EditSettlementRequest;
     const key = request.headers["idempotency-key"];
     return { data: (await editSettlement(app.prisma, request.authenticatedUser!, request.params.settlementId, parsedBody, typeof key === "string" ? key : "", request.id)).order, meta: { requestId: request.id } };
