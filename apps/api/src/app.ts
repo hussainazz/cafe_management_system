@@ -18,6 +18,8 @@ import { waiterCallRoutes } from "./modules/waiter-calls/waiter-calls.routes.js"
 import { adminRoutes } from "./modules/admin/admin.routes.js";
 import { imageRoutes } from "./modules/images/image.routes.js";
 import { databasePlugin } from "./plugins/database.js";
+import { ErrorResponseSchema } from "@cafe/contracts";
+import { zodToJsonSchema } from "./contracts/openapi.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -45,6 +47,13 @@ export function buildApp() {
 
   app.register(swagger, {
     transform: ({ schema, url, route }) => {
+      const errorResponses = Object.fromEntries(
+        [400, 401, 403, 404, 409, 413, 415, 422, 429, 500, 503].map((status) => [status, zodToJsonSchema(ErrorResponseSchema)]),
+      );
+      const documentedSchema = {
+        ...schema,
+        response: { ...errorResponses, ...(schema.response ?? {}) },
+      };
       if (
         route.method === "PUT" &&
         url === "/api/v1/admin/products/:productId/image"
@@ -52,7 +61,7 @@ export function buildApp() {
         return {
           url,
           schema: {
-            ...schema,
+            ...documentedSchema,
             body: {
               type: "object",
               additionalProperties: false,
@@ -64,7 +73,7 @@ export function buildApp() {
           },
         };
       }
-      return { schema, url };
+      return { schema: documentedSchema, url };
     },
     openapi: {
       info: {
