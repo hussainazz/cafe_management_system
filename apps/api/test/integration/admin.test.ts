@@ -156,6 +156,36 @@ describe("Manager administration", () => {
     await expect(app.prisma.auditLog.findFirstOrThrow({ where: { operation: "REORDER_PRODUCTS", entityId: first.json().data.id } })).resolves.toBeDefined();
   });
 
+  it("adds and removes promotional memberships without changing source ownership or public product data", async () => {
+    const manager = await session(UserRole.MANAGER, "promo-membership.manager");
+    const source = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "اصلی" } });
+    const promotion = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "ویژه", kind: "PROMOTIONAL" } });
+    const product = await app.inject({
+      method: "POST", url: "/api/v1/admin/products", cookies: manager,
+      payload: { categoryId: source.json().data.id, name: "قهوه ویژه", priceAmount: 50_000, preparationDeadlineMinutes: 5 },
+    });
+    const productId = product.json().data.id;
+    const promotionId = promotion.json().data.id;
+
+    const saved = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${promotionId}/products`, cookies: manager, payload: { productIds: [productId] } });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().data.productIds).toEqual([productId]);
+    expect(await app.prisma.product.findUniqueOrThrow({ where: { id: productId } })).toMatchObject({ categoryId: source.json().data.id, priceAmount: 50_000 });
+
+    const publicMenu = await app.inject({ method: "GET", url: "/api/v1/public/menu" });
+    const listedSource = publicMenu.json().data.categories.find((category: any) => category.id === source.json().data.id);
+    const listedPromotion = publicMenu.json().data.categories.find((category: any) => category.id === promotionId);
+    expect(listedSource.products).toContainEqual(expect.objectContaining({ id: productId, name: "قهوه ویژه", basePriceAmount: 50_000, priceAmount: 50_000 }));
+    expect(listedPromotion.products).toEqual(listedSource.products);
+
+    const removed = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${promotionId}/products`, cookies: manager, payload: { productIds: [] } });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json().data.productIds).toEqual([]);
+    const afterRemoval = await app.inject({ method: "GET", url: "/api/v1/public/menu" });
+    expect(afterRemoval.json().data.categories.some((category: any) => category.id === promotionId)).toBe(false);
+    expect(afterRemoval.json().data.categories.find((category: any) => category.id === source.json().data.id).products).toContainEqual(expect.objectContaining({ id: productId }));
+  });
+
   it("manages Staff accounts only and revokes sessions on deactivation", async () => {
     const manager = await session(UserRole.MANAGER, "accounts.manager");
     const created = await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: manager, payload: { username: "new.staff", password: "CafePassword2026" } });
