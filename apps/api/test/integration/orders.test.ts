@@ -434,6 +434,55 @@ describe("order reads, edits, and discounts", () => {
     expect(historical.json().data.items[0]).toMatchObject({ discountKind: "PERCENTAGE", discountValue: 20, discountAmount: 10_000, lineTotalAmount: 40_000 });
   });
 
+  it("rounds a half-thousand catalog discount in the saved order and settlement amount", async () => {
+    const managerCookies = await userSession(UserRole.MANAGER, "discount-round.manager");
+    const staffCookies = await userSession(UserRole.STAFF, "discount-round.staff");
+    const { product } = await sellableProduct();
+    await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${product.id}/sale-discount`, cookies: managerCookies, payload: { saleDiscount: { kind: "PERCENTAGE", value: 11 } } });
+
+    const created = await createOrderRequest(staffCookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] }, "discount-round-create-0001");
+    expect(created.statusCode).toBe(201);
+    const order = created.json().data;
+    expect(order).toMatchObject({ subtotalAmount: 45_000, discountAmount: 0, totalAmount: 45_000, balanceAmount: 45_000, items: [{ discountAmount: 5_000, lineTotalAmount: 45_000 }] });
+
+    const settled = await app.inject({
+      method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staffCookies,
+      headers: { "idempotency-key": "discount-round-settle-0001" },
+      payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 45_000 }] },
+    });
+    expect(settled.statusCode).toBe(201);
+    expect(settled.json().data).toMatchObject({ paymentStatus: "PAID", totalAmount: 45_000, paidAmount: 45_000, balanceAmount: 0, settlements: [{ totalAmount: 45_000 }] });
+  });
+
+  it("rounds item and order discounts before storing totals and allocating settlement", async () => {
+    const cookies = await userSession(UserRole.STAFF, "discount-round-edit.staff");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] }, "discount-round-edit-create-0001");
+    const order = created.json().data;
+
+    const itemDiscount = await app.inject({
+      method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies,
+      payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[0].id, discount: { kind: "PERCENTAGE", value: 11 } }] },
+    });
+    expect(itemDiscount.statusCode).toBe(200);
+    expect(itemDiscount.json().data).toMatchObject({ subtotalAmount: 45_000, totalAmount: 45_000, items: [{ discountAmount: 5_000, lineTotalAmount: 45_000 }] });
+
+    const orderDiscount = await app.inject({
+      method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies,
+      payload: { expectedVersion: itemDiscount.json().data.version, orderDiscount: { kind: "PERCENTAGE", value: 11 } },
+    });
+    expect(orderDiscount.statusCode).toBe(200);
+    expect(orderDiscount.json().data).toMatchObject({ subtotalAmount: 45_000, discountAmount: 5_000, totalAmount: 40_000, balanceAmount: 40_000 });
+
+    const settled = await app.inject({
+      method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies,
+      headers: { "idempotency-key": "discount-round-edit-settle-0001" },
+      payload: { expectedVersion: orderDiscount.json().data.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 40_000 }] },
+    });
+    expect(settled.statusCode).toBe(201);
+    expect(settled.json().data).toMatchObject({ paymentStatus: "PAID", totalAmount: 40_000, paidAmount: 40_000, balanceAmount: 0, settlements: [{ totalAmount: 40_000 }] });
+  });
+
   it("rolls back a product sale discount when its audit write fails", async () => {
     const managerCookies = await userSession(UserRole.MANAGER, "discount-atomic.manager");
     const { product } = await sellableProduct();
