@@ -344,7 +344,7 @@ function LegacyCatalogPanel({
                   ["name", "نام", "text", row.name],
                   ["displayOrder", "ترتیب نمایش", "number", row.displayOrder],
                   ["isActive", "نمایش در منوی عمومی", "checkbox", row.isActive],
-                  ["isPosVisible", "نمایش در سفارش‌گیری POS", "checkbox", row.isPosVisible],
+                  ["isPosVisible", "نمایش در سفارش‌گیری صندوق", "checkbox", row.isPosVisible],
                 ]}
               />
               {row.kind === "SOURCE" && (
