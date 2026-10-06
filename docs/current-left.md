@@ -52,7 +52,7 @@ second chronological backlog.
   discount/payment calculations, allocation rules, and state transitions.
 - [x] **10.8 — Complete API contract coverage:** verify DTO validation,
   request/response behavior, and structured errors against the contract.
-- [ ] **10.9 — Complete core PostgreSQL integration coverage:** verify order
+- [x] **10.9 — Complete core PostgreSQL integration coverage:** verify order
   creation/edit/deletion and transactional payment workflows.
 - [ ] **10.10 — Complete settlement and reporting integration coverage:** verify
   allocation, reversals, and daily-report totals against fixed fixtures.
@@ -108,6 +108,13 @@ second chronological backlog.
   payment reconciliation and no unresolved financial difference.
 
 ## Latest Implementation Notes
+
+- 6 October: completed Stage 10.9 core PostgreSQL integration coverage. Order
+  create/edit/delete and payment scenarios pass, including a forced audit-write
+  failure after settlement persistence begins; database assertions verify the
+  settlement, tenders, allocations, order closure, table release, audit row,
+  and idempotency record roll back together. The orders integration file passes
+  39/39 tests; the full API suite passes 17 files / 115 tests.
 
 - 6 October: completed Stage 10.6–10.8. The generated OpenAPI audit checks
   every API operation for success/request/path/error schemas; the settlement
