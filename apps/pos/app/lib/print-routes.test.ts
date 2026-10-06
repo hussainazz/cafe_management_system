@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { requestAutomaticRecovery, setRecoveryUser, writeRecovery } from "./automatic-recovery";
 import { printDocument, printRoute } from "./print-routes";
 
-afterEach(() => document.querySelectorAll('iframe[title="سند چاپی کافه"]').forEach((iframe) => iframe.remove()));
+afterEach(() => document.querySelectorAll('iframe[title="سند چاپ کافه"]').forEach((iframe) => iframe.remove()));
 
 describe("printRoute", () => {
   it("builds dedicated bar-ticket, whole-order, and settlement print routes", () => {
@@ -19,7 +19,7 @@ describe("printRoute", () => {
 
   it("keeps a prepared print frame alive until printing finishes", async () => {
     const prepared = printDocument("/pos/print/order/receipt");
-    const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="سند چاپی کافه"]')!;
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="سند چاپ کافه"]')!;
     const frameDocument = document.implementation.createHTMLDocument("print");
     frameDocument.body.innerHTML = '<main class="thermal-print">receipt</main>';
     Object.defineProperty(iframe, "contentDocument", { configurable: true, value: frameDocument });
@@ -34,7 +34,7 @@ describe("printRoute", () => {
 
   it("surfaces a print-document loading error and removes the frame", async () => {
     const prepared = printDocument("/pos/print/order/receipt");
-    const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="سند چاپی کافه"]')!;
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="سند چاپ کافه"]')!;
     const frameDocument = document.implementation.createHTMLDocument("print");
     frameDocument.body.innerHTML = '<main class="thermal-error">رسید پیدا نشد.</main>';
     Object.defineProperty(iframe, "contentDocument", { configurable: true, value: frameDocument });
@@ -47,7 +47,7 @@ describe("printRoute", () => {
     try {
       const printing = printDocument("/pos/print/order/bar-ticket");
       const completion = expect(printing).resolves.toBeUndefined();
-      const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="سند چاپی کافه"]')!;
+      const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="سند چاپ کافه"]')!;
       const frameDocument = document.implementation.createHTMLDocument("print");
       frameDocument.body.innerHTML = '<main class="thermal-print">ticket</main>';
       Object.defineProperty(iframe, "contentDocument", { configurable: true, value: frameDocument });
