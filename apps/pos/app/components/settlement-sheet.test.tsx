@@ -123,7 +123,7 @@ describe("SettlementSheet payment methods", () => {
     renderSettlement();
     expect(amountInput(1).value).toBe("500000");
     expect(screen.queryByRole("button", { name: "حذف روش پرداخت 1" })).toBeNull();
-    expect(screen.getByText("مبالغ با هم برابرند.")).toBeTruthy();
+    expect(screen.getByText("مبلغ پرداخت با مبلغ اقلام برابر است.")).toBeTruthy();
   });
 });
 
