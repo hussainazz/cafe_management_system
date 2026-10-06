@@ -35,3 +35,6 @@ TODO.md
 
 # Local production release archives
 .release-artifacts/
+
+# Local-only customer data lookup runbook. Do not track or release.
+/docs/runbooks/customer-phone-lookup.md
