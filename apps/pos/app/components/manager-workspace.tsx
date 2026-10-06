@@ -209,7 +209,7 @@ export function ManagerWorkspace({
       setFailure(null);
       return;
     }
-    const error = result.error ?? { kind: "response" as const, message: "عملیات انجام نشد." };
+    const error = result.error ?? { kind: "response" as const, message: "عملیات انجام نشد. دوباره تلاش کنید." };
     setFailure(error);
     throw new Error(error.message);
   };
@@ -218,11 +218,11 @@ export function ManagerWorkspace({
     <section className="pos-workspace manager-workspace" aria-busy={loading}>
       <header className="workspace-header">
         <div className="header-actions">
-          <span className={`connection ${!online ? "connection--offline" : loading || failure ? "connection--busy" : "connection--connected"}`} role="status" aria-label={!online ? "اتصال شبکه قطع است" : failure ? "داده مدیریت ناقص است" : loading ? "در حال بازخوانی اتصال" : "اتصال برقرار است"}>
+          <span className={`connection ${!online ? "connection--offline" : loading || failure ? "connection--busy" : "connection--connected"}`} role="status" aria-label={!online ? "اتصال شبکه قطع است" : failure ? "بخشی از اطلاعات مدیریت به‌روز نیست" : loading ? "در حال دریافت اطلاعات تازه" : "اتصال برقرار است"}>
             <WifiIcon />
-            <span>{!online ? "قطع ارتباط" : failure ? "داده ناقص" : loading ? "در حال بازخوانی" : "متصل"}</span>
+            <span>{!online ? "قطع ارتباط" : failure ? "اطلاعات ناقص" : loading ? "در حال به‌روزرسانی" : "متصل"}</span>
           </span>
-          <button className={`icon-button refresh-button${loading ? " is-refreshing" : ""}`} type="button" disabled={loading} onClick={() => void reloadAll()} aria-label="تازه‌سازی وضعیت مدیریت" title="تازه‌سازی وضعیت مدیریت">
+          <button className={`icon-button refresh-button${loading ? " is-refreshing" : ""}`} type="button" disabled={loading} onClick={() => void reloadAll()} aria-label="دریافت اطلاعات تازه‌ی مدیریت" title="دریافت اطلاعات تازه‌ی مدیریت">
             <RefreshIcon />
           </button>
           <button
@@ -244,7 +244,7 @@ export function ManagerWorkspace({
           [
             ["finance", "حسابداری"],
             ["audit", "حسابرسی"],
-            ["catalog", "کاتالوگ"],
+            ["catalog", "منو و کالاها"],
             ["tables", "میزها"],
             ["settings", "تنظیمات"],
           ] as const
@@ -261,14 +261,14 @@ export function ManagerWorkspace({
       </nav>
       {failure && (
         <div className="manager-notice" role="status">
-          <strong>داده زنده ناقص است.</strong>
+          <strong>بخشی از اطلاعات مدیریت به‌روز نیست.</strong>
           <span>{failure.message}</span>
           <button type="button" onClick={() => void reloadAll()}>
             تلاش دوباره
           </button>
         </div>
       )}
-      {loading && <div className="manager-empty">در حال دریافت داده‌های مدیریت…</div>}
+      {loading && <div className="manager-empty">در حال دریافت اطلاعات مدیریت…</div>}
       {!loading && panel === "catalog" && catalog && (
         <CatalogPanel
           catalog={catalog}
@@ -318,7 +318,7 @@ function LegacyCatalogPanel({
           }
           fields={[
             ["name", "نام دسته", "text"],
-            ["displayOrder", "ترتیب", "number"],
+            ["displayOrder", "ترتیب نمایش", "number"],
           ]}
           action="افزودن دسته"
         />
@@ -342,7 +342,7 @@ function LegacyCatalogPanel({
                 }
                 fields={[
                   ["name", "نام", "text", row.name],
-                  ["displayOrder", "ترتیب", "number", row.displayOrder],
+                  ["displayOrder", "ترتیب نمایش", "number", row.displayOrder],
                   ["isActive", "نمایش در منوی عمومی", "checkbox", row.isActive],
                   ["isPosVisible", "نمایش در سفارش‌گیری POS", "checkbox", row.isPosVisible],
                 ]}
@@ -353,7 +353,7 @@ function LegacyCatalogPanel({
                   onClick={() =>
                     requestConfirm({
                       title: "بایگانی دسته",
-                      detail: `«${row.name}» از فروش فعال خارج می‌شود و سابقه آن حفظ خواهد شد.`,
+                      detail: `دسته‌ی «${row.name}» از فهرست فعال خارج می‌شود؛ سابقه‌ی آن حفظ خواهد شد.`,
                       run: async () => {
                         await mutate(() => archiveCategory(row.id), reload);
                       },
@@ -365,7 +365,7 @@ function LegacyCatalogPanel({
           ))}
         </ul>
       </ManagerCard>
-      <ManagerCard title="محصولات" hint="قیمت تومان، زمان آماده‌سازی، گزینه‌ها و تصویر">
+      <ManagerCard title="محصولات" hint="قیمت، زمان آماده‌سازی، گزینه‌ها و تصویر محصول">
         <ProductForm
           catalog={catalog}
           submit={(body) => mutate(() => saveProduct(null, body), reload)}
@@ -399,7 +399,7 @@ function LegacyCatalogPanel({
                   onClick={() =>
                     requestConfirm({
                       title: "بایگانی محصول",
-                      detail: `«${row.name}» از فروش فعال خارج می‌شود و عکس و سابقه سفارش‌ها حفظ می‌گردد.`,
+                      detail: `محصول «${row.name}» از فهرست فعال خارج می‌شود؛ تصویر و سابقه‌ی سفارش‌ها حفظ می‌شود.`,
                       run: async () => {
                         await mutate(() => archiveProduct(row.id), reload);
                       },
@@ -411,7 +411,7 @@ function LegacyCatalogPanel({
           ))}
         </ul>
       </ManagerCard>
-      <ManagerCard title="گروه و گزینه محصول" hint="گزینه‌ها برای چند محصول قابل استفاده‌اند.">
+      <ManagerCard title="گروه‌های گزینه" hint="هر گروه گزینه می‌تواند برای چند محصول استفاده شود.">
         <EntityForm
           submit={(data) =>
             mutate(
@@ -464,7 +464,7 @@ function LegacyCatalogPanel({
                       onClick={() =>
                         requestConfirm({
                           title: "بایگانی گزینه",
-                          detail: `گزینه «${item.name}» از انتخاب جدید خارج می‌شود؛ سابقه سفارش‌ها باقی می‌ماند.`,
+                          detail: `گزینه‌ی «${item.name}» دیگر برای سفارش‌های تازه قابل انتخاب نیست؛ سابقه‌ی سفارش‌ها حفظ می‌شود.`,
                           run: async () => {
                             await mutate(() => archiveOption(group.id, item.id), reload);
                           },
@@ -490,7 +490,7 @@ function TablesPanel({ catalog, mutate, reload, requestConfirm }: {
 }) {
   return (
     <div className="manager-grid">
-      <ManagerCard title="میزهای فیزیکی" hint="ظرفیت زمانی، ترتیب نمایش و مجوز فراخوان میزبان">
+      <ManagerCard title="میزهای فیزیکی" hint="ترتیب نمایش و فعال‌بودن درخواست میزبان">
         <TableForm
           submit={(body) => mutate(() => saveTable(null, body), reload)}
           action="افزودن میز"
@@ -515,7 +515,7 @@ function TablesPanel({ catalog, mutate, reload, requestConfirm }: {
                   onClick={() =>
                     requestConfirm({
                       title: "بایگانی میز",
-                      detail: `میز «${row.name}» از سالن فعال خارج می‌شود؛ تاریخچه سفارش‌ها حذف نمی‌شود.`,
+                      detail: `میز «${row.name}» از سالن فعال خارج می‌شود؛ سابقه‌ی سفارش‌ها حفظ می‌شود.`,
                       run: async () => {
                         await mutate(() => archiveTable(row.id), reload);
                       },
@@ -543,7 +543,7 @@ function StaffPanel({
   requestConfirm: (confirm: Confirm) => void;
 }) {
   return (
-    <ManagerCard title="حساب‌های پرسنل" hint="مدیران در این فهرست قابل ویرایش نیستند.">
+    <ManagerCard title="حساب‌های پرسنل" hint="حساب مدیر در این فهرست نمایش داده نمی‌شود.">
       <EntityForm
         submit={(data) =>
           mutate(
@@ -592,7 +592,7 @@ function StaffPanel({
                   onClick={() =>
                     requestConfirm({
                       title: "غیرفعال‌سازی پرسنل",
-                      detail: `حساب «${row.username}» غیرفعال می‌شود و تمام نشست‌های فعال او لغو خواهد شد.`,
+                      detail: `حساب «${row.username}» غیرفعال می‌شود و همه‌ی نشست‌های فعال این حساب پایان می‌یابد.`,
                       run: async () => {
                         await mutate(() => deactivateStaff(row.id), reload);
                       },
@@ -695,7 +695,7 @@ function FinancePanel({
         case "amount": return item.totalAmount;
         case "method": return paymentMethods(item);
         case "recordedBy": return item.recordedBy.username;
-        case "status": return item.orderState === "DELETED" ? "حذف شده" : item.reversedAt ? "برگشت خورده" : "ثبت شده";
+        case "status": return item.orderState === "DELETED" ? "حذف‌شده" : item.reversedAt ? "برگشت‌خورده" : "ثبت‌شده";
       }
     };
     return [...payments].sort((left, right) => {
@@ -718,8 +718,8 @@ function FinancePanel({
       {panel === "finance" && <>
       <ManagerCard
         className="manager-card--payments"
-        title="پرداخت‌ها و حذف سفارش‌ها"
-        hint="حذف سفارش، تسویه‌های فعال آن را از گزارش جاری خارج می‌کند؛ سوابق مالی و حسابرسی حفظ می‌شوند."
+        title="پرداخت‌ها و سفارش‌ها"
+        hint="با حذف سفارش، پرداخت‌های فعال آن از گزارش فروش کنار گذاشته می‌شوند؛ سوابق مالی و حسابرسی باقی می‌مانند."
       >
         {message && <p className="form-error">{message}</p>}
         <form
@@ -728,7 +728,7 @@ function FinancePanel({
             event.preventDefault();
             const filters = paymentFiltersFromDraft(draftPaymentFilters);
             if (!filters) {
-              setMessage("تاریخ را به صورت MM/DD و ساعت را به صورت HH:MM وارد کنید؛ تاریخ شروع نباید بعد از پایان باشد.");
+              setMessage("تاریخ را با قالب ماه/روز و ساعت را با قالب ساعت:دقیقه وارد کنید. تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.");
               return;
             }
             setMessage(null);
@@ -744,8 +744,8 @@ function FinancePanel({
             امروز
           </label>
           <label>
-            <span>شیفت پرداخت</span>
-            <select aria-label="شیفت پرداخت" value={
+            <span>بازه‌ی پرداخت</span>
+            <select aria-label="بازه‌ی پرداخت" value={
               draftPaymentFilters.fromTime === "08:00" && draftPaymentFilters.toTime === "16:00" ? "morning"
                 : draftPaymentFilters.fromTime === "16:00" && !draftPaymentFilters.toTime ? "evening"
                   : !draftPaymentFilters.fromTime && !draftPaymentFilters.toTime ? "all" : "custom"
@@ -760,12 +760,12 @@ function FinancePanel({
               if (filters) {
                 setMessage(null);
                 setAppliedPaymentFilters(filters);
-              } else setMessage("تاریخ را به صورت MM/DD وارد کنید؛ تاریخ شروع نباید بعد از پایان باشد.");
+              } else setMessage("تاریخ را با قالب ماه/روز وارد کنید. تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.");
             }}>
-              <option value="all">همه ساعت‌ها</option>
-              <option value="morning">شیفت اول — ۰۸:۰۰ تا ۱۶:۰۰</option>
-              <option value="evening">شیفت دوم — ۱۶:۰۰ تا پایان روز</option>
-              <option value="custom" disabled>ساعت دلخواه</option>
+              <option value="all">تمام ساعت‌ها</option>
+              <option value="morning">شیفت اول (۰۸:۰۰ تا ۱۶:۰۰)</option>
+              <option value="evening">شیفت دوم (از ۱۶:۰۰ تا پایان روز)</option>
+              <option value="custom" disabled>بازه‌ی دلخواه</option>
             </select>
           </label>
           <div className="manager-fields">
@@ -795,8 +795,8 @@ function FinancePanel({
                 setAppliedPaymentFilters(filters);
                 setMessage(null);
               }
-            }}>پاک کردن</button>
-            <button type="submit">اعمال فیلتر</button>
+            }}>بازنشانی فیلترها</button>
+            <button type="submit">نمایش نتایج</button>
           </div>
         </form>
         <div className="manager-payment-table-wrap">
@@ -804,7 +804,7 @@ function FinancePanel({
             <thead>
               <tr>
                 {([
-                  ["order", "سفارش"], ["recordedAt", "زمان ثبت"], ["context", "موقعیت"],
+                  ["order", "سفارش"], ["recordedAt", "زمان پرداخت"], ["context", "محل سفارش"],
                   ["amount", "مبلغ"], ["method", "روش پرداخت"], ["recordedBy", "ثبت‌کننده"], ["status", "وضعیت"],
                 ] as const).map(([key, label]) => {
                   const active = paymentSort.key === key;
@@ -828,14 +828,14 @@ function FinancePanel({
                   <td>{formatToman(item.totalAmount)}</td>
                   <td>{paymentMethods(item)}</td>
                   <td>{item.recordedBy.username}</td>
-                  <td>{item.orderState === "DELETED" ? "حذف شده" : item.reversedAt ? "برگشت خورده" : "ثبت شده"}</td>
+                  <td>{item.orderState === "DELETED" ? "حذف‌شده" : item.reversedAt ? "برگشت‌خورده" : "ثبت‌شده"}</td>
                   <td className="manager-payment-table__actions">
                     <button
                 className="secondary-button"
                 type="button"
                 onClick={() =>
                   void printDocument(printRoute(item.orderId, "settlement", item.id)).catch((error: unknown) => {
-                    setMessage(error instanceof Error ? error.message : "سند چاپی آماده نشد.");
+                    setMessage(error instanceof Error ? error.message : "سند چاپ آماده نشد.");
                   })
                 }
               >
@@ -873,7 +873,7 @@ function FinancePanel({
                 onClick={() =>
                   requestConfirm({
                     title: "حذف سفارش",
-                    detail: `سفارش ${formatOrderNumber(item.dailyOrderNumber)} به‌صورت منطقی حذف می‌شود؛ همه تسویه‌های فعال این سفارش از گزارش جاری خارج می‌شوند، اما تسویه‌ها، روش‌های پرداخت، تخصیص‌ها و سابقه حسابرسی باقی می‌مانند.`,
+                    detail: `سفارش ${formatOrderNumber(item.dailyOrderNumber)} به‌صورت منطقی حذف می‌شود؛ پرداخت‌های فعال سفارش از گزارش فروش خارج می‌شوند؛ جزئیات پرداخت و سابقه‌ی حسابرسی حفظ می‌شوند.`,
                     run: async () => {
                       const order = await readOrder(item.orderId);
                       if (!order.ok) {
@@ -896,7 +896,7 @@ function FinancePanel({
                 </tr>
               ))}
               {sortedPayments.length === 0 && (
-                <tr><td className="manager-payment-table__empty" colSpan={8}>تسویه‌ای برای نمایش وجود ندارد.</td></tr>
+                <tr><td className="manager-payment-table__empty" colSpan={8}>پرداختی در این بازه ثبت نشده است.</td></tr>
               )}
             </tbody>
           </table>
@@ -907,7 +907,7 @@ function FinancePanel({
           <section className="manager-dialog" role="dialog" aria-modal="true" aria-labelledby="historical-order-title" onClick={(event) => event.stopPropagation()}>
             <header className="manager-dialog__header">
               <div>
-                <p className="kicker">سفارش ذخیره‌شده</p>
+                <p className="kicker">جزئیات سفارش</p>
                 <h2 id="historical-order-title">{formatOrderNumber(selectedOrder.dailyOrderNumber)}</h2>
               </div>
               <button className="text-button" type="button" onClick={() => setSelectedOrder(null)}>بستن</button>
@@ -918,7 +918,7 @@ function FinancePanel({
               {selectedOrder.items.map((orderItem) => (
                 <li key={orderItem.id}>
                   <strong>{orderItem.productNameSnapshot} × {orderItem.quantity}</strong>
-                  <small>{orderItem.options.length ? orderItem.options.map((option) => `${option.optionNameSnapshot} × ${option.quantity}`).join("، ") : "بدون گزینه"}</small>
+                  <small>{orderItem.options.length ? orderItem.options.map((option) => `${option.optionNameSnapshot} × ${option.quantity}`).join("، ") : "بدون گزینه‌ی انتخاب‌شده"}</small>
                   <span>{formatToman(orderItem.lineTotalAmount)}</span>
                 </li>
               ))}
@@ -973,7 +973,7 @@ function FinancePanel({
         )}
       </ManagerCard>
       </>}
-      {panel === "audit" && <ManagerCard title="تاریخچه حسابرسی" hint="فقط داده‌های امن عملیات نشان داده می‌شوند.">
+      {panel === "audit" && <ManagerCard title="گزارش رویدادها" hint="رویدادهای ثبت‌شده در سامانه را ببینید.">
         <form
           className="manager-form"
           onSubmit={(event) => {
@@ -986,8 +986,8 @@ function FinancePanel({
               [
                 ["operation", "عملیات"],
                 ["entityType", "نوع رکورد"],
-                ["actorId", "شناسه اجراکننده"],
-                ["entityId", "شناسه رکورد"],
+                ["actorId", "شناسه‌ی کاربر"],
+                ["entityId", "شناسه‌ی رکورد"],
               ] as const
             ).map(([name, label]) => (
               <label key={name}>
@@ -1001,12 +1001,12 @@ function FinancePanel({
               </label>
             ))}
           </div>
-          <button type="submit">اعمال فیلتر</button>
+          <button type="submit">نمایش نتایج</button>
         </form>
         <div className="manager-audit-table-wrap">
           <table className="manager-audit-table">
             <thead><tr>
-              {([ ["occurredAt", "زمان"], ["operation", "عملیات"], ["entityType", "نوع رکورد"], ["actor", "اجراکننده"] ] as const).map(([sortBy, label]) => (
+              {([ ["occurredAt", "زمان"], ["operation", "عملیات"], ["entityType", "نوع رکورد"], ["actor", "کاربر"] ] as const).map(([sortBy, label]) => (
                 <th key={sortBy}><button type="button" onClick={() => {
                   const sortDirection = auditFilters.sortBy === sortBy && auditFilters.sortDirection === "desc" ? "asc" : "desc";
                   const next = { ...auditFilters, sortBy, sortDirection };
@@ -1027,7 +1027,7 @@ function FinancePanel({
             type="button"
             onClick={() => void loadAudit(audit.meta.page.nextCursor, true)}
           >
-            بارگذاری بیشتر
+            نمایش رویدادهای بیشتر
           </button>
         )}
       </ManagerCard>
@@ -1056,7 +1056,7 @@ function SettingsPanel({
   );
   return (
     <div className="manager-grid">
-    <ManagerCard title="تنظیمات کافه" hint="نمایش زمان نشستن میز اختیاری است و فقط با فعال‌سازی مدیر استفاده می‌شود.">
+    <ManagerCard title="تنظیمات کافه" hint="ثبت مدت حضور مشتری روی میز اختیاری است و با فعال‌سازی این گزینه در سفارش‌ها نمایش داده می‌شود.">
       <form
         className="manager-form"
         onSubmit={(event) => {
@@ -1078,10 +1078,10 @@ function SettingsPanel({
               checked={seatingLimitEnabled}
               onChange={(event) => setSeatingLimitEnabled(event.target.checked)}
             />{" "}
-            نمایش زمان نشستن میز
+            نمایش مدت حضور مشتری روی میز
           </label>
           <label>
-            <span>زمان نشستن میز (دقیقه)</span>
+            <span>مدت حضور مشتری روی میز (دقیقه)</span>
             <input
               name="minutes"
               type="number"
@@ -1096,7 +1096,7 @@ function SettingsPanel({
       </form>
     </ManagerCard>
     {staff ? <StaffPanel staff={staff} mutate={mutate} reload={reloadStaff} requestConfirm={requestConfirm} /> : (
-      <ManagerCard title="پرسنل" hint="فهرست پرسنل اکنون در دسترس نیست.">
+      <ManagerCard title="پرسنل" hint="فهرست پرسنل بارگذاری نشد.">
         <button className="secondary-button" type="button" onClick={() => void reloadStaff()}>تلاش دوباره</button>
       </ManagerCard>
     )}
@@ -1307,7 +1307,7 @@ function OptionForm({
       fields={[
         ["name", "نام", "text", initial?.name],
         ["priceAmount", "قیمت اضافه", "number", initial?.priceAmount ?? 0],
-        ["displayOrder", "ترتیب", "number", initial?.displayOrder ?? 0],
+        ["displayOrder", "ترتیب نمایش", "number", initial?.displayOrder ?? 0],
         ["isActive", "فعال", "checkbox", initial?.isActive ?? true],
         ["isAvailable", "موجود", "checkbox", initial?.isAvailable ?? true],
       ]}
@@ -1336,9 +1336,9 @@ function TableForm({
       }
       fields={[
         ["name", "نام میز", "text", initial?.name],
-        ["displayOrder", "ترتیب", "number", initial?.displayOrder ?? 0],
+        ["displayOrder", "ترتیب نمایش", "number", initial?.displayOrder ?? 0],
         ["isActive", "فعال", "checkbox", initial?.isActive ?? true],
-        ["waiterCallEnabled", "فراخوان میزبان", "checkbox", initial?.waiterCallEnabled ?? false],
+        ["waiterCallEnabled", "درخواست میزبان", "checkbox", initial?.waiterCallEnabled ?? false],
       ]}
     />
   );
@@ -1415,7 +1415,7 @@ function ImageForm({
           onClick={() =>
             requestConfirm({
               title: "حذف تصویر",
-              detail: "تصویر فعلی از نمایش محصول حذف می‌شود؛ محصول و سابقه سفارش‌ها باقی می‌مانند.",
+              detail: "تصویر فعلی از محصول حذف می‌شود؛ محصول و سابقه‌ی سفارش‌ها باقی می‌مانند.",
               run: async () => {
                 await mutate(() => archiveProductImage(productId), reload);
               },
@@ -1464,7 +1464,7 @@ function ConfirmDialog({ confirm, close }: { confirm: Exclude<Confirm, null>; cl
   const submit = () => {
     const trimmedReason = reason.trim();
     if (confirm.reasonLabel && !trimmedReason) {
-      setError("ثبت دلیل برای این عملیات الزامی است.");
+      setError("برای ادامه، دلیل این عملیات را وارد کنید.");
       reasonRef.current?.focus();
       return;
     }
