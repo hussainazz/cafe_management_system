@@ -551,7 +551,7 @@ function CategoryEditor({ row, mutate, reload, requestConfirm }: any) {
       </label>
       {row.kind === "SOURCE" && <label>
         <input name="isPosVisible" type="checkbox" defaultChecked={row.isPosVisible} /> نمایش در
-        سفارش‌گیری POS
+        سفارش‌گیری صندوق
       </label>}
       <button>ذخیره تغییرات</button>
       {row.kind === "SOURCE" && (
@@ -1121,7 +1121,7 @@ function ProductDrawer({
             </label>
             <label className="catalog-product-state">
               <input name="isActive" type="checkbox" defaultChecked={initial?.isActive ?? true} />
-              <span><strong>فعال در سفارش‌گیری</strong><small>در POS و منوی عمومی نمایش داده شود.</small></span>
+              <span><strong>فعال در سفارش‌گیری</strong><small>در صندوق و منوی عمومی نمایش داده شود.</small></span>
             </label>
             <label className="catalog-product-state">
               <input
@@ -1129,7 +1129,7 @@ function ProductDrawer({
                 type="checkbox"
                 defaultChecked={initial?.isAvailable ?? true}
               />
-              <span><strong>موجود برای سفارش در منوی عمومی</strong><small>اگر خاموش باشد، محصول در منو با وضعیت ناموجود نمایش داده می‌شود؛ ثبت آن در POS همچنان ممکن است.</small></span>
+              <span><strong>موجود برای سفارش در منوی عمومی</strong><small>اگر خاموش باشد، محصول در منو با وضعیت ناموجود نمایش داده می‌شود؛ ثبت آن در صندوق همچنان ممکن است.</small></span>
             </label>
           </div>
           <fieldset aria-describedby="catalog-option-groups-help">
