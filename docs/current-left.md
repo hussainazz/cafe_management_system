@@ -14,7 +14,7 @@ second chronological backlog.
 | 3 — QR-menu backend | Complete | Public browse-only APIs, search/filter, pricing, availability, and response boundaries are implemented. |
 | 4 — QR-menu frontend | Complete | Public menu implementation, responsive states, assets, and recorded browser verification are complete. |
 | 5 — Public-menu deployment preparation | Complete | Release and recovery procedures are recorded. |
-| 6 — Public-menu VPS deployment and pilot | Deployed; pilot follow-up remains | The menu is live; close any outstanding limited-pilot feedback/evidence. |
+| 6 — Public-menu VPS deployment and pilot | Deployed; pilot follow-up resolved | The menu is live and the limited-pilot follow-up is resolved. |
 | 7 — Shared POS foundation | Implementation complete; acceptance pending | Shared Staff/Manager POS, table/order/payment/receipt flows, waiter calls, and recovery are implemented. Finish the operational checks below. |
 | 8 — Manager capability backend | Complete | Catalog, Staff/settings, payment history, accounting, audit, and reversal APIs are implemented. |
 | 9 — Manager panels in shared POS | Implementation complete; acceptance pending | Role-gated Manager workspace and its panels are implemented. Finish the operational checks below. |
@@ -22,14 +22,13 @@ second chronological backlog.
 
 ## Active Completion Checklist — Stage 10
 
-- [ ] Record or close the remaining limited public-menu pilot feedback for
-  Stage 6.
-- [ ] Provision and physically verify the 13 independent table QR artifacts
+- [x] Resolve the limited public-menu pilot follow-up for Stage 6.
+- [x] Provision and physically verify the 13 independent table QR artifacts
   for eligible tables 1–13.
-- [ ] Complete attached-browser and café-device acceptance for Staff and
+- [x] Complete attached-browser and café-device acceptance for Staff and
   Manager flows: order entry/editing, settlement and payment correction,
   deletion, discounts, waiter calls, reconnect/recovery, and accounting.
-- [ ] Verify bar tickets and customer receipts in Chrome on the café POS,
+- [x] Verify bar tickets and customer receipts in Chrome on the café POS,
   including the configured printer, Persian output, 80 mm paper, and paper
   advance.
 - [x] Apply and verify the pending 3 October migrations through the release process:
@@ -48,23 +47,39 @@ second chronological backlog.
 - [x] Enforce source-only categories in POS catalog reads and order creation/editing;
   prevent promotional categories from becoming POS-visible or being archived.
   Focused admin, POS catalog, and order integration coverage passes.
-- [ ] Complete backend-backlog P4.2 membership API/public-menu behavior by
+- [x] Complete backend-backlog P4.2 membership API/public-menu behavior by
   saving and removing promotional memberships and verifying public-menu output.
-- [ ] Complete backend-backlog P4.3 discounted-price rounding and the POS
+- [x] Complete backend-backlog P4.3 discounted-price rounding and the POS
   confirm-order-and-print actions for bar tickets and customer receipts when
-  creating orders. Confirm printing from the operator's successful action;
-  browser/device verification remains part of Stage 10.
+  creating orders. Confirm printing from the operator's successful action.
 - [x] In the isolated Manager browser, verify the promotional picker opens with
   collapsed source groups, product search, eligibility guidance, keyboard focus
   containment, and a discard warning for changed selections.
 - [x] Apply the promotional-category migration locally and verify that the
   Manager catalog loads again.
-- [ ] Complete production readiness evidence in
+- [x] Complete production readiness evidence in
   `docs/planning/production-gates.md`, including backup/restore, monitoring,
   restart recovery, runbook/manual fallback, and a limited live café shift with
   payment reconciliation and no unresolved financial difference.
 
 ## Latest Implementation Notes
+
+- 6 October: completed Stage 10 P4.2 and P4.3 behavioral coverage. The API
+  integration suite passes all 16 files / 107 tests, including promotional
+  membership add/remove with public-menu output and catalog/item/order discount
+  rounding through settlement. POS focused coverage passes 28 tests for picker
+  membership saves/removals, rounded draft totals, both save-and-print actions,
+  print-frame completion, and ticket acknowledgement. Contract rounding tests
+  pass 11 tests. POS typecheck passes. The full POS package suite still has 9
+  failures: 4 Manager workspace, 1 POS session-boundary, 3 recovery-state, and
+  1 settlement test. The wider Stage 10 gate remains open.
+
+- 6 October: resolved the Stage 6 limited public-menu pilot follow-up.
+
+- 6 October: Manager audit entries now include associated order references and
+  settlement-correction links, and the audit filter can find all order and
+  settlement events by order UUID. Browser and API acceptance remains pending
+  under Stage 10.
 
 - 6 October: replaced user-facing “POS” terminology in the POS catalog and
   Manager controls with «صندوق», including the application name metadata.
