@@ -93,4 +93,14 @@ describe("public QR menu", () => {
     expect(filtered.json().data.categories).toEqual([]);
     expect(direct.statusCode).toBe(404);
   });
+
+  it("rounds discounted public prices to the nearest 1,000 Toman, with halfway values up", async () => {
+    const category = await app.prisma.category.create({ data: { name: "تخفیف رند", displayOrder: 1 } });
+    const product = await app.prisma.product.create({
+      data: { categoryId: category.id, name: "قهوه", priceAmount: 50_000, saleDiscountKind: DiscountKind.PERCENTAGE, saleDiscountValue: 11, preparationDeadlineMinutes: 5, displayOrder: 1 },
+    });
+    const response = await app.inject({ method: "GET", url: `/api/v1/public/menu?categoryId=${category.id}` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.categories[0].products).toContainEqual(expect.objectContaining({ id: product.id, basePriceAmount: 50_000, priceAmount: 45_000, saleDiscount: { kind: "PERCENTAGE", value: 11, amount: 5_000 } }));
+  });
 });
