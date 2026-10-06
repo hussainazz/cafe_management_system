@@ -96,7 +96,7 @@ function ProductOptionGroupFields({
       </summary>
       <div className="catalog-option-group-fields">
         <p className="catalog-option-price-help">
-          قیمت خالی از قیمت اصلی گزینه استفاده می‌کند؛ برای قیمت متفاوت در این محصول، مبلغ را وارد کنید.
+          اگر مبلغی وارد نکنید، قیمت پایه‌ی گزینه اعمال می‌شود. برای این محصول قیمت دیگری وارد کنید.
         </p>
         <label>
           حداقل انتخاب{" "}
@@ -227,13 +227,13 @@ function optionGroupLimitErrors(
     const max = Number(maxValue);
 
     if (minValue === null || !Number.isInteger(min) || min < 0) {
-      errors[group.id] = "حداقل انتخاب باید عدد صحیح صفر یا بیشتر باشد.";
+      errors[group.id] = "حداقل انتخاب باید عددی صحیح و برابر با صفر یا بیشتر باشد.";
     } else if (maxValue === null || !Number.isInteger(max) || max < 1) {
-      errors[group.id] = "حداکثر انتخاب باید عدد صحیح ۱ یا بیشتر باشد.";
+      errors[group.id] = "حداکثر انتخاب باید عددی صحیح و برابر با ۱ یا بیشتر باشد.";
     } else if (min > max) {
-      errors[group.id] = "حداقل انتخاب نمی‌تواند بیشتر از حداکثر انتخاب باشد.";
+      errors[group.id] = "حداقل انتخاب نمی‌تواند از حداکثر انتخاب بیشتر باشد.";
     } else if (min > data.getAll(`optionIds-${group.id}`).length) {
-      errors[group.id] = "حداقل انتخاب نمی‌تواند از تعداد گزینه‌های مجاز بیشتر باشد.";
+      errors[group.id] = "حداقل انتخاب نمی‌تواند از تعداد گزینه‌های این گروه بیشتر باشد.";
     }
   }
 
@@ -269,7 +269,7 @@ function SortableCategory({ row, index, selected, onSelect, mutate, reload, requ
         <DragHandle attributes={sortable.attributes} listeners={sortable.listeners} />
         <button type="button" className="catalog-category-select" onClick={onSelect}>
           <strong>{row.name}</strong>
-          <small>{row.kind === "PROMOTIONAL" ? "تبلیغاتی" : "اصلی"} · {row.isActive ? "فعال" : "غیرفعال"}</small>
+          <small>{row.kind === "PROMOTIONAL" ? "ویژه" : "اصلی"} · {row.isActive ? "فعال" : "غیرفعال"}</small>
         </button>
         <span className="catalog-order">#{index + 1}</span>
       </li>
@@ -392,7 +392,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
       <aside className="catalog-sidebar">
         <header>
           <h2>دسته‌ها</h2>
-          <p>دسته را انتخاب یا با دستگیره مرتب کنید.</p>
+          <p>یک دسته را انتخاب کنید یا با دستگیره، ترتیب دسته‌ها را تغییر دهید.</p>
         </header>
         {categories.length ? (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={categoryDrop}>
@@ -417,7 +417,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
             </SortableContext>
           </DndContext>
         ) : (
-          <div className="catalog-empty">هنوز دسته‌ای ساخته نشده است.</div>
+          <div className="catalog-empty">هنوز دسته‌ای ایجاد نشده است.</div>
         )}
         <form
           className="catalog-create"
@@ -453,9 +453,9 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
             نوع دسته
             <select name="kind" aria-label="نوع دسته" defaultValue="SOURCE">
               <option value="SOURCE">دسته اصلی</option>
-              <option value="PROMOTIONAL">دسته تبلیغاتی</option>
+              <option value="PROMOTIONAL">دسته‌ی ویژه</option>
             </select>
-            <small>دستهٔ اصلی مالک محصول است؛ دستهٔ تبلیغاتی همان محصول را بدون تغییر مبدأ نمایش می‌دهد.</small>
+            <small>محصول در دسته‌ی اصلی نگهداری می‌شود؛ دسته‌ی ویژه همان محصول را در این بخش هم نمایش می‌دهد.</small>
           </label>
           <button type="submit">ایجاد دسته</button>
         </form>
@@ -464,14 +464,14 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
         <header className="catalog-products__header">
           <div>
             <h2>محصولات</h2>
-            <p>محصولات دسته انتخاب‌شده را مدیریت و مرتب کنید.</p>
+            <p>محصولات این دسته را مدیریت و مرتب کنید.</p>
           </div>
           {selected && <span className="catalog-selected-category">دسته: {selected.name}</span>}
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="جستجوی محصول…"
-            aria-label="جستجوی محصول"
+            placeholder="نام محصول را جستجو کنید…"
+            aria-label="جستجوی نام محصول"
             disabled={!selected}
           />
           {selected?.kind === "PROMOTIONAL" && <button type="button" className="catalog-promo-action" onClick={() => setPromoPickerOpen(true)}>افزودن محصول از دسته‌ها</button>}
@@ -501,7 +501,7 @@ export function CatalogPanel({ catalog, mutate, reload, requestConfirm }: Props)
                 </div>
               ) : (
                 <div className="catalog-empty">
-                  هیچ محصولی در این دسته وجود ندارد.
+                  محصولی در این دسته نیست.
                   {selected.kind === "PROMOTIONAL" ? <button onClick={() => setPromoPickerOpen(true)}>افزودن محصول از دسته‌ها</button> : <button onClick={() => setEditor("new")}>+ افزودن محصول</button>}
                 </div>
               )}
@@ -544,7 +544,7 @@ function CategoryEditor({ row, mutate, reload, requestConfirm }: any) {
       }}
     >
       <strong>ویرایش دسته انتخاب‌شده</strong>
-      <span>{row.kind === "PROMOTIONAL" ? "دسته تبلیغاتی؛ محصولات از دسته‌های اصلی نمایش داده می‌شوند." : "دسته اصلی؛ محصولات به این دسته تعلق دارند."}</span>
+      <span>{row.kind === "PROMOTIONAL" ? "دسته‌ی ویژه؛ محصولات از دسته‌های اصلی به اینجا اضافه می‌شوند." : "دسته‌ی اصلی؛ محصولات به این دسته تعلق دارند."}</span>
       <input name="name" defaultValue={row.name} aria-label="نام دسته انتخاب‌شده" required />
       <label>
         <input name="isActive" type="checkbox" defaultChecked={row.isActive} /> نمایش در منوی عمومی
@@ -561,7 +561,7 @@ function CategoryEditor({ row, mutate, reload, requestConfirm }: any) {
           onClick={() =>
             requestConfirm({
               title: "بایگانی دسته",
-              detail: `«${row.name}» از فروش فعال خارج می‌شود و سابقه آن حفظ خواهد شد.`,
+              detail: `دسته‌ی «${row.name}» از فهرست فعال خارج می‌شود؛ سابقه‌ی آن حفظ خواهد شد.`,
               run: () => mutate(() => archiveCategory(row.id), reload),
             })
           }
@@ -595,7 +595,7 @@ function PromotionalProductPicker({ category, catalog, close, mutate, reload }: 
   const sources = catalog.categories.filter((row: any) => row.kind === "SOURCE");
   const closeSafely = () => {
     if (saving) return;
-    if (changed && !window.confirm("تغییرات ذخیره‌نشده دور ریخته شوند؟")) return;
+    if (changed && !window.confirm("تغییرات ذخیره‌نشده حذف شوند؟")) return;
     close();
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -671,7 +671,7 @@ function PromotionalProductPicker({ category, catalog, close, mutate, reload }: 
           <div>
             <h2 id="catalog-promo-title">افزودن محصول به «{category.name}»</h2>
             <p id="catalog-promo-guidance">
-              محصولات انتخاب‌شده با دستهٔ اصلی خود باقی می‌مانند و در این دسته نیز نمایش داده می‌شوند.
+              محصول‌ها در دسته‌ی اصلی خود باقی می‌مانند و هم‌زمان در این دسته هم نمایش داده می‌شوند.
             </p>
           </div>
           <button type="button" onClick={closeSafely} disabled={saving}>بستن</button>
@@ -684,12 +684,11 @@ function PromotionalProductPicker({ category, catalog, close, mutate, reload }: 
               type="search"
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
-              placeholder="نام محصول یا دسته را بنویسید"
+              placeholder="نام محصول یا دسته را وارد کنید"
             />
           </label>
           <p>
-            فقط محصولات فعال و عمومیِ دسته‌های اصلی، به‌جز بسته‌بندی، قابل انتخاب‌اند.
-            محصولات غیرعمومی و بسته‌بندی در این فهرست نمی‌آیند.
+            فقط محصول‌های فعال و قابل نمایش در منوی عمومی را می‌توانید انتخاب کنید. محصولات دسته‌ی «بسته‌بندی» در این فهرست نیستند.
           </p>
         </div>
         <div className="catalog-promo-sources">
@@ -716,7 +715,7 @@ function PromotionalProductPicker({ category, catalog, close, mutate, reload }: 
                       />
                       <span>{product.name}</span>
                     </label>
-                  )) : <p className="catalog-promo-empty">محصول فعالی برای پیشنهاد وجود ندارد.</p>}
+                  )) : <p className="catalog-promo-empty">محصول فعالی برای افزودن وجود ندارد.</p>}
                 </fieldset>
               </details>
             );
@@ -726,9 +725,9 @@ function PromotionalProductPicker({ category, catalog, close, mutate, reload }: 
               (source.name.toLocaleLowerCase().includes(search) || product.name.toLocaleLowerCase().includes(search))),
           ) && <p className="catalog-promo-empty">محصول یا دسته‌ای با این نام پیدا نشد.</p>}
           {excludedSelections.length > 0 && (
-            <section className="catalog-promo-excluded" aria-label="محصولات فعلی غیرقابل پیشنهاد">
-              <h3>محصولات متصلِ غیرقابل پیشنهاد</h3>
-              <p>این محصولات دیگر عمومی نیستند یا بسته‌بندی‌اند. برای نگه‌داشتن آن‌ها در فهرست تیک را بردارید؛ امکان افزودن دوباره وجود ندارد.</p>
+            <section className="catalog-promo-excluded" aria-label="محصولات فعلی که دیگر قابل انتخاب نیستند">
+              <h3>محصولات این فهرست که دیگر قابل انتخاب نیستند</h3>
+              <p>این محصول‌ها دیگر در منوی عمومی نمایش داده نمی‌شوند یا در دسته‌ی «بسته‌بندی» هستند. برای حذفشان از این دسته، تیک را بردارید. پس از حذف، دوباره نمی‌توانید آن‌ها را اضافه کنید.</p>
               {excludedSelections.map((product: any) => (
                 <label key={product.id}>
                   <input
@@ -810,9 +809,9 @@ function ProductDrawer({
   const closeSafely = () => {
     if (busy || imageBusy) return;
     if (pendingOptionCreation && !window.confirm(
-      "گروه گزینه ساخته شده اما هنوز به محصول متصل نشده است. با بستن این پنجره امکان ادامهٔ ذخیره از دست می‌رود. می‌بندید؟",
+      "گروه گزینه ساخته شده، اما هنوز به محصول وصل نشده است. اگر پنجره را ببندید، ذخیره‌ی این تغییر ناتمام می‌ماند. می‌خواهید ببندید؟",
     )) return;
-    if (!pendingOptionCreation && dirty && !window.confirm("تغییرات ذخیره‌نشده دور ریخته شوند؟")) return;
+    if (!pendingOptionCreation && dirty && !window.confirm("تغییرات ذخیره‌نشده حذف شوند؟")) return;
     close();
   };
 
@@ -837,13 +836,13 @@ function ProductDrawer({
       (saleDiscountMode === "PERCENTAGE" && (discountValueNumber < 1 || discountValueNumber > 100)) ||
       (saleDiscountMode === "PRICE" && discountValueNumber > priceAmount))) {
       setSaleDiscountError(saleDiscountMode === "PERCENTAGE"
-        ? "درصد تخفیف باید عددی بین ۱ تا ۱۰۰ باشد."
-        : "قیمت پس از تخفیف باید بین صفر و قیمت پایه باشد.");
+        ? "درصد تخفیف باید بین ۱ تا ۱۰۰ باشد."
+        : "قیمت نهایی باید صفر یا بیشتر باشد و از قیمت پایه بیشتر نباشد.");
       setSaleDiscountMessage("");
       return;
     }
     if (!remove && priceAmount !== initial.priceAmount) {
-      setSaleDiscountError("ابتدا قیمت پایه را ذخیره کنید، سپس تخفیف را ثبت کنید.");
+      setSaleDiscountError("ابتدا قیمت پایه را ذخیره کنید؛ سپس تخفیف را ثبت کنید.");
       setSaleDiscountMessage("");
       return;
     }
@@ -866,7 +865,7 @@ function ProductDrawer({
       if (remove) setSaleDiscountValue("");
       setSaleDiscountMessage(remove ? "تخفیف محصول حذف شد." : "تخفیف محصول ذخیره شد.");
     } catch (error) {
-      setSaleDiscountError(error instanceof Error ? error.message : "ذخیره تخفیف انجام نشد.");
+      setSaleDiscountError(error instanceof Error ? error.message : "تخفیف ذخیره نشد.");
     } finally {
       setSaleDiscountBusy(false);
     }
@@ -956,17 +955,17 @@ function ProductDrawer({
       const max = Number(data.get("newOptionMax"));
       const parsedPrice = Number(newOptionPrice);
       if (!newGroupName || !newOptionName || newOptionPrice === "" || !/^\d+$/.test(newOptionPrice) || !Number.isInteger(parsedPrice) || parsedPrice > 2_147_483_647) {
-        setSaveError("برای گروه جدید، نام گروه، نام گزینه و قیمت صحیح را کامل کنید.");
+        setSaveError("نام گروه، نام گزینه و قیمت صحیح را برای گروه تازه وارد کنید.");
         setBusy(false);
         return;
       }
       if (newGroupName.length > 120 || newOptionName.length > 120) {
-        setSaveError("نام گروه و گزینه حداکثر ۱۲۰ نویسه است.");
+        setSaveError("نام گروه و نام گزینه حداکثر می‌تواند ۱۲۰ نویسه باشد.");
         setBusy(false);
         return;
       }
       if (!Number.isInteger(min) || min < 0 || max !== 1 || min > max) {
-        setSaveError("حداقل و حداکثر انتخاب گروه جدید را به‌درستی وارد کنید؛ فقط یک گزینه در گروه تازه وجود دارد.");
+        setSaveError("حداقل و حداکثر انتخاب را به‌درستی وارد کنید. گروه تازه فقط یک گزینه دارد.");
         setBusy(false);
         return;
       }
@@ -975,12 +974,12 @@ function ProductDrawer({
         pendingOptionCreation.optionName !== newOptionName ||
         pendingOptionCreation.priceAmount !== parsedPrice
       )) {
-        setSaveError("ساخت این گروه شروع شده است؛ نام‌ها و قیمت را به مقدار قبلی برگردانید و دوباره ذخیره کنید.");
+        setSaveError("ساخت این گروه شروع شده است. نام‌ها و قیمت را به مقدار قبلی برگردانید و دوباره ذخیره کنید.");
         setBusy(false);
         return;
       }
     } else if (pendingOptionCreation) {
-      setSaveError("ساخت گزینه نیمه‌تمام است؛ اطلاعات گروه و گزینه را کامل کنید و دوباره ذخیره کنید.");
+      setSaveError("ساخت گزینه کامل نشده است. اطلاعات گروه و گزینه را کامل کنید و دوباره ذخیره کنید.");
       setBusy(false);
       return;
     }
@@ -1044,7 +1043,7 @@ function ProductDrawer({
         setSaveMessage("تغییرات محصول ذخیره شد.");
       })
       .catch((error: unknown) => {
-        setSaveError(error instanceof Error ? error.message : "ذخیره محصول انجام نشد. دوباره تلاش کنید.");
+        setSaveError(error instanceof Error ? error.message : "محصول ذخیره نشد. دوباره تلاش کنید.");
       })
       .finally(() => setBusy(false));
   };
@@ -1170,7 +1169,7 @@ function ProductDrawer({
           <section className="catalog-product-secondary" aria-label="اقدامات جانبی محصول">
           <section className="catalog-sale-discount" aria-labelledby="catalog-sale-discount-title">
             <h3 id="catalog-sale-discount-title">تخفیف منوی عمومی</h3>
-            <p>قیمت پایهٔ محصول حفظ می‌شود و تخفیف روی سفارش‌های جدید اعمال خواهد شد.</p>
+            <p>قیمت پایه‌ی محصول تغییر نمی‌کند. تخفیف برای سفارش‌های تازه اعمال می‌شود.</p>
             <div className="manager-fields">
               <label>
                 <span>نوع تخفیف</span>
@@ -1188,11 +1187,11 @@ function ProductDrawer({
                 </select>
               </label>
               <label>
-                <span>{saleDiscountMode === "PERCENTAGE" ? "درصد تخفیف" : "قیمت پس از تخفیف (تومان)"}</span>
+                <span>{saleDiscountMode === "PERCENTAGE" ? "درصد تخفیف" : "قیمت نهایی پس از تخفیف (تومان)"}</span>
                 <input type="number" min={saleDiscountMode === "PERCENTAGE" ? "1" : "0"} max={saleDiscountMode === "PERCENTAGE" ? "100" : priceAmount} step="1" value={saleDiscountValue} onChange={(event) => setSaleDiscountValue(event.currentTarget.value)} disabled={saleDiscountBusy} />
               </label>
             </div>
-            <p className="catalog-price-summary">قیمت پایه: {formatToman(priceAmount)} تومان · قیمت پس از تخفیف: {formatToman(resultingSalePrice)} تومان · درصد قابل نمایش در منو: {formatToman(calculatedDiscountPercentage)}٪</p>
+            <p className="catalog-price-summary">قیمت پایه: {formatToman(priceAmount)} تومان · قیمت نهایی: {formatToman(resultingSalePrice)} تومان · تخفیف منو: {formatToman(calculatedDiscountPercentage)}٪</p>
             {saleDiscountError && <p className="catalog-product-message catalog-product-message--error" role="alert">{saleDiscountError}</p>}
             {saleDiscountMessage && <p className="catalog-product-message" role="status">{saleDiscountMessage}</p>}
             <div className="catalog-sale-discount__actions">
@@ -1200,7 +1199,7 @@ function ProductDrawer({
               <button type="button" className="secondary-button" disabled={saleDiscountBusy || initial.saleDiscountValue == null} onClick={() => void saveSaleDiscount(true)}>حذف تخفیف</button>
             </div>
           </section>
-          <p>تصویر و بایگانی مستقل از ذخیره مشخصات محصول انجام می‌شوند.</p>
+          <p>تصویر و بایگانی را جدا از مشخصات محصول ذخیره کنید.</p>
           <ImageEditor
             product={initial}
             productBusy={busy}
@@ -1267,15 +1266,15 @@ function ImageEditor({ product, productBusy, onBusyChange, mutate, reload, reque
               );
               menuImage = await menuImageResponse.blob();
             } catch {
-              throw new Error("تصویر در POS بارگذاری شد، اما دریافت آن از سرویس تصاویر منو ممکن نشد.");
+              throw new Error("تصویر در صندوق بارگذاری شد، اما دریافت آن از منوی عمومی ممکن نشد.");
             }
             if (!menuImageResponse.ok || !menuImage.size || !menuImage.type.startsWith("image/")) {
-              throw new Error("تصویر در POS بارگذاری شد، اما دریافت آن از سرویس تصاویر تأیید نشد.");
+              throw new Error("تصویر در صندوق بارگذاری شد، اما دریافت آن از منوی عمومی تأیید نشد.");
             }
-            setUploadMessage("تصویر بارگذاری شد و دریافت آن از سرویس تصاویر تأیید شد.");
+            setUploadMessage("تصویر بارگذاری شد و نمایش آن در منوی عمومی تأیید شد.");
           })
           .catch((error: unknown) => {
-            setUploadError(error instanceof Error ? error.message : "بارگذاری تصویر انجام نشد. دوباره تلاش کنید.");
+            setUploadError(error instanceof Error ? error.message : "تصویر بارگذاری نشد. دوباره تلاش کنید.");
           })
           .finally(() => {
             setBusy(false);
@@ -1332,7 +1331,7 @@ function ImageEditor({ product, productBusy, onBusyChange, mutate, reload, reque
           onClick={() =>
             requestConfirm({
               title: "حذف تصویر",
-              detail: "تصویر فعلی حذف می‌شود و می‌توانید تصویر تازه‌ای بارگذاری کنید.",
+              detail: "تصویر فعلی حذف می‌شود؛ پس از آن می‌توانید تصویر دیگری بارگذاری کنید.",
               run: async () => {
                 await mutate(() => archiveProductImage(product.id), reload);
                 setHasImage(false);
@@ -1351,7 +1350,7 @@ function ImageEditor({ product, productBusy, onBusyChange, mutate, reload, reque
         onClick={() =>
           requestConfirm({
             title: "بایگانی محصول",
-            detail: `«${product.name}» از فروش فعال خارج می‌شود و سابقه سفارش‌ها حفظ می‌گردد.`,
+            detail: `محصول «${product.name}» از فهرست فعال خارج می‌شود؛ سابقه‌ی سفارش‌ها حفظ خواهد شد.`,
             run: () => mutate(() => archiveProduct(product.id), reload),
           })
         }
