@@ -148,7 +148,7 @@ export function PosSessionBoundary() {
             </span>
             <span>
               <strong>Run Cafe</strong>
-              <small>سامانه فروش</small>
+              <small>صندوق فروش</small>
             </span>
           </div>
           <button
@@ -175,7 +175,7 @@ export function PosSessionBoundary() {
               });
             }}
           >
-            خروج
+            خروج از حساب
           </button>
         </div>
         <nav>
@@ -185,7 +185,7 @@ export function PosSessionBoundary() {
             onClick={() => { setWorkspace("orders"); writeRecovery("workspace", "orders"); setDrawerOpen(false); opener.current?.focus(); }}
           >
             <OrdersIcon />
-            <span>سفارش</span>
+            <span>سفارش‌گیری</span>
           </button>
           {session.user.role === "MANAGER" && <button className={`nav-item ${workspace === "manager" ? "is-active" : ""}`} type="button" onClick={() => { setWorkspace("manager"); writeRecovery("workspace", "manager"); setDrawerOpen(false); opener.current?.focus(); }}><span aria-hidden="true">⚙</span><span>مدیریت</span></button>}
         </nav>
@@ -209,7 +209,7 @@ function SessionLoading() {
       <div className="session-card">
         <span className="loading-dot" />
         <h1>در حال آماده‌سازی صندوق</h1>
-        <p>نشست کاربر در حال بررسی است.</p>
+        <p>در حال بررسی نشست کاربری…</p>
       </div>
     </div>
   );
@@ -246,7 +246,7 @@ function SessionEntry({
       <div className="session-screen">
         <div className="session-card">
           <h1>دسترسی مجاز نیست</h1>
-          <p>این سامانه برای حساب پرسنل و مدیر کافه در دسترس است.</p>
+          <p>ورود به صندوق فقط با حساب پرسنل یا مدیر کافه امکان‌پذیر است.</p>
           <button className="primary-button" type="button" onClick={onRetry}>
             بررسی دوباره
           </button>
@@ -262,7 +262,7 @@ function SessionEntry({
           R
         </span>
         <h1>ورود به سامانه فروش</h1>
-        <p>با حساب پرسنل یا مدیر وارد شوید.</p>
+        <p>برای ادامه، با حساب پرسنل یا مدیر کافه وارد شوید.</p>
         <label>
           نام کاربری
           <input
