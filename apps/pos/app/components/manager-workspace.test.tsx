@@ -96,7 +96,7 @@ describe("ManagerWorkspace", () => {
     fireEvent.submit(screen.getByLabelText("از تاریخ").closest("form")!);
     await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(2));
     expect(api.readPaymentHistory).toHaveBeenLastCalledWith({ fromDate: "2026-09-16", toDate: "2026-09-20", fromTime: "18:00", toTime: "22:30" });
-    fireEvent.click(screen.getByRole("button", { name: "پاک کردن" }));
+    fireEvent.click(screen.getByRole("button", { name: "بازنشانی فیلترها" }));
     await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(3));
     expect((screen.getByLabelText("امروز") as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText("از ساعت") as HTMLInputElement).value).toBe("");
@@ -112,14 +112,14 @@ describe("ManagerWorkspace", () => {
       ["evening", { fromTime: "16:00" }],
       ["all", {}],
     ] as const) {
-      fireEvent.change(screen.getByLabelText("شیفت پرداخت"), { target: { value: shift } });
+      fireEvent.change(screen.getByLabelText("بازه‌ی پرداخت"), { target: { value: shift } });
       await waitFor(() => expect(api.readPaymentHistory).toHaveBeenLastCalledWith({ ...dates, ...bounds }));
       expect(api.readDailyReport).toHaveBeenLastCalledWith({ ...dates, ...bounds });
     }
     fireEvent.change(screen.getByLabelText("از ساعت"), { target: { value: "10:00" } });
-    expect((screen.getByLabelText("شیفت پرداخت") as HTMLSelectElement).value).toBe("custom");
-    fireEvent.click(screen.getByRole("button", { name: "پاک کردن" }));
-    expect((screen.getByLabelText("شیفت پرداخت") as HTMLSelectElement).value).toBe("all");
+    expect((screen.getByLabelText("بازه‌ی پرداخت") as HTMLSelectElement).value).toBe("custom");
+    fireEvent.click(screen.getByRole("button", { name: "بازنشانی فیلترها" }));
+    expect((screen.getByLabelText("بازه‌ی پرداخت") as HTMLSelectElement).value).toBe("all");
   });
 
   it("does not expose settlement reversal in payment history", async () => {
@@ -158,7 +158,7 @@ describe("ManagerWorkspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "حذف سفارش" }));
     fireEvent.click(screen.getByText("تأیید"));
     await waitFor(() => expect(api.deleteOpenOrder).toHaveBeenCalledWith("order-1", { expectedVersion: 4 }));
-    expect(await screen.findByText("حذف شده")).toBeTruthy();
+    expect(await screen.findByText("حذف‌شده")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "ویرایش پرداخت" })).toBeNull();
     expect(screen.queryByRole("button", { name: "حذف سفارش" })).toBeNull();
   });
@@ -174,7 +174,7 @@ describe("ManagerWorkspace", () => {
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
     fireEvent.click(await screen.findByText("حسابداری"));
     fireEvent.click(await screen.findByRole("button", { name: "ویرایش پرداخت" }));
-    expect(await screen.findByRole("heading", { name: "ویرایش پرداخت #1" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "اصلاح پرداخت #1" })).toBeTruthy();
     expect(screen.queryByText("سفارش ذخیره‌شده")).toBeNull();
   });
 
