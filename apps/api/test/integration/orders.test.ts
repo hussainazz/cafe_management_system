@@ -85,6 +85,24 @@ async function createOrderRequest(
 }
 
 describe("Staff order creation", () => {
+  it("validates the request DTO and returns the documented structured error envelope", async () => {
+    const cookies = await userSession(UserRole.STAFF, "invalid-dto.staff");
+    const response = await createOrderRequest(cookies, { channel: "TABLE", items: [] }, "invalid-dto-create-0001");
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "One or more fields are invalid.",
+        requestId: expect.any(String),
+        details: expect.arrayContaining([
+          expect.objectContaining({ path: "body.items", code: "minItems" }),
+        ]),
+      },
+    });
+    expect(response.headers["x-request-id"]).toBe(response.json().error.requestId);
+  });
+
   it("rejects a second open table order for the same physical table", async () => {
     const cookies = await userSession(UserRole.STAFF, "single-order.staff");
     const { product } = await sellableProduct();
