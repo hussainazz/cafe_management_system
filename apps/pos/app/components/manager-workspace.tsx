@@ -646,6 +646,7 @@ function FinancePanel({
     entityType: "",
     actorId: "",
     entityId: "",
+    orderId: "",
     sortBy: "occurredAt",
     sortDirection: "desc",
   });
@@ -988,12 +989,13 @@ function FinancePanel({
                 ["entityType", "نوع رکورد"],
                 ["actorId", "شناسه‌ی کاربر"],
                 ["entityId", "شناسه‌ی رکورد"],
+                ["orderId", "شناسه سفارش"],
               ] as const
             ).map(([name, label]) => (
               <label key={name}>
                 <span>{label}</span>
                 <input
-                  value={auditFilters[name]}
+                  value={auditFilters[name] ?? ""}
                   onChange={(event) =>
                     setAuditFilters((current) => ({ ...current, [name]: event.target.value }))
                   }
@@ -1014,10 +1016,21 @@ function FinancePanel({
                   void loadAudit(undefined, false, next);
                 }}>{label}{auditFilters.sortBy === sortBy ? (auditFilters.sortDirection === "desc" ? " ↓" : " ↑") : ""}</button></th>
               ))}
-              <th>شناسه رکورد</th><th>دلیل</th>
+              <th>شناسه رکورد</th><th>شناسه سفارش</th><th>شناسه تسویه‌های مرتبط</th><th>دلیل</th>
             </tr></thead>
             <tbody>{audit?.data.entries.map((entry: any) => (
-              <tr key={entry.id}><td>{new Date(entry.occurredAt).toLocaleString("fa-IR")}</td><td>{entry.operation}</td><td>{entry.entityType}</td><td>{entry.actor?.username ?? "سامانه"}</td><td dir="ltr">{entry.entityId}</td><td>{entry.reason ?? "—"}</td></tr>
+              <tr key={entry.id}>
+                <td>{new Date(entry.occurredAt).toLocaleString("fa-IR")}</td>
+                <td>{entry.operation}</td>
+                <td>{entry.entityType}</td>
+                <td>{entry.actor?.username ?? "سامانه"}</td>
+                <td dir="ltr">{entry.entityId}</td>
+                <td>{entry.relatedOrder ? <code dir="ltr">{entry.relatedOrder.id}</code> : "—"}</td>
+                <td>{entry.relatedSettlementIds.length ? <span className="manager-audit-reference-list">
+                  {entry.relatedSettlementIds.map((settlementId: string) => <code dir="ltr" key={settlementId}>{settlementId}</code>)}
+                </span> : "—"}</td>
+                <td>{entry.reason ?? "—"}</td>
+              </tr>
             ))}</tbody>
           </table>
         </div>
