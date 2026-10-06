@@ -52,9 +52,9 @@ describe("ManagerWorkspace", () => {
   it("keeps a partial initial-load failure visible after sibling reads succeed", async () => {
     api.readManagerStaff.mockResolvedValue({ ok: false, error: { kind: "response", message: "Staff unavailable" } });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
-    expect(await screen.findByText("داده زنده ناقص است.")).toBeTruthy();
+    expect(await screen.findByText("بخشی از اطلاعات مدیریت به‌روز نیست.")).toBeTruthy();
     expect(screen.getByText("Staff unavailable")).toBeTruthy();
-    expect(screen.getByText("کاتالوگ")).toBeTruthy();
+    expect(screen.getByText("منو و کالاها")).toBeTruthy();
     expect(screen.getByText("میزها")).toBeTruthy();
   });
 
@@ -64,12 +64,12 @@ describe("ManagerWorkspace", () => {
     expect(await screen.findByText("تنظیمات")).toBeTruthy();
     fireEvent.click(screen.getByText("تنظیمات"));
     expect(await screen.findByText("تنظیمات کافه")).toBeTruthy();
-    expect(screen.getByText("فهرست پرسنل اکنون در دسترس نیست.")).toBeTruthy();
+    expect(screen.getByText("فهرست پرسنل بارگذاری نشد.")).toBeTruthy();
   });
 
   it("does not refetch finance data while audit filters are being typed", async () => {
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
-    await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("منو و کالاها")).toBeTruthy());
     await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByText("حسابرسی"));
     await waitFor(() => expect(api.readAuditLog).toHaveBeenCalledTimes(1));
@@ -125,7 +125,7 @@ describe("ManagerWorkspace", () => {
   it("does not expose settlement reversal in payment history", async () => {
     api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, orderState: "CLOSED", totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH" }] }] });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
-    await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("منو و کالاها")).toBeTruthy());
     fireEvent.click(screen.getByText("حسابداری"));
     expect(screen.queryByText("برگشت تسویه")).toBeNull();
     expect(await screen.findByText("ویرایش پرداخت")).toBeTruthy();
@@ -141,7 +141,7 @@ describe("ManagerWorkspace", () => {
         ],
     });
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
-    await waitFor(() => expect(screen.getByText("کاتالوگ")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("منو و کالاها")).toBeTruthy());
     fireEvent.click(screen.getByText("حسابداری"));
     const table = await screen.findByRole("table", { name: "تاریخچه پرداخت‌ها" });
     expect(table.className).toContain("manager-payment-table");
@@ -200,7 +200,7 @@ describe("ManagerWorkspace", () => {
       () => new Promise((resolve) => { finishUpload = () => resolve({ ok: true }); }),
     );
     render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
-    fireEvent.click(await screen.findByText("کاتالوگ"));
+    fireEvent.click(await screen.findByText("منو و کالاها"));
     await screen.findByText("ترک");
     fireEvent.click(screen.getByText("ترک"));
     const file = new File(["image"], "turkish.webp", { type: "image/webp" });
