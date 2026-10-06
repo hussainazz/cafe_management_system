@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "سفارش | سامانه فروش کافه ران",
-  description: "فضای مشترک سفارش‌گیری پرسنل و مدیران کافه ران.",
+  title: "صندوق | سامانه فروش کافه ران",
+  description: "سامانه‌ی مشترک سفارش‌گیری برای پرسنل و مدیران کافه ران.",
   applicationName: "Run Cafe POS",
 };
 
