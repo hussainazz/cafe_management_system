@@ -1,6 +1,6 @@
 # Current Stage Status
 
-Last reconciled: 5 October 2026. This file is the active completion checklist;
+Last reconciled: 6 October 2026. This file is the active completion checklist;
 implementation history belongs in Git and feature-specific records, not in a
 second chronological backlog.
 
@@ -35,10 +35,55 @@ second chronological backlog.
   product-image alt text follows the product name, and discount/payment-method
   correction reasons are optional. Backup and rollback evidence are retained
   for release `pos-20261004-55f9fe5`.
-- [ ] Complete the Stage 10 backend gate: current OpenAPI coverage, unit and
-  isolated PostgreSQL integration/contract/authorization/idempotency/concurrency
-  suites, fresh and restored-database migration rehearsals, security review,
-  and measured response targets.
+- [x] **10.1 — Resolve the four known POS test groups:** investigate and fix or
+  update the 4 Manager workspace failures.
+- [x] **10.2 — Resolve POS session-boundary coverage:** investigate and fix or
+  update the 1 session-boundary failure.
+- [x] **10.3 — Resolve POS recovery coverage:** investigate and fix or update
+  the 3 recovery-state failures.
+- [x] **10.4 — Resolve POS settlement coverage:** investigate and fix or update
+  the 1 settlement failure.
+- [x] **10.5 — Re-run the complete POS package suite** and record the final
+  result after 10.1–10.4.
+- [ ] **10.6 — Reconcile OpenAPI coverage:** compare implemented routes and
+  realtime events with the current contract; fill missing request, response,
+  and error schemas.
+- [ ] **10.7 — Complete unit coverage:** verify pure domain rules,
+  discount/payment calculations, allocation rules, and state transitions.
+- [ ] **10.8 — Complete API contract coverage:** verify DTO validation,
+  request/response behavior, and structured errors against the contract.
+- [ ] **10.9 — Complete core PostgreSQL integration coverage:** verify order
+  creation/edit/deletion and transactional payment workflows.
+- [ ] **10.10 — Complete settlement and reporting integration coverage:** verify
+  allocation, reversals, and daily-report totals against fixed fixtures.
+- [ ] **10.11 — Complete authorization coverage:** verify Staff/Manager access
+  boundaries on the implemented routes and important service commands.
+- [ ] **10.12 — Complete idempotency coverage:** verify retries cannot duplicate
+  orders, settlements, tenders, or other guarded mutations.
+- [ ] **10.13 — Complete concurrency coverage:** verify stale edits and
+  simultaneous mutations return conflicts without overwriting newer state.
+- [ ] **10.14 — Complete public-response safety coverage:** verify public menu
+  and other anonymous responses do not expose private catalog or operational
+  data.
+- [ ] **10.15 — Rehearse migrations on a fresh database** and record the
+  commands and result.
+- [ ] **10.16 — Rehearse backup restore and migrations on a restored,
+  production-like database** and record the evidence.
+- [ ] **10.17 — Review session security:** check cookies, token handling, CSRF
+  protections, and Staff/Manager authorization.
+- [ ] **10.18 — Review request and data boundaries:** check rate limits,
+  uploads, input limits, secrets, and safe logging.
+- [ ] **10.19 — Run and record a dependency security scan.**
+- [ ] **10.20 — Measure transactional response times:** record login, order
+  create/edit/delete, and payment targets with the measurement method and
+  workload.
+- [ ] **10.21 — Measure report response times** and record the query/workload
+  used.
+- [ ] **10.22 — Measure image and public-menu response times** and record the
+  request/workload used.
+- [ ] **10.23 — Run the critical browser E2E suite** from
+  `docs/planning/browser-testing.md` across public menu, POS ordering and
+  printing, settlement/tenders, deletion, receipts, Manager, and reporting.
 - [x] Add Manager controls to create, edit, and remove product offers by
   entering a final price or percentage. Show the calculated percentage in POS
   for final-price offers; show only a percentage in the public menu. The menu
@@ -63,6 +108,16 @@ second chronological backlog.
   payment reconciliation and no unresolved financial difference.
 
 ## Latest Implementation Notes
+
+- 6 October: closed Stage 10.1–10.5. The nine POS suite failures came from
+  assertions using Persian labels that had changed in the current UI copy. The
+  four focused test files pass 29/29 tests; the complete POS package suite
+  passes all 19 files / 95 tests.
+
+- 6 October: split the remaining Stage 10 backend and end-to-end gate into
+  independently verifiable checklist items. The known POS suite failures are
+  listed separately from API, migration, security, performance, and browser
+  E2E work so each result can be closed and recorded on its own.
 
 - 6 October: completed Stage 10 P4.2 and P4.3 behavioral coverage. The API
   integration suite passes all 16 files / 107 tests, including promotional
