@@ -17,13 +17,13 @@ import {
   type TransferOrderTableRequest,
   type UpdateOrderRequest,
   type DiscountInput,
-  roundDiscountedAmount,
 } from "@cafe/contracts";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import type { AuthenticatedUser } from "../auth/auth.service.js";
 import { requireRole } from "../auth/permissions.js";
 
 import { preparationItems, type PreparationItem } from "./bar-ticket.js";
+import { allocationAmountForQuantity, calculatedDiscount, catalogSaleDiscountAmount, discountedFinalAmount, paymentStatusForBalance } from "./order-calculations.js";
 
 const CREATE_ORDER_OPERATION = "CREATE_ORDER";
 const RECORD_SETTLEMENT_OPERATION = "RECORD_SETTLEMENT";
@@ -181,40 +181,9 @@ function isAvailableProduct(product: ProductForOrder): boolean {
   );
 }
 
-function calculatedDiscount(amount: number, discount: DiscountInput): number {
-  if (!discount) return 0;
-  const requested = discount.kind === "PERCENTAGE" ? Math.floor((amount * discount.value) / 100) : discount.value;
-  if (requested > amount) {
-    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A discount cannot exceed the item or order amount.");
-  }
-  return requested;
-}
-
-function discountedFinalAmount(amount: number, discount: DiscountInput) {
-  if (!discount) return { discountAmount: 0, finalAmount: amount };
-  const finalAmount = Math.min(amount, roundDiscountedAmount(amount - calculatedDiscount(amount, discount)));
-  return { discountAmount: amount - finalAmount, finalAmount };
-}
-
 function catalogSaleDiscount(product: ProductForOrder): DiscountInput {
   if (!product.saleDiscountKind || !product.saleDiscountValue) return null;
   return { kind: product.saleDiscountKind, value: product.saleDiscountValue };
-}
-
-function catalogSaleDiscountAmount(
-  product: ProductForOrder,
-  baseAmount: number,
-  discount: DiscountInput,
-  weightGrams: number | null | undefined,
-  quantity: number,
-) {
-  if (!discount) return 0;
-  if (discount.kind === "PERCENTAGE") return calculatedDiscount(baseAmount, discount);
-  // A fixed catalog offer is the reduction per product unit or per kilogram.
-  const unitDiscount = product.pricingMode === "WEIGHTED_PER_KG"
-    ? Math.floor((discount.value * (weightGrams ?? 0) * quantity) / 1000)
-    : discount.value * quantity;
-  return Math.min(baseAmount, unitDiscount);
 }
 
 function calculateLinePricing(input: {
@@ -419,7 +388,7 @@ export async function createOrder(
         const productAmount = pricing.baseAmount;
         const grossLineAmount = pricing.grossLineAmount;
         const saleDiscount = catalogSaleDiscount(product);
-        const requestedDiscount = catalogSaleDiscountAmount(product as ProductForOrder, productAmount, saleDiscount, item.weightGrams, item.quantity);
+        const requestedDiscount = catalogSaleDiscountAmount(productAmount, saleDiscount, product.pricingMode, item.weightGrams, item.quantity);
         const { discountAmount, finalAmount } = discountedFinalAmount(grossLineAmount, requestedDiscount ? { kind: "FIXED", value: requestedDiscount } : null);
         return {
           productId: product.id,
@@ -726,7 +695,7 @@ export async function updateOrder(
         const productAmount = pricing.baseAmount;
         const grossLineAmount = pricing.grossLineAmount;
         const saleDiscount = catalogSaleDiscount(product);
-        const requestedDiscount = catalogSaleDiscountAmount(product as ProductForOrder, productAmount, saleDiscount, requested.weightGrams, requested.quantity);
+        const requestedDiscount = catalogSaleDiscountAmount(productAmount, saleDiscount, product.pricingMode, requested.weightGrams, requested.quantity);
         const { discountAmount, finalAmount } = discountedFinalAmount(grossLineAmount, requestedDiscount ? { kind: "FIXED", value: requestedDiscount } : null);
         return {
           productId: product.id, productNameSnapshot: product.name, basePriceSnapshot: product.priceAmount,
@@ -800,7 +769,7 @@ export async function updateOrder(
     const { discountAmount: orderDiscountAmount, finalAmount: totalAmount } = discountedFinalAmount(subtotalAmount, activeOrderDiscount);
     if (orderDiscountAmount > subtotalAmount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The existing order discount exceeds the updated order amount.");
     const balanceAmount = totalAmount - order.paidAmount;
-    const paymentStatus = order.paidAmount === 0 ? PaymentStatus.UNPAID : balanceAmount === 0 ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
+    const paymentStatus = paymentStatusForBalance(order.paidAmount, balanceAmount);
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, afterSnapshot: { version: input.expectedVersion + 1 } } });
@@ -897,17 +866,6 @@ export async function deleteOrder(
     });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
-}
-
-function allocationAmountForQuantity(input: {
-  finalLineAmount: number;
-  itemQuantity: number;
-  alreadyAllocatedQuantity: number;
-  quantity: number;
-}): number {
-  const allocatedThrough = Math.floor((input.finalLineAmount * input.alreadyAllocatedQuantity) / input.itemQuantity);
-  const allocatedAfter = Math.floor((input.finalLineAmount * (input.alreadyAllocatedQuantity + input.quantity)) / input.itemQuantity);
-  return allocatedAfter - allocatedThrough;
 }
 
 export async function recordSettlement(
@@ -1020,7 +978,7 @@ export async function recordSettlement(
       });
       const paidAmount = current.paidAmount + totalAmount;
       const balanceAmount = current.totalAmount - paidAmount;
-      const paymentStatus = balanceAmount === 0 ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
+      const paymentStatus = paymentStatusForBalance(paidAmount, balanceAmount);
       const closesOrder = balanceAmount === 0;
       const updated = await transaction.order.updateMany({
         where: { id: orderId, state: OrderState.OPEN, version: input.expectedVersion },
@@ -1092,7 +1050,7 @@ export async function reverseSettlement(prisma: PrismaClient, actor: Authenticat
     await transaction.settlementReversal.create({ data: { settlementId, recordedById: actor.id, reason: input.reason } });
     const paidAmount = order.paidAmount - settlement.totalAmount;
     const balanceAmount = order.totalAmount - paidAmount;
-    const paymentStatus = paidAmount === 0 ? PaymentStatus.UNPAID : PaymentStatus.PARTIALLY_PAID;
+    const paymentStatus = paymentStatusForBalance(paidAmount, balanceAmount);
     const reopensOrder = order.state === OrderState.CLOSED;
     if (reopensOrder && order.channel === OrderChannel.TABLE && order.tableId) {
       const conflict = await transaction.order.findFirst({ where: { tableId: order.tableId, channel: OrderChannel.TABLE, state: OrderState.OPEN, id: { not: orderId } }, select: { id: true } });
