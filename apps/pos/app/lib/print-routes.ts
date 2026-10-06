@@ -2,13 +2,13 @@ import { beginRecoveryActivity } from "./automatic-recovery";
 export type PrintKind = "bar-ticket" | "receipt" | "settlement";
 
 export function printDocument(url: string): Promise<void> {
-  if (typeof document === "undefined") return Promise.reject(new Error("چاپ فقط در مرورگر در دسترس است."));
+  if (typeof document === "undefined") return Promise.reject(new Error("چاپ فقط از داخل مرورگر امکان‌پذیر است."));
 
   const endActivity = beginRecoveryActivity();
   return new Promise<void>((resolve, reject) => {
     const iframe = document.createElement("iframe");
     iframe.src = url;
-    iframe.title = "سند چاپی کافه";
+    iframe.title = "سند چاپ کافه";
     iframe.setAttribute("aria-hidden", "true");
     iframe.style.position = "fixed";
     iframe.style.insetInlineStart = "-10000px";
@@ -37,7 +37,7 @@ export function printDocument(url: string): Promise<void> {
       prepared = true;
       window.clearTimeout(preparationTimeout);
       const printWindow = iframe.contentWindow;
-      if (!printWindow) { fail("صفحه چاپ در دسترس نیست."); return; }
+      if (!printWindow) { fail("صفحه‌ی چاپ باز نشد."); return; }
       // Completion follows afterprint AND server acknowledgment, never document load.
       printWindow.addEventListener("cafe-print-complete", ((event: CustomEvent<{ error?: string }>) => {
         if (event.detail?.error) { fail(event.detail.error); return; }
@@ -53,16 +53,16 @@ export function printDocument(url: string): Promise<void> {
         if (!frameDocument) return;
         const error = frameDocument.querySelector<HTMLElement>(".thermal-error");
         if (error) {
-          fail(error.textContent?.trim() || "سند چاپی آماده نشد.");
+          fail(error.textContent?.trim() || "سند چاپ آماده نشد.");
           return;
         }
         if (frameDocument.querySelector(".thermal-print")) ready();
       } catch {
-        fail("مرورگر اجازه آماده‌سازی سند چاپی را نداد.");
+        fail("مرورگر اجازه‌ی آماده‌سازی سند چاپ را نداد.");
       }
     };
-    const preparationTimeout = window.setTimeout(() => fail("آماده‌سازی سند چاپی بیش از حد طول کشید."), 30_000);
-    iframe.addEventListener("error", () => fail("صفحه چاپ بارگذاری نشد."), { once: true });
+    const preparationTimeout = window.setTimeout(() => fail("آماده‌سازی سند چاپ بیش از حد طول کشید."), 30_000);
+    iframe.addEventListener("error", () => fail("صفحه‌ی چاپ بارگذاری نشد."), { once: true });
     iframe.addEventListener("load", () => {
       try {
         const root = iframe.contentDocument?.documentElement;
@@ -72,7 +72,7 @@ export function printDocument(url: string): Promise<void> {
         }
         inspect();
       } catch {
-        fail("مرورگر اجازه آماده‌سازی سند چاپی را نداد.");
+        fail("مرورگر اجازه‌ی آماده‌سازی سند چاپ را نداد.");
       }
     }, { once: true });
     document.body.appendChild(iframe);
