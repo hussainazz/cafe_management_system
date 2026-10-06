@@ -465,6 +465,7 @@ export const AuditLogQuerySchema = z
     operation: z.string().trim().min(1).max(120).optional(),
     entityType: z.string().trim().min(1).max(120).optional(),
     entityId: z.uuid().optional(),
+    orderId: z.uuid().optional(),
     from: z.iso.datetime().optional(),
     to: z.iso.datetime().optional(),
     sortBy: z.enum(["occurredAt", "operation", "entityType", "actor"]).default("occurredAt"),
@@ -481,6 +482,8 @@ export const AuditLogEntrySchema = z.object({
   operation: z.string(),
   entityType: z.string(),
   entityId: z.uuid(),
+  relatedOrder: z.object({ id: z.uuid() }).nullable(),
+  relatedSettlementIds: z.array(z.uuid()),
   reason: z.string().nullable(),
   occurredAt: z.iso.datetime(),
 });
