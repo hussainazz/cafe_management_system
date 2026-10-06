@@ -38,8 +38,8 @@ export function readRecovery<T>(name: string): T | undefined {
     const raw = sessionStorage.getItem(key(name));
     if (!raw) return undefined;
     let data: any;
-    try { data = JSON.parse(raw); } catch { notice("وضعیت ذخیره‌شده قابل خواندن نیست؛ اطلاعات تازه نمایش داده می‌شود."); return undefined; }
-    if (!data || data.version !== 1 || !("value" in data) || !validSnapshot(name, data.value)) { notice("وضعیت ذخیره‌شده معتبر نیست؛ اطلاعات تازه نمایش داده می‌شود."); return undefined; }
+    try { data = JSON.parse(raw); } catch { notice("اطلاعات ذخیره‌شده خوانده نشد؛ اطلاعات تازه نمایش داده می‌شود."); return undefined; }
+    if (!data || data.version !== 1 || !("value" in data) || !validSnapshot(name, data.value)) { notice("اطلاعات ذخیره‌شده معتبر نیست؛ اطلاعات تازه نمایش داده می‌شود."); return undefined; }
     cache.set(name, data.value);
     return data.value as T;
   } catch { storageFailed = true; return undefined; }
@@ -49,7 +49,7 @@ export function writeRecovery(name: string, value: unknown) {
   cache.set(name, value);
   if (value === undefined) { try { sessionStorage.removeItem(key(name)); } catch { storageFailed = true; } return; }
   try { sessionStorage.setItem(key(name), JSON.stringify({ version: 1, value })); }
-  catch { storageFailed = true; notice("ذخیره کار فعلی ممکن نیست؛ بازخوانی خودکار متوقف شد. کار فعلی را نگه دارید."); }
+  catch { storageFailed = true; notice("ذخیره‌ی کار فعلی ممکن نیست و بازیابی خودکار متوقف شد. این صفحه را نبندید."); }
 }
 export function useRecoveryState<T>(name: string, initial: T | (() => T)): [T, Dispatch<SetStateAction<T>>] {
   const [value, setValue] = useState<T>(() => {
@@ -76,8 +76,8 @@ export function requestAutomaticRecovery(reload = () => window.location.reload()
   const attempt = () => {
     if (cancelled) return;
     if (!navigator.onLine || active) { timer = setTimeout(attempt, 250); return; }
-    if (storageFailed) { notice("ذخیره وضعیت بازیابی ممکن نیست؛ کار فعلی حفظ شد. اتصال و فضای مرورگر را بررسی کنید."); return; }
-    if (readRecovery<boolean>("episode")) { notice("بازخوانی خودکار قبلاً انجام شد؛ کار شما حفظ شده است. اتصال را بررسی کنید و وضعیت را دوباره دریافت کنید."); return; }
+    if (storageFailed) { notice("ذخیره‌ی اطلاعات بازیابی ممکن نیست؛ کار فعلی حفظ شد. اتصال و فضای ذخیره‌سازی مرورگر را بررسی کنید."); return; }
+    if (readRecovery<boolean>("episode")) { notice("بازیابی خودکار قبلاً انجام شده و کار شما حفظ شده است. اتصال را بررسی کنید و اطلاعات را دوباره بگیرید."); return; }
     writeRecovery("episode", true);
     if (!storageFailed) reload();
   };
