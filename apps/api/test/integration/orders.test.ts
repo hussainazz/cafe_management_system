@@ -937,6 +937,25 @@ describe("settlement recording", () => {
     expect(replay.statusCode).toBe(201);
     expect(replay.headers["idempotency-replayed"]).toBe("true");
     expect(await app.prisma.paymentSettlement.count()).toBe(1);
+    expect(await app.prisma.settlementAllocation.count()).toBe(1);
+    expect(await app.prisma.payment.count()).toBe(1);
+    expect(await app.prisma.auditLog.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(1);
+    expect(await app.prisma.idempotencyRecord.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(1);
+
+    const conflictingRetry = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies,
+      headers: { "idempotency-key": "settlement-record-0001" },
+      payload: { ...firstPayload, payments: [{ method: "CARD_TERMINAL", amount: 50_000 }] },
+    });
+    expect(conflictingRetry.statusCode).toBe(409);
+    expect(conflictingRetry.json().error.code).toBe("IDEMPOTENCY_CONFLICT");
+    expect(await app.prisma.paymentSettlement.count()).toBe(1);
+    expect(await app.prisma.settlementAllocation.count()).toBe(1);
+    expect(await app.prisma.payment.count()).toBe(1);
+    expect(await app.prisma.auditLog.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(1);
+    expect(await app.prisma.idempotencyRecord.count({ where: { operation: "RECORD_SETTLEMENT" } })).toBe(1);
 
     const { product: partiallyPaidAddition } = await sellableProduct();
     const addedWhilePartiallyPaid = await app.inject({
@@ -1227,6 +1246,65 @@ describe("settlement reversal and print data", () => {
     expect(await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id }, select: { occupancyState: true } })).toEqual({ occupancyState: "OCCUPIED" });
     expect(await app.prisma.payment.findMany({ where: { settlement: { orderId: original.id } }, orderBy: { recordedAt: "asc" }, select: { method: true, amount: true } })).toEqual([{ method: "CASH", amount: 50_000 }, { method: "CARD_TERMINAL", amount: 50_000 }]);
     expect(await app.prisma.auditLog.count({ where: { operation: "EDIT_SETTLEMENT", entityType: "PAYMENT_SETTLEMENT" } })).toBeGreaterThan(0);
+  });
+
+  it("replays a settlement correction without duplicating replacement tenders, reversal, audit, or idempotency rows", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "edit-payment.retry.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "edit-payment.retry.manager");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(
+      staffCookies,
+      { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] },
+      "edit-payment-retry-order",
+    );
+    const order = created.json().data;
+    const settled = await app.inject({
+      method: "POST",
+      url: `/api/v1/orders/${order.id}/record-settlement`,
+      cookies: staffCookies,
+      headers: { "idempotency-key": "edit-payment-retry-settle" },
+      payload: {
+        expectedVersion: order.version,
+        allocations: [{ orderItemId: order.items[0].id, quantity: 1 }],
+        payments: [{ method: "CASH", amount: 50_000 }],
+      },
+    });
+    const settlementId = settled.json().data.settlements[0].id;
+    const key = "edit-payment-retry-correction";
+    const payload = {
+      expectedVersion: settled.json().data.version,
+      reason: "Correct tender method",
+      payments: [{ method: "CARD_TERMINAL", amount: 50_000 }],
+    };
+    const url = `/api/v1/admin/settlements/${settlementId}/edit`;
+    const first = await app.inject({ method: "POST", url, cookies: managerCookies, headers: { "idempotency-key": key }, payload });
+    const replay = await app.inject({ method: "POST", url, cookies: managerCookies, headers: { "idempotency-key": key }, payload });
+
+    expect(first.statusCode).toBe(200);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.headers["idempotency-replayed"]).toBe("true");
+    expect(replay.json().data).toEqual(first.json().data);
+    expect(await app.prisma.paymentSettlement.count({ where: { orderId: order.id } })).toBe(2);
+    expect(await app.prisma.settlementAllocation.count({ where: { settlement: { orderId: order.id } } })).toBe(2);
+    expect(await app.prisma.payment.count({ where: { settlement: { orderId: order.id } } })).toBe(2);
+    expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(1);
+    expect(await app.prisma.auditLog.count({ where: { operation: "EDIT_SETTLEMENT" } })).toBe(1);
+    expect(await app.prisma.idempotencyRecord.count({ where: { operation: "EDIT_SETTLEMENT" } })).toBe(1);
+
+    const conflictingRetry = await app.inject({
+      method: "POST",
+      url,
+      cookies: managerCookies,
+      headers: { "idempotency-key": key },
+      payload: { ...payload, payments: [{ method: "CARD_TRANSFER", amount: 50_000, reference: "Different tender" }] },
+    });
+    expect(conflictingRetry.statusCode).toBe(409);
+    expect(conflictingRetry.json().error.code).toBe("IDEMPOTENCY_CONFLICT");
+    expect(await app.prisma.paymentSettlement.count({ where: { orderId: order.id } })).toBe(2);
+    expect(await app.prisma.payment.count({ where: { settlement: { orderId: order.id } } })).toBe(2);
+    expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(1);
+    expect(await app.prisma.auditLog.count({ where: { operation: "EDIT_SETTLEMENT" } })).toBe(1);
+    expect(await app.prisma.idempotencyRecord.count({ where: { operation: "EDIT_SETTLEMENT" } })).toBe(1);
   });
 
   it("edits a historical settlement while its old table remains empty", async () => {
