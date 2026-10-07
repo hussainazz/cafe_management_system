@@ -54,11 +54,9 @@ second chronological backlog.
   request/response behavior, and structured errors against the contract.
 - [x] **10.9 — Complete core PostgreSQL integration coverage:** verify order
   creation/edit/deletion and transactional payment workflows.
-- [ ] **10.10 — Complete settlement and reporting integration coverage:** verify
+- [x] **10.10 — Complete settlement and reporting integration coverage:** verify
   allocation, reversals, and daily-report totals against fixed fixtures.
-- [ ] **10.11 — Complete authorization coverage:** verify Staff/Manager access
-  boundaries on the implemented routes and important service commands.
-- [ ] **10.12 — Complete idempotency coverage:** verify retries cannot duplicate
+- [x] **10.12 — Complete idempotency coverage:** verify retries cannot duplicate
   orders, settlements, tenders, or other guarded mutations.
 - [ ] **10.13 — Complete concurrency coverage:** verify stale edits and
   simultaneous mutations return conflicts without overwriting newer state.
@@ -108,6 +106,28 @@ second chronological backlog.
   payment reconciliation and no unresolved financial difference.
 
 ## Latest Implementation Notes
+
+- 7 October: completed Stage 10.12 idempotency coverage. Order creation,
+  settlement recording, settlement correction, and waiter-call deduplication
+  retries are covered. Same-key replays preserve the original result without
+  duplicating orders, settlements, tenders, allocations, reversals, audit
+  entries, or idempotency records; changed payloads return
+  `IDEMPOTENCY_CONFLICT`. Settlement-correction replays now return the
+  documented `Idempotency-Replayed: true` header. Orders integration passes
+  40/40 tests, waiter-call integration passes 8/8, and API typecheck passes.
+- 7 October: moved Stage 10.11 authorization coverage to
+  `docs/planning/deferred-project-features.md`. Detailed Staff/Manager access
+  boundaries are not required for the current café workflow; retain the task
+  for the general POS project-completeness pass.
+- 6 October: completed Stage 10.10 settlement and reporting integration
+  coverage against the isolated PostgreSQL test database. After applying all
+  migrations with the authorized test database reset, the orders integration
+  suite passes 39/39 and the admin/reporting suite passes 15/15. Coverage
+  verifies item- and amount-based allocation, payment corrections that record
+  the prior settlement as reversed, rejection of the retired direct reversal
+  route without financial side effects, fixed daily report totals for mixed
+  tenders/discounts/deleted orders, Tehran date and shift boundaries, and
+  cross-day reversal reporting.
 
 - 6 October: completed Stage 10.9 core PostgreSQL integration coverage. Order
   create/edit/delete and payment scenarios pass, including a forced audit-write
