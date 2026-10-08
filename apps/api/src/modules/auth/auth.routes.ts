@@ -17,6 +17,8 @@ import {
 } from "../../auth/session.js";
 import { login, logout, logoutAll, refresh } from "./auth.service.js";
 import { requireStaff } from "./authorization.js";
+import { clearLoginFailures, loginRetryAfterSeconds, recordLoginFailure } from "./login-attempts.js";
+import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 
 const authHeaders = zodToJsonSchema(AuthRequestHeadersSchema);
 const loginBody = zodToJsonSchema(LoginRequestSchema);
@@ -47,11 +49,20 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       },
     },
     async (request, reply) => {
-      const tokens = await login(
-        app.prisma,
-        request.body as { username: string; password: string },
-        request.id,
-      );
+      const credentials = request.body as { username: string; password: string };
+      const retryAfterSeconds = loginRetryAfterSeconds(credentials.username);
+      if (retryAfterSeconds > 0) {
+        reply.header("retry-after", String(retryAfterSeconds));
+        throw new ApplicationError(429, ErrorCodes.RATE_LIMITED, "Too many failed sign-in attempts. Try again later.");
+      }
+      let tokens;
+      try {
+        tokens = await login(app.prisma, credentials, request.id);
+      } catch (error) {
+        if (error instanceof ApplicationError && error.statusCode === 401) recordLoginFailure(credentials.username);
+        throw error;
+      }
+      clearLoginFailures(credentials.username);
       reply.header("cache-control", "no-store");
       sendSessionCookies(reply, tokens.accessToken, tokens.refreshToken);
       return { data: tokens.user, meta: { requestId: request.id } };
