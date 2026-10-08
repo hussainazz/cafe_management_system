@@ -1211,6 +1211,47 @@ describe("settlement reversal and print data", () => {
     expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(0);
   });
 
+  it("commits only one of two simultaneous edits for the same order version", async () => {
+    const cookies = await userSession(UserRole.STAFF, "order-edit.race.staff");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(
+      cookies,
+      { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] },
+      "order-edit-race-create-1",
+    );
+    const order = created.json().data;
+    const itemId = order.items[0].id;
+
+    const responses = await Promise.all([
+      app.inject({
+        method: "PATCH",
+        url: `/api/v1/orders/${order.id}`,
+        cookies,
+        payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: itemId, quantity: 2 }] },
+      }),
+      app.inject({
+        method: "PATCH",
+        url: `/api/v1/orders/${order.id}`,
+        cookies,
+        payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: itemId, note: "Winning concurrent edit" }] },
+      }),
+    ]);
+
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 409]);
+    expect(responses.find((response) => response.statusCode === 409)?.json().error.code).toBe("STALE_VERSION");
+
+    const stored = await app.prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { items: true } });
+    expect(stored.version).toBe(2);
+    expect(stored.items).toHaveLength(1);
+    const item = stored.items[0];
+    if (!item) throw new Error("The concurrent edit order item was not persisted.");
+    expect([
+      { quantity: 2, note: null },
+      { quantity: 1, note: "Winning concurrent edit" },
+    ]).toContainEqual({ quantity: item.quantity, note: item.note });
+    expect(await app.prisma.auditLog.count({ where: { entityId: order.id, operation: "UPDATE_ORDER" } })).toBe(1);
+  });
+
   it("keeps one open table order when reversal races table reuse", async () => {
     const staffCookies = await userSession(UserRole.STAFF, "reverse.race.staff");
     const managerCookies = await userSession(UserRole.MANAGER, "reverse.race.manager");
