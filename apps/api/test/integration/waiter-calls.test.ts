@@ -61,11 +61,18 @@ describe("public table context and waiter-calls", () => {
     const identified = await app.inject({ method: "POST", url: "/api/v1/public/customer-auth/identify", cookies: contextCookies, payload: { phoneNumber: "09121234567" } });
     expect(identified.statusCode).toBe(200);
     expect(identified.headers["set-cookie"]).toBeTruthy();
+    expect(Object.keys(identified.json().data).sort()).toEqual(["authenticated", "visitActive", "visitExpiresAt"].sort());
+    expect(identified.body).not.toContain("09121234567");
     expect(await app.prisma.customerOtpChallenge.count()).toBe(0);
-    await expect(app.prisma.customer.findFirstOrThrow()).resolves.toMatchObject({ fullName: null, phoneNumberEncrypted: expect.stringContaining(".") });
+    const customerRecord = await app.prisma.customer.findFirstOrThrow();
+    expect(customerRecord).toMatchObject({ fullName: null, phoneNumberEncrypted: expect.stringContaining(".") });
     const customerCookies = { ...contextCookies, ...cookies(identified) };
     const context = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: customerCookies });
     expect(context.json().data).toMatchObject({ tableName: table.name, authenticationRequired: false, customerAuthenticated: true, visitActive: true, canCallWaiter: true });
+    expect(Object.keys(context.json().data).sort()).toEqual(["active", "tableName", "occupancyState", "waiterCallStatus", "canCallWaiter", "authenticationRequired", "customerAuthenticated", "visitActive"].sort());
+    expect(context.body).not.toContain(table.id);
+    expect(context.body).not.toContain(customerRecord.id);
+    expect(context.body).not.toContain("09121234567");
   });
 
   it("records a scan reminder, requires an authenticated visit, deduplicates calls, and resolves on table open", async () => {
@@ -78,6 +85,8 @@ describe("public table context and waiter-calls", () => {
     });
     expect(exchange.statusCode).toBe(200);
     expect(exchange.body).not.toContain(token);
+    expect(exchange.json().data).toEqual({ tableName: table.name });
+    expect(exchange.body).not.toContain(table.id);
     const contextCookies = cookies(exchange);
     expect(contextCookies[tableContextCookieName]).toBeTruthy();
     await expect(app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).resolves.toMatchObject({
@@ -100,7 +109,17 @@ describe("public table context and waiter-calls", () => {
     ]);
     expect(firstCall.statusCode).toBe(201);
     expect(secondCall.statusCode).toBe(201);
+    const storedCall = await app.prisma.waiterCall.findFirstOrThrow();
     expect(await app.prisma.waiterCall.count()).toBe(1);
+    for (const response of [firstCall, secondCall]) {
+      expect(Object.keys(response.json().data).sort()).toEqual(["status", "tableName", "requestedAt"].sort());
+      expect(response.body).not.toContain(storedCall.id);
+      expect(response.body).not.toContain(table.id);
+    }
+    const customerContext = await app.inject({ method: "GET", url: "/api/v1/public/table-context", cookies: customer });
+    expect(customerContext.json().data).toMatchObject({ waiterCallStatus: "PENDING" });
+    expect(customerContext.body).not.toContain(storedCall.id);
+    expect(customerContext.body).not.toContain(table.id);
 
     const pending = await app.inject({ method: "GET", url: "/api/v1/waiter-calls", cookies: staff });
     expect(pending.statusCode).toBe(200);
@@ -226,8 +245,12 @@ describe("public table context and waiter-calls", () => {
     const requested = await Promise.all([request(), request()]);
     expect(requested.map((response) => response.statusCode).sort()).toEqual([200, 429]);
     expect(await app.prisma.customerOtpChallenge.count()).toBe(1);
-    const challengeId = requested.find((response) => response.statusCode === 200)!.json().data.challengeId;
-    const verificationToken = requested.find((response) => response.statusCode === 200)!.json().data.verificationToken;
+    const successfulResponse = requested.find((response) => response.statusCode === 200)!;
+    expect(Object.keys(successfulResponse.json().data).sort()).toEqual(["challengeId", "verificationToken", "expiresAt", "resendAvailableAt"].sort());
+    expect(successfulResponse.body).not.toContain("مینا رضایی");
+    expect(successfulResponse.body).not.toContain("09121234567");
+    const challengeId = successfulResponse.json().data.challengeId;
+    const verificationToken = successfulResponse.json().data.verificationToken;
     const challenge = await app.prisma.customerOtpChallenge.findUniqueOrThrow({ where: { id: challengeId } });
     expect(challenge).not.toHaveProperty("fullName");
     expect(JSON.stringify(challenge)).not.toContain("09121234567");
