@@ -196,6 +196,7 @@ Operating rules:
 - POS-uploaded product images are runtime café data stored under the API `PRODUCT_IMAGE_STORAGE_DIR`. Never include developer-local uploads from `apps/api/data/product-images/` in a release archive or transfer them to the VPS during deployment. Preserve the existing VPS image directory during release and rollback. Transfer image data only for a separately authorized data migration.
 - Leave `NEXT_PUBLIC_PRODUCT_IMAGE_BASE_URL` unset to use the menu's same-origin `/api/product-images` proxy, which forwards opaque storage keys to the API image route without exposing the API host. Keep committed static menu images, such as `apps/web/public/items_pictures/`, in the application release when required.
 - A CDN is not required for one café. Optimize images, serve them with cache headers, and check whether an Iranian CDN is needed only after the VPS deployment is running and real measurements show a need.
+- Stage 10's local route timings and live public-path measurements are recorded in [the response-time benchmark report](../performance/stage-10-response-times.md). Use wider customer-device and network samples before deciding whether to add a CDN.
 - Docker Compose runs web, API, PostgreSQL, and required image storage. Caddy or Nginx handles HTTPS and WebSockets.
 - Validate production configuration at startup. Inject secrets; never commit or bake them into images.
 - Expose separate liveness and readiness checks. Readiness fails when required dependencies are unavailable.
