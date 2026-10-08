@@ -67,7 +67,37 @@ describe("authentication endpoints", () => {
       expect(response.headers["cache-control"]).toBe("no-store");
       expect(cookieJar(response)).toHaveProperty("cafe_access");
       expect(cookieJar(response)).toHaveProperty("cafe_refresh");
+      const setCookies = [response.headers["set-cookie"]].flat().join("\n");
+      const cookieBasePath = process.env.AUTH_COOKIE_BASE_PATH ?? "/api/v1";
+      expect(setCookies).toContain("HttpOnly");
+      expect(setCookies).toContain("SameSite=Strict");
+      expect(setCookies).toContain(`Path=${cookieBasePath};`);
+      expect(setCookies).toContain(`Path=${cookieBasePath}/auth;`);
+      expect(setCookies).toContain("Max-Age=900");
+      expect(setCookies).toContain("Max-Age=2592000");
     }
+  });
+
+  it("throttles repeated failed sign-ins without storing credential values", async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { username: "repeated.failed.login", password: "wrong-password" },
+      });
+      expect(rejected.statusCode).toBe(401);
+    }
+
+    const throttled = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      payload: { username: "repeated.failed.login", password: "wrong-password" },
+    });
+    expect(throttled.statusCode).toBe(429);
+    expect(throttled.headers["retry-after"]).toMatch(/^\d+$/);
+    expect(throttled.json().error.code).toBe("RATE_LIMITED");
+    expect(await app.prisma.authEvent.count({ where: { eventType: "LOGIN_FAILED" } })).toBe(5);
+    expect(JSON.stringify(await app.prisma.authEvent.findMany())).not.toContain("wrong-password");
   });
 
   it("rolls back a newly issued session when the successful-login audit write fails", async () => {
