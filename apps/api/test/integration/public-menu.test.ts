@@ -57,6 +57,7 @@ describe("public QR menu", () => {
       }],
     }]);
     expect(response.body).not.toContain("saleDiscountKind");
+    expect(response.body).not.toContain("saleDiscountValue");
     expect(response.body).not.toContain("preparationDeadlineMinutes");
     expect(response.body).not.toContain("displayOrder");
     expect(response.body).not.toContain("archivedAt");
