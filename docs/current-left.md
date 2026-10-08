@@ -58,26 +58,26 @@ second chronological backlog.
   allocation, reversals, and daily-report totals against fixed fixtures.
 - [x] **10.12 — Complete idempotency coverage:** verify retries cannot duplicate
   orders, settlements, tenders, or other guarded mutations.
-- [ ] **10.13 — Complete concurrency coverage:** verify stale edits and
+- [x] **10.13 — Complete concurrency coverage:** verify stale edits and
   simultaneous mutations return conflicts without overwriting newer state.
-- [ ] **10.14 — Complete public-response safety coverage:** verify public menu
+- [x] **10.14 — Complete public-response safety coverage:** verify public menu
   and other anonymous responses do not expose private catalog or operational
   data.
-- [ ] **10.15 — Rehearse migrations on a fresh database** and record the
+- [x] **10.15 — Rehearse migrations on a fresh database** and record the
   commands and result.
-- [ ] **10.16 — Rehearse backup restore and migrations on a restored,
+- [x] **10.16 — Rehearse backup restore and migrations on a restored,
   production-like database** and record the evidence.
-- [ ] **10.17 — Review session security:** check cookies, token handling, CSRF
+- [x] **10.17 — Review session security:** check cookies, token handling, CSRF
   protections, and Staff/Manager authorization.
-- [ ] **10.18 — Review request and data boundaries:** check rate limits,
+- [x] **10.18 — Review request and data boundaries:** check rate limits,
   uploads, input limits, secrets, and safe logging.
-- [ ] **10.19 — Run and record a dependency security scan.**
-- [ ] **10.20 — Measure transactional response times:** record login, order
+- [x] **10.19 — Run and record a dependency security scan.**
+- [x] **10.20 — Measure transactional response times:** record login, order
   create/edit/delete, and payment targets with the measurement method and
   workload.
-- [ ] **10.21 — Measure report response times** and record the query/workload
+- [x] **10.21 — Measure report response times** and record the query/workload
   used.
-- [ ] **10.22 — Measure image and public-menu response times** and record the
+- [x] **10.22 — Measure image and public-menu response times** and record the
   request/workload used.
 - [ ] **10.23 — Run the critical browser E2E suite** from
   `docs/planning/browser-testing.md` across public menu, POS ordering and
@@ -107,6 +107,45 @@ second chronological backlog.
 
 ## Latest Implementation Notes
 
+- 7 October: completed Stage 10.20–10.22. Local API/report benchmarks and
+  live public menu/image timings, with their methods, workloads, p50/p95
+  results, and limits, are recorded in
+  [the Stage 10 response-time benchmark record](performance/stage-10-response-times.md).
+  The repeatable isolated benchmark is
+  `apps/api/test/performance/stage10-benchmark.test.ts`; it passed (1 file / 1
+  benchmark test).
+
+- 7 October: completed Stage 10.15–10.19. The authorized `cafe_management_test`
+  schema was reset and all 30 checked-in migrations applied. A custom-format
+  backup of that isolated database passed `pg_restore --list`; the guarded
+  restore rehearsal restored a synthetic paid order, settlement, tender, and
+  audit record, then confirmed `prisma migrate deploy` found no pending
+  migrations. Session review confirmed HttpOnly, SameSite=Strict, production
+  Secure cookies, 15-minute access tokens, hashed rotating refresh tokens,
+  server-side Staff/Manager checks, and SameSite plus disabled CORS as the CSRF
+  defense. Request-boundary review confirmed schema and body limits, one-file
+  5 MiB image uploads with signature checks, 32-character production secrets,
+  OTP throttling, cookie log redaction, and generic error logging. Added a
+  bounded login-failure throttle of five attempts per normalized username in
+  15 minutes. It is process-local, matching the current single API process.
+  The full-workspace `pnpm audit` initially reported 3 critical, 25 high, and
+  9 moderate advisories. Patched compatible packages and added overrides for
+  `@fastify/static` 10.1.2 and `deepmerge-ts` 8.0.0; the final scan reports zero
+  advisories across 465 dependencies. API, POS, and web typechecks pass. Focused
+  auth tests pass 8/8, image tests 3/3, and OpenAPI tests 2/2.
+- 7 October: completed Stage 10.14 public-response safety coverage. The public
+  menu tests assert its exact catalog DTO and exclude internal pricing,
+  preparation, ordering, and archive fields. Anonymous table-context,
+  customer-authentication, OTP, and waiter-call responses assert their allowed
+  fields and exclude QR tokens, table and waiter-call IDs, customer IDs, names,
+  and phone numbers. Public-menu integration passes 4/4 tests and waiter-call
+  integration passes 8/8 tests.
+- 7 October: completed Stage 10.13 concurrency coverage. A stale order edit
+  after a table transfer returns `STALE_VERSION` without changing the item;
+  simultaneous edits using one order version commit only one mutation, return
+  `STALE_VERSION` for the loser, and retain one version increment and audit
+  entry. Existing concurrent-settlement coverage also confirms only one
+  settlement commits. The orders integration suite passes 41/41 tests.
 - 7 October: completed Stage 10.12 idempotency coverage. Order creation,
   settlement recording, settlement correction, and waiter-call deduplication
   retries are covered. Same-key replays preserve the original result without
