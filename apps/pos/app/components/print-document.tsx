@@ -27,9 +27,8 @@ function ReceiptItems({ receipt, className = "" }: { receipt: Receipt; className
                 ? ` · ${englishNumber.format(item.weightGrams)} گرم`
                 : ""}
             </b>
-            <span className="thermal-item__base-price">
-              {item.pricingModeSnapshot === "WEIGHTED_PER_KG" && <small>قیمت هر کیلو</small>}
-              <strong>{formatToman(item.basePriceSnapshot)}</strong>
+            <span className="thermal-item__line-price">
+              <strong>{formatToman(item.lineTotalAmount)}</strong>
             </span>
           </div>
           {item.options.length > 0 && (
