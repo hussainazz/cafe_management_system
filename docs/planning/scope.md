@@ -8,7 +8,7 @@
 **Baseline date:** 28 July 2026  
 **Decision status:** baseline decisions are fixed unless replaced by an Architecture Decision Record (ADR).
 
-This document owns product scope, business rules, architecture boundaries, and fixed v1 decisions. Delivery sequence lives in `roadmap.md`; backend tasks live in `backend-backlog.md`; production readiness lives in `production-gates.md`.
+This document owns product scope, business rules, architecture boundaries, and fixed v1 decisions. Current stage status lives in `../current-left.md`; backend task criteria live in `backend-backlog.md`; production readiness lives in `production-gates.md`.
 
 ## Executive Summary
 
