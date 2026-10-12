@@ -169,9 +169,9 @@ check, not an optional optimization.
   failure and requires rollback or a corrected local artifact.
 
 The public-menu artifact release is live for the browse-only menu and its
-supporting API. It does not satisfy the later shared POS, payment, printer,
-Manager, or full-system pilot gates; those remain in the post-deployment
-roadmap stages.
+supporting API. The shared POS, payment, printer, Manager, and full-system
+pilot gates have since been completed; see `../current-left.md` for the café
+completion record.
 
 ## Deployment And Operations
 
@@ -201,7 +201,7 @@ Operating rules:
 - Validate production configuration at startup. Inject secrets; never commit or bake them into images.
 - Expose separate liveness and readiness checks. Readiness fails when required dependencies are unavailable.
 - Automated backups have documented retention and are stored separately from the primary VPS. Complete a clean restore drill before pilot and after material schema changes.
-- Keep only the current verified rollback release and one or two recent database backups on the primary VPS. Copy older verified backups to separate storage before removing them from the VPS; never delete the active deployment, the only verified rollback artifact, or the newest database backup during a release or pilot.
+- Keep exactly one verified rollback bundle for the previously active coordinated API/menu/POS release and one verified pre-release database backup on the primary VPS. Create and validate each replacement before removing the previous copy; never delete the active deployment, the only verified rollback bundle, or the only verified database backup during a release or pilot. Preserve the uploaded product-image storage in place during backup, cleanup, deployment, and rollback. Retain no more than 14 days of logs on the VPS.
 - Each release runs reviewed migrations, records the deployed version, and has a rollback or forward-fix plan that does not require downloading an international dependency.
 - Log rotation and alerts cover readiness, database connectivity, disk space, backup failure, and repeated server errors.
 - Maintain an operator runbook for deployment, startup/shutdown, backup/restore, user recovery, bar-ticket and customer-receipt setup, and manual order fallback.
