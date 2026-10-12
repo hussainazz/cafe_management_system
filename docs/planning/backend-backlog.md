@@ -1,6 +1,6 @@
 # Backend Backlog
 
-This document tracks backend work extracted from the roadmap. Product and business rules live in `scope.md`; sequencing and stage status live in `roadmap.md`; production readiness lives in `production-gates.md`.
+This document tracks backend work. Product and business rules live in `scope.md`; current stage status lives in `../current-left.md`; production readiness lives in `production-gates.md`.
 
 ## Current Backend Status
 
@@ -17,9 +17,9 @@ stage is implemented.
   protections are implemented.
 - **P3 / Stage 8 — Complete.** Manager catalog, settings, payment history,
   accounting, and audit APIs are implemented.
-- **P4 / Stage 10 — Active.** Complete the remaining full-system test,
-  security, migration/restore, and measured-performance evidence before the POS
-  pilot. See `docs/current-left.md` for the live checklist.
+- **P4 / Stage 10 — Complete.** Full-system test, security,
+  migration/restore, measured-performance, and café pilot evidence are closed.
+  See `docs/current-left.md` for the completion record.
 
 Last recorded integrated local verification (2 October 2026): isolated API
 suite 16 files / 102 tests, POS suite 18 files / 87 tests, contracts build,
@@ -31,7 +31,7 @@ changes still need their migration and release verification.
 
 Done:
 
-- v1 scope, explicit non-goals, roles, order states, money/time/deployment rules, domain modules, architecture direction, production gates, and the database-first/POS-first roadmap are documented.
+- v1 scope, explicit non-goals, roles, order states, money/time/deployment rules, domain modules, architecture direction, production gates, and delivery stages are documented.
 - ADR files for modular monolith, PostgreSQL/Prisma, Toman integers, UTC storage with `Asia/Tehran` reporting, Iranian VPS, browser printing, browse-only QR menu, settlement allocation, and the shared POS/waiter-call/initial-reporting boundary are documented.
 - Initial ERD is documented.
 - API inventory is documented in `api-inventory.md`, including operational, identity, POS, public-menu, Manager, reporting, and planned realtime boundaries.
@@ -429,7 +429,7 @@ Acceptance criteria:
 - Fixed fixtures prove report totals, payment breakdowns, reversals, and deleted
   order handling.
 
-### P4 - Stage 10 Backend Stabilization — In Progress
+### P4 - Stage 10 Backend Stabilization — Complete
 
 #### P4.3 Discounted Price Rounding And POS Bar-Ticket Action — Complete
 
@@ -470,7 +470,7 @@ Left:
   tests; Manager picker add/remove behavior is covered by POS component tests.
   Migration and browser checks are recorded in `docs/current-left.md`.
 
-#### P4.1 Contract, Security, Migration, And Performance Hardening
+#### P4.1 Contract, Security, Migration, And Performance Hardening — Complete
 
 Complete backend hardening needed before the shared POS pilot.
 
