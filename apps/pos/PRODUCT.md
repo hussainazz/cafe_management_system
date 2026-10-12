@@ -82,11 +82,11 @@ excessive rounding, tiny type, and distracting animation.
 - Local operational setup and same-origin API policy: `SETUP.md` and
   `next.config.ts`.
 - Authoritative product rules and Stage 7 boundaries:
-  `../../docs/planning/scope.md`, `../../docs/planning/roadmap.md`, and
+  `../../docs/planning/scope.md` and
   `../../docs/current-left.md`.
 - The API/backend has already established order, settlement, receipt,
   authorization, concurrency, table-occupancy, and waiter-call behavior; the
-  shared POS UI is the remaining Stage 7 interface work.
+  shared POS UI and café acceptance are complete; see `../../docs/current-left.md`.
 
 ## Product Principles
 
