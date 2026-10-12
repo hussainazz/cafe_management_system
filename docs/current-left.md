@@ -30,6 +30,12 @@ feature records and implementation notes below. No active stage remains.
 
 ## Latest Implementation Notes
 
+- 12 October: customer receipts now print each item's calculated line amount,
+  including priced option choices, instead of the base-price snapshot. The
+  receipt total is unchanged. POS build passed and release
+  `pos-20261012-c66e96b` is live; local/public release endpoints and public
+  `/pos` returned HTTP 200. Automated tests were not run.
+
 - 7 October: completed Stage 10.20–10.22. Local API/report benchmarks and
   live public menu/image timings, with their methods, workloads, p50/p95
   results, and limits, are recorded in
