@@ -9,9 +9,10 @@ requirements determine what must be completed for that café. Deferred items
 remain candidates for a later project-completeness pass after the café work is
 finished.
 
-The scope, roadmap, and backend backlog continue to describe the general POS
-target. An item listed here is deferred for the current café; it is not marked
-as completed or removed from the general product plan.
+The scope and backend backlog describe the general POS target. An item listed
+here is deferred for the current café; it is not marked as completed or
+removed from the general product plan. Current café stage status is recorded
+in `docs/current-left.md`.
 
 ## Deferred Items
 
