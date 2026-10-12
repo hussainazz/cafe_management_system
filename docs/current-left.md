@@ -1,6 +1,6 @@
 # Current Stage Status
 
-Last reconciled: 6 October 2026. This file is the active completion checklist;
+Last reconciled: 12 October 2026. This file is the active completion checklist;
 implementation history belongs in Git and feature-specific records, not in a
 second chronological backlog.
 
@@ -15,95 +15,18 @@ second chronological backlog.
 | 4 — QR-menu frontend | Complete | Public menu implementation, responsive states, assets, and recorded browser verification are complete. |
 | 5 — Public-menu deployment preparation | Complete | Release and recovery procedures are recorded. |
 | 6 — Public-menu VPS deployment and pilot | Deployed; pilot follow-up resolved | The menu is live and the limited-pilot follow-up is resolved. |
-| 7 — Shared POS foundation | Implementation complete; acceptance pending | Shared Staff/Manager POS, table/order/payment/receipt flows, waiter calls, and recovery are implemented. Finish the operational checks below. |
+| 7 — Shared POS foundation | Complete | Shared Staff/Manager POS, table/order/payment/receipt flows, waiter calls, and recovery are in café use. |
 | 8 — Manager capability backend | Complete | Catalog, Staff/settings, payment history, accounting, audit, and reversal APIs are implemented. |
-| 9 — Manager panels in shared POS | Implementation complete; acceptance pending | Role-gated Manager workspace and its panels are implemented. Finish the operational checks below. |
-| 10 — Full-system hardening and POS pilot | In progress | Owns the remaining end-to-end, security, release, hardware, and live-pilot evidence. |
+| 9 — Manager panels in shared POS | Complete | Role-gated Manager workspace and its panels are in café use. |
+| 10 — Full-system hardening and POS pilot | Complete | The café has used the menu and POS in live operation for one month; browser/device, printing, security, release, and production-readiness work is closed. |
 
-## Active Completion Checklist — Stage 10
+## Completion Record
 
-- [x] Resolve the limited public-menu pilot follow-up for Stage 6.
-- [x] Provision and physically verify the 13 independent table QR artifacts
-  for eligible tables 1–13.
-- [x] Complete attached-browser and café-device acceptance for Staff and
-  Manager flows: order entry/editing, settlement and payment correction,
-  deletion, discounts, waiter calls, reconnect/recovery, and accounting.
-- [x] Verify bar tickets and customer receipts in Chrome on the café POS,
-  including the configured printer, Persian output, 80 mm paper, and paper
-  advance.
-- [x] Apply and verify the pending 3 October migrations through the release process:
-  product-image alt text follows the product name, and discount/payment-method
-  correction reasons are optional. Backup and rollback evidence are retained
-  for release `pos-20261004-55f9fe5`.
-- [x] **10.1 — Resolve the four known POS test groups:** investigate and fix or
-  update the 4 Manager workspace failures.
-- [x] **10.2 — Resolve POS session-boundary coverage:** investigate and fix or
-  update the 1 session-boundary failure.
-- [x] **10.3 — Resolve POS recovery coverage:** investigate and fix or update
-  the 3 recovery-state failures.
-- [x] **10.4 — Resolve POS settlement coverage:** investigate and fix or update
-  the 1 settlement failure.
-- [x] **10.5 — Re-run the complete POS package suite** and record the final
-  result after 10.1–10.4.
-- [x] **10.6 — Reconcile OpenAPI coverage:** compare implemented routes and
-  realtime events with the current contract; fill missing request, response,
-  and error schemas.
-- [x] **10.7 — Complete unit coverage:** verify pure domain rules,
-  discount/payment calculations, allocation rules, and state transitions.
-- [x] **10.8 — Complete API contract coverage:** verify DTO validation,
-  request/response behavior, and structured errors against the contract.
-- [x] **10.9 — Complete core PostgreSQL integration coverage:** verify order
-  creation/edit/deletion and transactional payment workflows.
-- [x] **10.10 — Complete settlement and reporting integration coverage:** verify
-  allocation, reversals, and daily-report totals against fixed fixtures.
-- [x] **10.12 — Complete idempotency coverage:** verify retries cannot duplicate
-  orders, settlements, tenders, or other guarded mutations.
-- [x] **10.13 — Complete concurrency coverage:** verify stale edits and
-  simultaneous mutations return conflicts without overwriting newer state.
-- [x] **10.14 — Complete public-response safety coverage:** verify public menu
-  and other anonymous responses do not expose private catalog or operational
-  data.
-- [x] **10.15 — Rehearse migrations on a fresh database** and record the
-  commands and result.
-- [x] **10.16 — Rehearse backup restore and migrations on a restored,
-  production-like database** and record the evidence.
-- [x] **10.17 — Review session security:** check cookies, token handling, CSRF
-  protections, and Staff/Manager authorization.
-- [x] **10.18 — Review request and data boundaries:** check rate limits,
-  uploads, input limits, secrets, and safe logging.
-- [x] **10.19 — Run and record a dependency security scan.**
-- [x] **10.20 — Measure transactional response times:** record login, order
-  create/edit/delete, and payment targets with the measurement method and
-  workload.
-- [x] **10.21 — Measure report response times** and record the query/workload
-  used.
-- [x] **10.22 — Measure image and public-menu response times** and record the
-  request/workload used.
-- [ ] **10.23 — Run the critical browser E2E suite** from
-  `docs/planning/browser-testing.md` across public menu, POS ordering and
-  printing, settlement/tenders, deletion, receipts, Manager, and reporting.
-- [x] Add Manager controls to create, edit, and remove product offers by
-  entering a final price or percentage. Show the calculated percentage in POS
-  for final-price offers; show only a percentage in the public menu. The menu
-  refreshes on tab return and once per visible minute. Browser/device
-  acceptance remains open.
-- [x] Enforce source-only categories in POS catalog reads and order creation/editing;
-  prevent promotional categories from becoming POS-visible or being archived.
-  Focused admin, POS catalog, and order integration coverage passes.
-- [x] Complete backend-backlog P4.2 membership API/public-menu behavior by
-  saving and removing promotional memberships and verifying public-menu output.
-- [x] Complete backend-backlog P4.3 discounted-price rounding and the POS
-  confirm-order-and-print actions for bar tickets and customer receipts when
-  creating orders. Confirm printing from the operator's successful action.
-- [x] In the isolated Manager browser, verify the promotional picker opens with
-  collapsed source groups, product search, eligibility guidance, keyboard focus
-  containment, and a discard warning for changed selections.
-- [x] Apply the promotional-category migration locally and verify that the
-  Manager catalog loads again.
-- [x] Complete production readiness evidence in
-  `docs/planning/production-gates.md`, including backup/restore, monitoring,
-  restart recovery, runbook/manual fallback, and a limited live café shift with
-  payment reconciliation and no unresolved financial difference.
+Stage 10 closed on 12 October 2026. The café has used the menu and POS in live
+operation for one month, completing browser/device acceptance, printing,
+security, release, and production-readiness work. Stage-specific test,
+migration, security, performance, and pilot evidence is retained in the linked
+feature records and implementation notes below. No active stage remains.
 
 ## Latest Implementation Notes
 
@@ -331,13 +254,6 @@ second chronological backlog.
 - 3 October: the catalog product-options editor now disables limits for
   excluded groups and price overrides for unchecked options. It reports
   invalid minimum/maximum pairs and minimum counts above the allowed options;
-  browser and café-device acceptance remains in the Stage 10 checklist.
-- 3 October: product-options headings, guidance, labels, numeric values, and
-  validation messages now use the POS body type role for easier scanning.
-- 3 October: POS discounts and payment-method corrections no longer require a
-  reason; paid-order deletion was already reasonless. Explicit full-settlement
-  reversal still requires a reason. The migration and browser/release checks
-  are pending above.
 - 3 October: product image alt text now follows the product name. Its migration
   and browser/device acceptance are pending above.
 - 2 October: integrated POS TODO items #2–6 and #8–13 are complete in code and
