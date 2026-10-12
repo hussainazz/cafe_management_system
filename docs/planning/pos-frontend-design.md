@@ -4,9 +4,8 @@
 
 **Status:** design baseline and implementation record; the POS is implemented in `apps/pos`
 **Applies to:** `apps/pos`, the shared Staff and Manager POS only  
-**Companion authorities:** `scope.md`, `roadmap.md`, ADR 0009, and
-`current-left.md` remain authoritative for product scope, roles, business
-rules, delivery order, and stage status.
+**Companion authorities:** `scope.md`, ADR 0009, and `current-left.md` remain
+authoritative for product scope, roles, business rules, and stage status.
 
 This document records the selected POS visual direction and the bounded
 implementation passes that followed. Current implementation and acceptance
@@ -178,7 +177,7 @@ or silently extend into adjacent workflows.
 Before a POS design pass is accepted, confirm:
 
 - It still serves the shared Staff/Manager operational workflow and stays
-  inside the active roadmap stage.
+  inside the active delivery stage recorded in `docs/current-left.md`.
 - A Persian-speaking operator can identify the active table/order, urgent
   state, money, and next action without interpreting decoration.
 - Totals, availability, permissions, and conflicts visibly reflect server
@@ -295,7 +294,6 @@ server-authorized and response-validated; passive reads retain their prior
 content and surface one compact retryable degraded-data state. Typed Manager
 response DTOs prevent persistence-shaped records from reaching the POS.
 Contracts/API/POS typechecks, focused Manager API integration tests, POS tests,
-the production POS build, and `git diff --check` pass. Authenticated desktop
-and normal-mobile browser/device acceptance remains open under Stage 10; the
-implementation itself is complete. See `docs/current-left.md` for the active
-checklist.
+the production POS build, and `git diff --check` passed. Authenticated
+desktop/mobile browser and café-device acceptance is complete after a month
+of café operation. See `docs/current-left.md` for the completion record.
