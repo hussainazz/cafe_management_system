@@ -4,7 +4,7 @@ This document tracks backend work. Product and business rules live in `scope.md`
 
 ## Current Backend Status
 
-Last reconciled: 3 October 2026. The prioritized sections below are the
+Last reconciled: 13 October 2026. The prioritized sections below are the
 authoritative backend acceptance criteria; this summary records whether each
 stage is implemented.
 
@@ -20,6 +20,15 @@ stage is implemented.
 - **P4 / Stage 10 — Complete.** Full-system test, security,
   migration/restore, measured-performance, and café pilot evidence are closed.
   See `docs/current-left.md` for the completion record.
+- **P5 / Stage 11 — Complete.** Inventory-costing scope, schema, contracts,
+  migration, and isolated test-database reset are complete; details are recorded
+  in `docs/current-left.md`.
+- **P6 / Stage 12 — Complete.** Purchases, moving-average valuation, recipe
+  costing, settlement recognition, stock correction, and count reconciliation.
+- **P7 / Stage 13 — Complete.** Manager inventory/costing panels and
+  gross-profit reporting.
+- **P8 / Stage 14 — Complete.** Integration, browser, migration/restore, and
+  measured-performance verification for the inventory phase.
 
 Last recorded integrated local verification (2 October 2026): isolated API
 suite 16 files / 102 tests, POS suite 18 files / 87 tests, contracts build,
@@ -131,6 +140,12 @@ Acceptance criteria:
 - Error responses include the effective `requestId` and safe timestamp.
 - Error details never expose stack traces, raw database errors, credentials,
   tokens, cookies, or password hashes.
+- Inventory validation preserves field details and current-version conflicts.
+  Database conflict/dependency/range failures use their documented statuses;
+  unknown failures remain internal errors. Logs retain safe Prisma/PostgreSQL
+  identifiers and source locations correlated to the request without raw SQL
+  or row values. The POS preserves those safe details and keeps failures in the
+  affected panel. Focused verification is recorded in `docs/current-left.md`.
 - Health endpoints may keep their operational response shape as documented.
 
 #### P0.5 Validated Schemas And OpenAPI Generation
@@ -486,6 +501,133 @@ Acceptance criteria:
   input limits, and safe logs.
 - Measured backend response targets are recorded for login, order
   create/edit/delete, payments, reports, image handling, and public-menu reads.
+
+### P5 - Stage 11 Inventory Costing Baseline, Schema, Contracts, And Migration — Complete
+
+Approve and establish the inventory-costing domain before adding runtime
+workflows. Product and business rules are in `inventory-costing.md` and ADR
+0011; this stage owns the schema and contract baseline.
+
+Acceptance criteria:
+
+- Scope, unit/value rules, opening-count boundary, order recognition, correction
+  behavior, reporting coverage, and exclusions are recorded in scope and ADR
+  0011 without erasing completed Stage 0–10 history.
+- The ERD and constraint inventory cover stock items and conversions, received
+  purchases and lines, recipes/components, product costing and option rules,
+  append-only movements and current valuation, physical counts and pending-order
+  reconciliation, order-item costing snapshots, full-payment recognition, and
+  pending consumption.
+- Prisma models and one reviewed forward migration represent that model. The
+  migration does not seed stock or enable tracking; tracking begins only after
+  an opening count is posted.
+- Shared Zod contracts and `api-inventory.md` describe Manager-only requests,
+  responses, query bounds, version checks, and idempotent posting headers for
+  the new workflows.
+- A fresh isolated test database can apply the migration; the migration ledger,
+  Prisma client, generated OpenAPI, contracts typecheck, and API typecheck agree.
+
+Left:
+
+- None. The schema, constraints, forward migration, shared contracts, API
+  inventory, generated Prisma client, and isolated migration rehearsal are
+  recorded in `docs/current-left.md`.
+
+### P6 - Stage 12 Purchases, Valuation, Recipes, Settlement, And Reconciliation — Complete
+
+Acceptance criteria:
+
+- Manager stock-item and purchase operations enforce explicit compatible pack
+  conversions, exact quantities, integer-Toman direct costs, idempotent
+  posting, moving-average valuation, archival, and linked correction entries.
+- Recipe resolution supports reusable cycle-free recipes, product recipe or
+  purchased-item costing, purchased-item extras, named option replacements,
+  quantity changes, additions, and explicit combination overrides. Conflicts
+  are rejected. Preview exposes missing inputs rather than zero-valued costs.
+- Order-item costing snapshots update with eligible unsettled content changes
+  and do not follow later catalog edits.
+- Whole-order final payment captures theoretical costs exactly once. Stock is
+  deducted atomically for the complete order only when every requirement is
+  available; otherwise one whole-order pending record is created and checkout
+  succeeds.
+- Posted purchases retry pending orders in full-payment order without partial
+  reservations. Actual movements use posting-time average values while
+  theoretical item costs retain full-payment snapshots.
+- Physical-count posting records expected/observed quantities and valuation;
+  the Manager explicitly identifies absorbed pending orders before posting.
+- Tender corrections have no inventory effect. Reversals and logical deletion
+  cancel pending work or restore previously deducted/reconciled stock once at
+  recorded carrying value, and preserve an auditable movement history.
+- Staff and public/receipt DTOs do not expose inventory costs or margins.
+
+Left:
+
+- None. Manager inventory APIs, order recognition and correction hooks, and
+  isolated inventory/order integration coverage are implemented; details and
+  verification are recorded in `docs/current-left.md`.
+
+### P7 - Stage 13 Manager Inventory Panels And Gross-Profit Reports — Complete
+
+Acceptance criteria:
+
+- The shared POS Manager workspace supports stock items, received purchases,
+  recipes/product costing, recipe preview, physical counts and reconciliation,
+  inventory history, pending consumption, and gross-profit reports.
+- Archived stock items are hidden from active stock lists while their historical
+  purchase and movement records remain available; a new active stock item may
+  reuse an archived item's name.
+- Arbitrary bounded Persian-calendar ranges resolve to `Asia/Tehran`
+  boundaries in the API. Revenue uses persisted whole-order paid amounts and
+  existing discount allocation.
+- Reports show per-product and café net sales, theoretical COGS, gross profit,
+  gross margin, cost coverage, pending status, and inventory-based period
+  consumption where boundaries are compatible. Aggregate margin uses aggregate
+  amounts; zero sales and incomplete total coverage show margin unavailable.
+- Unsupported actual-COGS periods are labeled estimates and surface pending
+  orders, missing valuations, and variance without assigning variance to an
+  unrecorded cause.
+- Manager-only routes and UI are enforced server-side; Staff, public menu, and
+  receipt responses never expose costing fields.
+
+Left:
+
+- None. Manager panels and bounded reports are connected to the protected API;
+  implementation and verification details are recorded in `docs/current-left.md`.
+
+### P8 - Stage 14 Inventory Integration And Operational Verification — Complete
+
+Acceptance criteria:
+
+- Unit and authorized isolated-PostgreSQL integration coverage includes unit
+  conversion, exact valuation/rounding, recipes/options/cycles, purchase posting,
+  full-payment recognition, shortage/pending retry, count reconciliation,
+  reversal/deletion restoration, report allocation/date boundaries, and
+  role/response safety.
+- Idempotency, stale configuration versions, concurrent receipts/counts/
+  settlements/corrections, and transaction-failure rollback cannot duplicate
+  or lose quantity, value, payment, or audit effects.
+- Existing order, settlement, receipt, and public-menu workflows continue to
+  pass. Browser verification covers Manager workflows and the end-to-end paid
+  order/inventory/report path.
+- Fresh migration and restore rehearsal pass; performance measurements cover
+  posting, pending-order retries, counts, and bounded profit reports.
+- Record API timings and test fixture limits in
+  `docs/performance/inventory-costing-response-times.md`.
+- Record each completed stage and all remaining `Left:` items in
+  `docs/current-left.md`. Deployment remains separately authorized.
+
+Left:
+
+- None. The backup validated, the isolated test database restored successfully,
+  all 31 migrations were current, and paid-order, tender, audit, stock,
+  movement, balance, and opening-count fixtures were preserved.
+
+The full API suite passes after its authorized reset applied all 31 migrations;
+the inventory file passes 17/17. The full POS suite passes 101/101, both
+typechecks pass, and the 30-to-31 upgrade preserved pre-existing data.
+Authenticated browser checks covered stock, purchases/returns, recipe costing,
+physical counts, movement history, and gross-profit date validation. The
+expanded acceptance coverage and execution record are in `docs/current-left.md`.
 
 ## 2 October 2026 Approved POS Behavior Notes
 
