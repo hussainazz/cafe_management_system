@@ -57,6 +57,59 @@ enum TableOccupancyState {
   OCCUPIED
 }
 
+enum InventoryUnit {
+  GRAM
+  MILLILITER
+  PIECE
+}
+
+enum InventoryMovementKind {
+  OPENING_COUNT
+  PURCHASE_RECEIPT
+  ORDER_CONSUMPTION
+  ORDER_RESTORATION
+  PHYSICAL_COUNT_ADJUSTMENT
+  PURCHASE_RETURN
+}
+
+enum PurchaseStatus {
+  DRAFT
+  POSTED
+}
+
+enum InventoryCountKind {
+  OPENING
+  PHYSICAL
+}
+
+enum InventoryCountStatus {
+  DRAFT
+  POSTED
+}
+
+enum RecipeComponentKind {
+  STOCK_ITEM
+  RECIPE
+}
+
+enum ProductCostingMode {
+  RECIPE
+  PURCHASED_ITEM
+}
+
+enum CostingRuleAction {
+  REPLACE_COMPONENT
+  CHANGE_QUANTITY
+  ADD_COMPONENT
+}
+
+enum OrderConsumptionStatus {
+  PENDING
+  POSTED
+  RECONCILED
+  CANCELLED
+}
+
 model User {
   id           String   @id @default(uuid())
   username     String   @unique
@@ -66,15 +119,21 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  refreshSessions     RefreshSession[]
-  authEvents          AuthEvent[]
-  createdOrders       Order[]              @relation("OrderCreatedBy")
-  deletedOrders       Order[]              @relation("OrderDeletedBy")
-  paymentSettlements  PaymentSettlement[]
-  settlementReversals SettlementReversal[]
-  idempotencyRecords  IdempotencyRecord[]
-  auditLogs           AuditLog[]
-  cafeSettingsUpdates CafeSettings[]
+  refreshSessions              RefreshSession[]
+  authEvents                   AuthEvent[]
+  createdOrders                Order[]                       @relation("OrderCreatedBy")
+  deletedOrders                Order[]                       @relation("OrderDeletedBy")
+  paymentSettlements           PaymentSettlement[]
+  settlementReversals          SettlementReversal[]
+  idempotencyRecords           IdempotencyRecord[]
+  auditLogs                    AuditLog[]
+  cafeSettingsUpdates          CafeSettings[]
+  createdStockItems            StockItem[]                   @relation("StockItemCreatedBy")
+  createdPurchases             Purchase[]                    @relation("PurchaseCreatedBy")
+  createdInventoryCounts       InventoryCount[]              @relation("InventoryCountCreatedBy")
+  inventoryMovements           InventoryMovement[]           @relation("InventoryMovementCreatedBy")
+  orderConsumptions            OrderConsumption[]            @relation("OrderConsumptionRecognizedBy")
+  updatedCostingConfigurations ProductCostingConfiguration[] @relation("CostingConfigurationUpdatedBy")
 
   @@map("users")
 }
@@ -108,15 +167,15 @@ model AuthEvent {
 }
 
 model Category {
-  id           String    @id @default(uuid())
+  id           String       @id @default(uuid())
   name         String
   displayOrder Int
-  isActive     Boolean   @default(true)
-  isPosVisible Boolean   @default(true)
+  isActive     Boolean      @default(true)
+  isPosVisible Boolean      @default(true)
   kind         CategoryKind @default(SOURCE)
   archivedAt   DateTime?
 
-  products Product[]
+  products           Product[]
   productMemberships ProductCategoryMembership[]
 
   @@index([isActive, displayOrder])
@@ -124,37 +183,40 @@ model Category {
 }
 
 model Product {
-  id                         String        @id @default(uuid())
+  id                         String             @id @default(uuid())
   categoryId                 String
   name                       String
   priceAmount                Int
   pricingMode                ProductPricingMode @default(FIXED)
-  isPublic                   Boolean       @default(true)
-  systemKey                 String?
+  isPublic                   Boolean            @default(true)
+  systemKey                  String?
   saleDiscountKind           DiscountKind?
   saleDiscountValue          Int?
   preparationDeadlineMinutes Int
   displayOrder               Int
-  isActive                   Boolean       @default(true)
-  isAvailable                Boolean       @default(true)
+  isActive                   Boolean            @default(true)
+  isAvailable                Boolean            @default(true)
   archivedAt                 DateTime?
 
-  category            Category             @relation(fields: [categoryId], references: [id])
-  categoryMemberships ProductCategoryMembership[]
-  image               ProductImage?
-  productOptionGroups ProductOptionGroup[]
-  orderItems          OrderItem[]
+  category             Category                     @relation(fields: [categoryId], references: [id])
+  categoryMemberships  ProductCategoryMembership[]
+  image                ProductImage?
+  productOptionGroups  ProductOptionGroup[]
+  orderItems           OrderItem[]
+  costingConfiguration ProductCostingConfiguration?
+  optionCostingRules   ProductOptionCostingRule[]
+  costingCombinations  ProductCostingCombination[]
 
-  @@index([categoryId, isActive, isAvailable, displayOrder])
   @@unique([categoryId, systemKey])
+  @@index([categoryId, isActive, isAvailable, displayOrder])
   @@map("products")
 }
 
 model ProductCategoryMembership {
-  categoryId  String
-  productId   String
-  displayOrder Int @default(0)
-  createdAt   DateTime @default(now())
+  categoryId   String
+  productId    String
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
 
   category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -192,11 +254,11 @@ model ProductOptionGroup {
   productId     String
   optionGroupId String
   displayOrder  Int
-  minSelections Int @default(1)
-  maxSelections Int @default(1)
+  minSelections Int    @default(1)
+  maxSelections Int    @default(1)
 
-  product        Product                   @relation(fields: [productId], references: [id])
-  optionGroup    OptionGroup               @relation(fields: [optionGroupId], references: [id])
+  product        Product                    @relation(fields: [productId], references: [id])
+  optionGroup    OptionGroup                @relation(fields: [optionGroupId], references: [id])
   allowedOptions ProductOptionGroupOption[]
 
   @@id([productId, optionGroupId])
@@ -228,9 +290,11 @@ model Option {
   displayOrder  Int
   archivedAt    DateTime?
 
-  optionGroup      OptionGroup       @relation(fields: [optionGroupId], references: [id])
-  productLinks     ProductOptionGroupOption[]
-  orderItemOptions OrderItemOption[]
+  optionGroup               OptionGroup                @relation(fields: [optionGroupId], references: [id])
+  productLinks              ProductOptionGroupOption[]
+  orderItemOptions          OrderItemOption[]
+  optionCostingRules        ProductOptionCostingRule[]
+  costingCombinationOptions CostingCombinationOption[]
 
   @@unique([optionGroupId, name])
   @@unique([id, optionGroupId])
@@ -252,11 +316,11 @@ model CafeTable {
   tableContextInvalidBefore DateTime?
   archivedAt                DateTime?
 
-  orders        Order[]
-  qrCredentials TableQrCredential[]
-  waiterCalls   WaiterCall[]
+  orders              Order[]
+  qrCredentials       TableQrCredential[]
+  waiterCalls         WaiterCall[]
   customerTableVisits CustomerTableVisit[]
-  otpChallenges CustomerOtpChallenge[]
+  otpChallenges       CustomerOtpChallenge[]
 
   @@index([isActive, displayOrder])
   @@index([waiterCallEnabled, occupancyState])
@@ -276,25 +340,25 @@ model TableQrCredential {
   createdAt DateTime  @default(now())
   rotatedAt DateTime?
 
-  table CafeTable @relation(fields: [tableId], references: [id])
+  table               CafeTable              @relation(fields: [tableId], references: [id])
   customerTableVisits CustomerTableVisit[]
-  otpChallenges CustomerOtpChallenge[]
+  otpChallenges       CustomerOtpChallenge[]
 
   @@index([tableId])
   @@map("table_qr_credentials")
 }
 
 model WaiterCall {
-  id             String           @id @default(uuid())
-  tableId        String
-  status         WaiterCallStatus @default(PENDING)
-  version        Int              @default(1)
-  requestedAt    DateTime         @default(now())
-  acknowledgedAt DateTime?
-  resolvedAt     DateTime?
+  id                   String           @id @default(uuid())
+  tableId              String
+  status               WaiterCallStatus @default(PENDING)
+  version              Int              @default(1)
+  requestedAt          DateTime         @default(now())
+  acknowledgedAt       DateTime?
+  resolvedAt           DateTime?
   customerTableVisitId String?
 
-  table CafeTable @relation(fields: [tableId], references: [id])
+  table              CafeTable           @relation(fields: [tableId], references: [id])
   customerTableVisit CustomerTableVisit? @relation(fields: [customerTableVisitId], references: [id], onDelete: SetNull)
 
   @@index([status, requestedAt])
@@ -308,12 +372,12 @@ enum CustomerOtpPurpose {
 }
 
 model Customer {
-  id              String   @id @default(uuid())
-  fullName        String?
-  phoneLookupHash String   @unique
+  id                   String   @id @default(uuid())
+  fullName             String?
+  phoneLookupHash      String   @unique
   phoneNumberEncrypted String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   authSessions CustomerAuthSession[]
   tableVisits  CustomerTableVisit[]
@@ -325,7 +389,7 @@ model CustomerOtpChallenge {
   id                String             @id @default(uuid())
   phoneLookupHash   String
   tableCredentialId String
-  tableId          String
+  tableId           String
   purpose           CustomerOtpPurpose
   codeHash          String
   expiresAt         DateTime
@@ -335,7 +399,7 @@ model CustomerOtpChallenge {
   createdAt         DateTime           @default(now())
 
   tableCredential TableQrCredential @relation(fields: [tableCredentialId], references: [id], onDelete: Restrict)
-  table           CafeTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  table           CafeTable         @relation(fields: [tableId], references: [id], onDelete: Restrict)
 
   @@index([phoneLookupHash, purpose, createdAt])
   @@index([tableCredentialId, expiresAt])
@@ -344,12 +408,12 @@ model CustomerOtpChallenge {
 }
 
 model CustomerAuthSession {
-  id        String    @id @default(uuid())
+  id         String    @id @default(uuid())
   customerId String
-  tokenHash String    @unique
-  expiresAt DateTime
-  revokedAt DateTime?
-  createdAt DateTime  @default(now())
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
@@ -367,9 +431,9 @@ model CustomerTableVisit {
   lastActivityAt    DateTime?
   createdAt         DateTime  @default(now())
 
-  customer        Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  table           CafeTable          @relation(fields: [tableId], references: [id], onDelete: Restrict)
-  tableCredential TableQrCredential  @relation(fields: [tableCredentialId], references: [id], onDelete: Restrict)
+  customer        Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  table           CafeTable         @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  tableCredential TableQrCredential @relation(fields: [tableCredentialId], references: [id], onDelete: Restrict)
   waiterCalls     WaiterCall[]
 
   @@index([tableId, expiresAt])
@@ -378,37 +442,38 @@ model CustomerTableVisit {
 }
 
 model Order {
-  id                               String        @id @default(uuid())
-  orderNumber                      String        @unique
-  dailyOrderNumber                 Int           @default(0)
-  tableId                          String?
-  createdById                      String
-  channel                          OrderChannel
-  state                            OrderState    @default(OPEN)
-  paymentStatus                    PaymentStatus @default(UNPAID)
-  version                          Int           @default(1)
-  discountKind                     DiscountKind?
-  discountValue                    Int?
-  discountAmount                   Int           @default(0)
-  discountReason                   String?
-  subtotalAmount                   Int
-  totalAmount                      Int
-  paidAmount                       Int           @default(0)
-  balanceAmount                    Int
-  deletedById                      String?
-  deletedAt                        DateTime?
-  deletionReason                   String?
-  createdAt                        DateTime      @default(now())
-  updatedAt                        DateTime      @updatedAt
+  id               String        @id @default(uuid())
+  orderNumber      String        @unique
+  dailyOrderNumber Int           @default(0)
+  tableId          String?
+  createdById      String
+  channel          OrderChannel
+  state            OrderState    @default(OPEN)
+  paymentStatus    PaymentStatus @default(UNPAID)
+  version          Int           @default(1)
+  discountKind     DiscountKind?
+  discountValue    Int?
+  discountAmount   Int           @default(0)
+  discountReason   String?
+  subtotalAmount   Int
+  totalAmount      Int
+  paidAmount       Int           @default(0)
+  balanceAmount    Int
+  deletedById      String?
+  deletedAt        DateTime?
+  deletionReason   String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  table              CafeTable?          @relation(fields: [tableId], references: [id])
-  createdBy          User                @relation("OrderCreatedBy", fields: [createdById], references: [id])
-  deletedBy          User?               @relation("OrderDeletedBy", fields: [deletedById], references: [id])
-  items              OrderItem[]
-  paymentSettlements PaymentSettlement[]
-  barTicketSnapshot  Json?
-  barTicketSequence  Int @default(0)
+  table                 CafeTable?             @relation(fields: [tableId], references: [id])
+  createdBy             User                   @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  deletedBy             User?                  @relation("OrderDeletedBy", fields: [deletedById], references: [id])
+  items                 OrderItem[]
+  paymentSettlements    PaymentSettlement[]
+  barTicketSnapshot     Json?
+  barTicketSequence     Int                    @default(0)
   barTicketPreparations BarTicketPreparation[]
+  orderConsumptions     OrderConsumption[]
 
   @@index([tableId, state])
   @@index([state, paymentStatus])
@@ -425,26 +490,28 @@ model DailyOrderSequence {
 }
 
 model OrderItem {
-  id                                 String        @id @default(uuid())
-  orderId                            String
-  productId                          String
-  productNameSnapshot                String
-  basePriceSnapshot                  Int
-  pricingModeSnapshot                ProductPricingMode @default(FIXED)
-  weightGrams                        Int?
-  quantity                           Int
-  note                               String?
-  discountKind                       DiscountKind?
-  discountValue                      Int?
-  discountAmount                     Int           @default(0)
-  discountReason                     String?
-  lineTotalAmount                    Int
-  displayOrder                       Int
+  id                  String             @id @default(uuid())
+  orderId             String
+  productId           String
+  productNameSnapshot String
+  basePriceSnapshot   Int
+  pricingModeSnapshot ProductPricingMode @default(FIXED)
+  weightGrams         Int?
+  quantity            Int
+  note                String?
+  discountKind        DiscountKind?
+  discountValue       Int?
+  discountAmount      Int                @default(0)
+  discountReason      String?
+  lineTotalAmount     Int
+  displayOrder        Int
 
-  order                 Order                  @relation(fields: [orderId], references: [id])
-  product               Product                @relation(fields: [productId], references: [id])
+  order                 Order                     @relation(fields: [orderId], references: [id])
+  product               Product                   @relation(fields: [productId], references: [id])
   options               OrderItemOption[]
   settlementAllocations SettlementAllocation[]
+  costingSnapshot       OrderItemCostingSnapshot?
+  consumptionItems      OrderConsumptionItem[]
 
   @@index([orderId, displayOrder])
   @@index([productId])
@@ -474,11 +541,12 @@ model PaymentSettlement {
   totalAmount    Int
   recordedAt     DateTime @default(now())
 
-  order       Order                  @relation(fields: [orderId], references: [id])
-  recordedBy  User                   @relation(fields: [recordedById], references: [id])
-  allocations SettlementAllocation[]
-  payments    Payment[]
-  reversal    SettlementReversal?
+  order             Order                  @relation(fields: [orderId], references: [id])
+  recordedBy        User                   @relation(fields: [recordedById], references: [id])
+  allocations       SettlementAllocation[]
+  payments          Payment[]
+  reversal          SettlementReversal?
+  orderConsumptions OrderConsumption[]
 
   @@unique([orderId, idempotencyKey])
   @@index([recordedById])
@@ -568,11 +636,11 @@ model AuditLog {
 }
 
 model CafeSettings {
-  id                              String   @id @default(uuid())
-  singletonKey                    Boolean  @unique @default(true)
-  tableSeatingLimitMinutes        Int?
-  updatedById                     String?
-  updatedAt                       DateTime @updatedAt
+  id                       String   @id @default(uuid())
+  singletonKey             Boolean  @unique @default(true)
+  tableSeatingLimitMinutes Int?
+  updatedById              String?
+  updatedAt                DateTime @updatedAt
 
   updatedBy User? @relation(fields: [updatedById], references: [id])
 
@@ -580,13 +648,393 @@ model CafeSettings {
 }
 
 model BarTicketPreparation {
-  id String @id @default(uuid())
-  sequence Int @unique @default(autoincrement())
-  orderId String
-  snapshot Json
+  id        String   @id @default(uuid())
+  sequence  Int      @unique @default(autoincrement())
+  orderId   String
+  snapshot  Json
   createdAt DateTime @default(now())
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@map("bar_ticket_preparations")
+}
+
+model StockItem {
+  id           String        @id @default(uuid())
+  name         String        @unique
+  archivedName String?
+  category     String
+  baseUnit     InventoryUnit
+  isActive     Boolean       @default(true)
+  archivedAt   DateTime?
+  version      Int           @default(1)
+  createdById  String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  createdBy         User                            @relation("StockItemCreatedBy", fields: [createdById], references: [id])
+  conversions       StockUnitConversion[]
+  balance           InventoryBalance?
+  purchaseLines     PurchaseLine[]
+  recipeComponents  RecipeComponent[]               @relation("StockRecipeComponents")
+  purchasedCostings ProductCostingConfiguration[]   @relation("PurchasedStockItem")
+  optionRules       ProductOptionCostingRule[]      @relation("OptionRuleStockItem")
+  combinationRules  ProductCombinationCostingRule[] @relation("CombinationRuleStockItem")
+  countLines        InventoryCountLine[]
+  movements         InventoryMovement[]
+
+  @@index([isActive, category, name])
+  @@map("stock_items")
+}
+
+model StockUnitConversion {
+  id                  String   @id @default(uuid())
+  stockItemId         String
+  label               String
+  baseQuantityPerPack Decimal  @db.Decimal(20, 6)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  stockItem     StockItem      @relation(fields: [stockItemId], references: [id])
+  purchaseLines PurchaseLine[]
+
+  @@unique([stockItemId, label])
+  @@index([stockItemId, isActive])
+  @@map("stock_unit_conversions")
+}
+
+model InventoryBalance {
+  stockItemId         String    @id
+  quantityOnHand      Decimal   @default(0) @db.Decimal(20, 6)
+  carryingValueAmount Int       @default(0)
+  trackingStartedAt   DateTime?
+  updatedAt           DateTime  @updatedAt
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id])
+
+  @@map("inventory_balances")
+}
+
+model Purchase {
+  id          String         @id @default(uuid())
+  status      PurchaseStatus @default(DRAFT)
+  receivedAt  DateTime
+  supplier    String?
+  version     Int            @default(1)
+  createdById String
+  postedAt    DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  createdBy User           @relation("PurchaseCreatedBy", fields: [createdById], references: [id])
+  lines     PurchaseLine[]
+
+  @@index([status, receivedAt, id])
+  @@map("purchases")
+}
+
+model PurchaseLine {
+  id                   String   @id @default(uuid())
+  purchaseId           String
+  stockItemId          String
+  conversionId         String?
+  purchaseUnitLabel    String
+  purchaseQuantity     Decimal  @db.Decimal(20, 6)
+  baseQuantityPerPack  Decimal  @db.Decimal(20, 6)
+  baseQuantityReceived Decimal  @db.Decimal(20, 6)
+  directCostAmount     Int
+  createdAt            DateTime @default(now())
+
+  purchase   Purchase             @relation(fields: [purchaseId], references: [id])
+  stockItem  StockItem            @relation(fields: [stockItemId], references: [id])
+  conversion StockUnitConversion? @relation(fields: [conversionId], references: [id], onDelete: Restrict)
+  movements  InventoryMovement[]
+
+  @@index([purchaseId])
+  @@index([stockItemId, purchaseId])
+  @@map("purchase_lines")
+}
+
+model Recipe {
+  id            String        @id @default(uuid())
+  name          String        @unique
+  ingredientName String
+  archivedName  String?
+  outputUnit    InventoryUnit
+  yieldQuantity Decimal       @db.Decimal(20, 6)
+  version       Int           @default(1)
+  isActive      Boolean       @default(true)
+  archivedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  components       RecipeComponent[]               @relation("RecipeComponents")
+  nestedIn         RecipeComponent[]               @relation("NestedRecipeComponents")
+  productCostings  ProductCostingConfiguration[]   @relation("ProductRecipe")
+  extrasCostings   ProductCostingConfiguration[]   @relation("ProductExtrasRecipe")
+  optionRules      ProductOptionCostingRule[]      @relation("OptionRuleRecipe")
+  combinationRules ProductCombinationCostingRule[] @relation("CombinationRuleRecipe")
+
+  @@index([isActive, name])
+  @@map("recipes")
+}
+
+model RecipeComponent {
+  id             String              @id @default(uuid())
+  recipeId       String
+  componentKey   String
+  label          String
+  sourceKind     RecipeComponentKind
+  stockItemId    String?
+  nestedRecipeId String?
+  quantity       Decimal             @db.Decimal(20, 6)
+  displayOrder   Int                 @default(0)
+
+  recipe       Recipe     @relation("RecipeComponents", fields: [recipeId], references: [id])
+  stockItem    StockItem? @relation("StockRecipeComponents", fields: [stockItemId], references: [id], onDelete: Restrict)
+  nestedRecipe Recipe?    @relation("NestedRecipeComponents", fields: [nestedRecipeId], references: [id], onDelete: Restrict)
+
+  @@unique([recipeId, componentKey])
+  @@index([stockItemId])
+  @@index([nestedRecipeId])
+  @@map("recipe_components")
+}
+
+model ProductCostingConfiguration {
+  id                   String             @id @default(uuid())
+  productId            String             @unique
+  mode                 ProductCostingMode
+  recipeId             String?
+  recipeQuantity       Decimal?           @db.Decimal(20, 6)
+  purchasedStockItemId String?
+  purchasedQuantity    Decimal?           @db.Decimal(20, 6)
+  extrasRecipeId       String?
+  version              Int                @default(1)
+  updatedById          String
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  product            Product    @relation(fields: [productId], references: [id])
+  recipe             Recipe?    @relation("ProductRecipe", fields: [recipeId], references: [id], onDelete: Restrict)
+  purchasedStockItem StockItem? @relation("PurchasedStockItem", fields: [purchasedStockItemId], references: [id], onDelete: Restrict)
+  extrasRecipe       Recipe?    @relation("ProductExtrasRecipe", fields: [extrasRecipeId], references: [id], onDelete: Restrict)
+  updatedBy          User       @relation("CostingConfigurationUpdatedBy", fields: [updatedById], references: [id])
+
+  @@index([recipeId])
+  @@index([purchasedStockItemId])
+  @@map("product_costing_configurations")
+}
+
+model ProductOptionCostingRule {
+  id                     String            @id @default(uuid())
+  productId              String
+  optionId               String
+  action                 CostingRuleAction
+  componentKey           String
+  label                  String?
+  replacementStockItemId String?
+  replacementRecipeId    String?
+  quantity               Decimal?          @db.Decimal(20, 6)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  product              Product    @relation(fields: [productId], references: [id])
+  option               Option     @relation(fields: [optionId], references: [id])
+  replacementStockItem StockItem? @relation("OptionRuleStockItem", fields: [replacementStockItemId], references: [id], onDelete: Restrict)
+  replacementRecipe    Recipe?    @relation("OptionRuleRecipe", fields: [replacementRecipeId], references: [id], onDelete: Restrict)
+
+  @@unique([productId, optionId, componentKey])
+  @@index([optionId])
+  @@map("product_option_costing_rules")
+}
+
+model ProductCostingCombination {
+  id        String   @id @default(uuid())
+  productId String
+  name      String
+  version   Int      @default(1)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product                         @relation(fields: [productId], references: [id])
+  options CostingCombinationOption[]
+  rules   ProductCombinationCostingRule[]
+
+  @@unique([productId, name])
+  @@index([productId, isActive])
+  @@map("product_costing_combinations")
+}
+
+model CostingCombinationOption {
+  combinationId String
+  optionId      String
+
+  combination ProductCostingCombination @relation(fields: [combinationId], references: [id])
+  option      Option                    @relation(fields: [optionId], references: [id])
+
+  @@id([combinationId, optionId])
+  @@index([optionId])
+  @@map("costing_combination_options")
+}
+
+model ProductCombinationCostingRule {
+  id                     String            @id @default(uuid())
+  combinationId          String
+  action                 CostingRuleAction
+  componentKey           String
+  label                  String?
+  replacementStockItemId String?
+  replacementRecipeId    String?
+  quantity               Decimal?          @db.Decimal(20, 6)
+
+  combination          ProductCostingCombination @relation(fields: [combinationId], references: [id])
+  replacementStockItem StockItem?                @relation("CombinationRuleStockItem", fields: [replacementStockItemId], references: [id], onDelete: Restrict)
+  replacementRecipe    Recipe?                   @relation("CombinationRuleRecipe", fields: [replacementRecipeId], references: [id], onDelete: Restrict)
+
+  @@unique([combinationId, componentKey])
+  @@map("product_combination_costing_rules")
+}
+
+model InventoryCount {
+  id          String               @id @default(uuid())
+  kind        InventoryCountKind
+  status      InventoryCountStatus @default(DRAFT)
+  version     Int                  @default(1)
+  createdById String
+  postedAt    DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  createdBy              User                         @relation("InventoryCountCreatedBy", fields: [createdById], references: [id])
+  lines                  InventoryCountLine[]
+  reconciledConsumptions InventoryCountPendingOrder[]
+
+  @@index([status, createdAt, id])
+  @@map("inventory_counts")
+}
+
+model InventoryCountLine {
+  id                    String   @id @default(uuid())
+  countId               String
+  stockItemId           String
+  expectedQuantity      Decimal? @db.Decimal(20, 6)
+  observedQuantity      Decimal  @db.Decimal(20, 6)
+  differenceQuantity    Decimal? @db.Decimal(20, 6)
+  expectedValueAmount   Int?
+  observedValueAmount   Int
+  differenceValueAmount Int?
+
+  count     InventoryCount     @relation(fields: [countId], references: [id])
+  stockItem StockItem          @relation(fields: [stockItemId], references: [id])
+  movement  InventoryMovement?
+
+  @@unique([countId, stockItemId])
+  @@index([stockItemId])
+  @@map("inventory_count_lines")
+}
+
+model InventoryCountPendingOrder {
+  countId            String
+  orderConsumptionId String
+  reconciledAt       DateTime @default(now())
+
+  count            InventoryCount   @relation(fields: [countId], references: [id])
+  orderConsumption OrderConsumption @relation(fields: [orderConsumptionId], references: [id])
+
+  @@id([countId, orderConsumptionId])
+  @@index([orderConsumptionId])
+  @@map("inventory_count_pending_orders")
+}
+
+model InventoryMovement {
+  id                    String                @id @default(uuid())
+  stockItemId           String
+  kind                  InventoryMovementKind
+  quantityDelta         Decimal               @db.Decimal(20, 6)
+  valueDeltaAmount      Int
+  purchaseLineId        String?
+  orderConsumptionId    String?
+  inventoryCountLineId  String?               @unique
+  compensatesMovementId String?               @unique
+  createdById           String
+  occurredAt            DateTime
+  recordedAt            DateTime              @default(now())
+
+  stockItem          StockItem           @relation(fields: [stockItemId], references: [id])
+  purchaseLine       PurchaseLine?       @relation(fields: [purchaseLineId], references: [id], onDelete: Restrict)
+  orderConsumption   OrderConsumption?   @relation(fields: [orderConsumptionId], references: [id], onDelete: Restrict)
+  inventoryCountLine InventoryCountLine? @relation(fields: [inventoryCountLineId], references: [id], onDelete: Restrict)
+  compensates        InventoryMovement?  @relation("InventoryMovementCompensation", fields: [compensatesMovementId], references: [id], onDelete: Restrict)
+  compensatedBy      InventoryMovement?  @relation("InventoryMovementCompensation")
+  createdBy          User                @relation("InventoryMovementCreatedBy", fields: [createdById], references: [id])
+
+  @@index([stockItemId, recordedAt, id])
+  @@index([orderConsumptionId, kind])
+  @@index([purchaseLineId])
+  @@map("inventory_movements")
+}
+
+model OrderItemCostingSnapshot {
+  id                   String   @id @default(uuid())
+  orderItemId          String   @unique
+  configurationVersion Int?
+  snapshot             Json
+  isComplete           Boolean  @default(false)
+  missingReasons       Json?
+  updatedAt            DateTime @updatedAt
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+
+  @@map("order_item_costing_snapshots")
+}
+
+model OrderConsumption {
+  id                    String                 @id @default(uuid())
+  orderId               String
+  cycleNumber           Int
+  paymentSettlementId   String
+  status                OrderConsumptionStatus @default(PENDING)
+  recognizedById        String
+  recognizedAt          DateTime
+  theoreticalCogsAmount Int?
+  knownCogsAmount       Int                    @default(0)
+  isCostComplete        Boolean                @default(false)
+  costSnapshot          Json
+  resolvedAt            DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  order             Order                        @relation(fields: [orderId], references: [id])
+  paymentSettlement PaymentSettlement            @relation(fields: [paymentSettlementId], references: [id])
+  recognizedBy      User                         @relation("OrderConsumptionRecognizedBy", fields: [recognizedById], references: [id])
+  items             OrderConsumptionItem[]
+  movements         InventoryMovement[]
+  countLinks        InventoryCountPendingOrder[]
+
+  @@unique([orderId, cycleNumber])
+  @@unique([orderId, paymentSettlementId])
+  @@index([status, recognizedAt, id])
+  @@map("order_consumptions")
+}
+
+model OrderConsumptionItem {
+  id                    String  @id @default(uuid())
+  orderConsumptionId    String
+  orderItemId           String
+  productNameSnapshot   String
+  quantity              Int
+  weightGrams           Int?
+  theoreticalCogsAmount Int?
+  knownCogsAmount       Int     @default(0)
+  isCostComplete        Boolean @default(false)
+  costSnapshot          Json
+
+  orderConsumption OrderConsumption @relation(fields: [orderConsumptionId], references: [id])
+  orderItem        OrderItem        @relation(fields: [orderItemId], references: [id])
+
+  @@unique([orderConsumptionId, orderItemId])
+  @@index([orderItemId])
+  @@map("order_consumption_items")
 }
