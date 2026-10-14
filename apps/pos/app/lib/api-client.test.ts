@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acknowledgeBarTicket, readWaiterCalls } from "./api-client";
+import { acknowledgeBarTicket, createInventoryPurchase, readWaiterCalls } from "./api-client";
 
 const authenticationError = {
   error: {
@@ -33,6 +33,16 @@ function jsonResponse(body: unknown, status = 200) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("inventory error transport", () => {
+  it("preserves field details and the support reference without repeating a failed write", async () => {
+    const details = [{ path: "lines.0.purchaseQuantity", code: "quantity_precision", message: "Use an exact converted quantity." }];
+    const fetch = vi.fn().mockResolvedValue(jsonResponse({ error: { code: "BUSINESS_RULE_VIOLATION", message: "Invalid converted quantity", details, requestId: "purchase-validation-123", timestamp: "2026-10-14T08:00:00.000Z" } }, 422));
+    vi.stubGlobal("fetch", fetch);
+    expect(await createInventoryPurchase({ lines: [] })).toMatchObject({ ok: false, error: { kind: "response", status: 422, details, requestId: "purchase-validation-123" } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("POS API session recovery", () => {
