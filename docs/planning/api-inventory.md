@@ -185,6 +185,54 @@ query limit does not delete or expire older orders or payment records.
 | `GET`  | `/api/v1/admin/audit-log`                         | Manager | 6     | Search bounded retained audit history using safe fields only.                                                                  |
 | `POST` | `/api/v1/admin/settlements/:settlementId/reverse` | Manager | 6     | Reverse one posted settlement with a required reason; never edit its original tenders or allocations.                         |
 
+## Manager Inventory, Costing, And Gross-Profit Workflows
+
+Inventory endpoints are approved by scope update and ADR 0011. Configuration,
+inventory values, and reports remain Manager-only. Posting routes require an
+`Idempotency-Key`; versioned edits require the expected version. Each route
+must have shared request/response schemas and generated OpenAPI coverage in the
+implementation change.
+
+| Method | Path | Access | Stage | Purpose |
+| ------ | ---- | ------ | ----- | ------- |
+| `GET` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | List stock items, base units, pack conversions, tracking state, and current valuation. |
+| `POST` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | Create a stock item with explicit base unit and item-specific pack conversions. |
+| `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager | 12 | Version-check and update a stock item's editable configuration. |
+| `POST` | `/api/v1/admin/inventory/stock-items/:stockItemId/archive` | Manager | 12 | Archive an unused or referenced item without deleting ledger history. |
+| `GET` | `/api/v1/admin/inventory/purchases` | Manager | 12 | List bounded draft and posted received purchases. |
+| `POST` | `/api/v1/admin/inventory/purchases` | Manager | 12 | Create a received-purchase draft with supplier text and itemized direct costs. |
+| `PATCH` | `/api/v1/admin/inventory/purchases/:purchaseId` | Manager | 12 | Version-check edits to a draft purchase. |
+| `POST` | `/api/v1/admin/inventory/purchases/:purchaseId/post` | Manager | 12 | Post a receipt once, append movements, update moving averages, and retry eligible pending orders. |
+| `POST` | `/api/v1/admin/inventory/purchases/:purchaseId/returns` | Manager | 12 | Record a dated stock return as a compensating ledger event. |
+| `GET` | `/api/v1/admin/inventory/recipes` | Manager | 12 | List precise recipe variants, their shared ingredient names, and measured named components. |
+| `POST` | `/api/v1/admin/inventory/recipes` | Manager | 12 | Create a precise recipe variant and shared ingredient name after validating component units and cycle-free references. |
+| `PATCH` | `/api/v1/admin/inventory/recipes/:recipeId` | Manager | 12 | Version-check a precise recipe and shared ingredient name edit without changing saved order snapshots. |
+| `POST` | `/api/v1/admin/inventory/recipes/:recipeId/archive` | Manager | 12 | Archive a recipe while retaining referenced configurations and history. |
+| `GET` | `/api/v1/admin/products/:productId/costing` | Manager | 12 | Read a product's recipe or purchased-item costing configuration and option rules. |
+| `PUT` | `/api/v1/admin/products/:productId/costing` | Manager | 12 | Version-check and replace a product's costing configuration and option rules. |
+| `POST` | `/api/v1/admin/products/:productId/costing/preview` | Manager | 12 | Resolve selected options and return known ingredient quantities, cost, and incompleteness reasons. |
+| `GET` | `/api/v1/admin/inventory/counts` | Manager | 12 | List bounded physical counts and their posting/reconciliation status. |
+| `POST` | `/api/v1/admin/inventory/counts` | Manager | 12 | Create an opening or physical-count draft with observed quantities and values. |
+| `PATCH` | `/api/v1/admin/inventory/counts/:countId` | Manager | 12 | Version-check edits to a draft count. |
+| `POST` | `/api/v1/admin/inventory/counts/:countId/post` | Manager | 12 | Post a count once, explicitly reconcile selected pending orders, and establish counted balances. |
+| `GET` | `/api/v1/admin/inventory/movements` | Manager | 12 | Read bounded append-only inventory history with source and compensating links. |
+| `GET` | `/api/v1/admin/inventory/pending-consumption` | Manager | 12 | Read whole orders awaiting stock or count reconciliation. |
+| `GET` | `/api/v1/admin/reports/gross-profit` | Manager | 13 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, and compatible inventory consumption estimates. |
+
+Inventory routes declare `400`, `401`, `403`, `404`, `409`, `422`, `429`,
+`500`, and `503` error envelopes in their runtime response schemas. Validation
+retains safe field paths; a stale inventory version includes the current version
+in details when known. Blank supplier strings are invalid; use `null` or omit the field.
+Stored quantities fit `DECIMAL(20,6)`, and package multiplication must be exact
+to six decimal places. Inventory write conflicts, recognized range/constraint
+failures, dependency failures, and unrecognized failures follow the shared
+error mapping in `request-response-conventions.md`.
+
+Opening counts initialize only the selected untracked stock items. Previously
+posted opening counts for other items do not block new items; creation,
+editing, and posting reject attempts to reopen an already tracked item.
+Physical counts adjust only their selected tracked items.
+
 ## Realtime Events
 
 WebSocket transport and authentication details are deferred to the
@@ -212,8 +260,9 @@ clients must refetch affected API resources after reconnecting.
   records, cookies, terminal secrets, or unsafe audit snapshots.
 - The table-context exchange and waiter-call commands are the only approved public writes
   in the initial POS scope. Any additional public write, customer ordering, online payment,
-  inventory, multi-branch behavior, or order/payment-model change requires an
-  ADR and scope update before it is added here.
+  multi-branch behavior, or order/payment-model change requires an ADR and scope
+  update before it is added here. Inventory and gross-profit work is the specific
+  approved exception documented by ADR 0011 and `inventory-costing.md`.
 - Add a route to this inventory and its generated OpenAPI contract in the same
   change that implements it. Remove or replace a planned route only through a
   planning update that preserves the approved scope.
