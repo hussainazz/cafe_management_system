@@ -1,6 +1,7 @@
 import type { FastifyError, FastifyInstance, FastifyRequest } from "fastify";
-import { Prisma } from "../../generated/prisma/client.js";
 import { ZodError } from "zod";
+import { databaseFailure } from "./database-failure.js";
+import { safeErrorDiagnostics } from "./database-diagnostics.js";
 import {
   ApplicationError,
   ErrorCodes,
@@ -111,7 +112,12 @@ export function registerErrorHandling(app: FastifyInstance): void {
   });
 
   app.setErrorHandler((error, request, reply) => {
+    const logFailure = () => request.log.error(
+      { ...safeErrorDiagnostics(error), requestId: request.id, method: request.method, route: request.routeOptions.url },
+      "Request failed",
+    );
     if (error instanceof ApplicationError) {
+      if (error.statusCode >= 500) logFailure();
       return reply
         .status(error.statusCode)
         .send(errorResponse(request, error.code, error.message, error.details));
@@ -132,34 +138,11 @@ export function registerErrorHandling(app: FastifyInstance): void {
       );
     }
 
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === "P2025") {
-        return reply.status(404).send(
-          errorResponse(
-            request,
-            ErrorCodes.NOT_FOUND,
-            "The requested resource was not found.",
-          ),
-        );
-      }
-      if (error.code === "P2002") {
-        return reply.status(409).send(
-          errorResponse(
-            request,
-            ErrorCodes.CONFLICT,
-            "A resource with the same unique value already exists.",
-          ),
-        );
-      }
-      if (error.code === "P2003" || error.code === "P2014") {
-        return reply.status(422).send(
-          errorResponse(
-            request,
-            ErrorCodes.BUSINESS_RULE_VIOLATION,
-            "The request references a missing or protected resource.",
-          ),
-        );
-      }
+    const databaseError = databaseFailure(error);
+    if (databaseError) {
+      // Database rejections remain diagnosable even when mapped to a safe 4xx.
+      logFailure();
+      return reply.status(databaseError.statusCode).send(errorResponse(request, databaseError.code, databaseError.message, databaseError.details));
     }
 
     const fastifyError = error as FastifyError;
@@ -184,10 +167,7 @@ export function registerErrorHandling(app: FastifyInstance): void {
     const { code, message } = fallbackError(statusCode);
 
     if (statusCode >= 500) {
-      request.log.error(
-        { errName: error instanceof Error ? error.name : "UnknownError", requestId: request.id },
-        "Unhandled request error",
-      );
+      logFailure();
     }
 
     return reply.status(statusCode).send(errorResponse(request, code, message));
