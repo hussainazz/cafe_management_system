@@ -24,6 +24,7 @@ import { requireRole } from "../auth/permissions.js";
 
 import { preparationItems, type PreparationItem } from "./bar-ticket.js";
 import { allocationAmountForQuantity, calculatedDiscount, catalogSaleDiscountAmount, discountedFinalAmount, paymentStatusForBalance } from "./order-calculations.js";
+import { cancelAndRestoreOrderInventory, recognizeOrderFullPayment, updateOrderCostingSnapshots } from "../inventory/inventory.service.js";
 
 const CREATE_ORDER_OPERATION = "CREATE_ORDER";
 const RECORD_SETTLEMENT_OPERATION = "RECORD_SETTLEMENT";
@@ -445,6 +446,7 @@ export async function createOrder(
           },
         },
       });
+      await updateOrderCostingSnapshots(transaction, created.id);
       const result = toCreatedOrder(createdWithItems);
       await transaction.auditLog.create({
         data: {
@@ -724,6 +726,7 @@ export async function updateOrder(
         await transaction.orderItemOption.deleteMany({
           where: { orderItem: { orderId } },
         });
+        await transaction.orderItemCostingSnapshot.deleteMany({ where: { orderItem: { orderId } } });
         await transaction.orderItem.deleteMany({ where: { orderId } });
       }
       await transaction.orderItem.createMany({ data: prepared.map(({ options, ...item }, index) => ({ ...item, id: preparedIds[index]!, orderId })) });
@@ -772,6 +775,9 @@ export async function updateOrder(
     const paymentStatus = paymentStatusForBalance(order.paidAmount, balanceAmount);
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    if (input.items || input.addItems || input.itemUpdates?.some((change) => change.quantity !== undefined || change.weightGrams !== undefined)) {
+      await updateOrderCostingSnapshots(transaction, orderId);
+    }
     await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, afterSnapshot: { version: input.expectedVersion + 1 } } });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
@@ -843,6 +849,7 @@ export async function deleteOrder(
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
 
     const deletedAt = new Date();
+    await cancelAndRestoreOrderInventory(transaction, orderId, actor.id, deletedAt);
     const updated = await transaction.order.updateMany({
       where: { id: orderId, state: { in: [OrderState.OPEN, OrderState.CLOSED] }, version: input.expectedVersion },
       data: {
@@ -985,6 +992,7 @@ export async function recordSettlement(
         data: { paidAmount, balanceAmount, paymentStatus, ...(closesOrder ? { state: OrderState.CLOSED } : {}), version: { increment: 1 } },
       });
       if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+      if (closesOrder) await recognizeOrderFullPayment(transaction, orderId, settlement.id, actor.id, recordedAt);
       if (closesOrder && current.channel === OrderChannel.TABLE && current.tableId) {
         await transaction.cafeTable.update({
           where: { id: current.tableId },
@@ -1037,8 +1045,7 @@ export async function recordSettlement(
 
 export async function reverseSettlement(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string, input: ReverseSettlementRequest, requestId: string) {
   requireRole(actor, ["MANAGER"]);
-  throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Settlement reversal is retired; use historical payment edit.");
-  /* istanbul ignore next */ return prisma.$transaction(async (transaction) => {
+  return prisma.$transaction(async (transaction) => {
     const tableAssignment = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
     await lockOperationalKeys(transaction, ["order:" + orderId, ...(tableAssignment?.channel === OrderChannel.TABLE && tableAssignment.tableId ? ["table:" + tableAssignment.tableId] : [])]);
     const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
@@ -1058,6 +1065,7 @@ export async function reverseSettlement(prisma: PrismaClient, actor: Authenticat
     }
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion }, data: { paidAmount, balanceAmount, paymentStatus, ...(reopensOrder ? { state: OrderState.OPEN } : {}), version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    if (paymentStatus !== PaymentStatus.PAID) await cancelAndRestoreOrderInventory(transaction, orderId, actor.id, new Date());
     if (reopensOrder && order.channel === OrderChannel.TABLE && order.tableId) {
       await transaction.cafeTable.update({
         where: { id: order.tableId },
