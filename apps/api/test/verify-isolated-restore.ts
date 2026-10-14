@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -34,7 +34,7 @@ function run(command: string, args: string[], cwd = apiRoot, env: NodeJS.Process
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 }
 
-async function seedProductionLikeFixture(): Promise<{ orderId: string; settlementId: string; userId: string }> {
+async function seedProductionLikeFixture(): Promise<{ orderId: string; settlementId: string; userId: string; stockItemId: string; inventoryCountId: string }> {
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
   try {
     const user = await prisma.user.create({
@@ -92,13 +92,44 @@ async function seedProductionLikeFixture(): Promise<{ orderId: string; settlemen
         afterSnapshot: { orderId: order.id, totalAmount: order.totalAmount, paymentStatus: "PAID" },
       },
     });
-    return { orderId: order.id, settlementId: settlement.id, userId: user.id };
+    const stockItem = await prisma.stockItem.create({
+      data: {
+        name: "Restore drill inventory",
+        category: "Ingredients",
+        baseUnit: "GRAM",
+        createdById: user.id,
+        balance: { create: { quantityOnHand: "125.5", carryingValueAmount: 25_100, trackingStartedAt: new Date("2026-10-07T08:00:00.000Z") } },
+      },
+    });
+    const inventoryCount = await prisma.inventoryCount.create({
+      data: {
+        kind: "OPENING",
+        status: "POSTED",
+        version: 2,
+        createdById: user.id,
+        postedAt: new Date("2026-10-07T08:00:00.000Z"),
+        lines: { create: [{ stockItemId: stockItem.id, observedQuantity: "125.5", observedValueAmount: 25_100 }] },
+      },
+      include: { lines: true },
+    });
+    const inventoryCountLine = inventoryCount.lines[0];
+    if (!inventoryCountLine) throw new Error("Restore drill inventory count line was not created.");
+    await prisma.inventoryMovement.create({ data: {
+      stockItemId: stockItem.id,
+      kind: "OPENING_COUNT",
+      quantityDelta: "125.5",
+      valueDeltaAmount: 25_100,
+      inventoryCountLineId: inventoryCountLine.id,
+      createdById: user.id,
+      occurredAt: new Date("2026-10-07T08:00:00.000Z"),
+    } });
+    return { orderId: order.id, settlementId: settlement.id, userId: user.id, stockItemId: stockItem.id, inventoryCountId: inventoryCount.id };
   } finally {
     await prisma.$disconnect();
   }
 }
 
-async function verifyRestoredFixture(expected: { orderId: string; settlementId: string; userId: string }): Promise<number> {
+async function verifyRestoredFixture(expected: { orderId: string; settlementId: string; userId: string; stockItemId: string; inventoryCountId: string }): Promise<number> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
@@ -110,11 +141,15 @@ async function verifyRestoredFixture(expected: { orderId: string; settlementId: 
          (SELECT count(*)::int FROM "payment_settlements" WHERE id = $2 AND "totalAmount" = 125000) AS settlements,
          (SELECT count(*)::int FROM "payments" p JOIN "payment_settlements" s ON s.id = p."settlementId" WHERE s.id = $2 AND p.method = 'CARD_TERMINAL' AND p.amount = 125000) AS tenders,
          (SELECT count(*)::int FROM "audit_logs" WHERE "entityId" = $2 AND operation = 'RECORD_SETTLEMENT') AS audit_entries,
-         (SELECT count(*)::int FROM "users" WHERE id = $3) AS users`,
-      [expected.orderId, expected.settlementId, expected.userId],
+         (SELECT count(*)::int FROM "users" WHERE id = $3) AS users,
+         (SELECT count(*)::int FROM "stock_items" WHERE id = $4) AS stock_items,
+         (SELECT count(*)::int FROM "inventory_movements" WHERE "stockItemId" = $4 AND kind = 'OPENING_COUNT' AND "quantityDelta" = 125.5 AND "valueDeltaAmount" = 25100) AS inventory_movements,
+         (SELECT count(*)::int FROM "inventory_balances" WHERE "stockItemId" = $4 AND "quantityOnHand" = 125.5 AND "carryingValueAmount" = 25100) AS inventory_balances,
+         (SELECT count(*)::int FROM "inventory_counts" c JOIN "inventory_count_lines" l ON l."countId" = c.id WHERE c.id = $5 AND c.kind = 'OPENING' AND c.status = 'POSTED' AND l."stockItemId" = $4 AND l."observedQuantity" = 125.5 AND l."observedValueAmount" = 25100) AS inventory_counts`,
+      [expected.orderId, expected.settlementId, expected.userId, expected.stockItemId, expected.inventoryCountId],
     );
     const row = result.rows[0];
-    if (row.active_tables !== 15 || row.paid_orders !== 1 || row.settlements !== 1 || row.tenders !== 1 || row.audit_entries !== 1 || row.users !== 1) {
+    if (row.active_tables !== 15 || row.paid_orders !== 1 || row.settlements !== 1 || row.tenders !== 1 || row.audit_entries !== 1 || row.users !== 1 || row.stock_items !== 1 || row.inventory_movements !== 1 || row.inventory_balances !== 1 || row.inventory_counts !== 1) {
       throw new Error(`Restored production-like fixture counts did not match: ${JSON.stringify(row)}`);
     }
     return row.migrations;
@@ -153,9 +188,10 @@ try {
     throw new Error("Prisma migrate deploy did not confirm that the restored schema is current.");
   }
   const migrationCount = await verifyRestoredFixture(fixture);
-  if (migrationCount !== 30) throw new Error(`Expected 30 applied migrations after restore, found ${migrationCount}.`);
+  const expectedMigrationCount = (await readdir(join(apiRoot, "prisma", "migrations"), { withFileTypes: true })).filter((entry) => entry.isDirectory()).length;
+  if (migrationCount !== expectedMigrationCount) throw new Error(`Expected ${expectedMigrationCount} applied migrations after restore, found ${migrationCount}.`);
   restored = true;
-  console.info("Isolated restore rehearsal passed: custom backup validated, test database restored, 30 migrations current, and paid order/tender/audit fixture preserved.");
+  console.info(`Isolated restore rehearsal passed: custom backup validated, test database restored, ${migrationCount} migrations current, and paid order/tender/audit/inventory fixtures preserved.`);
 } finally {
   if (!restored) {
     run("pnpm", ["--filter", "@cafe/api", "test:db:reset"], workspaceRoot, {
