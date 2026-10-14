@@ -819,3 +819,460 @@ export function calculateTableEta(input: TableEtaInput): TableEta {
 
 export const AcknowledgeBarTicketRequestSchema = z.object({ preparationId: z.string().uuid() });
 export const AcknowledgeBarTicketResponseSchema = z.object({ data: z.object({ acknowledged: z.literal(true) }), meta: z.object({ requestId: z.string() }) });
+
+// Inventory quantities and fractional unit costs stay decimal strings across
+// the API boundary. Integer Toman amounts remain JavaScript-safe integers.
+export const InventoryUnitSchema = z.enum(["GRAM", "MILLILITER", "PIECE"]);
+export const InventoryDecimalSchema = z
+  .string()
+  .max(21)
+  .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/)
+  .refine((value) => value.split(".")[0]!.length <= 14, "Quantity exceeds the supported range.")
+  .refine((value) => !/^0(?:\.0{1,6})?$/.test(value), "Quantity must be greater than zero.");
+export const InventoryNonNegativeDecimalSchema = z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/);
+export const InventoryMoneySchema = z.number().int().min(0).max(2_147_483_647);
+export const InventoryVersionSchema = z.number().int().positive();
+export const InventoryListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().min(1).max(512).optional(),
+}).strict();
+export const StockItemPathSchema = z.object({ stockItemId: z.uuid() }).strict();
+export const PurchasePathSchema = z.object({ purchaseId: z.uuid() }).strict();
+export const RecipePathSchema = z.object({ recipeId: z.uuid() }).strict();
+export const ProductCostingPathSchema = z.object({ productId: z.uuid() }).strict();
+export const InventoryCountPathSchema = z.object({ countId: z.uuid() }).strict();
+export const ArchiveInventoryEntityRequestSchema = z.object({ expectedVersion: InventoryVersionSchema }).strict();
+
+export const StockUnitConversionInputSchema = z.object({
+  id: z.uuid().optional(),
+  label: z.string().trim().min(1).max(120),
+  baseQuantityPerPack: InventoryDecimalSchema,
+  isActive: z.boolean().default(true),
+}).strict();
+
+export const CreateStockItemRequestSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  category: z.string().trim().min(1).max(120),
+  baseUnit: InventoryUnitSchema,
+  conversions: z.array(StockUnitConversionInputSchema).max(50),
+}).strict();
+
+export const UpdateStockItemRequestSchema = CreateStockItemRequestSchema.partial().extend({
+  expectedVersion: InventoryVersionSchema,
+}).strict().refine((input) => Object.keys(input).some((key) => key !== "expectedVersion"), {
+  message: "At least one stock-item field must be updated.",
+});
+
+export const InventoryBalanceSchema = z.object({
+  quantityOnHand: InventoryNonNegativeDecimalSchema.nullable(),
+  carryingValueAmount: InventoryMoneySchema.nullable(),
+  movingAverageCostPerBaseUnit: InventoryNonNegativeDecimalSchema.nullable(),
+  trackingStartedAt: z.iso.datetime().nullable(),
+});
+
+export const StockItemSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  category: z.string(),
+  baseUnit: InventoryUnitSchema,
+  isActive: z.boolean(),
+  archivedAt: z.iso.datetime().nullable(),
+  version: InventoryVersionSchema,
+  conversions: z.array(StockUnitConversionInputSchema.extend({ id: z.uuid() })),
+  balance: InventoryBalanceSchema,
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+
+export const StockItemsResponseSchema = z.object({
+  data: z.object({ stockItems: z.array(StockItemSchema) }),
+  meta: z.object({ requestId: z.string() }),
+});
+export const StockItemResponseSchema = z.object({ data: StockItemSchema, meta: z.object({ requestId: z.string() }) });
+export type StockItemInput = z.infer<typeof CreateStockItemRequestSchema>;
+export type StockItemUpdate = z.infer<typeof UpdateStockItemRequestSchema>;
+
+export const PurchaseLineInputSchema = z.object({
+  stockItemId: z.uuid(),
+  conversionId: z.uuid().nullable(),
+  purchaseUnitLabel: z.string().trim().min(1).max(120),
+  purchaseQuantity: InventoryDecimalSchema,
+  directCostAmount: InventoryMoneySchema,
+}).strict();
+
+export const CreatePurchaseRequestSchema = z.object({
+  receivedAt: z.iso.datetime(),
+  supplier: z.string().trim().min(1).max(240).nullable().optional(),
+  lines: z.array(PurchaseLineInputSchema).min(1).max(200),
+}).strict();
+
+export const UpdatePurchaseRequestSchema = CreatePurchaseRequestSchema.partial().extend({
+  expectedVersion: InventoryVersionSchema,
+}).strict().refine((input) => Object.keys(input).some((key) => key !== "expectedVersion"), {
+  message: "At least one purchase field must be updated.",
+});
+
+export const PostPurchaseRequestSchema = z.object({ expectedVersion: InventoryVersionSchema }).strict();
+export const PurchaseReturnRequestSchema = z.object({
+  purchaseLineId: z.uuid(),
+  baseQuantity: InventoryDecimalSchema,
+  occurredAt: z.iso.datetime(),
+  reason: z.string().trim().min(1).max(500),
+}).strict();
+
+export const PurchaseLineSchema = PurchaseLineInputSchema.extend({
+  id: z.uuid(),
+  baseQuantityPerPack: InventoryNonNegativeDecimalSchema,
+  baseQuantityReceived: InventoryNonNegativeDecimalSchema,
+});
+
+export const PurchaseSchema = z.object({
+  id: z.uuid(),
+  status: z.enum(["DRAFT", "POSTED"]),
+  receivedAt: z.iso.datetime(),
+  supplier: z.string().nullable(),
+  version: InventoryVersionSchema,
+  postedAt: z.iso.datetime().nullable(),
+  lines: z.array(PurchaseLineSchema),
+});
+
+export const PurchaseResponseSchema = z.object({ data: PurchaseSchema, meta: z.object({ requestId: z.string() }) });
+export const PurchasesResponseSchema = z.object({ data: z.object({ purchases: z.array(PurchaseSchema), page: z.object({ limit: z.number().int(), nextCursor: z.string().nullable(), hasMore: z.boolean() }) }), meta: z.object({ requestId: z.string() }) });
+export type PurchaseInput = z.infer<typeof CreatePurchaseRequestSchema>;
+export type PurchaseUpdate = z.infer<typeof UpdatePurchaseRequestSchema>;
+
+const RecipeComponentInputSchema = z.discriminatedUnion("sourceKind", [
+  z.object({
+    componentKey: z.string().trim().min(1).max(120),
+    sourceKind: z.literal("STOCK_ITEM"),
+    stockItemId: z.uuid(),
+    quantity: InventoryDecimalSchema,
+    displayOrder: z.number().int().min(0),
+  }).strict(),
+  z.object({
+    componentKey: z.string().trim().min(1).max(120),
+    sourceKind: z.literal("RECIPE"),
+    nestedRecipeId: z.uuid(),
+    quantity: InventoryDecimalSchema,
+    displayOrder: z.number().int().min(0),
+  }).strict(),
+]);
+
+export const RecipeInputSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  ingredientName: z.string().trim().min(1).max(160).optional(),
+  outputUnit: InventoryUnitSchema,
+  yieldQuantity: InventoryDecimalSchema,
+  components: z.array(RecipeComponentInputSchema).min(1).max(200),
+}).strict();
+
+export const UpdateRecipeRequestSchema = RecipeInputSchema.extend({ expectedVersion: InventoryVersionSchema }).strict();
+export const CreateRecipeRequestSchema = RecipeInputSchema;
+export const RecipeComponentSchema = z.discriminatedUnion("sourceKind", [
+  z.object({
+    id: z.uuid(),
+    componentKey: z.string(),
+    label: z.string(),
+    sourceKind: z.literal("STOCK_ITEM"),
+    stockItemId: z.uuid(),
+    quantity: InventoryNonNegativeDecimalSchema,
+    displayOrder: z.number().int().nonnegative(),
+  }),
+  z.object({
+    id: z.uuid(),
+    componentKey: z.string(),
+    label: z.string(),
+    sourceKind: z.literal("RECIPE"),
+    nestedRecipeId: z.uuid(),
+    quantity: InventoryNonNegativeDecimalSchema,
+    displayOrder: z.number().int().nonnegative(),
+  }),
+]);
+export const RecipeSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  ingredientName: z.string(),
+  outputUnit: InventoryUnitSchema,
+  yieldQuantity: InventoryNonNegativeDecimalSchema,
+  version: InventoryVersionSchema,
+  isActive: z.boolean(),
+  archivedAt: z.iso.datetime().nullable(),
+  components: z.array(RecipeComponentSchema),
+  updatedAt: z.iso.datetime(),
+});
+export const RecipeResponseSchema = z.object({ data: RecipeSchema, meta: z.object({ requestId: z.string() }) });
+export const RecipesResponseSchema = z.object({ data: z.object({ recipes: z.array(RecipeSchema) }), meta: z.object({ requestId: z.string() }) });
+export type RecipeInput = z.infer<typeof RecipeInputSchema>;
+export type RecipeUpdate = z.infer<typeof UpdateRecipeRequestSchema>;
+
+const CostingRuleInputSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("REPLACE_COMPONENT"),
+    componentKey: z.string().trim().min(1).max(120),
+    replacement: z.discriminatedUnion("sourceKind", [
+      z.object({ sourceKind: z.literal("STOCK_ITEM"), stockItemId: z.uuid() }).strict(),
+      z.object({ sourceKind: z.literal("RECIPE"), recipeId: z.uuid() }).strict(),
+    ]),
+    quantity: InventoryDecimalSchema,
+    label: z.string().trim().min(1).max(160).optional(),
+  }).strict(),
+  z.object({
+    action: z.literal("CHANGE_QUANTITY"),
+    componentKey: z.string().trim().min(1).max(120),
+    quantity: InventoryDecimalSchema,
+  }).strict(),
+  z.object({
+    action: z.literal("ADD_COMPONENT"),
+    componentKey: z.string().trim().min(1).max(120),
+    label: z.string().trim().min(1).max(160),
+    component: z.discriminatedUnion("sourceKind", [
+      z.object({ sourceKind: z.literal("STOCK_ITEM"), stockItemId: z.uuid() }).strict(),
+      z.object({ sourceKind: z.literal("RECIPE"), recipeId: z.uuid() }).strict(),
+    ]),
+    quantity: InventoryDecimalSchema,
+  }).strict(),
+]);
+
+const ProductCostingCombinationInputSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  optionIds: z.array(z.uuid()).min(1).max(50),
+  rules: z.array(CostingRuleInputSchema).min(1).max(200),
+}).strict().superRefine((combination, context) => {
+  if (new Set(combination.optionIds).size !== combination.optionIds.length) {
+    context.addIssue({ code: "custom", path: ["optionIds"], message: "An option can appear only once in a combination." });
+  }
+});
+
+const ProductOptionCostingInputSchema = z.array(z.object({ optionId: z.uuid(), rules: z.array(CostingRuleInputSchema).min(1).max(100) }).strict()).max(100);
+const RecipeCostingConfigurationInputSchema = z.object({
+  mode: z.literal("RECIPE"),
+  recipeId: z.uuid(),
+  recipeQuantity: InventoryDecimalSchema,
+  extrasRecipeId: z.uuid().nullable().optional(),
+  optionRules: ProductOptionCostingInputSchema,
+  combinations: z.array(ProductCostingCombinationInputSchema).max(200),
+}).strict();
+const PurchasedCostingConfigurationInputSchema = z.object({
+  mode: z.literal("PURCHASED_ITEM"),
+  purchasedStockItemId: z.uuid(),
+  purchasedQuantity: InventoryDecimalSchema.optional(),
+  extrasRecipeId: z.uuid().nullable().optional(),
+  optionRules: ProductOptionCostingInputSchema,
+  combinations: z.array(ProductCostingCombinationInputSchema).max(200),
+}).strict();
+
+export const ProductCostingConfigurationInputSchema = z.discriminatedUnion("mode", [
+  RecipeCostingConfigurationInputSchema,
+  PurchasedCostingConfigurationInputSchema,
+]);
+
+export const ProductCostingConfigurationResponseDataSchema = z.discriminatedUnion("mode", [
+  z.object({
+    productId: z.uuid(),
+    mode: z.literal("RECIPE"),
+    recipeId: z.uuid(),
+    recipeQuantity: InventoryNonNegativeDecimalSchema,
+    extrasRecipeId: z.uuid().nullable(),
+    optionRules: z.array(z.object({ optionId: z.uuid(), rules: z.array(CostingRuleInputSchema) })),
+    combinations: z.array(ProductCostingCombinationInputSchema.extend({ id: z.uuid(), version: InventoryVersionSchema, isActive: z.boolean() })),
+    version: InventoryVersionSchema,
+    updatedAt: z.iso.datetime(),
+  }),
+  z.object({
+    productId: z.uuid(),
+    mode: z.literal("PURCHASED_ITEM"),
+    purchasedStockItemId: z.uuid(),
+    purchasedQuantity: InventoryNonNegativeDecimalSchema.nullable(),
+    extrasRecipeId: z.uuid().nullable(),
+    optionRules: z.array(z.object({ optionId: z.uuid(), rules: z.array(CostingRuleInputSchema) })),
+    combinations: z.array(ProductCostingCombinationInputSchema.extend({ id: z.uuid(), version: InventoryVersionSchema, isActive: z.boolean() })),
+    version: InventoryVersionSchema,
+    updatedAt: z.iso.datetime(),
+  }),
+]);
+
+export const ProductCostingConfigurationResponseSchema = z.object({
+  data: ProductCostingConfigurationResponseDataSchema.nullable(),
+  meta: z.object({ requestId: z.string() }),
+});
+export type ProductCostingConfigurationInput = z.infer<typeof ProductCostingConfigurationInputSchema>;
+export type ProductCostingPreviewRequest = z.infer<typeof ProductCostingPreviewRequestSchema>;
+
+export const UpdateProductCostingRequestSchema = z.discriminatedUnion("mode", [
+  RecipeCostingConfigurationInputSchema.extend({ expectedVersion: InventoryVersionSchema }).strict(),
+  PurchasedCostingConfigurationInputSchema.extend({ expectedVersion: InventoryVersionSchema }).strict(),
+]);
+export const ProductCostingPreviewRequestSchema = z.object({
+  optionIds: z.array(z.uuid()).max(50),
+  quantity: z.number().int().positive(),
+  weightGrams: z.number().int().positive().optional(),
+}).strict();
+
+export const ResolvedCostComponentSchema = z.object({
+  stockItemId: z.uuid(),
+  stockItemName: z.string(),
+  baseUnit: InventoryUnitSchema,
+  quantity: InventoryNonNegativeDecimalSchema,
+  knownCostAmount: InventoryMoneySchema.nullable(),
+});
+
+export const ProductCostingPreviewResponseSchema = z.object({
+  data: z.object({
+    isComplete: z.boolean(),
+    knownCostAmount: InventoryMoneySchema,
+    components: z.array(ResolvedCostComponentSchema),
+    missingReasons: z.array(z.string()),
+  }),
+  meta: z.object({ requestId: z.string() }),
+});
+
+export const InventoryCountLineInputSchema = z.object({
+  stockItemId: z.uuid(),
+  observedQuantity: InventoryNonNegativeDecimalSchema.max(21).refine((value) => value.split(".")[0]!.length <= 14, "Quantity exceeds the supported range."),
+  observedValueAmount: InventoryMoneySchema,
+}).strict();
+
+export const CreateInventoryCountRequestSchema = z.object({
+  kind: z.enum(["OPENING", "PHYSICAL"]),
+  lines: z.array(InventoryCountLineInputSchema).min(1).max(500),
+}).strict().superRefine((input, context) => {
+  const ids = input.lines.map((line) => line.stockItemId);
+  if (new Set(ids).size !== ids.length) context.addIssue({ code: "custom", path: ["lines"], message: "A stock item can appear only once in a count." });
+});
+
+export const UpdateInventoryCountRequestSchema = z.object({
+  expectedVersion: InventoryVersionSchema,
+  lines: z.array(InventoryCountLineInputSchema).min(1).max(500),
+}).strict().superRefine((input, context) => {
+  const ids = input.lines.map((line) => line.stockItemId);
+  if (new Set(ids).size !== ids.length) context.addIssue({ code: "custom", path: ["lines"], message: "A stock item can appear only once in a count." });
+});
+
+export const PostInventoryCountRequestSchema = z.object({
+  expectedVersion: InventoryVersionSchema,
+  absorbedOrderConsumptionIds: z.array(z.uuid()).max(500),
+}).strict();
+
+export const InventoryCountSchema = z.object({
+  id: z.uuid(),
+  kind: z.enum(["OPENING", "PHYSICAL"]),
+  status: z.enum(["DRAFT", "POSTED"]),
+  version: InventoryVersionSchema,
+  postedAt: z.iso.datetime().nullable(),
+  lines: z.array(InventoryCountLineInputSchema.extend({
+    expectedQuantity: InventoryNonNegativeDecimalSchema.nullable(),
+    differenceQuantity: z.string().nullable(),
+    expectedValueAmount: InventoryMoneySchema.nullable(),
+    differenceValueAmount: z.number().int().nullable(),
+  })),
+});
+
+export const InventoryCountResponseSchema = z.object({ data: InventoryCountSchema, meta: z.object({ requestId: z.string() }) });
+export const InventoryCountsResponseSchema = z.object({ data: z.object({ counts: z.array(InventoryCountSchema), page: z.object({ limit: z.number().int(), nextCursor: z.string().nullable(), hasMore: z.boolean() }) }), meta: z.object({ requestId: z.string() }) });
+export type InventoryCountInput = z.infer<typeof CreateInventoryCountRequestSchema>;
+export type InventoryCountUpdate = z.infer<typeof UpdateInventoryCountRequestSchema>;
+export type InventoryCountPosting = z.infer<typeof PostInventoryCountRequestSchema>;
+
+export const InventoryMovementQuerySchema = z.object({
+  stockItemId: z.uuid().optional(),
+  kind: z.enum(["OPENING_COUNT", "PURCHASE_RECEIPT", "ORDER_CONSUMPTION", "ORDER_RESTORATION", "PHYSICAL_COUNT_ADJUSTMENT", "PURCHASE_RETURN"]).optional(),
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().min(1).max(512).optional(),
+}).strict().refine((query) => !query.from || !query.to || query.from <= query.to, { message: "from must not be later than to.", path: ["to"] });
+export type InventoryMovementQuery = z.infer<typeof InventoryMovementQuerySchema>;
+
+export const InventoryMovementSchema = z.object({
+  id: z.uuid(),
+  stockItemId: z.uuid(),
+  kind: z.enum(["OPENING_COUNT", "PURCHASE_RECEIPT", "ORDER_CONSUMPTION", "ORDER_RESTORATION", "PHYSICAL_COUNT_ADJUSTMENT", "PURCHASE_RETURN"]),
+  quantityDelta: z.string(),
+  valueDeltaAmount: z.number().int(),
+  purchaseLineId: z.uuid().nullable(),
+  orderConsumptionId: z.uuid().nullable(),
+  inventoryCountLineId: z.uuid().nullable(),
+  compensatesMovementId: z.uuid().nullable(),
+  occurredAt: z.iso.datetime(),
+  recordedAt: z.iso.datetime(),
+});
+export const InventoryMovementResponseSchema = z.object({
+  data: InventoryMovementSchema,
+  meta: z.object({ requestId: z.string() }),
+});
+
+export const InventoryMovementsResponseSchema = z.object({
+  data: z.object({ movements: z.array(InventoryMovementSchema) }),
+  meta: z.object({ requestId: z.string(), page: z.object({ limit: z.number().int(), nextCursor: z.string().nullable(), hasMore: z.boolean() }) }),
+});
+
+export const PendingConsumptionQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().min(1).max(512).optional(),
+}).strict();
+export type PendingConsumptionQuery = z.infer<typeof PendingConsumptionQuerySchema>;
+
+export const PendingConsumptionSchema = z.object({
+  id: z.uuid(),
+  orderId: z.uuid(),
+  orderNumber: z.string(),
+  recognizedAt: z.iso.datetime(),
+  knownCogsAmount: InventoryMoneySchema,
+  isCostComplete: z.boolean(),
+  missingStockItemIds: z.array(z.uuid()),
+});
+
+export const PendingConsumptionsResponseSchema = z.object({
+  data: z.object({ consumptions: z.array(PendingConsumptionSchema) }),
+  meta: z.object({ requestId: z.string(), page: z.object({ limit: z.number().int(), nextCursor: z.string().nullable(), hasMore: z.boolean() }) }),
+});
+
+export const GrossProfitReportQuerySchema = z.object({
+  fromDate: z.iso.date(),
+  toDate: z.iso.date(),
+}).strict().refine((query) => query.fromDate <= query.toDate, {
+  message: "fromDate must not be later than toDate.",
+  path: ["toDate"],
+}).refine((query) => {
+  const from = Date.parse(`${query.fromDate}T00:00:00.000Z`);
+  const to = Date.parse(`${query.toDate}T00:00:00.000Z`);
+  return (to - from) / (24 * 60 * 60 * 1_000) <= 365;
+}, {
+  message: "The report range cannot exceed 366 calendar days.",
+  path: ["toDate"],
+});
+export type GrossProfitReportQuery = z.infer<typeof GrossProfitReportQuerySchema>;
+
+export const GrossProfitProductSchema = z.object({
+  productId: z.uuid(),
+  productName: z.string(),
+  netSalesAmount: InventoryMoneySchema,
+  theoreticalCogsAmount: InventoryMoneySchema.nullable(),
+  knownCogsAmount: InventoryMoneySchema,
+  grossProfitAmount: z.number().int().nullable(),
+  grossMarginPercent: z.string().nullable(),
+  completeOrderItemCount: z.number().int().nonnegative(),
+  incompleteOrderItemCount: z.number().int().nonnegative(),
+});
+
+export const GrossProfitReportResponseSchema = z.object({
+  data: z.object({
+    totals: z.object({
+      netSalesAmount: InventoryMoneySchema,
+      theoreticalCogsAmount: InventoryMoneySchema.nullable(),
+      knownCogsAmount: InventoryMoneySchema,
+      grossProfitAmount: z.number().int().nullable(),
+      grossMarginPercent: z.string().nullable(),
+    }),
+    products: z.array(GrossProfitProductSchema),
+    costCoverage: z.object({ completeOrderItemCount: z.number().int().nonnegative(), incompleteOrderItemCount: z.number().int().nonnegative() }),
+    pendingConsumptionCount: z.number().int().nonnegative(),
+    inventoryConsumption: z.object({
+      amount: z.number().int().nullable(),
+      isEstimate: z.boolean(),
+      varianceAmount: z.number().int().nullable(),
+      missingValuationCount: z.number().int().nonnegative(),
+    }),
+  }),
+  meta: z.object({ requestId: z.string(), range: z.object({ from: z.iso.datetime(), to: z.iso.datetime() }) }),
+});
