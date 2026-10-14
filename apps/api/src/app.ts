@@ -17,6 +17,7 @@ import { publicMenuRoutes } from "./modules/public-menu/public-menu.routes.js";
 import { waiterCallRoutes } from "./modules/waiter-calls/waiter-calls.routes.js";
 import { adminRoutes } from "./modules/admin/admin.routes.js";
 import { imageRoutes } from "./modules/images/image.routes.js";
+import { inventoryRoutes } from "./modules/inventory/inventory.routes.js";
 import { databasePlugin } from "./plugins/database.js";
 import { ErrorResponseSchema } from "@cafe/contracts";
 import { zodToJsonSchema } from "./contracts/openapi.js";
@@ -102,6 +103,7 @@ export function buildApp() {
       api.register(waiterCallRoutes);
       api.register(adminRoutes);
       api.register(imageRoutes);
+      api.register(inventoryRoutes);
     },
     {
       prefix: "/api/v1",
