@@ -2,11 +2,11 @@
 
 ## Purpose And Status
 
-This document is the explicit Stage 0 database constraint list for the initial
-v1 persistence model in `erd.md`. It defines the constraints the Stage 1 Prisma
-schema and initial migration must implement, or deliberately prove with a
-transactional service invariant when PostgreSQL cannot enforce the rule with a
-plain constraint.
+This document is the explicit constraint list for the initial v1 persistence
+model and the approved Stage 11 inventory-costing extension in `erd.md`. It
+defines the constraints the Prisma schema and forward migration must implement,
+or deliberately prove with a transactional service invariant when PostgreSQL
+cannot enforce the rule with a plain constraint.
 
 The database remains PostgreSQL, all timestamps are UTC, every money value is an
 integer Toman amount, and historical order data is retained instead of being
@@ -29,11 +29,25 @@ hard-deleted by normal application actions.
   - `PaymentMethod`: `CASH`, `CARD_TERMINAL`, `CARD_TRANSFER`
   - `TableOccupancyState`: `AVAILABLE`, `OCCUPIED`
   - `WaiterCallStatus`: `PENDING`, `RESOLVED`
+  - `InventoryUnit`: `GRAM`, `MILLILITER`, `PIECE`
+  - `InventoryMovementKind`: `OPENING_COUNT`, `PURCHASE_RECEIPT`,
+    `ORDER_CONSUMPTION`, `ORDER_RESTORATION`, `PHYSICAL_COUNT_ADJUSTMENT`,
+    `PURCHASE_RETURN`
+  - `PurchaseStatus`: `DRAFT`, `POSTED`
+  - `InventoryCountKind`: `OPENING`, `PHYSICAL`
+  - `InventoryCountStatus`: `DRAFT`, `POSTED`
+  - `RecipeComponentKind`: `STOCK_ITEM`, `RECIPE`
+  - `ProductCostingMode`: `RECIPE`, `PURCHASED_ITEM`
+  - `CostingRuleAction`: `REPLACE_COMPONENT`, `CHANGE_QUANTITY`,
+    `ADD_COMPONENT`
+  - `OrderConsumptionStatus`: `PENDING`, `POSTED`, `RECONCILED`, `CANCELLED`
 - Monetary amount columns are integer Toman values and never floating-point
   values. Prices, discounts, settlement amounts, tender amounts, paid amounts,
-  and balances must be non-negative unless a future ADR explicitly introduces a
-  signed adjustment table.
-- Quantities and minute durations must be whole integers. Sold quantities,
+  and balances must be non-negative. Inventory movement value deltas are signed
+  integer Toman values because they are append-only increases or decreases.
+- Order quantities and minute durations must be whole integers. Inventory base
+  quantities and recipe measurements use exact `DECIMAL(20,6)` values; no
+  binary floating-point quantity or unit-cost arithmetic is allowed. Sold quantities,
   selected settlement quantities, and positive duration configuration must be
   greater than zero. Derived elapsed/estimate totals may be zero only where the
   model states that zero means "none yet".
@@ -496,3 +510,230 @@ tableSeatingLimitSnapshotMinutes + estimatedPreparationMinutes`.
   auditability but does not make role-based write decisions.
 - Staff and Manager may apply item/order discounts with optional reasons while settlement
   immutability permits them; the database preserves the resulting snapshots.
+
+## Inventory Costing Constraints (ADR 0011)
+
+### `stock_items`, `stock_unit_conversions`, and `inventory_balances`
+
+- `stock_items` has a UUID primary key, non-empty name and category, one
+  `InventoryUnit` base unit, active/archive state, positive version, and UTC
+  creation/update timestamps. Archived items are inactive and remain
+  referenceable.
+- A conversion belongs to one stock item and has a non-empty unique label per
+  item plus `baseQuantityPerPack > 0` as `DECIMAL(20,6)`. Conversions are
+  item-specific. Unit compatibility is enforced by the Manager service; weight
+  and volume are never inferred to be interchangeable.
+- `inventory_balances` has one row per stock item. On-hand quantity and carrying
+  value are non-negative. `trackingStartedAt` remains null until a posted
+  opening count initializes that item. Balance changes and corresponding
+  movements commit in the same transaction.
+
+### `purchases` and `purchase_lines`
+
+- A purchase is `DRAFT` or `POSTED`; received time is required, supplier text is
+  optional, and `version >= 1`. Posted rows cannot be edited or deleted.
+- Each line references a retained stock item and stores purchase quantity,
+  purchase-unit label, conversion factor, converted base quantity, and direct
+  total cost. Quantity, conversion, and base quantity are positive exact
+  decimals; `directCostAmount >= 0` is integer Toman.
+- A posted line creates a receipt movement with its conversion and cost
+  snapshots and cannot create another movement on retry. Posting requires a
+  posted opening count and changes balance and movement ledger atomically.
+- A purchase correction or return creates a dated linked negative movement; it
+  never edits or deletes the receipt movement. A return cannot make stock
+  quantity or carrying value negative.
+
+### `recipes` and `recipe_components`
+
+- A recipe has a unique precise preparation name, a non-empty shared ingredient
+  name that may repeat across recipe variants, output unit, positive exact
+  output quantity, version, active/archive state, and timestamps. Costing
+  points to the precise recipe; a future public-menu ingredient label may use
+  the shared ingredient name.
+- Each component has a stable non-empty key and label, positive exact quantity,
+  and exactly one source: stock item or reusable recipe. A stock component uses
+  the stock item's base unit; a nested-recipe component uses that recipe's
+  output unit.
+- A recipe cannot directly or indirectly reference itself. Cycle detection and
+  unit compatibility are checked by the recipe service.
+- Referenced recipes and stock items are archived rather than deleted. Recipe
+  edits never rewrite order-item snapshots.
+
+### Product costing and option rules
+
+- `product_costing_configurations` has at most one row per product, positive
+  version, and a mode-specific source. `RECIPE` requires one recipe and no
+  purchased stock item; `PURCHASED_ITEM` requires one stock item and a positive
+  configured quantity where the product is sold as a fixed unit. Optional
+  extras reference a recipe. The service checks unit compatibility with fixed
+  or weighted product pricing.
+- Option rules are unique per product, option, and component key. Replacement
+  has exactly one replacement source and a positive quantity; quantity change
+  has a positive quantity and no source; addition has a unique added component
+  key, exactly one source, and a positive quantity.
+- A configured option combination contains a non-empty, duplicate-free exact
+  option set and at least one rule. Combination rules obey the same action
+  constraints. The resolver applies base recipe, option rules, then the exact
+  combination override. Conflicting selected rules fail validation; row order
+  is never a resolution strategy.
+
+### Inventory counts and movements
+
+- A count is `DRAFT` or `POSTED`, has kind `OPENING` or `PHYSICAL`, version at
+  least one, creator, and optional posted timestamp. Posted counts and lines
+  are immutable. Opening initialization is per stock item. New items may start
+  tracking after other items have opened; an already tracked item cannot be
+  reopened. A partial unique index permits at most one OPENING_COUNT movement
+  per stock item, and transactional balance checks also protect zero openings.
+- A count line is unique per count and stock item. Observed quantity and total
+  observed value are non-negative; expected/difference fields are calculated
+  from the locked balance during posting. Opening lines require total stock
+  value in integer Toman.
+- A count may identify each pending whole-order consumption it absorbs once.
+  The Manager explicitly confirms this relationship before posting. Reconciled
+  orders are not deducted a second time; the count establishes the observed
+  physical balance.
+- An inventory movement has one stock item, kind, non-zero signed exact
+  quantity delta, signed integer Toman value delta, source record, actor, and
+  UTC occurrence/record timestamps. Movement kind determines valid quantity
+  and value signs.
+- A compensation references one prior movement at most once and preserves the
+  original movement. Movements cannot be updated or deleted. Quantity/value
+  balance non-negativity and movement insertion are enforced in a transaction
+  under a stock-item lock.
+
+### Order costing snapshots and consumption
+
+- `order_item_costing_snapshots` is unique per order item and stores resolved
+  recipe/option/stock quantities, config version, completeness, and
+  missing-input reasons as safe JSON. Eligible unsettled order edits update it;
+  catalog changes do not.
+- `order_consumptions` stores one recognition cycle per order and cycle number,
+  the settlement that first completed that cycle, full-payment time, status,
+  theoretical cost/completeness snapshot, and resolution time. Unique
+  `(orderId, cycleNumber)` prevents duplicate recognition.
+- `order_consumption_items` preserves product name, sold quantity, theoretical
+  COGS, completeness, and resolved snapshot per order item for historical
+  product reporting. Unknown costs remain null/incomplete, never zero.
+- A pending consumption represents the entire order and has no partial
+  reservation. Its movements are either all posted or none are posted. Actual
+  movement valuation is separate from theoretical full-payment COGS.
+- Count reconciliation, receipt retry, settlement reversal, order deletion,
+  stock restoration, consumption status, movement insertion, balance update,
+  and audit records are atomic and idempotent. A reversal/deletion restores a
+  deducted or count-reconciled order once; tender corrections have no stock or
+  profit effect.
+- Cost and margin data are Manager-only. Staff, public-menu, and receipt DTOs
+  never include costing snapshots, stock valuation, COGS, or margin fields.
+
+## Inventory Costing Constraints (ADR 0011)
+
+### `stock_items`, `stock_unit_conversions`, and `inventory_balances`
+
+- `stock_items` has a UUID primary key, non-empty name and category, one
+  `InventoryUnit` base unit, active/archive state, positive version, and UTC
+  creation/update timestamps. Archived items are inactive and remain
+  referenceable.
+- A conversion belongs to one stock item and has a non-empty unique label per
+  item plus `baseQuantityPerPack > 0` as `DECIMAL(20,6)`. Conversions are
+  item-specific. Unit compatibility is enforced by the Manager service; weight
+  and volume are never inferred to be interchangeable.
+- `inventory_balances` has one row per stock item. On-hand quantity and carrying
+  value are non-negative. `trackingStartedAt` remains null until a posted
+  opening count initializes that item. Balance changes and corresponding
+  movements commit in the same transaction.
+
+### `purchases` and `purchase_lines`
+
+- A purchase is `DRAFT` or `POSTED`; received time is required, supplier text is
+  optional, and `version >= 1`. Posted rows cannot be edited or deleted.
+- Each line references a retained stock item and stores purchase quantity,
+  purchase-unit label, conversion factor, converted base quantity, and direct
+  total cost. Quantity, conversion, and base quantity are positive exact
+  decimals; `directCostAmount >= 0` is integer Toman.
+- A posted line creates a receipt movement with its conversion and cost
+  snapshots and cannot create another movement on retry. Posting requires a
+  posted opening count and changes balance and movement ledger atomically.
+- A purchase correction or return creates a dated linked negative movement; it
+  never edits or deletes the receipt movement. A return cannot make stock
+  quantity or carrying value negative.
+
+### `recipes` and `recipe_components`
+
+- A recipe has a non-empty name, output unit, positive exact output quantity,
+  version, active/archive state, and timestamps.
+- Each component has a stable non-empty key and label, positive exact quantity,
+  and exactly one source: stock item or reusable recipe. A stock component uses
+  the stock item's base unit; a nested-recipe component uses that recipe's
+  output unit.
+- A recipe cannot directly or indirectly reference itself. Cycle detection and
+  unit compatibility are checked by the recipe service.
+- Referenced recipes and stock items are archived rather than deleted. Recipe
+  edits never rewrite order-item snapshots.
+
+### Product costing and option rules
+
+- `product_costing_configurations` has at most one row per product, positive
+  version, and a mode-specific source. `RECIPE` requires one recipe and no
+  purchased stock item; `PURCHASED_ITEM` requires one stock item and a positive
+  configured quantity where the product is sold as a fixed unit. Optional
+  extras reference a recipe. The service checks unit compatibility with fixed
+  or weighted product pricing.
+- Option rules are unique per product, option, and component key. Replacement
+  has exactly one replacement source and a positive quantity; quantity change
+  has a positive quantity and no source; addition has a unique added component
+  key, exactly one source, and a positive quantity.
+- A configured option combination contains a non-empty, duplicate-free exact
+  option set and at least one rule. Combination rules obey the same action
+  constraints. The resolver applies base recipe, option rules, then the exact
+  combination override. Conflicting selected rules fail validation; row order
+  is never a resolution strategy.
+
+### Inventory counts and movements
+
+- A count is `DRAFT` or `POSTED`, has kind `OPENING` or `PHYSICAL`, version at
+  least one, creator, and optional posted timestamp. Posted counts and lines
+  are immutable. Opening initialization is per stock item. New items may start
+  tracking after other items have opened; an already tracked item cannot be
+  reopened. A partial unique index permits at most one OPENING_COUNT movement
+  per stock item, and transactional balance checks also protect zero openings.
+- A count line is unique per count and stock item. Observed quantity and total
+  observed value are non-negative; expected/difference fields are calculated
+  from the locked balance during posting. Opening lines require total stock
+  value in integer Toman.
+- A count may identify each pending whole-order consumption it absorbs once.
+  The Manager explicitly confirms this relationship before posting. Reconciled
+  orders are not deducted a second time; the count establishes the observed
+  physical balance.
+- An inventory movement has one stock item, kind, non-zero signed exact
+  quantity delta, signed integer Toman value delta, source record, actor, and
+  UTC occurrence/record timestamps. Movement kind determines valid quantity and
+  value signs.
+- A compensation references one prior movement at most once and preserves the
+  original movement. Movements cannot be updated or deleted. Quantity/value
+  balance non-negativity and movement insertion are enforced in a transaction
+  under a stock-item lock.
+
+### Order costing snapshots and consumption
+
+- `order_item_costing_snapshots` is unique per order item and stores resolved
+  recipe/option/stock quantities, config version, completeness, and
+  missing-input reasons as safe JSON. Eligible unsettled order edits update it;
+  catalog changes do not.
+- `order_consumptions` stores one recognition cycle per order and cycle number,
+  the settlement that first completed that cycle, full-payment time, status,
+  theoretical cost/completeness snapshot, and resolution time. Unique
+  `(orderId, cycleNumber)` prevents duplicate recognition.
+- `order_consumption_items` preserves product name, sold quantity, theoretical
+  COGS, completeness, and resolved snapshot per order item for historical
+  product reporting. Unknown costs remain null/incomplete, never zero.
+- A pending consumption represents the entire order and has no partial
+  reservation. Its movements are either all posted or none are posted. Actual
+  movement valuation is separate from theoretical full-payment COGS.
+- Count reconciliation, receipt retry, settlement reversal, order deletion,
+  stock restoration, consumption status, movement insertion, balance update,
+  and audit records are atomic and idempotent. A reversal/deletion restores a
+  deducted or count-reconciled order once; tender corrections have no stock or
+  profit effect.
+- Cost and margin data are Manager-only. Staff, public-menu, and receipt DTOs
+  never include costing snapshots, stock valuation, COGS, or margin fields.
