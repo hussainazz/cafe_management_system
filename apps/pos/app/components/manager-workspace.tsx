@@ -39,8 +39,10 @@ import { printDocument, printRoute } from "../lib/print-routes";
 import { AlertIcon, MenuIcon, RefreshIcon, WifiIcon } from "./icons";
 import { CatalogPanel } from "./catalog-panel";
 import { SettlementSheet } from "./orders-workspace";
+import { persianDateToGregorianDate, tehranPersianDateParts } from "../lib/tehran-date";
+import { InventoryWorkspace } from "./inventory-workspace";
 
-type Panel = "catalog" | "tables" | "finance" | "audit" | "settings";
+type Panel = "catalog" | "tables" | "finance" | "audit" | "settings" | "inventory";
 type Confirm = {
   title: string;
   detail: string;
@@ -72,48 +74,6 @@ type PaymentFilterDraft = {
   fromTime: string;
   toTime: string;
 };
-
-function tehranPersianDateParts(now = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Tehran",
-    calendar: "persian",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
-  return { year: value("year"), month: value("month"), day: value("day") };
-}
-
-function persianDateToGregorianDate(year: string, value: string): string | null {
-  const match = /^(\d{2})\/(\d{2})$/.exec(value);
-  if (!match) return null;
-  const month = Number(match[1]);
-  const day = Number(match[2]);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-
-  // A Persian year overlaps only two Gregorian years. Formatting candidates at
-  // UTC noon avoids an accidental local-day shift, while the calendar itself
-  // is explicitly evaluated in Tehran.
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Tehran",
-    calendar: "persian",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const first = Date.UTC(Number(year) + 620, 0, 1, 12);
-  const last = Date.UTC(Number(year) + 622, 4, 1, 12);
-  for (let timestamp = first; timestamp < last; timestamp += 24 * 60 * 60 * 1_000) {
-    const candidate = new Date(timestamp);
-    const parts = formatter.formatToParts(candidate);
-    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
-    if (part("year") === year && Number(part("month")) === month && Number(part("day")) === day) {
-      return candidate.toISOString().slice(0, 10);
-    }
-  }
-  return null;
-}
 
 function initialPaymentFilterDraft(): PaymentFilterDraft {
   const { month, day } = tehranPersianDateParts();
@@ -152,7 +112,15 @@ export function ManagerWorkspace({
 
   useEffect(() => {
     let cancelRecovery: (() => void) | undefined;
-    const failed = (event: Event) => { setFailure((event as CustomEvent<ApiFailure>).detail); cancelRecovery?.(); cancelRecovery = requestAutomaticRecovery(); };
+    const failed = (event: Event) => {
+      const error = (event as CustomEvent<ApiFailure>).detail;
+      cancelRecovery?.();
+      cancelRecovery = undefined;
+      if (error.kind === "network") {
+        setFailure(error);
+        cancelRecovery = requestAutomaticRecovery();
+      }
+    };
     const notified = (event: Event) => setFailure({ kind: "network", message: (event as CustomEvent<string>).detail });
     window.addEventListener("run-cafe:api-failure", failed);
     window.addEventListener(recoveryNoticeEvent, notified);
@@ -245,6 +213,7 @@ export function ManagerWorkspace({
             ["finance", "حسابداری"],
             ["audit", "حسابرسی"],
             ["catalog", "منو و کالاها"],
+            ["inventory", "موجودی و سود"],
             ["tables", "میزها"],
             ["settings", "تنظیمات"],
           ] as const
@@ -278,6 +247,7 @@ export function ManagerWorkspace({
         />
       )}
       {!loading && panel === "tables" && catalog && <TablesPanel catalog={catalog} mutate={mutate} reload={reloadCatalog} requestConfirm={setConfirm} />}
+      {!loading && panel === "inventory" && catalog && <InventoryWorkspace catalog={catalog} />}
       {!loading && (panel === "finance" || panel === "audit") && (
         <FinancePanel panel={panel} mutate={mutate} requestConfirm={setConfirm} />
       )}
