@@ -33,6 +33,20 @@ import {
   ReverseSettlementResponseSchema,
   EditSettlementResponseSchema,
   ProductSaleDiscountResponseSchema,
+  StockItemsResponseSchema,
+  StockItemResponseSchema,
+  PurchasesResponseSchema,
+  PurchaseResponseSchema,
+  RecipesResponseSchema,
+  RecipeResponseSchema,
+  ProductCostingConfigurationResponseSchema,
+  ProductCostingPreviewResponseSchema,
+  InventoryCountResponseSchema,
+  InventoryCountsResponseSchema,
+  InventoryMovementResponseSchema,
+  InventoryMovementsResponseSchema,
+  PendingConsumptionsResponseSchema,
+  GrossProfitReportResponseSchema,
   type ProductSaleDiscountRequest,
   type RecordSettlementRequest,
   type UpdateOrderRequest,
@@ -66,6 +80,15 @@ export type PaymentHistory = z.infer<typeof PaymentHistoryResponseSchema>["data"
 export type PaymentHistoryFilters = PaymentHistoryQuery;
 export type DailyReport = z.infer<typeof DailyReportResponseSchema>;
 export type AuditLog = z.infer<typeof AuditLogResponseSchema>;
+export type InventoryStockItem = z.infer<typeof StockItemResponseSchema>["data"];
+export type InventoryPurchase = z.infer<typeof PurchaseResponseSchema>["data"];
+export type InventoryRecipe = z.infer<typeof RecipeResponseSchema>["data"];
+export type InventoryCount = z.infer<typeof InventoryCountResponseSchema>["data"];
+export type InventoryMovement = z.infer<typeof InventoryMovementsResponseSchema>["data"]["movements"][number];
+export type PendingInventoryConsumption = z.infer<typeof PendingConsumptionsResponseSchema>["data"]["consumptions"][number];
+export type ProductCostingConfiguration = z.infer<typeof ProductCostingConfigurationResponseSchema>["data"];
+export type ProductCostingPreview = z.infer<typeof ProductCostingPreviewResponseSchema>["data"];
+export type GrossProfitReport = z.infer<typeof GrossProfitReportResponseSchema>;
 
 export type ApiFailure = {
   kind: "network" | "response" | "invalid-response";
@@ -73,6 +96,7 @@ export type ApiFailure = {
   code?: string;
   message: string;
   requestId?: string;
+  details?: Array<{ path: string; code: string; message: string }>;
 };
 export type ApiResult<T> =
   { ok: true; data: T; replayed: boolean } | { ok: false; error: ApiFailure };
@@ -111,8 +135,9 @@ async function requestOnce<T>(path: string, init?: RequestInit): Promise<ApiResu
               code: parsed.data.error.code,
               message: parsed.data.error.message,
               requestId: parsed.data.error.requestId,
+              ...(parsed.data.error.details ? { details: parsed.data.error.details } : {}),
             }
-          : { kind: "response", status: response.status, message: "پاسخ سرویس خوانا نیست." },
+          : { kind: "response", status: response.status, message: "پاسخ سرویس خوانا نیست.", ...(response.headers.get("x-request-id") ? { requestId: response.headers.get("x-request-id")! } : {}) },
       };
     }
     return {
@@ -483,7 +508,7 @@ export async function readAuditLog(cursor?: string, filters: Record<string, stri
   return managerResponse(`/admin/audit-log?${query}`, AuditLogResponseSchema, "تاریخچه حسابرسی معتبر نیست.");
 }
 
-async function managerMutation<T>(path: string, method: "POST" | "PATCH", body: unknown, schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, message: string, idempotencyKey?: string): Promise<ApiResult<T>> {
+async function managerMutation<T>(path: string, method: "POST" | "PATCH" | "PUT", body: unknown, schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, message: string, idempotencyKey?: string): Promise<ApiResult<T>> {
   return parseResponse(await request<unknown>(path, { method, headers: { "content-type": "application/json", ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) }, body: JSON.stringify(body) }), schema, message);
 }
 export const saveCategory = (id: string | null, body: unknown) => managerMutation(id ? `/admin/categories/${id}` : "/admin/categories", id ? "PATCH" : "POST", body, id ? AdminCategoryResponseSchema : AdminCategoryResponseSchema, "پاسخ دسته معتبر نیست.");
@@ -541,6 +566,7 @@ function uploadRequest(
             code: parsed.data.error.code,
             message: parsed.data.error.message,
             requestId: parsed.data.error.requestId,
+            ...(parsed.data.error.details ? { details: parsed.data.error.details } : {}),
           }
         : { kind: "response" as const, status: xhr.status, message: "پاسخ سرویس قابل خواندن نیست." });
       resolve({ ok: false, error });
@@ -558,3 +584,38 @@ export async function uploadProductImage(
   return parseResponse(await uploadRequest(`/admin/products/${productId}/image`, form, onProgress), AdminImageResponseSchema, "پاسخ تصویر معتبر نیست.");
 }
 export const archiveProductImage = (productId: string) => managerMutation(`/admin/products/${productId}/image/archive`, "POST", {}, AdminImageArchiveResponseSchema, "پاسخ حذف تصویر معتبر نیست.");
+
+export const readInventoryStockItems = () => managerResponse("/admin/inventory/stock-items", StockItemsResponseSchema, "فهرست اقلام انبار دریافت نشد.");
+export const saveInventoryStockItem = (id: string | null, body: unknown) => managerMutation(id ? `/admin/inventory/stock-items/${id}` : "/admin/inventory/stock-items", id ? "PATCH" : "POST", body, StockItemResponseSchema, "اطلاعات قلم انبار دریافت نشد.");
+export const archiveInventoryStockItem = (id: string, expectedVersion: number) => managerMutation(`/admin/inventory/stock-items/${id}/archive`, "POST", { expectedVersion }, StockItemResponseSchema, "وضعیت بایگانی قلم دریافت نشد.");
+
+export async function readInventoryPurchases(limit = 50) {
+  return managerResponse(`/admin/inventory/purchases?limit=${limit}`, PurchasesResponseSchema, "فهرست خریدها دریافت نشد.");
+}
+export const createInventoryPurchase = (body: unknown) => managerMutation("/admin/inventory/purchases", "POST", body, PurchaseResponseSchema, "اطلاعات خرید دریافت نشد.");
+export const updateInventoryPurchase = (id: string, body: unknown) => managerMutation(`/admin/inventory/purchases/${id}`, "PATCH", body, PurchaseResponseSchema, "اطلاعات خرید ویرایش‌شده دریافت نشد.");
+export const postInventoryPurchase = (id: string, expectedVersion: number, key: string) => managerMutation(`/admin/inventory/purchases/${id}/post`, "POST", { expectedVersion }, PurchaseResponseSchema, "نتیجه‌ی ثبت رسید خرید دریافت نشد.", key);
+export const returnInventoryPurchase = (id: string, body: unknown, key: string) => managerMutation(`/admin/inventory/purchases/${id}/returns`, "POST", body, InventoryMovementResponseSchema, "نتیجه‌ی ثبت مرجوعی خرید دریافت نشد.", key);
+
+export const readInventoryRecipes = () => managerResponse("/admin/inventory/recipes", RecipesResponseSchema, "فهرست دستورهای تهیه دریافت نشد.");
+export const saveInventoryRecipe = (id: string | null, body: unknown) => managerMutation(id ? `/admin/inventory/recipes/${id}` : "/admin/inventory/recipes", id ? "PATCH" : "POST", body, RecipeResponseSchema, "اطلاعات دستور تهیه دریافت نشد.");
+export const archiveInventoryRecipe = (id: string, expectedVersion: number) => managerMutation(`/admin/inventory/recipes/${id}/archive`, "POST", { expectedVersion }, RecipeResponseSchema, "وضعیت بایگانی دستور تهیه دریافت نشد.");
+
+export const readProductCosting = (productId: string) => managerResponse(`/admin/products/${productId}/costing`, ProductCostingConfigurationResponseSchema, "تنظیم هزینه‌ی محصول دریافت نشد.");
+export const saveProductCosting = (productId: string, body: unknown) => managerMutation(`/admin/products/${productId}/costing`, "PUT", body, ProductCostingConfigurationResponseSchema, "تنظیم ذخیره‌شده‌ی هزینه‌ی محصول دریافت نشد.");
+export const previewProductCosting = (productId: string, body: unknown) => managerMutation(`/admin/products/${productId}/costing/preview`, "POST", body, ProductCostingPreviewResponseSchema, "اطلاعات پیش‌نمایش هزینه دریافت نشد.");
+
+export const readInventoryCounts = (limit = 50) => managerResponse(`/admin/inventory/counts?limit=${limit}`, InventoryCountsResponseSchema, "فهرست شمارش‌ها دریافت نشد.");
+export const createInventoryCount = (body: unknown) => managerMutation("/admin/inventory/counts", "POST", body, InventoryCountResponseSchema, "اطلاعات شمارش موجودی دریافت نشد.");
+export const updateInventoryCount = (id: string, body: unknown) => managerMutation(`/admin/inventory/counts/${id}`, "PATCH", body, InventoryCountResponseSchema, "اطلاعات شمارش ویرایش‌شده دریافت نشد.");
+export const postInventoryCount = (id: string, body: unknown, key: string) => managerMutation(`/admin/inventory/counts/${id}/post`, "POST", body, InventoryCountResponseSchema, "نتیجه‌ی ثبت شمارش دریافت نشد.", key);
+
+export const readInventoryMovements = (filters: Record<string, string> = {}) => {
+  const query = new URLSearchParams({ limit: "50", ...filters });
+  return managerResponse(`/admin/inventory/movements?${query}`, InventoryMovementsResponseSchema, "فهرست تغییرهای موجودی دریافت نشد.");
+};
+export const readPendingInventoryConsumption = () => managerResponse("/admin/inventory/pending-consumption?limit=50", PendingConsumptionsResponseSchema, "فهرست سفارش‌های در انتظار کسر از موجودی دریافت نشد.");
+export const readGrossProfitReport = (fromDate: string, toDate: string) => {
+  const query = new URLSearchParams({ fromDate, toDate });
+  return managerResponse(`/admin/reports/gross-profit?${query}`, GrossProfitReportResponseSchema, "گزارش سود ناخالص دریافت نشد.");
+};
