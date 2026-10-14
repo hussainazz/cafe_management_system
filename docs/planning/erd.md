@@ -2,10 +2,10 @@
 
 ## Purpose And Status
 
-This is the v1 persistence model. It began as the Stage 1 schema baseline and
-now also records the approved Stage 7 waiter-call addendum. It is not itself a
-database migration or an API contract; newly documented entities still require
-a reviewed Prisma migration before implementation.
+This document records the v1 persistence model, the Stage 7 waiter-call
+addendum, and the approved Stage 11 inventory-costing addendum. It is not itself
+a database migration or an API contract; newly documented entities still
+require a reviewed Prisma migration before implementation.
 
 All timestamps are stored in UTC. Every monetary field is an integer Toman
 value. `database-constraints.md` defines the exact PostgreSQL constraints and
@@ -604,11 +604,54 @@ specified in `database-constraints.md` rather than implied only by the diagram.
 - `Order` is created by a logged-in user with state `OPEN` and payment status `UNPAID`. Active settlement allocations determine `UNPAID`, `PARTIALLY_PAID`, or `PAID`; only the lifecycle state transitions to `DELETED`. Additional items may be added while the order remains `OPEN`, including after partial or full settlement; those additions create or extend only unsettled item quantities and never rewrite posted settlement allocations, tenders, or receipt history. `DELETED` is logical deletion, so the order, items, settlements, tenders, reversals, timing snapshots, and audit trail remain available.
 - Products, categories, options, users, and tables are archived or deactivated when historical records reference them. Historical records are never rebuilt from current catalog data.
 - A bar ticket is browser-rendered from the order and immutable item snapshots. It prints only the order number, `Asia/Tehran` display time, table/takeaway context, item quantities, selected options, and notes; it excludes prices, discounts, totals, and payment data. A customer receipt is a detailed financial printout: a whole-order version uses the order, snapshots, and active settlement data, while a settlement version shows that payer checkout's selected quantities and tenders. The stable `orderNumber` is printed on every variant; no separate receipt or printer-job table is required in v1.
-- There are no entities for customer accounts, carts, customer order submission, inventory, recipes, reservations, multi-branch ownership, kitchen or product-to-station routing, online payments, taxes, or service charges.
+- There are no entities for carts, customer order submission, reservations,
+  multi-branch ownership, kitchen or product-to-station routing, online
+  payments, taxes, or service charges. Inventory and recipes are included only
+  within the approved bounded phase in ADR 0011 and
+`inventory-costing.md`.
 
 ## Implementation Boundary
 
-The existing Stage 1 Prisma schema intentionally contains only the bootstrap
-`User` model. This ERD is the approved target model for the first database
-implementation; field names and normalization can be adjusted during migration
-design only when they preserve the scope rules and this relationship model.
+The original Stage 1 Prisma schema was bootstrap-only; the current schema
+implements the completed café phases. The Stage 11 addendum below is the
+approved target for the inventory migration; field names and normalization can
+be adjusted during migration design only when they preserve the scope rules
+and relationship model.
+
+## Stage 11 Inventory Costing Addendum
+
+The inventory extension adds these relationships to the existing ERD:
+
+```mermaid
+erDiagram
+    StockItem ||--o{ StockUnitConversion : converts
+    StockItem ||--o{ PurchaseLine : received_as
+    Purchase ||--|{ PurchaseLine : contains
+    StockItem ||--o{ RecipeComponent : measured_in
+    Recipe ||--o{ RecipeComponent : defines
+    Recipe ||--o{ RecipeComponent : reuses
+    Product ||--o| ProductCostingConfiguration : costs_by
+    ProductCostingConfiguration }o--o| Recipe : references
+    ProductCostingConfiguration }o--o| StockItem : purchases
+    Product ||--o{ ProductOptionCostingRule : modifies
+    Product ||--o{ ProductCostingCombination : overrides
+    ProductCostingCombination ||--|{ CostingCombinationOption : selects
+    StockItem ||--|| InventoryBalance : values
+    StockItem ||--o{ InventoryMovement : moves
+    InventoryCount ||--|{ InventoryCountLine : observes
+    StockItem ||--o{ InventoryCountLine : counts
+    InventoryCount ||--o{ InventoryCountPendingOrder : reconciles
+    OrderConsumption ||--o{ InventoryCountPendingOrder : absorbed
+    OrderItem ||--o| OrderItemCostingSnapshot : snapshots
+    Order ||--o{ OrderConsumption : cycles
+    OrderConsumption ||--|{ OrderConsumptionItem : prices
+    OrderConsumption ||--o{ InventoryMovement : consumes
+```
+
+Recipe and order-item snapshots preserve resolved quantities and completeness
+at save time. `OrderConsumption` preserves theoretical costs at each eligible
+whole-order-payment cycle and records pending/posted/reconciled status.
+`InventoryMovement` records signed quantity and integer Toman value deltas; its
+source and any compensation are retained. The full
+field-level constraints are in `database-constraints.md` and the accepted
+business rules are in `inventory-costing.md`.
