@@ -117,6 +117,22 @@ Errors use one safe, stable envelope:
 rule information. It never includes raw validator internals, stack traces,
 tokens, credentials, or database error text.
 
+Inventory request validation preserves field paths and safe details, including
+conversion precision and the current version when known. Database write conflicts
+return `409 CONFLICT`; connection, pool, transaction timeout, and required
+schema failures return `503 SERVICE_UNAVAILABLE`. Recognized input range and
+inventory constraints return `422 BUSINESS_RULE_VIOLATION`. Unrecognized
+database failures retain `500 INTERNAL_ERROR` rather than guessing a domain
+meaning.
+
+Server failure logs include the request ID, method, route template, Prisma
+code, PostgreSQL SQLSTATE, and available constraint/table/column identifiers
+plus source locations. Prisma can serialize PostgreSQL details into an unknown
+request error; the logger extracts these identifiers without recording the
+raw invocation, SQL, parameters, database URL, failing row, or error message.
+The POS preserves field details and displays a support reference. Inventory
+read errors appear in the affected panel; a read retry never repeats a write.
+
 | Status | Stable codes                                                                                                        | Use                                                               |
 | ------ | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `400`  | `BAD_REQUEST`, `VALIDATION_ERROR`                                                                                   | Malformed JSON, invalid parameters, or schema validation failure. |
