@@ -53,12 +53,16 @@ User-facing surfaces:
 | Surface      | Primary user     | v1 purpose                                                                                                                                                                                                                                                  |
 | ------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Digital Menu | Customer         | Browse the menu, categories, item details, priced item options, current availability, and final Toman prices; from a table-scoped QR context, send a waiter-call. Preparation timing remains internal to POS. No cart submission, payment, or order tracking. |
-| Shared POS   | Staff, Manager   | Use one table dashboard for orders, payments, waiter-calls, deletion, and receipts. Manager authorization additionally exposes accounting, payment-history, discount, catalog, Staff-account, settings, and audit capabilities.                             |
+| Shared POS   | Staff, Manager   | Use one table dashboard for orders, payments, waiter-calls, deletion, and receipts. Manager authorization additionally exposes accounting, payment-history, inventory costing, stock counts, gross-profit reports, discount, catalog, Staff-account, settings, and audit capabilities. |
 
 Explicit non-goals for v1:
 
 - Customer self-ordering, customer carts submitted to the café, table-order authority, guest order tracking, loyalty, wallets, coupons, and marketing automation. The phone-backed customer identity exists only to authorize a table-scoped waiter call and is not order or payment authority; phone verification and marketing consent are deferred.
-- Inventory, recipes, ingredient deduction, waste, suppliers, and purchase orders.
+- Operating-expense/net-profit accounting, supplier accounts, purchase orders,
+  dedicated waste or staff-consumption entry, historical sales imports, and
+  automatic portion-yield conversion. Inventory costing and gross profit are
+  approved as a bounded follow-on phase in
+  [`inventory-costing.md`](inventory-costing.md).
 - Reservations, multi-branch management, multi-tenancy, franchise reporting, and third-party delivery synchronization.
 - Online payments, direct card-terminal control, automatic refunds, and accounting integrations.
 - Tax, VAT, service-charge, or item-level tax calculation.
@@ -82,6 +86,8 @@ There are no application roles beyond Manager and Staff in v1. Both roles use th
 | View and handle active waiter-calls in the shared table dashboard           |  Yes  |   Yes   |
 | Browse accounting payment history                                           |  No   |   Yes   |
 | View the accounting summary for the applied payment-history filter          |  No   |   Yes   |
+| Manage stock items, purchases, recipes, costing, and physical counts         |  No   |   Yes   |
+| View inventory history, pending consumption, and gross-profit reports       |  No   |   Yes   |
 | Apply an item-level or order-level discount without a required reason while permitted |  Yes  |  Yes  |
 | Configure or remove a catalog product sale discount                          |  No   |   Yes   |
 | Manage categories, products, options, images, prices, and availability      |  No   |   Yes   |
@@ -169,7 +175,8 @@ Pilot acceptance scenarios:
 | Ordering   | Orders, order items, price/preparation snapshots, notes, channel, lifecycle state, payment status, and idempotency.           |
 | Tables     | Physical-table order and labels, seating limits, waiter-call eligibility, current occupancy state, QR-scan occupancy reminders, active table estimates, assignment/clearing of active orders, table QR credentials, and waiter-call lifecycle. |
 | Payments   | Settlements, tender entries, item-quantity allocations, settlement reversal policy, Tehran-business-day sequential order display numbering, and balance calculation. |
-| Reporting  | Manager-only payment history and the accounting summary for its bounded applied filter over retained committed data.          |
+| Inventory  | Stock items, explicit purchase-pack conversions, received purchases, moving-average valuations, recipes, product costing, append-only movements, physical counts, and pending order consumption; see [`inventory-costing.md`](inventory-costing.md). |
+| Reporting  | Manager-only payment history, bounded daily accounting, and the approved gross-profit report with cost coverage and inventory-consumption estimates; see [`inventory-costing.md`](inventory-costing.md). |
 | Operations | Café settings, audit logs, system health, and operational metadata.                                                           |
 
 Catalog category membership has two kinds. A source category owns each
@@ -321,11 +328,17 @@ Authentication, authorization, and security:
 
 Reporting and audit:
 
-- The Manager-only accounting summary uses the currently applied, bounded payment-history filter. It defaults to the current `Asia/Tehran` calendar day; custom Persian-calendar date ranges and optional time windows are evaluated server-side. Weekly/monthly presets, exports, product/category analytics, forecasting, and standalone report filters remain deferred.
+- The Manager-only daily accounting summary uses the currently applied, bounded payment-history filter. It defaults to the current `Asia/Tehran` calendar day. The separate inventory gross-profit report accepts bounded arbitrary Persian-calendar date ranges, resolved server-side in `Asia/Tehran`.
 - The daily report distinguishes gross item totals, discounts, active settled/paid amounts by payment method, reversed settlements, and logically deleted orders. There are no tax or service-charge fields.
+- Gross-profit reporting uses whole-order full-payment recognition, persisted net selling amounts, theoretical COGS snapshots, explicit cost coverage, and inventory-based consumption estimates. Incomplete cost coverage never produces a fabricated full margin.
 - Manager-only payment history is a separate cursor-paginated operational view over retained settlements and receipts; it is not available to Staff. Staff may still open and print an individual whole-order or payer-settlement receipt through authorized POS order workflows.
 - The applied report window is never a retention policy. Orders, order items, settlements, tenders, reversals, receipts derived from snapshots, and audit records remain in PostgreSQL regardless of age.
 - The accounting summary queries transactional tables, is verified against known fixtures, and receives supporting indexes based on measured query plans. Required applied date bounds keep reporting bounded so it cannot degrade POS work.
+
+Inventory costing does not retroactively change historical order costs. Tracking
+starts only when an opening physical count with stock values is posted. The
+detailed valuation, recipe resolution, order correction, and report rules are
+approved in [`inventory-costing.md`](inventory-costing.md) and ADR 0011.
 
 ## Technology Baseline
 
