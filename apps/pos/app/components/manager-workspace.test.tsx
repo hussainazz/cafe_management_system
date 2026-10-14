@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as automaticRecovery from "../lib/automatic-recovery";
 import { setRecoveryUser } from "../lib/automatic-recovery";
 import { ManagerWorkspace } from "./manager-workspace";
 
@@ -10,6 +11,7 @@ const catalog = { categories: [{ id: "category-1", name: "قهوه", isActive: t
 const api = vi.hoisted(() => ({
   readManagerCatalog: vi.fn(), readManagerStaff: vi.fn(), readManagerSettings: vi.fn(),
   readPaymentHistory: vi.fn(), readDailyReport: vi.fn(), readAuditLog: vi.fn(), readOrder: vi.fn(),
+  readInventoryStockItems: vi.fn(), readInventoryPurchases: vi.fn(), readInventoryRecipes: vi.fn(), readInventoryCounts: vi.fn(), readInventoryMovements: vi.fn(), readPendingInventoryConsumption: vi.fn(), readGrossProfitReport: vi.fn(), readProductCosting: vi.fn(),
   deleteOpenOrder: vi.fn(),
   archiveCategory: vi.fn(), archiveOption: vi.fn(), archiveProduct: vi.fn(), archiveProductImage: vi.fn(), archiveTable: vi.fn(), deactivateStaff: vi.fn(), reactivateStaff: vi.fn(), saveCategory: vi.fn(), saveOption: vi.fn(), saveOptionGroup: vi.fn(), saveProduct: vi.fn(), saveSettings: vi.fn(), saveStaff: vi.fn(), saveTable: vi.fn(), uploadProductImage: vi.fn(), reorderCategories: vi.fn(), reorderProducts: vi.fn(),
 }));
@@ -27,6 +29,27 @@ describe("ManagerWorkspace", () => {
     api.readPaymentHistory.mockResolvedValue({ ok: true, data: [] });
     api.readDailyReport.mockResolvedValue({ ok: true, data: null });
     api.readAuditLog.mockResolvedValue({ ok: true, data: { data: { entries: [] }, meta: { page: { nextCursor: null } } } });
+    api.readInventoryStockItems.mockResolvedValue({ ok: true, data: { data: { stockItems: [] }, meta: { requestId: "test" } } });
+    api.readInventoryPurchases.mockResolvedValue({ ok: true, data: { data: { purchases: [] }, meta: { requestId: "test" } } });
+    api.readInventoryRecipes.mockResolvedValue({ ok: true, data: { data: { recipes: [] }, meta: { requestId: "test" } } });
+    api.readInventoryCounts.mockResolvedValue({ ok: true, data: { data: { counts: [] }, meta: { requestId: "test" } } });
+    api.readInventoryMovements.mockResolvedValue({ ok: true, data: { data: { movements: [] }, meta: { requestId: "test" } } });
+    api.readPendingInventoryConsumption.mockResolvedValue({ ok: true, data: { data: { consumptions: [] }, meta: { requestId: "test" } } });
+    api.readGrossProfitReport.mockResolvedValue({ ok: false, error: { kind: "response", message: "No inventory report" } });
+    api.readProductCosting.mockResolvedValue({ ok: true, data: { data: null, meta: { requestId: "test" } } });
+  });
+
+  it("opens the Manager inventory workspace and loads its inventory data", async () => {
+    render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "موجودی و سود" }));
+    expect(await screen.findByRole("heading", { name: "گزارش سود ناخالص" })).toBeTruthy();
+    await waitFor(() => expect(api.readInventoryStockItems).toHaveBeenCalledTimes(1));
+    expect(api.readInventoryPurchases).toHaveBeenCalledTimes(1);
+    expect(api.readInventoryRecipes).toHaveBeenCalledTimes(1);
+    expect(api.readInventoryCounts).toHaveBeenCalledTimes(1);
+    expect(api.readInventoryMovements).toHaveBeenCalledTimes(1);
+    expect(api.readPendingInventoryConsumption).toHaveBeenCalledTimes(1);
+    expect(api.readGrossProfitReport).toHaveBeenCalledTimes(1);
   });
 
   it("restores applied and draft finance filters and table panel from actual session storage", async () => {
@@ -56,6 +79,21 @@ describe("ManagerWorkspace", () => {
     expect(screen.getByText("Staff unavailable")).toBeTruthy();
     expect(screen.getByText("منو و کالاها")).toBeTruthy();
     expect(screen.getByText("میزها")).toBeTruthy();
+  });
+
+  it("keeps Manager on the active panel after an ordinary API response error", async () => {
+    const recovery = vi.spyOn(automaticRecovery, "requestAutomaticRecovery");
+    render(<ManagerWorkspace menuOpen={false} onOpenMenu={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "موجودی و سود" }));
+    expect(await screen.findByRole("heading", { name: "گزارش سود ناخالص" })).toBeTruthy();
+
+    window.dispatchEvent(new CustomEvent("run-cafe:api-failure", {
+      detail: { kind: "response", status: 422, code: "BUSINESS_RULE_VIOLATION", message: "Invalid return quantity" },
+    }));
+
+    expect(screen.getByRole("heading", { name: "گزارش سود ناخالص" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "اتصال برقرار است" })).toBeTruthy();
+    expect(recovery).not.toHaveBeenCalled();
   });
 
   it("keeps General Settings available when the Personnel read fails", async () => {
