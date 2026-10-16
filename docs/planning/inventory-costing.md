@@ -32,11 +32,17 @@ The product remains one café, one branch, and one authoritative API/database.
   amounts are integer Toman. Derive unit cost from total value and exact base
   quantity; round only when posting a total monetary value, using deterministic
   half-up rounding. Display-rounded unit prices never drive calculations.
-- A posted opening physical count with an entered total stock value starts
-  tracking. Do not reconstruct old sales or deduct stock for historical orders.
-  This boundary applies per stock item: new items may receive their own opening
-  count after other items have started tracking. An opening count cannot reset
-  a tracked item. Managers select the items included in each count.
+- Stock-item setup records the starting base-unit quantity and total stock value
+  in Toman, including an explicit zero balance. Creating an item initializes
+  its tracked balance and auditable opening entry. Do not reconstruct old sales
+  or deduct stock for historical orders. Existing untracked items may be
+  initialized once from stock-item setup; an opening balance cannot reset a
+  tracked item.
+- Manager count entry is physical-count only and selects tracked stock items.
+  If any observed quantity differs from its recorded quantity, require one
+  shared reason for the whole count. Physical counts append adjustments and
+  retain the reason with the count; a value-only difference does not require a
+  quantity-discrepancy reason.
 - Purchases and physical counts append inventory movements and update the
   current quantity and carrying value transactionally. Posted transactions
   are immutable; corrections append linked compensating movements.
@@ -53,6 +59,12 @@ The product remains one café, one branch, and one authoritative API/database.
 - A purchase records received time, optional supplier text, received lines,
   the selected purchase-unit conversion, exact received base quantity, and
   final direct cost in Toman. Posting is idempotent and creates movements.
+- Stock-item setup does not ask Managers to enter a category. Keep the
+  existing category value for compatibility. For piece-based stock, expose one
+  optional count-per-package value; weight and volume stock retain named pack
+  conversions.
+- Purchase history uses the existing cursor pagination and supports supplier
+  or stock-item search, status filtering, and a received-time range.
 - A recipe contains a precise preparation name (for example, `Latte 50/50`)
   and a shared ingredient name (for example, `Latte`). Recipe variants may use
   different precise names while sharing the same ingredient name. The POS
@@ -68,12 +80,30 @@ The product remains one café, one branch, and one authoritative API/database.
   component, change its quantity, or add ingredients. Resolve the base recipe,
   then individual option rules, then an explicitly configured exact option
   combination override. Reject ambiguous or conflicting rules.
+- Manager recipe setup is product-first: choose an active menu product, then
+  configure its active menu options. Each configured option has a complete
+  recipe of its own, with components selected from active stock items or
+  existing recipes and measured in the selected source's unit. Reuse the
+  existing cycle-free recipe graph and costing snapshots. Keep legacy option
+  rules and combination overrides readable and resolvable for existing
+  configurations; new full-recipe option mappings take precedence for the
+  selected option and cannot be combined ambiguously.
 - Recipe previews resolve selected product options and show required stock
   quantities and current known cost. Missing recipe, stock, cost, or opening
   setup is explicitly incomplete; never substitute zero.
 
 ## Order Snapshots And Stock Consumption
 
+- Inventory ships inactive. A Manager activates it once from Café Settings;
+  persist the activation timestamp and audit the action. Activation is permanent
+  and cannot be cleared or moved through the API or ORM.
+- While inactive, block all inventory management, costing, and gross-profit API
+  operations and show the installed inventory workspace as inactive. Skip all
+  order costing snapshots, recognition, pending consumption, stock movements,
+  retries, and restorations. Normal orders and payments continue unchanged.
+- Track only orders created at or after activation. Orders created earlier
+  stay excluded even when edited, paid, deleted, or reversed after activation.
+  Never backfill pre-activation orders or queue them for later consumption.
 - Save a resolved costing snapshot for each order item. Unsettled content edits
   update their corresponding snapshots; catalog edits never rewrite saved
   historical recipes.
@@ -92,6 +122,8 @@ The product remains one café, one branch, and one authoritative API/database.
 - Before posting a physical count, the Manager identifies pending orders whose
   ingredients are already included in the observed count. Reconcile those
   orders without another deduction, then establish the observed balance.
+- Count history is bounded and newest-first, with server-side stock-item
+  search, count kind/status filters, and a Tehran-calendar creation-time range.
 - Later recipe or valuation setup affects future orders. It never fills a
   historical cost gap automatically.
 
