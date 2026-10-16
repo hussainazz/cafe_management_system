@@ -1281,6 +1281,26 @@ footer span {
   font-size: 13px;
 }
 
+.menu-item-note {
+  margin-top: 18px;
+  padding: 17px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid var(--line);
+}
+
+.menu-item-note h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.menu-item-note p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
 .error-page {
   display: flex;
   min-height: 100dvh;
