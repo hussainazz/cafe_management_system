@@ -102,6 +102,27 @@ async function reportOrder(input: {
 }
 
 describe("Manager administration", () => {
+  it("lets Managers write, edit, and clear customer-facing product notes, with Staff denied", async () => {
+    const category = await app.prisma.category.create({ data: { name: "Menu notes", displayOrder: 1 } });
+    const manager = await session(UserRole.MANAGER, "menu.notes.manager");
+    const staff = await session(UserRole.STAFF, "menu.notes.staff");
+    const created = await app.inject({
+      method: "POST", url: "/api/v1/admin/products", cookies: manager,
+      payload: { categoryId: category.id, name: "لاته", priceAmount: 100_000, preparationDeadlineMinutes: 5, menuNote: "  با شیر تازه تهیه می‌شود.  " },
+    });
+    expect(created.statusCode).toBe(200);
+    expect(created.json().data.menuNote).toBe("با شیر تازه تهیه می‌شود.");
+    const productId = created.json().data.id;
+    expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${productId}`, cookies: staff, payload: { menuNote: "ویرایش غیرمجاز" } })).statusCode).toBe(403);
+    const edited = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${productId}`, cookies: manager, payload: { menuNote: "با شیر بدون لاکتوز هم قابل سفارش است." } });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().data.menuNote).toBe("با شیر بدون لاکتوز هم قابل سفارش است.");
+    const cleared = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${productId}`, cookies: manager, payload: { menuNote: null } });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().data.menuNote).toBeNull();
+    expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${productId}`, cookies: manager, payload: { menuNote: "x".repeat(1001) } })).statusCode).toBe(400);
+  });
+
   it("rejects anonymous and Staff catalog writes, then audits Manager catalog lifecycle", async () => {
     const payload = { name: "مدیریت", displayOrder: 1 };
     expect((await app.inject({ method: "POST", url: "/api/v1/admin/categories", payload })).statusCode).toBe(401);
@@ -122,9 +143,9 @@ describe("Manager administration", () => {
     expect(forcePosVisible.statusCode).toBe(200);
     expect(forcePosVisible.json().data.isPosVisible).toBe(false);
     const archivePromotional = await app.inject({ method: "POST", url: `/api/v1/admin/categories/${promotionalId}/archive`, cookies: manager });
-    expect(archivePromotional.statusCode).toBe(422);
-    expect(await app.prisma.category.findUniqueOrThrow({ where: { id: promotionalId } })).toMatchObject({ isActive: true, isPosVisible: false, archivedAt: null });
-    expect(await app.prisma.auditLog.count({ where: { entityId: promotionalId, operation: "ARCHIVE_CATEGORY" } })).toBe(0);
+    expect(archivePromotional.statusCode).toBe(200);
+    expect(await app.prisma.category.findUniqueOrThrow({ where: { id: promotionalId } })).toMatchObject({ isActive: false, isPosVisible: false, archivedAt: expect.any(Date) });
+    expect(await app.prisma.auditLog.count({ where: { entityId: promotionalId, operation: "ARCHIVE_CATEGORY" } })).toBe(1);
   });
 
   it("appends catalog records and persists contiguous, validated category and product reorders", async () => {
@@ -327,6 +348,7 @@ describe("Manager administration", () => {
     const second = await settlement("PAY-SECOND-DAY", "2026-09-16T15:00:00.000Z", staffUser.id, table.id); // 09/16 18:30 Tehran
     const outside = await settlement("PAY-OUTSIDE", "2026-09-16T20:30:00.000Z", managerUser.id); // 09/17 00:00 Tehran
     await app.prisma.settlementReversal.create({ data: { settlementId: second.settlement.id, recordedById: managerUser.id, reason: "Test reversal" } });
+    await app.prisma.order.update({ where: { id: normalLower.order.id }, data: { subtotalAmount: 11_000, discountAmount: 1_000 } });
 
     const request = (query: string) => app.inject({ method: "GET", url: `/api/v1/admin/payments?${query}`, cookies: manager });
     const ignoredLegacyLimit = await request("fromDate=2026-09-15&toDate=2026-09-15&limit=2");
@@ -340,6 +362,10 @@ describe("Manager administration", () => {
     expect(day.statusCode).toBe(200);
     expect(day.json().meta).not.toHaveProperty("page");
     expect(day.json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([normalUpper, overnightStart, normalLower, daytime, lower].map((row) => row.settlement.id));
+    const discounted = await request("fromDate=2026-09-15&toDate=2026-09-15&orderFilter=DISCOUNTED");
+    expect(discounted.statusCode).toBe(200);
+    expect(discounted.json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([normalLower.settlement.id]);
+    expect((await request("fromDate=2026-09-15&toDate=2026-09-15&orderFilter=UNKNOWN")).statusCode).toBe(400);
     const range = await request("fromDate=2026-09-15&toDate=2026-09-16");
     expect(range.json().data.payments).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: normalUpper.settlement.id, orderState: "DELETED" }),
@@ -364,6 +390,66 @@ describe("Manager administration", () => {
     expect((await request("fromDate=2026-09-15&toDate=2026-09-16&fromTime=18:00&toTime=22:30")).json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([second, overnightStart, normalLower].map((row) => row.settlement.id));
     expect((await request("fromDate=2026-09-15&toDate=2026-09-15&fromTime=22:00&toTime=02:00")).json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([overnightEnd, normalUpper, overnightStart].map((row) => row.settlement.id));
     expect(outside.settlement.id).not.toBe(lower.settlement.id);
+  });
+
+  it("filters payment history to orders settled across multiple active settlements", async () => {
+    await session(UserRole.STAFF, "multi-settlement.staff");
+    const manager = await session(UserRole.MANAGER, "multi-settlement.manager");
+    const staffUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "multi-settlement.staff" } });
+    const managerUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "multi-settlement.manager" } });
+    const category = await app.prisma.category.create({ data: { name: "Multi-settlement history", displayOrder: 1 } });
+    const createOrder = async (orderNumber: string, amount: number, paidAmount = amount) => {
+      const product = await app.prisma.product.create({ data: { categoryId: category.id, name: orderNumber, priceAmount: amount, preparationDeadlineMinutes: 5, displayOrder: 1 } });
+      return app.prisma.order.create({
+        data: {
+          orderNumber,
+          dailyOrderNumber: orderNumber === "SINGLE-SETTLEMENT" ? 1 : 2,
+          createdById: staffUser.id,
+          channel: "TAKEAWAY",
+          state: paidAmount === amount ? "CLOSED" : "OPEN",
+          paymentStatus: paidAmount === amount ? "PAID" : paidAmount === 0 ? "UNPAID" : "PARTIALLY_PAID",
+          subtotalAmount: amount,
+          totalAmount: amount,
+          paidAmount,
+          balanceAmount: amount - paidAmount,
+          createdAt: new Date("2026-09-15T10:00:00.000Z"),
+          items: { create: { productId: product.id, productNameSnapshot: orderNumber, basePriceSnapshot: amount, quantity: 1, lineTotalAmount: amount, displayOrder: 0 } },
+        },
+        include: { items: true },
+      });
+    };
+    const createTender = (orderId: string, itemId: string, idempotencyKey: string, amount: number, recordedAt: string) =>
+      app.prisma.paymentSettlement.create({
+        data: {
+          orderId,
+          recordedById: staffUser.id,
+          idempotencyKey,
+          totalAmount: amount,
+          recordedAt: new Date(recordedAt),
+          allocations: { create: { orderItemId: itemId, quantity: 0, amount } },
+          payments: { create: { method: "CASH", amount } },
+        },
+      });
+    const singlePayment = await createOrder("SINGLE-SETTLEMENT", 10_000);
+    const singleSettlement = await createTender(singlePayment.id, singlePayment.items[0]!.id, "single-settlement", 10_000, "2026-09-15T12:00:00.000Z");
+    const stagedPayment = await createOrder("MULTI-SETTLEMENT", 20_000);
+    const firstSettlement = await createTender(stagedPayment.id, stagedPayment.items[0]!.id, "multi-settlement-first", 10_000, "2026-09-15T13:00:00.000Z");
+    const secondSettlement = await createTender(stagedPayment.id, stagedPayment.items[0]!.id, "multi-settlement-second", 10_000, "2026-09-15T14:00:00.000Z");
+    const reversedCandidate = await createOrder("REVERSED-SETTLEMENT", 10_000, 5_000);
+    const reversedHalf = await createTender(reversedCandidate.id, reversedCandidate.items[0]!.id, "reversed-settlement-first", 5_000, "2026-09-15T15:00:00.000Z");
+    const remainingHalf = await createTender(reversedCandidate.id, reversedCandidate.items[0]!.id, "reversed-settlement-second", 5_000, "2026-09-15T16:00:00.000Z");
+    await app.prisma.settlementReversal.create({ data: { settlementId: reversedHalf.id, recordedById: managerUser.id, reason: "Test reversal" } });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/payments?fromDate=2026-09-15&toDate=2026-09-15&orderFilter=MULTIPLE_SETTLEMENTS",
+      cookies: manager,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.payments.map((payment: { id: string }) => payment.id)).toEqual([secondSettlement.id, firstSettlement.id]);
+    expect(response.json().data.payments.map((payment: { id: string }) => payment.id)).not.toContain(singleSettlement.id);
+    expect(response.json().data.payments.map((payment: { id: string }) => payment.id)).not.toContain(remainingHalf.id);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/payments?fromDate=2026-09-15&toDate=2026-09-15&orderFilter=HAS_PAYMENT", cookies: manager })).statusCode).toBe(400);
   });
 
   it("returns only the requested Tehran date with sales, tenders, discounts, reversals, and deleted-order treatment", async () => {
