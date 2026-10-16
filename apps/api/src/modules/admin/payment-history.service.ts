@@ -29,8 +29,26 @@ export async function settlementIdsForPaymentWindow(prisma: PrismaClient, query:
 
 export async function listPaymentHistory(prisma: PrismaClient, query: PaymentHistoryQuery) {
   const ids = await settlementIdsForPaymentWindow(prisma, query);
+  const multipleSettlementOrderIds = query.orderFilter === "MULTIPLE_SETTLEMENTS"
+    ? await prisma.$queryRaw<{ orderId: string }[]>(Prisma.sql`
+      SELECT ps."orderId"
+      FROM payment_settlements ps
+      LEFT JOIN settlement_reversals sr ON sr."settlementId" = ps.id
+      WHERE sr."settlementId" IS NULL
+      GROUP BY ps."orderId"
+      HAVING COUNT(*) >= 2
+    `)
+    : undefined;
+  const orderFilter: Prisma.OrderWhereInput | undefined = query.orderFilter === "DISCOUNTED"
+    ? { OR: [{ discountAmount: { gt: 0 } }, { items: { some: { discountAmount: { gt: 0 } } } }] }
+    : undefined;
+  const where: Prisma.PaymentSettlementWhereInput = {
+    id: { in: ids },
+    ...(multipleSettlementOrderIds ? { orderId: { in: multipleSettlementOrderIds.map(({ orderId }) => orderId) } } : {}),
+    ...(orderFilter ? { order: orderFilter } : {}),
+  };
   const records = await prisma.paymentSettlement.findMany({
-    where: { id: { in: ids } },
+    where,
     orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
     include: {
       order: { select: { id: true, orderNumber: true, dailyOrderNumber: true, state: true, channel: true, table: { select: { id: true, name: true } } } },
