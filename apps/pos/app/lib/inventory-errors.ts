@@ -95,7 +95,7 @@ export function inventoryErrorMessage(error: ApiFailure): string {
     const parts = detail.path.replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean);
     const label = fields[parts.at(-1) ?? ""] ?? "اطلاعات";
     const row = parts.findIndex((part) => part === "lines" || part === "components" || part === "conversions");
-    const index = row >= 0 && /^\d+$/.test(parts[row + 1] ?? "") ? ` (ردیف ${(Number(parts[row + 1]) + 1).toLocaleString("fa-IR")})` : "";
+    const index = row >= 0 && /^\d+$/.test(parts[row + 1] ?? "") ? ` (ردیف ${(Number(parts[row + 1]) + 1).toLocaleString("fa-IR-u-nu-latn")})` : "";
     const reason = detail.code === "quantity_precision" ? "تبدیل مقدار باید دقیق تا شش رقم اعشار باشد." :
       detail.code === "too_big" || detail.code === "maximum" ? "بیشتر از حد مجاز است." :
       detail.code === "too_small" || detail.code === "minimum" ? "کمتر از حد مجاز است یا وارد نشده است." : "این مقدار را بررسی کنید.";
