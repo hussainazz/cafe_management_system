@@ -387,7 +387,7 @@ export const OrderListResponseSchema = z.object({
   }),
 });
 
-export const PaymentHistoryQuerySchema = z
+const PaymentHistoryDateQuerySchema = z
   .object({
     fromDate: z.iso.date(),
     toDate: z.iso.date(),
@@ -399,6 +399,10 @@ export const PaymentHistoryQuerySchema = z
     message: "fromDate must not be later than toDate.",
     path: ["toDate"],
   });
+export const PaymentHistoryOrderFilterSchema = z.enum(["MULTIPLE_SETTLEMENTS", "DISCOUNTED"]);
+export const PaymentHistoryQuerySchema = PaymentHistoryDateQuerySchema.extend({
+  orderFilter: PaymentHistoryOrderFilterSchema.optional(),
+}).strict();
 export type PaymentHistoryQuery = z.infer<typeof PaymentHistoryQuerySchema>;
 
 export const PaymentHistoryEntrySchema = z.object({
@@ -428,7 +432,7 @@ export const PaymentHistoryResponseSchema = z.object({
   meta: z.object({ requestId: z.string() }),
 });
 
-export const DailyReportQuerySchema = PaymentHistoryQuerySchema;
+export const DailyReportQuerySchema = PaymentHistoryDateQuerySchema;
 export type DailyReportQuery = z.infer<typeof DailyReportQuerySchema>;
 
 export const DailyAccountingReportSchema = z.object({
@@ -622,10 +626,11 @@ export type ProductSaleDiscountRequest = z.infer<typeof ProductSaleDiscountReque
 const AdminNameSchema = z.string().trim().min(1).max(120);
 const AdminDisplayOrderSchema = z.number().int().min(0).max(10_000);
 const AdminMoneySchema = z.number().int().nonnegative();
+const ProductMenuNoteSchema = z.string().trim().max(1000).nullable().optional();
 export const AdminCategoryInputSchema = z.object({ name: AdminNameSchema, kind: z.enum(["SOURCE", "PROMOTIONAL"]).optional(), displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional(), isPosVisible: z.boolean().optional() }).strict();
 export const AdminCategoryProductsInputSchema = z.object({ productIds: z.array(z.uuid()).max(2_000) }).strict();
 const AdminProductOptionGroupInputSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative().default(1), maxSelections: z.number().int().positive().default(1), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable().optional() }).strict()).max(100) }).strict().refine((value) => value.minSelections <= value.maxSelections);
-export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, priceAmount: AdminMoneySchema, pricingMode: z.enum(["FIXED", "WEIGHTED_PER_KG"]).optional(), preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroups: z.array(AdminProductOptionGroupInputSchema).max(30).optional() }).strict();
+export const AdminProductInputSchema = z.object({ categoryId: z.uuid(), name: AdminNameSchema, menuNote: ProductMenuNoteSchema, priceAmount: AdminMoneySchema, pricingMode: z.enum(["FIXED", "WEIGHTED_PER_KG"]).optional(), preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema.optional(), isActive: z.boolean().optional(), isAvailable: z.boolean().optional(), optionGroups: z.array(AdminProductOptionGroupInputSchema).max(30).optional() }).strict();
 export const AdminCategoryReorderInputSchema = z.object({ categoryIds: z.array(z.uuid()).min(1).max(500) }).strict();
 export const AdminProductReorderInputSchema = z.object({ productIds: z.array(z.uuid()).min(1).max(2_000) }).strict();
 export const AdminOptionGroupInputSchema = z.object({ name: AdminNameSchema, isActive: z.boolean().optional() }).strict();
@@ -640,12 +645,12 @@ const AdminMetaSchema = z.object({ requestId: z.string() });
 export const AdminCategorySchema = z.object({ id: z.uuid(), name: z.string(), kind: z.enum(["SOURCE", "PROMOTIONAL"]), productIds: z.array(z.uuid()), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isPosVisible: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminProductImageSchema = z.object({ storageKey: z.string(), altText: z.string() });
 const AdminProductOptionGroupSchema = z.object({ optionGroupId: z.uuid(), displayOrder: AdminDisplayOrderSchema, minSelections: z.number().int().nonnegative(), maxSelections: z.number().int().positive(), options: z.array(z.object({ optionId: z.uuid(), displayOrder: AdminDisplayOrderSchema, priceAmountOverride: AdminMoneySchema.nullable() })) });
-export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, pricingMode: z.enum(["FIXED", "WEIGHTED_PER_KG"]), saleDiscountKind: z.enum(["FIXED", "PERCENTAGE"]).nullable(), saleDiscountValue: z.number().int().positive().nullable(), isPublic: z.boolean(), systemKey: z.string().nullable(), preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroups: z.array(AdminProductOptionGroupSchema) });
+export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(), name: z.string(), menuNote: z.string().nullable(), priceAmount: AdminMoneySchema, pricingMode: z.enum(["FIXED", "WEIGHTED_PER_KG"]), saleDiscountKind: z.enum(["FIXED", "PERCENTAGE"]).nullable(), saleDiscountValue: z.number().int().positive().nullable(), isPublic: z.boolean(), systemKey: z.string().nullable(), preparationDeadlineMinutes: ProductPreparationDeadlineMinutesSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable(), image: AdminProductImageSchema.nullable(), optionGroups: z.array(AdminProductOptionGroupSchema) });
 export const AdminOptionSchema = z.object({ id: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminOptionGroupSchema = z.object({ id: z.uuid(), name: z.string(), isActive: z.boolean(), options: z.array(AdminOptionSchema) });
 export const AdminTableSchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), waiterCallEnabled: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminStaffSchema = z.object({ id: z.uuid(), username: z.string(), role: z.literal("STAFF"), isActive: z.boolean(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
-export const AdminSettingsSchema = z.object({ id: z.uuid(), tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable(), updatedAt: z.iso.datetime() });
+export const AdminSettingsSchema = z.object({ id: z.uuid(), tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable(), inventoryActivatedAt: z.iso.datetime().nullable(), updatedAt: z.iso.datetime() });
 export const AdminImageResponseSchema = z.object({ data: AdminProductImageSchema, meta: AdminMetaSchema });
 export const AdminImageArchiveResponseSchema = z.object({ data: z.object({ productId: z.uuid() }), meta: AdminMetaSchema });
 export const AdminCategoriesResponseSchema = z.object({ data: z.object({ categories: z.array(AdminCategorySchema) }), meta: AdminMetaSchema });
@@ -697,6 +702,7 @@ export const PublicMenuOptionGroupSchema = z.object({
 export const PublicMenuProductSchema = z.object({
   id: z.uuid(),
   name: z.string(),
+  menuNote: z.string().nullable(),
   basePriceAmount: z.number().int().nonnegative(),
   priceAmount: z.number().int().nonnegative(),
   saleDiscount: z.object({ kind: z.enum(["FIXED", "PERCENTAGE"]), value: z.number().int().positive(), amount: z.number().int().nonnegative() }).nullable(),
@@ -836,6 +842,25 @@ export const InventoryListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().min(1).max(512).optional(),
 }).strict();
+export const PurchaseListQuerySchema = InventoryListQuerySchema.extend({
+  search: z.string().trim().min(1).max(160).optional(),
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+  status: z.enum(["DRAFT", "POSTED"]).optional(),
+}).strict().refine((query) => !query.from || !query.to || Date.parse(query.from) <= Date.parse(query.to), {
+  message: "The purchase date range is invalid.",
+  path: ["to"],
+});
+export const InventoryCountListQuerySchema = InventoryListQuerySchema.extend({
+  search: z.string().trim().min(1).max(160).optional(),
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+  kind: z.enum(["OPENING", "PHYSICAL"]).optional(),
+  status: z.enum(["DRAFT", "POSTED"]).optional(),
+}).strict().refine((query) => !query.from || !query.to || Date.parse(query.from) <= Date.parse(query.to), {
+  message: "The count date range is invalid.",
+  path: ["to"],
+});
 export const StockItemPathSchema = z.object({ stockItemId: z.uuid() }).strict();
 export const PurchasePathSchema = z.object({ purchaseId: z.uuid() }).strict();
 export const RecipePathSchema = z.object({ recipeId: z.uuid() }).strict();
@@ -854,13 +879,19 @@ export const CreateStockItemRequestSchema = z.object({
   name: z.string().trim().min(1).max(160),
   category: z.string().trim().min(1).max(120),
   baseUnit: InventoryUnitSchema,
+  openingQuantity: InventoryNonNegativeDecimalSchema.default("0"),
+  openingValueAmount: InventoryMoneySchema.default(0),
   conversions: z.array(StockUnitConversionInputSchema).max(50),
 }).strict();
 
-export const UpdateStockItemRequestSchema = CreateStockItemRequestSchema.partial().extend({
+export const UpdateStockItemRequestSchema = CreateStockItemRequestSchema.omit({ openingQuantity: true, openingValueAmount: true }).partial().extend({
   expectedVersion: InventoryVersionSchema,
+  openingQuantity: InventoryNonNegativeDecimalSchema.optional(),
+  openingValueAmount: InventoryMoneySchema.optional(),
 }).strict().refine((input) => Object.keys(input).some((key) => key !== "expectedVersion"), {
   message: "At least one stock-item field must be updated.",
+}).superRefine((input, context) => {
+  if ((input.openingQuantity === undefined) !== (input.openingValueAmount === undefined)) context.addIssue({ code: "custom", path: [input.openingQuantity === undefined ? "openingQuantity" : "openingValueAmount"], message: "Opening quantity and value must be provided together." });
 });
 
 export const InventoryBalanceSchema = z.object({
@@ -938,6 +969,8 @@ export const PurchaseSchema = z.object({
 
 export const PurchaseResponseSchema = z.object({ data: PurchaseSchema, meta: z.object({ requestId: z.string() }) });
 export const PurchasesResponseSchema = z.object({ data: z.object({ purchases: z.array(PurchaseSchema), page: z.object({ limit: z.number().int(), nextCursor: z.string().nullable(), hasMore: z.boolean() }) }), meta: z.object({ requestId: z.string() }) });
+export type PurchaseListQuery = z.infer<typeof PurchaseListQuerySchema>;
+export type InventoryCountListQuery = z.infer<typeof InventoryCountListQuerySchema>;
 export type PurchaseInput = z.infer<typeof CreatePurchaseRequestSchema>;
 export type PurchaseUpdate = z.infer<typeof UpdatePurchaseRequestSchema>;
 
@@ -1044,12 +1077,14 @@ const ProductCostingCombinationInputSchema = z.object({
 });
 
 const ProductOptionCostingInputSchema = z.array(z.object({ optionId: z.uuid(), rules: z.array(CostingRuleInputSchema).min(1).max(100) }).strict()).max(100);
+const ProductOptionRecipeCostingInputSchema = z.array(z.object({ optionId: z.uuid(), recipeId: z.uuid(), recipeQuantity: InventoryDecimalSchema }).strict()).max(100);
 const RecipeCostingConfigurationInputSchema = z.object({
   mode: z.literal("RECIPE"),
   recipeId: z.uuid(),
   recipeQuantity: InventoryDecimalSchema,
   extrasRecipeId: z.uuid().nullable().optional(),
   optionRules: ProductOptionCostingInputSchema,
+  optionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
   combinations: z.array(ProductCostingCombinationInputSchema).max(200),
 }).strict();
 const PurchasedCostingConfigurationInputSchema = z.object({
@@ -1074,6 +1109,7 @@ export const ProductCostingConfigurationResponseDataSchema = z.discriminatedUnio
     recipeQuantity: InventoryNonNegativeDecimalSchema,
     extrasRecipeId: z.uuid().nullable(),
     optionRules: z.array(z.object({ optionId: z.uuid(), rules: z.array(CostingRuleInputSchema) })),
+    optionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
     combinations: z.array(ProductCostingCombinationInputSchema.extend({ id: z.uuid(), version: InventoryVersionSchema, isActive: z.boolean() })),
     version: InventoryVersionSchema,
     updatedAt: z.iso.datetime(),
@@ -1085,6 +1121,7 @@ export const ProductCostingConfigurationResponseDataSchema = z.discriminatedUnio
     purchasedQuantity: InventoryNonNegativeDecimalSchema.nullable(),
     extrasRecipeId: z.uuid().nullable(),
     optionRules: z.array(z.object({ optionId: z.uuid(), rules: z.array(CostingRuleInputSchema) })),
+    optionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
     combinations: z.array(ProductCostingCombinationInputSchema.extend({ id: z.uuid(), version: InventoryVersionSchema, isActive: z.boolean() })),
     version: InventoryVersionSchema,
     updatedAt: z.iso.datetime(),
@@ -1133,7 +1170,8 @@ export const InventoryCountLineInputSchema = z.object({
 }).strict();
 
 export const CreateInventoryCountRequestSchema = z.object({
-  kind: z.enum(["OPENING", "PHYSICAL"]),
+  kind: z.literal("PHYSICAL"),
+  reason: z.string().trim().min(1).max(500).optional(),
   lines: z.array(InventoryCountLineInputSchema).min(1).max(500),
 }).strict().superRefine((input, context) => {
   const ids = input.lines.map((line) => line.stockItemId);
@@ -1142,6 +1180,7 @@ export const CreateInventoryCountRequestSchema = z.object({
 
 export const UpdateInventoryCountRequestSchema = z.object({
   expectedVersion: InventoryVersionSchema,
+  reason: z.string().trim().min(1).max(500).optional(),
   lines: z.array(InventoryCountLineInputSchema).min(1).max(500),
 }).strict().superRefine((input, context) => {
   const ids = input.lines.map((line) => line.stockItemId);
@@ -1158,6 +1197,8 @@ export const InventoryCountSchema = z.object({
   kind: z.enum(["OPENING", "PHYSICAL"]),
   status: z.enum(["DRAFT", "POSTED"]),
   version: InventoryVersionSchema,
+  reason: z.string().nullable(),
+  createdAt: z.iso.datetime(),
   postedAt: z.iso.datetime().nullable(),
   lines: z.array(InventoryCountLineInputSchema.extend({
     expectedQuantity: InventoryNonNegativeDecimalSchema.nullable(),
@@ -1175,17 +1216,25 @@ export type InventoryCountPosting = z.infer<typeof PostInventoryCountRequestSche
 
 export const InventoryMovementQuerySchema = z.object({
   stockItemId: z.uuid().optional(),
+  searchBy: z.enum(["PRODUCT", "ORDER_NUMBER", "KIND"]).optional(),
+  search: z.string().trim().min(1).max(160).optional(),
   kind: z.enum(["OPENING_COUNT", "PURCHASE_RECEIPT", "ORDER_CONSUMPTION", "ORDER_RESTORATION", "PHYSICAL_COUNT_ADJUSTMENT", "PURCHASE_RETURN"]).optional(),
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().min(1).max(512).optional(),
-}).strict().refine((query) => !query.from || !query.to || query.from <= query.to, { message: "from must not be later than to.", path: ["to"] });
+}).strict().refine((query) => !query.from || !query.to || query.from <= query.to, { message: "from must not be later than to.", path: ["to"] })
+  .refine((query) => query.searchBy !== "KIND" || !!query.kind, { message: "kind is required when searching by movement type.", path: ["kind"] })
+  .refine((query) => query.searchBy === "KIND" || !query.kind || !query.searchBy, { message: "kind can only be used with movement-type search.", path: ["kind"] })
+  .refine((query) => !query.searchBy || query.searchBy === "KIND" || !!query.search, { message: "search text is required for this search method.", path: ["search"] })
+  .refine((query) => query.searchBy !== "KIND" || !query.search, { message: "search text is not used for movement-type search.", path: ["search"] })
+  .refine((query) => !!query.searchBy || !query.search, { message: "searchBy is required when search text is provided.", path: ["searchBy"] });
 export type InventoryMovementQuery = z.infer<typeof InventoryMovementQuerySchema>;
 
 export const InventoryMovementSchema = z.object({
   id: z.uuid(),
   stockItemId: z.uuid(),
+  orderNumber: z.string().nullable(),
   kind: z.enum(["OPENING_COUNT", "PURCHASE_RECEIPT", "ORDER_CONSUMPTION", "ORDER_RESTORATION", "PHYSICAL_COUNT_ADJUSTMENT", "PURCHASE_RETURN"]),
   quantityDelta: z.string(),
   valueDeltaAmount: z.number().int(),
