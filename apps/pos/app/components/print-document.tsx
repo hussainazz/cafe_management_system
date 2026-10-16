@@ -58,11 +58,13 @@ function BarTicket({ ticket }: { ticket: BarTicket }) {
         {ticket.items.map((item, index) => (
           <article className="thermal-item" key={`${item.productName}-${index}`}>
             <div className="thermal-item__main">
-              <b>{item.productName}</b>
-              <span>×{englishNumber.format(item.quantity)}</span>
+              <b>
+                {item.productName} ×{" "}
+                <span className="thermal-item__quantity">{englishNumber.format(item.quantity)}</span>
+              </b>
             </div>
             {item.options.length > 0 && (
-              <small>
+              <small className="thermal-item__options">
                 {item.options
                   .map((option) => `${option.name} ×${englishNumber.format(option.quantity)}`)
                   .join("، ")}
