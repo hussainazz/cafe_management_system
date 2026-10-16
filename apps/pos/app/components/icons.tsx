@@ -24,11 +24,57 @@ export function MenuIcon() {
     </Icon>
   );
 }
+export function ServiceBellIcon() {
+  return (
+    <Icon>
+      <path d="M4 17a8 8 0 0 1 16 0M3 17h18M3 20h18M12 9V6M10 6h4" />
+      <path className="service-bell__signal service-bell__signal--near" d="M5 7a10 10 0 0 1 14 0" />
+      <path className="service-bell__signal service-bell__signal--far" d="M2 4a14 14 0 0 1 20 0" />
+    </Icon>
+  );
+}
 export function OrdersIcon() {
   return (
     <Icon>
-      <path d="M7 3h10v3H7zM6 5H4v16h16V5h-2" />
-      <path d="M8 11h8M8 15h8" />
+      <rect x="5" y="5" width="14" height="17" rx="2" />
+      <path d="M9 5.5V4a3 3 0 0 1 6 0v1.5" />
+      <path d="M10 11h6M10 15h6" />
+    </Icon>
+  );
+}
+export function SettingsIcon() {
+  return (
+    <Icon>
+      <path d="M4 6h16M4 12h16M4 18h16" />
+      <circle cx="9" cy="6" r="2" fill="var(--surface-overlay)" />
+      <circle cx="15" cy="12" r="2" fill="var(--surface-overlay)" />
+      <circle cx="8" cy="18" r="2" fill="var(--surface-overlay)" />
+    </Icon>
+  );
+}
+export function AccountingIcon() {
+  return (
+    <Icon>
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <path d="M4 9h16M8 14h3M15 14h2" />
+    </Icon>
+  );
+}
+export function CatalogIcon() {
+  return (
+    <Icon>
+      <circle cx="7" cy="7" r="2.3" />
+      <circle cx="17" cy="7" r="2.3" />
+      <circle cx="7" cy="17" r="2.3" />
+      <circle cx="17" cy="17" r="2.3" />
+    </Icon>
+  );
+}
+export function InventoryIcon() {
+  return (
+    <Icon>
+      <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+      <path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12v8.5" />
     </Icon>
   );
 }
@@ -100,7 +146,16 @@ export function WifiIcon() {
 export function ExitIcon() {
   return (
     <Icon>
-      <path d="M10 17l5-5-5-5M15 12H3M21 3v18" />
+      <path d="M14 4h5v16h-5" />
+      <path d="M3 12h11m-4-4 4 4-4 4" />
+    </Icon>
+  );
+}
+export function SunIcon() {
+  return (
+    <Icon>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
     </Icon>
   );
 }
@@ -116,6 +171,21 @@ export function CloseIcon() {
   return (
     <Icon>
       <path d="m6 6 12 12M18 6 6 18" />
+    </Icon>
+  );
+}
+export function EditIcon() {
+  return (
+    <Icon>
+      <path d="m14 5 5 5M4 20l4.2-.8L19 8.4 15.6 5 4.8 15.8 4 20Z" />
+    </Icon>
+  );
+}
+export function TrashIcon() {
+  return (
+    <Icon>
+      <path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7" />
+      <path d="M10 11v5M14 11v5" />
     </Icon>
   );
 }
