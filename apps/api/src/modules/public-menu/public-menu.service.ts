@@ -43,6 +43,7 @@ function toPublicProduct(product: PublicCatalogProduct) {
   return {
     id: product.id,
     name: product.name,
+    menuNote: product.menuNote?.trim() || null,
     basePriceAmount: product.priceAmount,
     priceAmount,
     saleDiscount: product.saleDiscountKind && product.saleDiscountValue && discountAmount > 0 && publicDiscountPercentage ? {
@@ -61,7 +62,7 @@ function toPublicProduct(product: PublicCatalogProduct) {
 export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuery) {
   const q = query.q?.toLocaleLowerCase("fa-IR");
   const categories = await prisma.category.findMany({
-    where: { ...(query.categoryId ? { id: query.categoryId } : {}), isActive: true, archivedAt: null },
+    where: { ...(query.categoryId ? { id: query.categoryId } : {}), archivedAt: null },
     orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     include: {
       products: {
@@ -73,7 +74,7 @@ export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuer
       },
       productMemberships: {
         orderBy: [{ displayOrder: "asc" }, { product: { name: "asc" } }],
-        where: { product: { isActive: true, archivedAt: null, isPublic: true, category: { isActive: true, archivedAt: null } } },
+        where: { product: { isActive: true, archivedAt: null, isPublic: true, category: { archivedAt: null } } },
         include: { product: { include: publicCatalogInclude } },
       },
     },
@@ -94,7 +95,7 @@ export async function readPublicMenu(prisma: PrismaClient, query: PublicMenuQuer
 
 export async function readPublicProduct(prisma: PrismaClient, productId: string) {
   const product = await prisma.product.findFirst({
-    where: { id: productId, isActive: true, archivedAt: null, isPublic: true, category: { isActive: true, archivedAt: null } },
+    where: { id: productId, isActive: true, archivedAt: null, isPublic: true, category: { archivedAt: null } },
     include: publicCatalogInclude,
   });
   return product ? toPublicProduct(product) : null;
