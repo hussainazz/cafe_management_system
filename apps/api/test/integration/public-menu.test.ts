@@ -20,7 +20,7 @@ describe("public QR menu", () => {
     const unavailable = await app.prisma.option.create({ data: { optionGroupId: optionGroup.id, name: "ناموجود", priceAmount: 10_000, displayOrder: 2, isAvailable: false } });
     const product = await app.prisma.product.create({
       data: {
-        categoryId: category.id, name: "لاته", priceAmount: 250_000,
+        categoryId: category.id, name: "لاته", menuNote: "با دانه‌ی عربیکا تهیه می‌شود.", priceAmount: 250_000,
         saleDiscountKind: DiscountKind.PERCENTAGE, saleDiscountValue: 20,
         preparationDeadlineMinutes: 8, displayOrder: 1, isAvailable: false,
         image: { create: { storageKey: "products/latte.webp", altText: "لاته" } },
@@ -33,7 +33,7 @@ describe("public QR menu", () => {
     const unavailableLater = await app.prisma.product.create({
       data: { categoryId: category.id, name: "ناموجود دوم", priceAmount: 270_000, preparationDeadlineMinutes: 10, displayOrder: 3, isAvailable: false },
     });
-    const hiddenCategory = await app.prisma.category.create({ data: { name: "پنهان", displayOrder: 2, isActive: false } });
+    const hiddenCategory = await app.prisma.category.create({ data: { name: "پنهان", displayOrder: 2, isActive: false, archivedAt: new Date() } });
     await app.prisma.product.create({ data: { categoryId: hiddenCategory.id, name: "نباید نمایش داده شود", priceAmount: 1, preparationDeadlineMinutes: 1, displayOrder: 1 } });
 
     const response = await app.inject({ method: "GET", url: "/api/v1/public/menu" });
@@ -41,10 +41,10 @@ describe("public QR menu", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data.categories).toEqual([{
       id: category.id, name: "قهوه", products: [{
-        id: availableLater.id, name: "موجود دیرتر", basePriceAmount: 260_000, priceAmount: 260_000,
+        id: availableLater.id, name: "موجود دیرتر", menuNote: null, basePriceAmount: 260_000, priceAmount: 260_000,
         saleDiscount: null, isAvailable: true, image: null, optionGroups: [],
       }, {
-        id: product.id, name: "لاته", basePriceAmount: 250_000, priceAmount: 200_000,
+        id: product.id, name: "لاته", menuNote: "با دانه‌ی عربیکا تهیه می‌شود.", basePriceAmount: 250_000, priceAmount: 200_000,
         saleDiscount: { kind: "PERCENTAGE", value: 20, amount: 50_000 },
         isAvailable: false, image: { storageKey: "products/latte.webp", altText: "لاته" },
         optionGroups: [{ id: optionGroup.id, name: "دانه قهوه", minSelections: 1, maxSelections: 1, options: [
@@ -52,7 +52,7 @@ describe("public QR menu", () => {
           { id: expect.any(String), name: "ناموجود", priceAmount: 10_000, isAvailable: false },
         ] }],
       }, {
-        id: unavailableLater.id, name: "ناموجود دوم", basePriceAmount: 270_000, priceAmount: 270_000,
+        id: unavailableLater.id, name: "ناموجود دوم", menuNote: null, basePriceAmount: 270_000, priceAmount: 270_000,
         saleDiscount: null, isAvailable: false, image: null, optionGroups: [],
       }],
     }]);
