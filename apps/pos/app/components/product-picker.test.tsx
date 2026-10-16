@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PosCatalogProduct } from "@cafe/contracts";
 import { ProductPicker } from "./product-picker";
@@ -24,6 +24,27 @@ beforeEach(() => vi.stubGlobal("ResizeObserver", class { observe() {} disconnect
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("POS product cards", () => {
+  it("coalesces scroll positioning into one frame and cancels it when closed", () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId; }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn((id: number) => frames.delete(id)));
+    setup([product("لاته", [group("شربت", 10)])]);
+    fireEvent.click(screen.getByRole("button", { name: "انتخاب گزینه‌های قهوه" }));
+    const card = document.querySelector(".pos-product")!;
+    const measure = vi.spyOn(card, "getBoundingClientRect");
+    for (let index = 0; index < 20; index++) fireEvent.scroll(window);
+    expect(measure).not.toHaveBeenCalled();
+    expect(frames.size).toBe(1);
+    act(() => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach((callback) => callback(16)); });
+    expect(measure).toHaveBeenCalledTimes(1);
+    fireEvent.scroll(window);
+    expect(frames.size).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "بستن گزینه‌ها" }));
+    expect(frames.size).toBe(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    measure.mockRestore();
+  });
   it("defaults each coffee variant to 50/50 and double while preserving the cashier's changes", () => {
     const coffeeLine = group("لاین قهوه", 3);
     coffeeLine.options[0]!.name = "۸۰/۲۰ روبوستا";
