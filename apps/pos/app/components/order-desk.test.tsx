@@ -9,20 +9,37 @@ const api = vi.hoisted(() => ({ posApiFailureEvent: "run-cafe:api-failure", crea
 const printing = vi.hoisted(() => ({ printDocument: vi.fn(), printRoute: vi.fn((id: string, kind: string) => `/pos/print/${id}/${kind}`) }));
 vi.mock("../lib/api-client", () => api);
 vi.mock("../lib/print-routes", () => printing);
-afterEach(cleanup);
-beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} }); });
 function desk(paymentStatus?: "UNPAID" | "PARTIALLY_PAID", weighted = false, itemId = "item", version = 1, includeAddedItem = false) {
   const product = { id: "product", name: "قهوه", priceAmount: 50000, pricingMode: weighted ? "WEIGHTED_PER_KG" : "FIXED", isAvailable: false, optionGroups: weighted ? [{ id: "optional", name: "افزودنی", minSelections: 0, maxSelections: 1, options: [] }] : [] };
   const order = paymentStatus ? { id: "order", state: "OPEN", version, dailyOrderNumber: 1, channel: "TAKEAWAY", paymentStatus, totalAmount: includeAddedItem ? 80000 : 50000, balanceAmount: 25000, discountAmount: 0, settlements: [], items: [{ id: itemId, productId: "product", productNameSnapshot: "قهوه", quantity: 1, lineTotalAmount: 50000, note: null, weightGrams: null, pricingModeSnapshot: "FIXED", options: [] }, ...(includeAddedItem ? [{ id: "added-item", productId: "dessert", productNameSnapshot: "کیک", quantity: 1, lineTotalAmount: 30000, note: null, weightGrams: null, pricingModeSnapshot: "FIXED", options: [] }] : [])] } : null;
   render(<OrderDesk catalog={[{ id: "category", name: "نوشیدنی", products: [product] }] as never} table={null} channel="TAKEAWAY" initialOrder={order as never} onOrder={vi.fn(async () => undefined)} onDone={vi.fn()} onTableClearNeeded={vi.fn()} onCreateFailure={vi.fn(async () => undefined)} onDirtyChange={vi.fn()} onSubmitReady={vi.fn()} takeawayOrders={[]} onOpenTakeaway={vi.fn(async () => undefined)} onCloseTakeawayPanel={vi.fn()} />);
+  if (order) fireEvent.click(screen.getByRole("button", { name: "ویرایش سفارش" }));
   return order;
 }
 describe("OrderDesk order workflow", () => {
+  it("keeps the tile quantity synchronized with the order and restores its add action at zero", () => {
+    desk();
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
+    expect(screen.getByLabelText("تعداد انتخاب‌شده قهوه").textContent).toBe("۱");
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
+    expect(screen.getByLabelText("تعداد انتخاب‌شده قهوه").textContent).toBe("۲");
+    expect(document.querySelector(".order-total strong")?.textContent).toBe("100,000");
+    fireEvent.click(screen.getByRole("button", { name: "کم کردن قهوه در کارت محصول" }));
+    expect(screen.getByLabelText("تعداد انتخاب‌شده قهوه").textContent).toBe("۱");
+    expect(document.querySelector(".order-total strong")?.textContent).toBe("50,000");
+    fireEvent.click(screen.getByRole("button", { name: "کم کردن قهوه در کارت محصول" }));
+    expect(screen.queryByLabelText("تعداد انتخاب‌شده قهوه")).toBeNull();
+    expect(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }).textContent).toBe("+");
+    expect(document.querySelector(".order-total strong")?.textContent).toBe("0");
+  });
+
   it("allows unavailable active catalog cards and shows quantity totals once", () => {
     desk();
-    const card = screen.getByRole("button", { name: "قهوه" });
+    const card = screen.getByRole("button", { name: "افزودن قهوه به سفارش" });
     expect((card as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(card); fireEvent.click(card);
+    fireEvent.click(card); fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
     fireEvent.click(screen.getByRole("button", { name: /قهوه × 2/ }));
     expect(document.querySelector(".quantity__total")?.textContent).toBe("100,000");
     expect(document.querySelector(".order-total strong")?.textContent).toBe("100,000");
@@ -34,7 +51,7 @@ describe("OrderDesk order workflow", () => {
     const product = { id: "product", name: "قهوه", priceAmount: 50_000, pricingMode: "FIXED", saleDiscountKind: "PERCENTAGE", saleDiscountValue: 11, isAvailable: true, optionGroups: [] };
     const onOrder = vi.fn(async () => undefined);
     render(<OrderDesk catalog={[{ id: "category", name: "نوشیدنی", products: [product] }] as never} table={null} channel="TAKEAWAY" initialOrder={null} onOrder={onOrder} onDone={vi.fn()} onTableClearNeeded={vi.fn()} onCreateFailure={vi.fn(async () => undefined)} onDirtyChange={vi.fn()} onSubmitReady={vi.fn()} takeawayOrders={[]} onOpenTakeaway={vi.fn(async () => undefined)} onCloseTakeawayPanel={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "قهوه" }));
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
     expect(document.querySelector(".order-total strong")?.textContent).toBe("45,000");
 
     api.createOpenOrder.mockResolvedValueOnce({ ok: true, data: { id: "saved-order" } });
@@ -51,9 +68,9 @@ describe("OrderDesk order workflow", () => {
   });
   it("shows a weighted line total once when quantity exceeds one", () => {
     desk(undefined, true);
-    fireEvent.click(screen.getByRole("button", { name: /قهوه.*دارای انتخاب/ }));
+    fireEvent.click(screen.getByRole("button", { name: "انتخاب گزینه‌های قهوه" }));
     fireEvent.change(screen.getByLabelText("وزن"), { target: { value: "250" } });
-    fireEvent.click(screen.getByRole("button", { name: "افزودن به سفارش" }));
+    fireEvent.click(screen.getByRole("dialog").querySelector(".pos-product__add")!);
     fireEvent.click(screen.getByRole("button", { name: /قهوه · 250 گرم × 1/ }));
     fireEvent.click(screen.getByRole("button", { name: "زیاد کردن قهوه" }));
     expect(document.querySelector(".quantity__total")?.textContent).toBe("25,000");
@@ -66,12 +83,12 @@ describe("OrderDesk order workflow", () => {
     expect(screen.queryByRole("button", { name: "کم کردن قهوه" })).toBeNull();
     expect(screen.queryByLabelText("یادداشت قهوه")).toBeNull();
     expect(screen.getByRole("button", { name: "زیاد کردن قهوه" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "قهوه" }));
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
     expect((screen.getByRole("button", { name: "تأیید و ثبت ویرایش" }) as HTMLButtonElement).disabled).toBe(false);
   });
   it("remembers a note only after a successful creation", async () => {
     desk();
-    fireEvent.click(screen.getByRole("button", { name: "قهوه" }));
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
     fireEvent.click(screen.getByRole("button", { name: /قهوه × 1/ }));
     fireEvent.change(screen.getByLabelText("یادداشت قهوه"), { target: { value: "  داغ  " } });
     api.createOpenOrder.mockResolvedValueOnce({ ok: false, error: { message: "failed" } });
@@ -87,13 +104,13 @@ describe("OrderDesk order workflow", () => {
   it("uses a fresh idempotency key when a failed takeaway draft is changed", async () => {
     setRecoveryUser("changed-create-payload");
     desk();
-    fireEvent.click(screen.getByRole("button", { name: "قهوه" }));
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
     api.createOpenOrder.mockResolvedValueOnce({ ok: false, error: { status: 409, code: "IDEMPOTENCY_CONFLICT", message: "collision" } });
     fireEvent.click(screen.getByRole("button", { name: "ثبت سفارش" }));
     await screen.findByText("collision");
     const firstKey = api.createOpenOrder.mock.calls[0]![1];
 
-    fireEvent.click(screen.getByRole("button", { name: "قهوه" }));
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
     api.createOpenOrder.mockResolvedValueOnce({ ok: false, error: { status: 500, message: "still unavailable" } });
     fireEvent.click(screen.getByRole("button", { name: "ثبت سفارش" }));
     await screen.findByText("still unavailable");
@@ -120,7 +137,7 @@ describe("mounted order recovery", () => {
   it("restores additions, quantities and notes without replaying uncertain creation", async () => {
     setRecoveryUser("order-recovery-draft");
     desk();
-    fireEvent.click(screen.getByRole("button", { name: "قهوه" }));
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
     fireEvent.click(screen.getByRole("button", { name: /قهوه × 1/ }));
     fireEvent.change(screen.getByLabelText("یادداشت قهوه"), { target: { value: "کم شکر" } });
     api.createOpenOrder.mockResolvedValueOnce({ ok: false, error: { message: "uncertain" } });
@@ -222,14 +239,52 @@ describe("discarding a takeaway draft", () => {
     api.readOpenOrders.mockResolvedValue({ ok: true, data: [] });
 
     render(<OrdersWorkspace refreshing={false} onActivityChange={vi.fn()} onOpenMenu={vi.fn()} menuOpen={false} />);
-    fireEvent.click(await screen.findByRole("button", { name: "قهوه" }));
+    fireEvent.click(await screen.findByRole("button", { name: "افزودن قهوه به سفارش" }));
     expect(screen.getByRole("button", { name: /قهوه × 1/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /سالن/ }));
+    fireEvent.click(screen.getByRole("button", { name: "بستن سفارش بیرون‌بر" }));
     fireEvent.click(screen.getByRole("button", { name: "حذف تغییرات" }));
 
     expect(readRecovery("desk:TAKEAWAY:takeaway:new:draft")).toBeUndefined();
     fireEvent.click(screen.getByRole("button", { name: /بیرون‌بر/ }));
     expect(screen.queryByRole("button", { name: /قهوه × 1/ })).toBeNull();
     expect(screen.getByText("سفارش خالی است")).toBeTruthy();
+  });
+});
+
+describe("active table header", () => {
+  async function openSelectedTable() {
+    setRecoveryUser("active-table-header");
+    writeRecovery("channel", "TABLE");
+    writeRecovery("order-context", { tableId: "table", orderId: null, version: null, editing: false, checkout: false });
+    api.readPosCatalog.mockResolvedValue({ ok: true, data: [{ id: "category", name: "نوشیدنی", products: [{ id: "product", name: "قهوه", priceAmount: 50000, pricingMode: "FIXED", isAvailable: true, optionGroups: [] }] }] });
+    api.readPosTables.mockResolvedValue({ ok: true, data: { tables: [{ id: "table", name: "2", occupancyStatus: "AVAILABLE", activeOrders: [] }], tableSeatingLimitMinutes: null } });
+    api.readWaiterCalls.mockResolvedValue({ ok: true, data: [] });
+    api.readOpenOrders.mockResolvedValue({ ok: true, data: [] });
+    render(<OrdersWorkspace refreshing={false} onActivityChange={vi.fn()} onOpenMenu={vi.fn()} menuOpen={false} />);
+    return screen.findByRole("button", { name: "بستن میز انتخاب‌شده" });
+  }
+
+  it("moves the selected context into the header and restores modes when closed", async () => {
+    const close = await openSelectedTable();
+    expect(document.querySelector(".workspace-header")?.textContent).toContain("میز ۲");
+    expect(screen.queryByRole("tablist", { name: "نوع سفارش" })).toBeNull();
+    expect(document.querySelector(".desk-context")).toBeNull();
+    fireEvent.click(close);
+    expect(screen.getByRole("tablist", { name: "نوع سفارش" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "بستن میز انتخاب‌شده" })).toBeNull();
+  });
+
+  it("protects unsaved products on close and clears their recovery only on discard", async () => {
+    const close = await openSelectedTable();
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
+    fireEvent.click(close);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "ادامه ویرایش" }).at(-1)!);
+    expect(screen.getByRole("button", { name: /قهوه × 1/ })).toBeTruthy();
+    fireEvent.click(close);
+    fireEvent.click(screen.getByRole("button", { name: "حذف تغییرات" }));
+    expect(readRecovery("desk:TABLE:table:new:draft")).toBeUndefined();
+    expect(screen.getByRole("tablist", { name: "نوع سفارش" })).toBeTruthy();
+    expect(api.createOpenOrder).not.toHaveBeenCalled();
   });
 });
