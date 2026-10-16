@@ -27,8 +27,12 @@ stage is implemented.
   costing, settlement recognition, stock correction, and count reconciliation.
 - **P7 / Stage 13 — Complete.** Manager inventory/costing panels and
   gross-profit reporting.
+- **P8 / Stage 15 — In progress.** Product-first recipe setup maps menu options
+  to complete reusable recipes while preserving existing costing behavior.
 - **P8 / Stage 14 — Complete.** Integration, browser, migration/restore, and
   measured-performance verification for the inventory phase.
+- **P9 / Stage 16 — Complete.** Manager-managed explanatory product notes are
+  persisted in the catalog and exposed in the public menu product detail.
 
 Last recorded integrated local verification (2 October 2026): isolated API
 suite 16 files / 102 tests, POS suite 18 files / 87 tests, contracts build,
@@ -207,7 +211,7 @@ Implement Staff reads for sellable catalog data and active table timing.
 
 Acceptance criteria:
 
-- POS catalog reads return active categories, sellable products, options,
+- POS catalog reads return every unarchived source category, sellable products, options,
   availability, final Toman prices, image metadata, and preparation deadlines.
 - Table reads return active tables, the optional café seating limit, active order summaries,
   estimated preparation minutes, and estimated release times.
@@ -221,7 +225,7 @@ Implement table and takeaway order creation by Staff.
 
 Acceptance criteria:
 
-- The server validates active, non-archived POS-visible products and available options (active unavailable products remain orderable in POS), and calculates all prices, discounts,
+- The server validates active, non-archived products in unarchived source categories and available options (active unavailable products remain orderable in POS), and calculates all prices, discounts,
   totals, timing, and table estimates from authoritative data.
 - Order items store immutable product, option, price, and timing snapshots.
 - `POST /api/v1/orders` requires an idempotency key and retries do not create
@@ -380,7 +384,7 @@ Implement the anonymous QR-menu read endpoints.
 
 Acceptance criteria:
 
-- Public menu endpoints return active categories, visible products, available
+- Public menu endpoints return unarchived source and promotional categories with eligible products, visible products, available
   priced options, product image metadata, and final Toman prices. Product
   preparation deadlines remain private to authenticated POS workflows.
 - Public menu endpoints expose no cart submission, order creation, payment,
@@ -544,6 +548,11 @@ Acceptance criteria:
   purchased-item costing, purchased-item extras, named option replacements,
   quantity changes, additions, and explicit combination overrides. Conflicts
   are rejected. Preview exposes missing inputs rather than zero-valued costs.
+- Menu-option recipe configuration associates a public product option with a
+  complete reusable recipe and quantity. The selected option recipe resolves
+  as the full recipe for that product selection; ambiguous simultaneous full
+  recipe mappings are rejected. Existing option rules, combinations, saved
+  order snapshots, and historical costing remain compatible.
 - Order-item costing snapshots update with eligible unsettled content changes
   and do not follow later catalog edits.
 - Whole-order final payment captures theoretical costs exactly once. Stock is
@@ -573,6 +582,25 @@ Acceptance criteria:
 - The shared POS Manager workspace supports stock items, received purchases,
   recipes/product costing, recipe preview, physical counts and reconciliation,
   inventory history, pending consumption, and gross-profit reports.
+- Stock setup omits editable category input while retaining the stored category;
+  piece-based stock shows one optional count-per-package field instead of the
+  named pack-conversion editor.
+- Purchase history exposes cursor pagination and server-side supplier/item
+  search, status filtering, and a received-time range.
+- Inventory movement history exposes cursor pagination, date-range filters,
+  and a selectable search mode for stock-item name, visible order number, or
+  movement type. Order-consumption movements display the POS order number.
+- The Manager section is labeled «انبار»; «خریدها» is the first inventory tab
+  and «سود ناخالص» is the last.
+- Count history exposes cursor pagination and server-side stock-item search,
+  count-kind/status filters, and a count-created-time range. The Manager count
+  editor creates physical counts only; stock-item setup initializes each
+  item's starting quantity and value and records its opening ledger entry. A
+  physical count with any quantity differing from its recorded balance
+  requires one shared reason for the count.
+- The recipe workflow starts from a public menu product and shows only its
+  active public options. Each option can be assigned a full ingredient recipe
+  using stock items or previously created recipes, with source-unit guidance.
 - Archived stock items are hidden from active stock lists while their historical
   purchase and movement records remain available; a new active stock item may
   reuse an archived item's name.
@@ -631,7 +659,38 @@ expanded acceptance coverage and execution record are in `docs/current-left.md`.
 
 ## 2 October 2026 Approved POS Behavior Notes
 
+### P9 - Stage 16 Customer-Facing Menu Item Notes — Complete
+
+Acceptance criteria:
+
+- A Manager can create, update, and clear one optional explanatory note on a
+  product through the POS catalog panel. The note is validated and persisted
+  with the product, and every change follows the existing Manager authorization
+  and catalog audit path.
+- Public menu product responses include the note, while POS order-entry and
+  order-item preparation notes retain their separate existing behavior.
+- The menu product detail popup shows a non-empty note below all option choices;
+  it works for products with no options and is absent when no note is set.
+- API and UI checks cover saving, editing, clearing, authorization, DTO output,
+  and popup order. Live browser verification follows the flow from Manager POS
+  catalog editing to the customer menu.
+
+Left:
+
+- None. Focused API/POS/menu checks and the live POS-to-menu browser workflow
+  are recorded in `docs/current-left.md`.
+
+## 2 October 2026 Approved POS Behavior Notes
+
 - POS product availability is advisory for active products; inactive/archived products and unavailable options remain blocked. Public-menu availability remains unchanged.
 - Payment shift presets use each settlement recordedAt in Asia/Tehran, including partial payments: 08:00–16:00 and 16:00–midnight.
 - Bar-ticket reads do not mutate print state. Authenticated preparation and retry-safe acknowledgment persist the exact preparation snapshot; edits print additions only, unchanged preparation content reprints the whole order. The operator's save-and-print action is the confirmation; browser events cannot verify paper output.
 - Recovery retains local work and never automatically repeats authoritative mutations or prints.
+
+### Inventory production activation gate
+
+Inventory ships inactive. Manager-only Café Settings activation records one
+permanent timestamp and audit entry. All inventory routes and background order
+hooks remain inactive until then. Only orders created after activation qualify;
+previous orders are never backfilled, including orders still open at activation.
+Database constraints prevent clearing or changing activation.
