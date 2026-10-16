@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { UserRole } from "../../generated/prisma/client.js";
 import {
   GrossProfitReportResponseSchema,
@@ -23,6 +23,7 @@ const app = buildApp();
 
 beforeAll(async () => { await app.ready(); });
 afterAll(async () => { await app.close(); });
+beforeEach(async () => { await app.prisma.cafeSettings.create({ data: { inventoryActivatedAt: new Date("2020-01-01T00:00:00.000Z") } }); });
 
 function cookieJar(response: { cookies: Array<{ name: string; value: string }> }) {
   return Object.fromEntries(response.cookies.map((cookie) => [cookie.name, cookie.value]));
@@ -38,16 +39,9 @@ async function productFixture(name: string) {
   return app.prisma.product.create({ data: { categoryId: category.id, name, priceAmount: 1_000, preparationDeadlineMinutes: 5, displayOrder: 1 } });
 }
 async function stockFixture(manager: Record<string, string>, name: string, quantity: string, value: number) {
-  const created = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name, category: "Ingredients", baseUnit: "GRAM", conversions: [{ label: "kg", baseQuantityPerPack: "1000", isActive: true }] } });
+  const created = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name, category: "Ingredients", baseUnit: "GRAM", openingQuantity: quantity, openingValueAmount: value, conversions: [{ label: "kg", baseQuantityPerPack: "1000", isActive: true }] } });
   expect(created.statusCode, created.body).toBe(201);
-  const stockItemId = created.json().data.id as string;
-  const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "OPENING", lines: [{ stockItemId, observedQuantity: quantity, observedValueAmount: value }] } });
-  expect(count.statusCode, count.body).toBe(201);
-  const countId = count.json().data.id as string;
-  const safeKey = name.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const posted = await app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${countId}/post`, cookies: manager, headers: { "idempotency-key": `open-count-${safeKey}-0001` }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [] } });
-  expect(posted.statusCode, posted.body).toBe(200);
-  return stockItemId;
+  return created.json().data.id as string;
 }
 async function recipeFixture(manager: Record<string, string>, productId: string, stockItemId: string, quantity = "80") {
   const created = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/recipes", cookies: manager, payload: { name: `Recipe ${productId}`, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "beans",  sourceKind: "STOCK_ITEM", stockItemId, quantity, displayOrder: 0 }] } });
@@ -73,13 +67,13 @@ describe("inventory costing and settlement integration", () => {
     const second = await stockFixture(manager, "Later opening beans", "200", 2000);
     expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId: first } })).quantityOnHand.toString()).toBe("100");
     expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId: second } })).quantityOnHand.toString()).toBe("200");
-    const reset = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "OPENING", lines: [{ stockItemId: first, observedQuantity: "0", observedValueAmount: 0 }] } });
+    const reset = await app.inject({ method: "PATCH", url: `/api/v1/admin/inventory/stock-items/${first}`, cookies: manager, payload: { expectedVersion: 1, openingQuantity: "0", openingValueAmount: 0 } });
     expect(reset.statusCode, reset.body).toBe(409);
     expect(reset.json().error.code).toBe("INVALID_STATE");
     const zero = await stockFixture(manager, "Empty opening beans", "0", 0);
     expect(await app.prisma.inventoryMovement.count({ where: { stockItemId: zero, kind: "OPENING_COUNT" } })).toBe(0);
     expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId: zero } })).trackingStartedAt).not.toBeNull();
-    const resetZero = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "OPENING", lines: [{ stockItemId: zero, observedQuantity: "10", observedValueAmount: 100 }] } });
+    const resetZero = await app.inject({ method: "PATCH", url: `/api/v1/admin/inventory/stock-items/${zero}`, cookies: manager, payload: { expectedVersion: 1, openingQuantity: "10", openingValueAmount: 100 } });
     expect(resetZero.statusCode, resetZero.body).toBe(409);
   });
   it("rejects receipt value overflow and rolls back earlier lines in the same receipt", async () => {
@@ -187,7 +181,7 @@ describe("inventory costing and settlement integration", () => {
     expect(settled.statusCode, settled.body).toBe(201);
     const consumption = await app.prisma.orderConsumption.findUniqueOrThrow({ where: { orderId_paymentSettlementId: { orderId: order.id, paymentSettlementId: settled.json().data.settlements[0].id } } });
 
-    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", lines: [{ stockItemId, observedQuantity: "20", observedValueAmount: 2_000 }] } });
+    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", reason: "شمارش دوره‌ای", lines: [{ stockItemId, observedQuantity: "20", observedValueAmount: 2_000 }] } });
     expect(count.statusCode, count.body).toBe(201);
     const posted = await app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${count.json().data.id}/post`, cookies: manager, headers: { "idempotency-key": "inventory-count-post-physical-01" }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [consumption.id] } });
     expect(posted.statusCode, posted.body).toBe(200);
@@ -282,7 +276,7 @@ describe("inventory costing and settlement integration", () => {
       products: [{ productId: product.id, netSalesAmount: order.totalAmount, theoreticalCogsAmount: 8_000, completeOrderItemCount: 1, incompleteOrderItemCount: 0 }],
       costCoverage: { completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
       pendingConsumptionCount: 0,
-      inventoryConsumption: { amount: 8_000, isEstimate: true, varianceAmount: null, missingValuationCount: 1 },
+      inventoryConsumption: { amount: 8_000, isEstimate: true, varianceAmount: 0, missingValuationCount: 0 },
     });
     expect(new Date(report.json().meta.range.from).getTime()).toBeLessThan(Date.now());
     expect(new Date(report.json().meta.range.to).getTime()).toBeGreaterThan(Date.now());
@@ -344,19 +338,12 @@ describe("inventory costing and settlement integration", () => {
     const manager = await session(UserRole.MANAGER, "inventory-multi-shortage.manager");
     const staff = await session(UserRole.STAFF, "inventory-multi-shortage.staff");
     const product = await productFixture("Multi-ingredient shortage drink");
-    const beans = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Multi-shortage beans", category: "Ingredients", baseUnit: "GRAM", conversions: [] } });
-    const milk = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Multi-shortage milk", category: "Ingredients", baseUnit: "GRAM", conversions: [] } });
+    const beans = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Multi-shortage beans", category: "Ingredients", baseUnit: "GRAM", openingQuantity: "100", openingValueAmount: 10_000, conversions: [] } });
+    const milk = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Multi-shortage milk", category: "Ingredients", baseUnit: "GRAM", openingQuantity: "40", openingValueAmount: 8_000, conversions: [] } });
     expect(beans.statusCode, beans.body).toBe(201);
     expect(milk.statusCode, milk.body).toBe(201);
     const beansId = beans.json().data.id as string;
     const milkId = milk.json().data.id as string;
-    const opening = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "OPENING", lines: [
-      { stockItemId: beansId, observedQuantity: "100", observedValueAmount: 10_000 },
-      { stockItemId: milkId, observedQuantity: "40", observedValueAmount: 8_000 },
-    ] } });
-    expect(opening.statusCode, opening.body).toBe(201);
-    const openingPost = await app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${opening.json().data.id}/post`, cookies: manager, headers: { "idempotency-key": "inventory-multi-shortage-opening-01" }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [] } });
-    expect(openingPost.statusCode, openingPost.body).toBe(200);
     const recipe = await app.inject({
       method: "POST", url: "/api/v1/admin/inventory/recipes", cookies: manager,
       payload: { name: "Multi-shortage recipe", outputUnit: "PIECE", yieldQuantity: "1", components: [
@@ -470,9 +457,9 @@ describe("inventory costing and settlement integration", () => {
     const manager = await session(UserRole.MANAGER, "gross-profit-incomplete.manager");
     const staff = await session(UserRole.STAFF, "gross-profit-incomplete.staff");
     const product = await productFixture("Unvalued ingredient product");
-    const stock = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Unvalued recipe ingredient", category: "Ingredients", baseUnit: "GRAM", conversions: [] } });
-    expect(stock.statusCode, stock.body).toBe(201);
-    await recipeFixture(manager, product.id, stock.json().data.id as string, "20");
+    const managerId = (await app.prisma.user.findFirstOrThrow({ where: { username: "gross-profit-incomplete.manager" } })).id;
+    const stock = await app.prisma.stockItem.create({ data: { name: "Unvalued recipe ingredient", category: "Ingredients", baseUnit: "GRAM", createdById: managerId } });
+    await recipeFixture(manager, product.id, stock.id, "20");
     const order = await orderFixture(staff, product.id, 1, "gross-profit-incomplete-order-create-01");
     const settlement = await settleAmount(staff, order, 1_000, "gross-profit-incomplete-settlement-01");
     expect(settlement.statusCode, settlement.body).toBe(201);
@@ -519,14 +506,11 @@ describe("inventory costing and settlement integration", () => {
     const product = await productFixture("Count eligibility product");
     const stockIds: string[] = [];
     for (const [name, value] of [["Count eligibility beans", 10_000], ["Count eligibility milk", 20_000]] as const) {
-      const created = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name, category: "Ingredients", baseUnit: "GRAM", conversions: [] } });
+      const created = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name, category: "Ingredients", baseUnit: "GRAM", openingQuantity: "100", openingValueAmount: value, conversions: [] } });
       expect(created.statusCode, created.body).toBe(201);
       stockIds.push(created.json().data.id as string);
     }
     const [beansId, milkId] = stockIds as [string, string];
-    const opening = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "OPENING", lines: [{ stockItemId: beansId, observedQuantity: "100", observedValueAmount: 10_000 }, { stockItemId: milkId, observedQuantity: "100", observedValueAmount: 20_000 }] } });
-    const openingPost = await app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${opening.json().data.id}/post`, cookies: manager, headers: { "idempotency-key": "count-eligibility-opening-01" }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [] } });
-    expect(openingPost.statusCode, openingPost.body).toBe(200);
     await recipeFixture(manager, product.id, beansId, "180");
     const recipe = await app.prisma.recipe.findFirstOrThrow({ where: { name: `Recipe ${product.id}` } });
     await app.prisma.recipeComponent.create({ data: { recipeId: recipe.id, componentKey: "milk", label: "Milk", sourceKind: "STOCK_ITEM", stockItemId: milkId, quantity: "20", displayOrder: 1 } });
@@ -535,13 +519,13 @@ describe("inventory costing and settlement integration", () => {
     expect(settlement.statusCode, settlement.body).toBe(201);
     const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: order.id } });
 
-    const incompleteCount = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", lines: [{ stockItemId: beansId, observedQuantity: "15", observedValueAmount: 1_500 }] } });
+    const incompleteCount = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", reason: "بازبینی موجودی", lines: [{ stockItemId: beansId, observedQuantity: "15", observedValueAmount: 1_500 }] } });
     const rejected = await app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${incompleteCount.json().data.id}/post`, cookies: manager, headers: { "idempotency-key": "count-eligibility-reject-01" }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [consumption.id] } });
     expect(rejected.statusCode).toBe(422);
     expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId: beansId } })).quantityOnHand.toString()).toBe("100");
     expect((await app.prisma.orderConsumption.findUniqueOrThrow({ where: { id: consumption.id } })).status).toBe("PENDING");
 
-    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", lines: [{ stockItemId: beansId, observedQuantity: "15", observedValueAmount: 1_500 }, { stockItemId: milkId, observedQuantity: "70", observedValueAmount: 14_000 }] } });
+    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", reason: "اصلاح شمارش", lines: [{ stockItemId: beansId, observedQuantity: "15", observedValueAmount: 1_500 }, { stockItemId: milkId, observedQuantity: "70", observedValueAmount: 14_000 }] } });
     const posted = await app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${count.json().data.id}/post`, cookies: manager, headers: { "idempotency-key": "count-eligibility-post-01" }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [consumption.id] } });
     expect(posted.statusCode, posted.body).toBe(200);
     expect(posted.json().data.lines).toEqual(expect.arrayContaining([
@@ -562,7 +546,7 @@ describe("inventory costing and settlement integration", () => {
     const settlementId = settlement.json().data.settlements[0].id as string;
     const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: order.id } });
 
-    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", lines: [{ stockItemId, observedQuantity: "20", observedValueAmount: 2_000 }] } });
+    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", reason: "شمارش دوره‌ای", lines: [{ stockItemId, observedQuantity: "20", observedValueAmount: 2_000 }] } });
     const posted = await app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${count.json().data.id}/post`, cookies: manager, headers: { "idempotency-key": "reconciled-correction-count-01" }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [consumption.id] } });
     expect(posted.statusCode).toBe(200);
     const tenderCorrection = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/edit`, cookies: manager, headers: { "idempotency-key": "reconciled-correction-tender-01" }, payload: { expectedVersion: 2, reason: "Correct tender method", payments: [{ method: "CARD_TERMINAL", amount: order.totalAmount }] } });
@@ -638,7 +622,7 @@ describe("inventory costing and settlement integration", () => {
     expect(InventoryMovementSchema.safeParse(returned.json().data).success).toBe(true);
     const recipe = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/recipes", cookies: manager, payload: { name: "DTO boundary recipe", outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "ingredient",  sourceKind: "STOCK_ITEM", stockItemId: itemId, quantity: "1", displayOrder: 0 }] } });
     expect(RecipeResponseSchema.safeParse(recipe.json()).success).toBe(true);
-    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", lines: [{ stockItemId: itemId, observedQuantity: "5", observedValueAmount: 1_000 }] } });
+    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", reason: "اصلاح مقدار", lines: [{ stockItemId: itemId, observedQuantity: "5", observedValueAmount: 1_000 }] } });
     expect(InventoryCountResponseSchema.safeParse(count.json()).success).toBe(true);
     const configured = await app.inject({ method: "PUT", url: `/api/v1/admin/products/${product.id}/costing`, cookies: manager, payload: { expectedVersion: 1, mode: "RECIPE", recipeId: recipe.json().data.id, recipeQuantity: "1", optionRules: [], combinations: [] } });
     expect(ProductCostingConfigurationResponseSchema.safeParse(configured.json()).success).toBe(true);
@@ -718,7 +702,7 @@ describe("inventory costing and settlement integration", () => {
 
     const updated = await app.inject({ method: "PATCH", url: `/api/v1/admin/inventory/stock-items/${stockItemId}`, cookies: manager, payload: { expectedVersion: 1, name: "Renamed stock" } });
     expect(updated.statusCode, updated.body).toBe(200);
-    expect(updated.json().data).toMatchObject({ name: "Renamed stock", version: 2, balance: { quantityOnHand: null, carryingValueAmount: null } });
+    expect(updated.json().data).toMatchObject({ name: "Renamed stock", version: 2, balance: { quantityOnHand: "0", carryingValueAmount: 0 } });
     const stale = await app.inject({ method: "PATCH", url: `/api/v1/admin/inventory/stock-items/${stockItemId}`, cookies: manager, payload: { expectedVersion: 1, name: "Stale write" } });
     expect(stale.statusCode).toBe(409);
 
@@ -731,8 +715,8 @@ describe("inventory costing and settlement integration", () => {
     const stalePurchase = await app.inject({ method: "PATCH", url: `/api/v1/admin/inventory/purchases/${purchaseId}`, cookies: manager, payload: { expectedVersion: 1, supplier: "Stale supplier" } });
     expect(stalePurchase.statusCode).toBe(409);
 
-    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "OPENING", lines: [{ stockItemId, observedQuantity: "10", observedValueAmount: 1_000 }] } });
-    const editCount = await app.inject({ method: "PATCH", url: `/api/v1/admin/inventory/counts/${count.json().data.id}`, cookies: manager, payload: { expectedVersion: 1, lines: [{ stockItemId, observedQuantity: "10.5", observedValueAmount: 1_050 }] } });
+    const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: manager, payload: { kind: "PHYSICAL", reason: "اصلاح شمارش", lines: [{ stockItemId, observedQuantity: "10", observedValueAmount: 1_000 }] } });
+    const editCount = await app.inject({ method: "PATCH", url: `/api/v1/admin/inventory/counts/${count.json().data.id}`, cookies: manager, payload: { expectedVersion: 1, reason: "اصلاح مقدار ثبت‌شده", lines: [{ stockItemId, observedQuantity: "10.5", observedValueAmount: 1_050 }] } });
     expect(editCount.statusCode, editCount.body).toBe(200);
     expect(editCount.json().data.lines).toMatchObject([{ observedQuantity: "10.5", observedValueAmount: 1_050 }]);
     const malformedQuery = await app.inject({ method: "GET", url: "/api/v1/admin/inventory/movements?limit=0", cookies: manager });
