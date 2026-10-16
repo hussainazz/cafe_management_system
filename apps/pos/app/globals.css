@@ -322,7 +322,8 @@ body {
 body {
   min-width: 320px;
   background: var(--canvas-gradient, var(--canvas));
-  background-attachment: fixed;
+  /* Let the canvas scroll normally instead of repainting a viewport-fixed gradient. */
+  background-attachment: scroll;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
 }
@@ -385,6 +386,15 @@ select:focus-visible,
 textarea:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+summary:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+/* Shared scroll surfaces follow both POS themes; category navigation keeps its custom thumb. */
+* {
+  scrollbar-color: var(--border-control) var(--surface);
 }
 svg {
   width: 1.25rem;
