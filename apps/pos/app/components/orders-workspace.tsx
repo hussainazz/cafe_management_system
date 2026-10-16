@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode, type RefObject } from "react";
 import type { PosCatalogCategory, PosCatalogProduct, PosTable } from "@cafe/contracts";
 import { roundDiscountedAmount } from "@cafe/contracts";
 import {
@@ -40,9 +40,9 @@ import {
   sumAmounts,
   weightedPricePreview,
 } from "../lib/pos-utils";
-import { AlertIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon, WifiIcon } from "./icons";
+import { AccountingIcon, CheckIcon, AlertIcon, ServiceBellIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon, WifiIcon } from "./icons";
 import type { PosActivity } from "./release-update-guard";
-
+import { ProductPicker } from "./product-picker";
 
 type Channel = "TABLE" | "TAKEAWAY";
 type OrderDetail = PosOrderDetail;
@@ -62,9 +62,10 @@ type PendingTransfer = { order: OrderDetail; source: PosTable; destination: PosT
 type TenderMethod = "CASH" | "CARD_TERMINAL" | "CARD_TRANSFER";
 type TenderDraft = { id: string; method: TenderMethod; amount: string; reference: string };
 type DiscountTarget = { type: "order" } | { type: "item"; id: string; name: string };
+const productConfigurationKey = (productId: string, options: Array<{ id: string }>, weightGrams: number | null = null) =>
+  `${productId}:${options.map((option) => option.id).sort().join(",")}:${weightGrams ?? ""}`;
 const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const shotName = /^(.*)\s(سینگل|دبل)$/;
-const coffeeRatio = (name: string) => name.replace(/\s*(روبوستا|عربیکا)/g, "").replace("٪", "%");
 
 function productCards(products: PosCatalogProduct[]): ProductCard[] {
   const grouped = new Map<string, PosCatalogProduct[]>();
@@ -98,6 +99,35 @@ function discountedDraftLineAmount(item: Draft): number {
   return saleDiscountAmount > 0
     ? Math.min(grossAmount, roundDiscountedAmount(Math.max(0, grossAmount - saleDiscountAmount)))
     : grossAmount;
+}
+
+function editedOrderTotal(order: OrderDetail, saved: SavedDraft[], draftTotal: number): number {
+  const savedSubtotal = order.items.reduce((subtotal, item) => {
+    const edit = saved.find((candidate) => candidate.id === item.id);
+    if (!edit || edit.quantity <= 0) return subtotal;
+    const optionAmount = item.options.reduce(
+      (sum, option) => sum + option.priceSnapshot * (item.pricingModeSnapshot === "FIXED" && order.paymentStatus === "UNPAID" ? edit.quantity : option.quantity),
+      0,
+    );
+    const grossAmount = item.pricingModeSnapshot === "WEIGHTED_PER_KG"
+      ? Math.floor((item.basePriceSnapshot * (edit.weightGrams ?? 0) * edit.quantity) / 1000)
+        + Math.floor((optionAmount * (edit.weightGrams ?? 0) * edit.quantity) / 1000)
+      : item.basePriceSnapshot * edit.quantity + optionAmount;
+    const requestedDiscount = item.discountKind === "PERCENTAGE" && item.discountValue
+      ? Math.floor(grossAmount * item.discountValue / 100)
+      : item.discountKind === "FIXED" ? item.discountValue ?? 0 : 0;
+    const lineTotal = requestedDiscount > 0
+      ? Math.min(grossAmount, roundDiscountedAmount(Math.max(0, grossAmount - requestedDiscount)))
+      : grossAmount;
+    return subtotal + lineTotal;
+  }, 0);
+  const subtotal = savedSubtotal + draftTotal;
+  const requestedOrderDiscount = order.discountKind === "PERCENTAGE" && order.discountValue
+    ? Math.floor(subtotal * order.discountValue / 100)
+    : order.discountKind === "FIXED" ? order.discountValue ?? 0 : 0;
+  return requestedOrderDiscount > 0
+    ? Math.min(subtotal, roundDiscountedAmount(Math.max(0, subtotal - requestedOrderDiscount)))
+    : subtotal;
 }
 
 function savedDrafts(order: OrderDetail | null): SavedDraft[] {
@@ -379,6 +409,90 @@ export function OrdersWorkspace({
             <MenuIcon />
           </button>
         </div>
+        {(message || recovery || pendingTableClear) && (
+          <div className="workspace-header__notices" aria-label="پیام‌های وضعیت">
+            {message && (
+              <div
+                className={"toast toast--" + message.tone}
+                role={message.tone === "error" ? "alert" : "status"}
+              >
+                <AlertIcon />
+                {message.text}
+                <button onClick={() => setMessage(null)} aria-label="بستن پیام">×</button>
+              </div>
+            )}
+            {recovery && (
+              <section className={"recovery-banner recovery-banner--" + recovery.kind} role={recovery.kind === "conflict" ? "alert" : "status"} aria-live="polite">
+                <AlertIcon />
+                <div>
+                  <b>{recovery.title}</b>
+                  <span>{recovery.detail}</span>
+                </div>
+                <button className="button button--quiet" type="button" disabled={recovering || (!online && recovery.kind === "offline")} onClick={() => void recover()}>
+                  {recovering ? "در حال بازخوانی…" : recovery.action}
+                </button>
+                <button className="recovery-banner__close" type="button" aria-label="بستن پیام بازیابی" onClick={() => setRecovery(null)}>×</button>
+              </section>
+            )}
+            {pendingTableClear && (
+              <section className="clear-retry" role="alert" aria-live="assertive">
+                <div>
+                  <b>سفارش {formatOrderNumber(pendingTableClear.dailyOrderNumber)} از فهرست فعال حذف شد.</b>
+                  <span>
+                    میز {pendingTableClear.tableName} هنوز اشغال است و نشست مهمان قبلی پایان نیافته است: {pendingTableClear.error}
+                  </span>
+                </div>
+                <button
+                  className="button button--primary"
+                  type="button"
+                  disabled={retryingTableClear}
+                  onClick={async () => {
+                    setRetryingTableClear(true);
+                    const result = await makeTableAvailable(pendingTableClear.tableId);
+                    setRetryingTableClear(false);
+                    if (!result.ok) {
+                      setPendingTableClear({ ...pendingTableClear, error: result.error.message });
+                      return;
+                    }
+                    setPendingTableClear(null);
+                    await load();
+                    setMessage({ tone: "notice", text: "میز " + pendingTableClear.tableName + " آماده پذیرش شد." });
+                  }}
+                >
+                  {retryingTableClear ? "در حال آزادسازی…" : "تلاش دوباره برای آماده‌کردن میز"}
+                </button>
+              </section>
+            )}
+          </div>
+        )}
+        {selected && channel === "TABLE" ? (
+          <div className="active-table-context" dir="rtl" aria-label="میز انتخاب‌شده">
+            <TableIcon />
+            <span className="active-table-context__label">
+              <b>میز {selected.name.replace(/[0-9]/g, (digit) => "۰۱۲۳۴۵۶۷۸۹"[Number(digit)]!)}</b>
+              <small>{order ? (editingOrder ? "ویرایش سفارش" : formatOrderNumber(order.dailyOrderNumber)) : "سفارش تازه"}</small>
+            </span>
+            <button type="button" aria-label="بستن میز انتخاب‌شده" onClick={() => {
+              if (deskDirty) { setPendingChannel("TABLE"); return; }
+              close();
+            }}><CloseIcon /></button>
+          </div>
+        ) : channel === "TAKEAWAY" ? (
+          <div className="active-table-context" dir="rtl" aria-label="سفارش بیرون‌بر">
+            <BagIcon />
+            <span className="active-table-context__label">
+              <b>بیرون‌بر</b>
+              <small>{order ? (editingOrder ? "ویرایش سفارش" : formatOrderNumber(order.dailyOrderNumber)) : "سفارش تازه"}</small>
+            </span>
+            <button type="button" aria-label="بستن سفارش بیرون‌بر" onClick={() => {
+              if (deskDirty) { setPendingChannel("TABLE"); return; }
+              setChannel("TABLE");
+              setSelected(null);
+              setOrder(null);
+              setEditingOrder(false);
+            }}><CloseIcon /></button>
+          </div>
+        ) : (
         <div className="channel-tabs" role="tablist" aria-label="نوع سفارش">
           <button
             className={channel === "TABLE" ? "active" : ""}
@@ -391,7 +505,7 @@ export function OrdersWorkspace({
             <TableIcon /> سالن
           </button>
           <button
-            className={channel === "TAKEAWAY" ? "active" : ""}
+            className=""
             onClick={() => {
               if (deskDirty) { setPendingChannel("TAKEAWAY"); return; }
               setChannel("TAKEAWAY");
@@ -402,59 +516,8 @@ export function OrdersWorkspace({
             <BagIcon /> بیرون‌بر
           </button>
         </div>
+        )}
       </header>
-      {message && (
-        <div
-          className={`toast toast--${message.tone}`}
-          role={message.tone === "error" ? "alert" : "status"}
-        >
-          <AlertIcon />
-          {message.text}
-          <button onClick={() => setMessage(null)}>×</button>
-        </div>
-      )}
-      {recovery && (
-        <section className={`recovery-banner recovery-banner--${recovery.kind}`} role={recovery.kind === "conflict" ? "alert" : "status"} aria-live="polite">
-          <AlertIcon />
-          <div>
-            <b>{recovery.title}</b>
-            <span>{recovery.detail}</span>
-          </div>
-          <button className="button button--quiet" type="button" disabled={recovering || (!online && recovery.kind === "offline")} onClick={() => void recover()}>
-            {recovering ? "در حال بازخوانی…" : recovery.action}
-          </button>
-          <button className="recovery-banner__close" type="button" aria-label="بستن پیام بازیابی" onClick={() => setRecovery(null)}>×</button>
-        </section>
-      )}
-      {pendingTableClear && (
-        <section className="clear-retry" role="alert" aria-live="assertive">
-          <div>
-            <b>سفارش {formatOrderNumber(pendingTableClear.dailyOrderNumber)} از فهرست فعال حذف شد.</b>
-            <span>
-              میز {pendingTableClear.tableName} هنوز اشغال است و نشست مهمان قبلی پایان نیافته است: {pendingTableClear.error}
-            </span>
-          </div>
-          <button
-            className="button button--primary"
-            type="button"
-            disabled={retryingTableClear}
-            onClick={async () => {
-              setRetryingTableClear(true);
-              const result = await makeTableAvailable(pendingTableClear.tableId);
-              setRetryingTableClear(false);
-              if (!result.ok) {
-                setPendingTableClear({ ...pendingTableClear, error: result.error.message });
-                return;
-              }
-              setPendingTableClear(null);
-              await load();
-              setMessage({ tone: "notice", text: `میز ${pendingTableClear.tableName} آماده پذیرش شد.` });
-            }}
-          >
-            {retryingTableClear ? "در حال آزادسازی…" : "تلاش دوباره برای آماده‌کردن میز"}
-          </button>
-        </section>
-      )}
       {editingOrder || (selected && !order) || channel === "TAKEAWAY" ? (
         <OrderDesk
           key={`${channel}:${selected?.id ?? "takeaway"}:${order?.id ?? "new"}:${deskGeneration}`}
@@ -668,11 +731,12 @@ export function TableBoard({
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  const remainingLabel = (order: PosTable["activeOrders"][number]) => {
-    if (tableSeatingLimitMinutes === null) return null;
-    const preparation = Math.max(0, ...order.itemPreparationDeadlineMinutes);
-    const elapsed = Math.max(0, (now - Date.parse(order.createdAt)) / 60_000);
-    return `${Math.max(0, Math.ceil(tableSeatingLimitMinutes + preparation - elapsed))} دقیقه باقی‌مانده`;
+  const tableElapsedLabel = (createdAt: string) => {
+    const startedAt = Date.parse(createdAt);
+    const elapsedMinutes = Number.isFinite(startedAt) ? Math.max(0, Math.floor((now - startedAt) / 60_000)) : 0;
+    const hours = Math.floor(elapsedMinutes / 60);
+    const minutes = elapsedMinutes % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
   };
   const totals = new Map(orders.filter((x) => x.tableId).map((x) => [x.tableId!, x.totalAmount]));
   return (
@@ -772,16 +836,15 @@ export function TableBoard({
                 }
                 void onSelect(table);
               }} aria-pressed={selectedTableId === table.id}>
-                <span className="table-tile__top">
+                <span className={`table-tile__top${Array.from(table.name).length > 1 ? " table-tile__top--compact" : ""}`}>
                   <strong>{table.name}</strong>
-                  {call && <AlertIcon />}
                 </span>
                 <span className="table-tile__details">
-                  <span className="table-status"><i />{call ? "درخواست میزبان" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال‌شده" : "آماده"}</span>
-                  {hasOrder && <span className="table-tile__meta">{[remainingLabel(table.activeOrders[0]!), elapsedLabel(table.activeOrders[0]!.createdAt)].filter(Boolean).join(" · ")}</span>}
+                  <span className="table-status">{call && <span className="table-status__alert" aria-hidden="true"><ServiceBellIcon /></span>}<i />{call ? "درخواست میزبان" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال‌شده" : "آزاد"}</span>
+                  {hasOrder && <span className="table-tile__meta table-tile__meta--order-time"><ClockIcon />{tableElapsedLabel(table.activeOrders[0]!.createdAt)}</span>}
                   {call && <span className="table-tile__meta">{elapsedLabel(call.requestedAt)} از ثبت درخواست</span>}
-                  {!hasOrder && !call && <span className="table-tile__meta">{table.occupiedAt ? elapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>}
-                  {hasOrder && <b>{formatToman(totals.get(table.id) ?? 0)}</b>}
+                  {!hasOrder && !call && <span className="table-tile__meta">{table.occupiedAt ? tableElapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>}
+{hasOrder && <span className="table-tile__amount"><b>{formatToman(totals.get(table.id) ?? 0)}</b></span>}
                 </span>
               </button>
               {call && (
@@ -792,7 +855,7 @@ export function TableBoard({
                   aria-label={`بازکردن میز ${table.name} و ثبت رسیدگی به درخواست`}
                   onClick={() => void onAcknowledgeWaiterCall(table, call)}
                 >
-                  {acknowledgingTableId === table.id ? "در حال ثبت رسیدگی…" : "بازکردن میز و رسیدگی"}
+                  {acknowledgingTableId === table.id ? "در حال ثبت رسیدگی…" : "رسیدگی"}
                 </button>
               )}
               {!call && !hasOrder && table.occupancyState === "OCCUPIED" && (
@@ -814,28 +877,77 @@ export function TableBoard({
   );
 }
 
-function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint, onTransfer }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void; onPrint: (kind: Exclude<PrintKind, "settlement">) => void; onTransfer: () => void }) {
+function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint, onTransfer, title, closeButtonRef }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void; onPrint: (kind: Exclude<PrintKind, "settlement">) => void; onTransfer?: () => void; title?: string; closeButtonRef?: RefObject<HTMLButtonElement | null> }) {
   const status = order.paymentStatus === "PAID" ? "تسویه‌شده" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت‌شده" : "پرداخت‌نشده";
-  return <aside className="occupied-panel" aria-label={`جزئیات سفارش میز ${table?.name ?? ""}`}>
-    <header className="occupied-panel__header">
-      <button className="icon-button" type="button" onClick={onClose} aria-label="بستن جزئیات"><CloseIcon /></button>
-      <div className="occupied-panel__heading">
-        <h2>میز {table?.name}</h2>
-        <span className="occupied-panel__elapsed"><ClockIcon /> {elapsedLabel(order.createdAt)}</span>
+  const settledQuantities = new Map<string, number>();
+  const settledAmounts = new Map<string, number>();
+  order.settlements.filter((settlement) => !settlement.reversedAt).forEach((settlement) => {
+    settlement.allocations.forEach((allocation) => {
+      settledAmounts.set(allocation.orderItemId, (settledAmounts.get(allocation.orderItemId) ?? 0) + allocation.amount);
+      if (allocation.quantity > 0) {
+        settledQuantities.set(allocation.orderItemId, (settledQuantities.get(allocation.orderItemId) ?? 0) + allocation.quantity);
+      }
+    });
+  });
+  let subtotalBeforeItem = 0;
+  const payableAmounts = new Map<string, number>();
+  order.items.forEach((item) => {
+    const discountBefore = order.subtotalAmount > 0
+      ? Math.floor(order.discountAmount * subtotalBeforeItem / order.subtotalAmount)
+      : 0;
+    subtotalBeforeItem += item.lineTotalAmount;
+    const discountAfter = order.subtotalAmount > 0
+      ? Math.floor(order.discountAmount * subtotalBeforeItem / order.subtotalAmount)
+      : 0;
+    payableAmounts.set(item.id, item.lineTotalAmount - (discountAfter - discountBefore));
+  });
+  const renderItemLine = (item: OrderDetail["items"][number], quantity: number, amount: number, settled: boolean) => (
+    <div className={`occupied-panel__item${settled ? " occupied-panel__item--settled" : ""}`} key={`${item.id}-${settled ? "settled" : "unsettled"}`} role="listitem" aria-label={`${item.productNameSnapshot} × ${englishNumber.format(quantity)}${settled ? "، تسویه‌شده" : "، پرداخت‌نشده"}`}>
+      <div>
+        <b>{item.productNameSnapshot} {item.pricingModeSnapshot === "WEIGHTED_PER_KG" && item.weightGrams ? <small>{englishNumber.format(item.weightGrams)} گرم × </small> : <small>× </small>}<span className="occupied-panel__quantity">{englishNumber.format(quantity)}</span></b>
+        {item.options.length > 0 && <span>{item.options.map((option) => option.optionNameSnapshot).join("، ")}</span>}
       </div>
-      <span className="status-badge">{status}</span>
+      <strong>{formatToman(amount)}</strong>
+    </div>
+  );
+  const unpaidLines: ReactNode[] = [];
+  const settledLines: ReactNode[] = [];
+  order.items.forEach((item) => {
+    const settledQuantity = Math.min(item.quantity, settledQuantities.get(item.id) ?? 0);
+    if (settledQuantity === 0) {
+      unpaidLines.push(renderItemLine(item, item.quantity, item.lineTotalAmount, false));
+      return;
+    }
+    const payableAmount = payableAmounts.get(item.id) ?? item.lineTotalAmount;
+    const settledAmount = Math.min(payableAmount, settledAmounts.get(item.id) ?? 0);
+    settledLines.push(renderItemLine(item, settledQuantity, settledAmount, true));
+    const remainingQuantity = item.quantity - settledQuantity;
+    if (remainingQuantity > 0) {
+      unpaidLines.push(renderItemLine(item, remainingQuantity, payableAmount - settledAmount, false));
+    }
+  });
+  return <aside className="occupied-panel" aria-label={title ? `جزئیات ${title}` : `جزئیات سفارش میز ${table?.name ?? ""}`}>
+    <header className="occupied-panel__header">
+      <button className="icon-button" type="button" ref={closeButtonRef} onClick={onClose} aria-label="بستن جزئیات"><CloseIcon /></button>
+      <div className="occupied-panel__heading">
+        <h2>{title ?? `میز ${table?.name}`}</h2>
+        <span className="status-badge">{status}</span>
+      </div>
     </header>
-    <div className="occupied-panel__items">
-      {order.items.map((item) => <div className="occupied-panel__item" key={item.id}><div><b>{item.productNameSnapshot} {item.pricingModeSnapshot === "WEIGHTED_PER_KG" && item.weightGrams ? <small>{englishNumber.format(item.weightGrams)} گرم × </small> : <small>× </small>}{englishNumber.format(item.quantity)}</b>{item.options.length > 0 && <span>{item.options.map((option) => option.optionNameSnapshot).join("، ")}</span>}</div><strong>{formatToman(item.lineTotalAmount)}</strong></div>)}
+    <div className="occupied-panel__items" role="list" aria-label="اقلام سفارش">
+      {unpaidLines}
+      {settledLines}
     </div>
     <footer className="occupied-panel__footer">
       <div className="occupied-panel__total"><span>جمع کل</span><strong>{formatToman(order.totalAmount)}</strong></div>
       {order.paidAmount > 0 && <div className="occupied-panel__balance">مانده‌ی پرداخت: {formatToman(order.balanceAmount)}</div>}
       <button className="button button--primary button--wide" disabled={order.balanceAmount === 0} onClick={onCheckout}>ثبت پرداخت</button>
-      <button className="button button--quiet button--wide" onClick={() => onPrint("bar-ticket")}>چاپ فیش بار</button>
-      <button className="button button--quiet button--wide" onClick={() => onPrint("receipt")}>چاپ رسید</button>
-      <button className="button button--quiet button--wide" onClick={onEdit}>ویرایش سفارش</button>
-      <button className="button button--quiet button--wide" onClick={onTransfer}>انتقال سفارش به میز دیگر</button>
+      <div className="occupied-panel__tickets">
+        <button className="button button--quiet button--wide" onClick={() => onPrint("bar-ticket")}>چاپ فیش بار</button>
+        <button className="button button--quiet button--wide" onClick={() => onPrint("receipt")}>چاپ رسید</button>
+      </div>
+      <button className="button button--quiet button--wide occupied-panel__edit" onClick={onEdit}>ویرایش سفارش</button>
+      {onTransfer && <button className="button button--quiet button--wide occupied-panel__transfer" onClick={onTransfer}>انتقال سفارش به میز دیگر</button>}
     </footer>
   </aside>;
 }
@@ -876,11 +988,14 @@ export function OrderDesk({
   const recoveryPrefix = `desk:${channel}:${table?.id ?? "takeaway"}:${initialOrder?.id ?? "new"}`;
   const restoredVersion = useRef(readRecovery<number>(`${recoveryPrefix}:version`));
   const [categoryId, setCategoryId] = useState("");
+  const categoryNavRef = useRef<HTMLElement>(null);
+  const categoryListRef = useRef<HTMLDivElement>(null);
+  const categoryDragRef = useRef<{ start: number; scroll: number } | null>(null);
+  const [categoryScroll, setCategoryScroll] = useState({ horizontal: false, visible: false, thumb: 100, position: 0, maximum: 0 });
   const [draft, setDraft] = useRecoveryState<Draft[]>(`${recoveryPrefix}:draft`, []);
   const [saved, setSaved] = useRecoveryState<SavedDraft[]>(`${recoveryPrefix}:saved`, () => savedDrafts(initialOrder));
   const [createAttemptKey, setCreateAttemptKey] = useRecoveryState<string>(`${recoveryPrefix}:create-key`, requestKey);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<PosCatalogProduct | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkout, setCheckout] = useRecoveryState(`${recoveryPrefix}:checkout`, false);
@@ -889,11 +1004,13 @@ export function OrderDesk({
   const discountTriggerRef = useRef<HTMLElement | null>(null);
   const takeawayCloseRef = useRef<HTMLButtonElement>(null);
   const takeawayOrderPanelOpen = channel === "TAKEAWAY" && initialOrder !== null;
+  const [takeawayEditing, setTakeawayEditing] = useState(false);
   const previousDeskOrder = useRef(`${initialOrder?.id ?? "new"}:${initialOrder?.version ?? 0}`);
   useEffect(() => {
     const identity = `${initialOrder?.id ?? "new"}:${initialOrder?.version ?? 0}`;
     if (previousDeskOrder.current === identity) { writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0); return; }
     previousDeskOrder.current = identity;
+    setTakeawayEditing(false);
     restoredVersion.current = initialOrder?.version ?? 0;
     writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0);
     setSaved(savedDrafts(initialOrder));
@@ -908,12 +1025,47 @@ export function OrderDesk({
   const savedForOrder = initialOrder && (!savedIdsMatchOrder || discardRecoveredEdits) ? savedDrafts(initialOrder) : saved;
   const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
   const cards = productCards(category?.products ?? []);
+  useEffect(() => {
+    const nav = categoryNavRef.current;
+    const list = categoryListRef.current;
+    if (!nav || !list) return;
+    const measure = () => {
+      const horizontal = window.matchMedia?.("(max-width: 680px)").matches ?? window.innerWidth <= 680;
+      const scroller = horizontal ? list : nav;
+      const viewport = horizontal ? list.clientWidth : nav.clientHeight;
+      const content = horizontal ? list.scrollWidth : nav.scrollHeight;
+      const offset = horizontal ? list.scrollLeft : nav.scrollTop;
+      const maximum = Math.max(0, content - viewport);
+      const thumb = content > 0 ? Math.min(100, viewport / content * 100) : 100;
+      setCategoryScroll((previous) => {
+        const next = { horizontal, visible: maximum > 1, thumb, position: maximum ? offset / maximum * (100 - thumb) : 0, maximum };
+        return Object.keys(next).every((key) => next[key as keyof typeof next] === previous[key as keyof typeof previous]) ? previous : next;
+      });
+    };
+    measure();
+    nav.addEventListener("scroll", measure, { passive: true });
+    list.addEventListener("scroll", measure, { passive: true });
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav); observer.observe(list);
+    window.addEventListener("resize", measure);
+    return () => { nav.removeEventListener("scroll", measure); list.removeEventListener("scroll", measure); observer.disconnect(); window.removeEventListener("resize", measure); };
+  }, [posCatalog.length, channel]);
+  const scrollCategoriesToPointer = (clientPosition: number, rect: DOMRect) => {
+    const nav = categoryNavRef.current; const list = categoryListRef.current;
+    if (!nav || !list) return;
+    const scroller = categoryScroll.horizontal ? list : nav;
+    const trackSize = categoryScroll.horizontal ? rect.width : rect.height;
+    const pointer = Math.max(0, Math.min(trackSize, clientPosition - (categoryScroll.horizontal ? rect.left : rect.top)));
+    const progress = trackSize > 0 ? pointer / trackSize : 0;
+    const thumbRatio = categoryScroll.thumb / 100;
+    const max = categoryScroll.maximum;
+    if (categoryScroll.horizontal) list.scrollLeft = Math.max(0, Math.min(max, (progress - thumbRatio / 2) / (1 - thumbRatio) * max));
+    else nav.scrollTop = Math.max(0, Math.min(max, (progress - thumbRatio / 2) / (1 - thumbRatio) * max));
+  };
   const draftTotal = sumAmounts(draftForOrder.map(discountedDraftLineAmount));
+  const orderTotal = initialOrder ? editedOrderTotal(initialOrder, savedForOrder, draftTotal) : draftTotal;
   const add = (product: PosCatalogProduct, options: Option[] = [], weightGrams: number | null = null) => {
-    const signature = `${product.id}:${options
-      .map((x) => x.id)
-      .sort()
-      .join(",")}:${weightGrams ?? ""}`;
+    const signature = productConfigurationKey(product.id, options, weightGrams);
     setDraft((current) => {
       const found = current.find((x) => x.key === signature);
       return found
@@ -921,7 +1073,6 @@ export function OrderDesk({
         : [...current, { key: signature, product, options, quantity: 1, weightGrams, note: "" }];
     });
     setExpandedCard(null);
-    setSelectedProduct(null);
   };
   const payloadItems = () =>
     draftForOrder.map((item) => ({
@@ -1089,15 +1240,36 @@ export function OrderDesk({
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [busy, onCloseTakeawayPanel, takeawayOrderPanelOpen]);
-  const orderPanel = (
-    <aside className="order-panel" aria-label={takeawayOrderPanelOpen ? `سفارش بیرون‌بر ${formatOrderNumber(initialOrder!.dailyOrderNumber)}` : "خلاصه سفارش"}>
-      {takeawayOrderPanelOpen && <button className="icon-button" type="button" ref={takeawayCloseRef} disabled={busy} onClick={onCloseTakeawayPanel} aria-label="بستن سفارش بیرون‌بر"><CloseIcon /></button>}
+  const orderPanel = takeawayOrderPanelOpen && !takeawayEditing && !dirty ? (
+    <OccupiedTablePanel
+      table={null}
+      order={initialOrder}
+      title={`سفارش ${formatOrderNumber(initialOrder.dailyOrderNumber)}`}
+      closeButtonRef={takeawayCloseRef}
+      onClose={onCloseTakeawayPanel}
+      onEdit={() => setTakeawayEditing(true)}
+      onCheckout={() => setCheckout(true)}
+      onPrint={(kind) => {
+        void printDocument(printRoute(initialOrder.id, kind)).catch((printError: unknown) => {
+          setError(printError instanceof Error ? printError.message : "سند چاپ آماده نشد.");
+        });
+      }}
+    />
+  ) : (
+    <aside className={`order-panel${takeawayOrderPanelOpen ? " order-panel--takeaway" : ""}`} aria-label={takeawayOrderPanelOpen ? `سفارش بیرون‌بر ${formatOrderNumber(initialOrder!.dailyOrderNumber)}` : "خلاصه سفارش"}>
+      {takeawayOrderPanelOpen && <header className="order-panel__header">
+        <button className="icon-button" type="button" ref={takeawayCloseRef} disabled={busy} onClick={onCloseTakeawayPanel} aria-label="بستن سفارش بیرون‌بر"><CloseIcon /></button>
+        <div className="order-panel__heading">
+          <h2>سفارش {formatOrderNumber(initialOrder!.dailyOrderNumber)}</h2>
+          <span className="status-badge">{initialOrder!.paymentStatus === "PAID" ? "تسویه‌شده" : initialOrder!.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت‌شده" : "پرداخت‌نشده"}</span>
+        </div>
+      </header>}
       <OrderSummary
         order={initialOrder}
         draft={draftForOrder}
         saved={savedForOrder}
         canEditSaved={initialOrder?.paymentStatus === "UNPAID"}
-        total={draftTotal}
+        total={orderTotal}
         onQuantity={(key, value) =>
           setDraft((items) =>
             items.flatMap((item) =>
@@ -1141,17 +1313,10 @@ export function OrderDesk({
           {takeawayOrders.length === 0 ? <p>سفارش تسویه‌نشده‌ای وجود ندارد.</p> : takeawayOrders.map((takeaway) => <button key={takeaway.id} type="button" className={initialOrder?.id === takeaway.id ? "is-selected" : ""} onClick={() => void onOpenTakeaway(takeaway.id)}><b>{formatOrderNumber(takeaway.dailyOrderNumber)}</b><span>مانده: {formatToman(takeaway.balanceAmount)}</span></button>)}
         </aside>}
         <aside className="desk-sidebar">
-          <div className="desk-context">
-            <span className="context-icon">
-              {channel === "TABLE" ? <TableIcon /> : <BagIcon />}
-            </span>
-            <span>
-              <b>{channel === "TABLE" ? `میز ${table?.name}` : "بیرون‌بر"}</b>
-              <small>{initialOrder ? "ویرایش سفارش" : "سفارش تازه"}</small>
-            </span>
-          </div>
-          <nav className="categories" aria-label="دسته‌های محصولات">
-            <div>
+          <nav className="categories" aria-label="دسته‌های محصولات" ref={categoryNavRef}>
+            <div className="categories__list" id="pos-category-list" ref={categoryListRef} onWheel={(event) => {
+              if (categoryScroll.horizontal && Math.abs(event.deltaY) > Math.abs(event.deltaX) && categoryListRef.current) categoryListRef.current.scrollLeft += event.deltaY;
+            }}>
               {posCatalog.map((item) => (
                 <button
                   key={item.id}
@@ -1163,6 +1328,20 @@ export function OrderDesk({
                 </button>
               ))}
             </div>
+            {!categoryScroll.horizontal && categoryScroll.visible && <div className="categories__scrollbar" role="scrollbar" aria-label="دسته‌های محصولات" aria-controls="pos-category-list" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={Math.round(categoryScroll.maximum)} aria-valuenow={Math.round(categoryScroll.maximum * categoryScroll.position / Math.max(1, 100 - categoryScroll.thumb))} tabIndex={0} onPointerDown={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect(); categoryDragRef.current = { start: event.clientY, scroll: categoryNavRef.current?.scrollTop ?? 0 }; event.currentTarget.setPointerCapture(event.pointerId); scrollCategoriesToPointer(event.clientY, rect);
+            }} onPointerMove={(event) => { if (categoryDragRef.current) { const rect = event.currentTarget.getBoundingClientRect(); scrollCategoriesToPointer(event.clientY, rect); } }} onPointerUp={() => { categoryDragRef.current = null; }} onPointerCancel={() => { categoryDragRef.current = null; }} onKeyDown={(event) => {
+              const nav = categoryNavRef.current; if (!nav) return;
+              if (event.key === "ArrowDown") nav.scrollTop += 40; else if (event.key === "ArrowUp") nav.scrollTop -= 40; else if (event.key === "PageDown") nav.scrollTop += nav.clientHeight; else if (event.key === "PageUp") nav.scrollTop -= nav.clientHeight; else if (event.key === "Home") nav.scrollTop = 0; else if (event.key === "End") nav.scrollTop = nav.scrollHeight;
+              else return; event.preventDefault();
+            }}><span style={{ height: `${categoryScroll.thumb}%`, top: `${categoryScroll.position}%` }} /></div>}
+            {categoryScroll.horizontal && categoryScroll.visible && <div className="categories__scrollbar" role="scrollbar" aria-label="دسته‌های محصولات" aria-controls="pos-category-list" aria-orientation="horizontal" aria-valuemin={0} aria-valuemax={Math.round(categoryScroll.maximum)} aria-valuenow={Math.round(categoryScroll.maximum * categoryScroll.position / Math.max(1, 100 - categoryScroll.thumb))} tabIndex={0} onPointerDown={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect(); categoryDragRef.current = { start: event.clientX, scroll: categoryListRef.current?.scrollLeft ?? 0 }; event.currentTarget.setPointerCapture(event.pointerId); scrollCategoriesToPointer(event.clientX, rect);
+            }} onPointerMove={(event) => { if (categoryDragRef.current) { const rect = event.currentTarget.getBoundingClientRect(); scrollCategoriesToPointer(event.clientX, rect); } }} onPointerUp={() => { categoryDragRef.current = null; }} onPointerCancel={() => { categoryDragRef.current = null; }} onKeyDown={(event) => {
+              const list = categoryListRef.current; if (!list) return;
+              if (event.key === "ArrowRight") list.scrollLeft += 40; else if (event.key === "ArrowLeft") list.scrollLeft -= 40; else if (event.key === "PageDown") list.scrollLeft += list.clientWidth; else if (event.key === "PageUp") list.scrollLeft -= list.clientWidth; else if (event.key === "Home") list.scrollLeft = 0; else if (event.key === "End") list.scrollLeft = list.scrollWidth;
+              else return; event.preventDefault();
+            }}><span style={{ width: `${categoryScroll.thumb}%`, left: `${categoryScroll.position}%` }} /></div>}
           </nav>
         </aside>
         <section className="products">
@@ -1172,36 +1351,14 @@ export function OrderDesk({
                 key={card.key}
                 card={card}
                 expanded={expandedCard === card.key}
-                selectedProduct={selectedProduct}
-                onOpen={() => {
-                  const soleProduct = card.products[0];
-                  if (
-                    card.products.length === 1 &&
-                    soleProduct &&
-                    soleProduct.optionGroups.length === 0
-                  ) {
-                    add(soleProduct);
-                    return;
-                  }
-                  setExpandedCard(card.key);
-                  setSelectedProduct(
-                    card.products.find(
-                      (product) => product.name.includes("دبل") && product.optionGroups.length > 0,
-                    ) ??
-                      card.products.find((product) => product.optionGroups.length > 0) ??
-                      soleProduct ??
-                      null,
-                  );
-                }}
-                onClose={() => {
-                  setExpandedCard(null);
-                  setSelectedProduct(null);
-                }}
-                onSelectProduct={(product) => {
-                  if (!product.optionGroups.length) add(product);
-                  else setSelectedProduct(product);
-                }}
+                onOpen={() => setExpandedCard(card.key)}
+                onClose={() => setExpandedCard(null)}
                 onSelectOptions={(product, options, weightGrams) => add(product, options, weightGrams)}
+                getQuantity={(product, options, weightGrams) => draftForOrder.find((item) => item.key === productConfigurationKey(product.id, options, weightGrams))?.quantity ?? 0}
+                onDecrease={(product, options, weightGrams) => {
+                  const key = productConfigurationKey(product.id, options, weightGrams);
+                  setDraft((items) => items.map((item) => item.key === key ? { ...item, quantity: item.quantity - 1 } : item).filter((item) => item.quantity > 0));
+                }}
               />
             ))}
           </div>
@@ -1381,8 +1538,8 @@ function OrderSummary({
         )}
       </div>
       <div className="order-total">
-        <span>{order ? "مانده پرداخت" : "جمع سفارش"}</span>
-        <strong>{formatToman(order ? order.balanceAmount : total)}</strong>
+        <span>{order ? "جمع کل" : "جمع سفارش"}</span>
+        <strong>{formatToman(total)}</strong>
       </div>
       {order && order.discountAmount > 0 && <div className="order-discount-summary">تخفیف سفارش: {formatToman(order.discountAmount)}{order.discountReason ? ` · ${order.discountReason}` : ""}</div>}
       {(order || hasUnsavedChanges) && (
@@ -1527,124 +1684,6 @@ function TransferTableDialog({ transfer, busy, onCancel, onConfirm }: { transfer
   );
 }
 
-function ProductPicker({
-  card,
-  expanded,
-  selectedProduct,
-  onOpen,
-  onClose,
-  onSelectProduct,
-  onSelectOptions,
-}: {
-  card: ProductCard;
-  expanded: boolean;
-  selectedProduct: PosCatalogProduct | null;
-  onOpen: () => void;
-  onClose: () => void;
-  onSelectProduct: (product: PosCatalogProduct) => void;
-  onSelectOptions: (product: PosCatalogProduct, options: Option[], weightGrams?: number) => void;
-}) {
-  const pickerRef = useRef<HTMLElement>(null);
-  const [picked, setPicked] = useState<Record<string, Option>>({});
-  const [weight, setWeight] = useState("");
-  useEffect(() => { setPicked({}); setWeight(""); }, [expanded, selectedProduct?.id]);
-  useEffect(() => {
-    if (!expanded) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!pickerRef.current?.contains(event.target as Node)) onClose();
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [expanded, onClose]);
-  const groups = (selectedProduct?.optionGroups ?? []).map((g) => ({
-    ...g,
-    options: g.options.filter((x) => x.isAvailable),
-  }));
-  const chooseOption = (groupId: string, option: Option) => {
-    if (!selectedProduct) return;
-    const next = { ...picked, [groupId]: option };
-    setPicked(next);
-    const selectedOptions = groups
-      .map((group) => next[group.id])
-      .filter((candidate): candidate is Option => candidate !== undefined);
-    if (selectedProduct.pricingMode !== "WEIGHTED_PER_KG" && groups.every((group) => (next[group.id] ? 1 : 0) >= group.minSelections)) onSelectOptions(selectedProduct, selectedOptions);
-  };
-  const showSizeChoices = card.products.length > 1;
-  return (
-    <article className="product-picker" ref={pickerRef}>
-      <button
-        className="product-card"
-        onClick={onOpen}
-        aria-expanded={expanded}
-      >
-        <span>{card.name}</span>
-        {(showSizeChoices || card.products.some((product) => product.optionGroups.length > 0)) && (
-          <span className="product-card__add" aria-label="دارای انتخاب">
-            +
-          </span>
-        )}
-      </button>
-      {expanded && (
-        <div className="product-overlay" aria-label={`انتخاب گزینه برای ${card.name}`}>
-          <div className="product-overlay__card">
-            <span>{card.name}</span>
-          </div>
-          {showSizeChoices && (
-            <div className="shot-choices" aria-label={`انتخاب شات ${card.name}`}>
-              {card.products.map((product) => (
-                <button
-                  key={product.id}
-                  type="button"
-                  className={selectedProduct?.id === product.id ? "active" : ""}
-                  onClick={() => onSelectProduct(product)}
-                >
-                  {product.name.match(shotName)?.[2]}
-                </button>
-              ))}
-            </div>
-          )}
-          {selectedProduct && (
-            <div className="product-picker__choices">
-              {groups.map((group) => (
-                <section className="product-option-group" key={group.id}>
-                  <div>
-                    {group.minSelections === 0 && (
-                      <button type="button" onClick={() => selectedProduct.pricingMode === "WEIGHTED_PER_KG" ? setPicked({}) : onSelectOptions(selectedProduct, groups.map((candidate) => picked[candidate.id]).filter((candidate): candidate is Option => candidate !== undefined))}>
-                        بدون افزودنی
-                      </button>
-                    )}
-                    {group.options.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className={picked[group.id]?.id === option.id ? "active" : ""}
-                        onClick={() => chooseOption(group.id, option)}
-                      >
-                        <span>
-                          {group.name === "لاین قهوه" ? coffeeRatio(option.name) : option.name}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
-              {selectedProduct.pricingMode === "WEIGHTED_PER_KG" && groups.every((group) => (picked[group.id] ? 1 : 0) >= group.minSelections) && (() => {
-                const grams = positiveIntegerAmount(weight);
-                const optionDelta = sumAmounts(groups.map((group) => picked[group.id]?.priceAmount ?? 0));
-                return <section className="product-weight-choice">
-                  <label>وزن <input inputMode="numeric" value={weight} onChange={(event) => setWeight(event.target.value.replace(/[^0-9]/g, ""))} placeholder="گرم" /></label>
-                  <small>قیمت هر کیلو: {formatToman(selectedProduct.priceAmount)} · مبلغ: {formatToman(weightedPricePreview(selectedProduct.priceAmount, optionDelta, grams))}</small>
-                  <button type="button" disabled={!grams} onClick={() => onSelectOptions(selectedProduct, Object.values(picked), grams)}>افزودن به سفارش</button>
-                </section>;
-              })()}
-            </div>
-          )}
-        </div>
-      )}
-    </article>
-  );
-}
-
 export function SettlementSheet({
   order,
   onClose,
@@ -1685,6 +1724,7 @@ export function SettlementSheet({
   const [tenders, setTenders] = useRecoveryState<TenderDraft[]>(`${paymentPrefix}:tenders`, () => historicalSettlement
     ? historicalSettlement.payments.map((payment) => ({ id: requestKey(), method: payment.method, amount: String(payment.amount), reference: payment.reference ?? "" }))
     : [{ id: requestKey(), method: "CARD_TERMINAL", amount: String(selectedAmount), reference: "" }]);
+  const [showSettlementSummary, setShowSettlementSummary] = useState(false);
   const [reason, setReason] = useRecoveryState(`${paymentPrefix}:reason`, "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1761,7 +1801,7 @@ export function SettlementSheet({
   }, [busy, onClose]);
   return (
     <div className="modal-backdrop">
-      <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
+      <section className="modal-card settlement-modal" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
         <div className="modal-header">
           <div>
             <h2 id="settlement-title">{historicalSettlement ? "اصلاح پرداخت" : "ثبت پرداخت"} {formatOrderNumber(order.dailyOrderNumber)}</h2>
@@ -1773,20 +1813,29 @@ export function SettlementSheet({
         </div>
         <section className="settlement-selection" aria-labelledby="settlement-items-title">
           <div className="settlement-section-heading">
-            <h3 id="settlement-items-title">اقلام قابل پرداخت</h3>
+            <h3 id="settlement-items-title">{historicalSettlement ? "اقلام این پرداخت" : "اقلام این پرداخت"}</h3>
           </div>
+        <div className="settlement-payable" aria-live="polite">
+          <div><span>مبلغ این پرداخت</span>
+          <strong>{formatToman(selectedAmount)} <small>تومان</small></strong></div>
+          <span className="settlement-payable-icon" aria-hidden="true"><BagIcon /></span>
+        </div>
           {available.map(({ item, availableQuantity }) => {
             const quantity = selectedQuantities[item.id] ?? 0;
             return (
-              <div className="settlement-item" key={item.id}>
-                <div>
+              <div className={`settlement-item ${quantity > 0 ? "is-selected" : ""}`} key={item.id}>
+                <button type="button" className="settlement-item-check" aria-label={`انتخاب ${item.productNameSnapshot}`} aria-pressed={quantity > 0} disabled={busy || Boolean(historicalSettlement)} onClick={() => setSelectedQuantity(item.id, quantity > 0 ? 0 : availableQuantity, availableQuantity)}><CheckIcon /></button>
+                <div className="settlement-item-info">
                   <b>{item.productNameSnapshot}</b>
-                  <span>{formatToman(settlementAllocationAmount({ item, alreadyAllocatedQuantity: available.find((entry) => entry.item.id === item.id)?.alreadyAllocatedQuantity ?? 0, quantity: Math.max(quantity, 0) }))}</span>
+                  <span>{formatToman(settlementAllocationAmount({ item, alreadyAllocatedQuantity: available.find((entry) => entry.item.id === item.id)?.alreadyAllocatedQuantity ?? 0, quantity: Math.max(quantity, 0) }))} تومان</span>
                 </div>
-                <div className="settlement-quantity" aria-label={`تعداد قابل پرداخت ${item.productNameSnapshot}`}>
-                  <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === 0} onClick={() => setSelectedQuantity(item.id, quantity - 1, availableQuantity)} aria-label={`کم کردن ${item.productNameSnapshot}`}>−</button>
-                  <output>{englishNumber.format(quantity)} از {englishNumber.format(availableQuantity)}</output>
-                  <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === availableQuantity} onClick={() => setSelectedQuantity(item.id, quantity + 1, availableQuantity)} aria-label={`زیاد کردن ${item.productNameSnapshot}`}>+</button>
+                <div className="settlement-item-controls">
+                  <span className="settlement-available">{historicalSettlement ? "تعداد ثبت‌شده: " : "پرداخت‌نشده: "}{englishNumber.format(availableQuantity)}</span>
+                  <div className="settlement-quantity" aria-label={`تعداد انتخاب‌شده برای پرداخت ${item.productNameSnapshot}`}>
+                  <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === 0} onClick={() => setSelectedQuantity(item.id, quantity - 1, availableQuantity)} aria-label={`کم کردن ${item.productNameSnapshot}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12" /></svg></button>
+                  <output>{englishNumber.format(quantity)}</output>
+                  <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === availableQuantity} onClick={() => setSelectedQuantity(item.id, quantity + 1, availableQuantity)} aria-label={`زیاد کردن ${item.productNameSnapshot}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12M10 4v12" /></svg></button>
+                  </div>
                 </div>
               </div>
             );
@@ -1797,6 +1846,7 @@ export function SettlementSheet({
             <h3 id="settlement-tenders-title">روش‌های پرداخت</h3>
             <button type="button" className="text-action" disabled={busy || tenders.length >= 10} onClick={() => {
               resetAttempt();
+              setShowSettlementSummary(true);
               setTenders((current) => {
                 const remainingAmount = Math.max(
                   0,
@@ -1804,19 +1854,20 @@ export function SettlementSheet({
                 );
                 return [...current, { id: requestKey(), method: "CASH", amount: String(remainingAmount), reference: "" }];
               });
-            }}>افزودن روش</button>
+            }}><span aria-hidden="true">＋</span> افزودن روش</button>
           </div>
           {tenders.map((tender, index) => (
             <div className="tender-row" key={tender.id}>
-              <label>روش
+              <span className="tender-method-icon" aria-hidden="true"><AccountingIcon /></span>
+              <label className="tender-method"><span className="settlement-sr-only">روش پرداخت</span>
                 <select value={tender.method} disabled={busy} onChange={(event) => updateTender(tender.id, { method: event.target.value as TenderMethod, reference: "" })}>
                   <option value="CASH">نقدی</option>
                   <option value="CARD_TERMINAL">کارت‌خوان</option>
                   <option value="CARD_TRANSFER">کارت‌به‌کارت</option>
                 </select>
               </label>
-              <label>مبلغ (تومان)
-                <input inputMode="numeric" value={tender.amount} disabled={busy} onChange={(event) => updateTender(tender.id, { amount: event.target.value.replace(/[^0-9]/g, "") })} aria-label={`مبلغ روش پرداخت ${index + 1}`} />
+              <label className="tender-amount"><span className="settlement-sr-only">مبلغ (تومان)</span><span className="tender-currency" aria-hidden="true">تومان</span>
+                <input inputMode="numeric" value={tender.amount} disabled={busy} onChange={(event) => updateTender(tender.id, { amount: event.target.value.replace(/[^0-9]/g, "") })} aria-label={`مبلغ روش پرداخت ${index + 1}`} aria-describedby="settlement-tenders-title" />
               </label>
               {tender.method === "CARD_TRANSFER" && <label>شماره پیگیری (اختیاری)
                 <input value={tender.reference} disabled={busy} maxLength={128} onChange={(event) => updateTender(tender.id, { reference: event.target.value })} />
@@ -1828,11 +1879,11 @@ export function SettlementSheet({
             </div>
           ))}
         </section>
-        <div className={`settlement-total ${isReconciled ? "settlement-total--matched" : "settlement-total--mismatch"}`} aria-live="polite">
-          <span>جمع اقلام انتخاب‌شده <strong>{formatToman(selectedAmount)}</strong></span>
-          <span>جمع روش‌های پرداخت <strong>{formatToman(tenderAmount)}</strong></span>
-          <b>{selectedAmount === 0 ? "برای ثبت پرداخت، دست‌کم یک قلم انتخاب کنید." : isReconciled ? "مبلغ پرداخت با مبلغ اقلام برابر است." : "جمع روش‌های پرداخت باید با مبلغ اقلام برابر باشد."}</b>
-        </div>
+        {(showSettlementSummary || !isReconciled) && <div className={`settlement-total ${isReconciled ? "settlement-total--matched" : "settlement-total--mismatch"}`} aria-live="polite">
+          <span>جمع اقلام انتخاب‌شده <strong>{formatToman(selectedAmount)} <small>تومان</small></strong></span>
+          <span>جمع مبالغ پرداخت <strong>{formatToman(tenderAmount)} <small>تومان</small></strong></span>
+          <div className="settlement-balance"><span>{tenderAmount > selectedAmount ? "مبلغ اضافه: " : "باقی‌مانده: "}<strong>{formatToman(Math.abs(selectedAmount - tenderAmount))}</strong> تومان</span><b>{isReconciled && <CheckIcon />}{selectedAmount === 0 ? "برای ثبت پرداخت، دست‌کم یک قلم انتخاب کنید." : isReconciled ? "مبلغ پرداخت با مبلغ اقلام برابر است." : tenderAmount < selectedAmount ? "مبلغ باقی‌مانده را به یکی از روش‌های پرداخت اضافه کنید." : "مبلغ اضافه را از روش‌های پرداخت کم کنید."}</b></div>
+        </div>}
         {error && <div className="toast toast--error" role="alert">{error}</div>}
         <div className="modal-actions">
           <button className="button button--quiet" onClick={onClose}>
@@ -1843,7 +1894,7 @@ export function SettlementSheet({
             disabled={busy || !isReconciled}
             onClick={() => void settle()}
           >
-            {busy ? "در حال ثبت…" : historicalSettlement ? "ثبت اصلاح پرداخت" : "تأیید پرداخت"}
+            {busy ? "در حال ثبت…" : historicalSettlement ? "ثبت اصلاح پرداخت" : "ثبت پرداخت"}
           </button>
         </div>
       </section>
