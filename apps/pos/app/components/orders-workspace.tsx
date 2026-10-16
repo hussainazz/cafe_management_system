@@ -1024,42 +1024,52 @@ export function OrderDesk({
   const draftForOrder = discardRecoveredEdits ? [] : draft;
   const savedForOrder = initialOrder && (!savedIdsMatchOrder || discardRecoveredEdits) ? savedDrafts(initialOrder) : saved;
   const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
-  const cards = productCards(category?.products ?? []);
+  const cards = useMemo(() => productCards(category?.products ?? []), [category?.products]);
   useEffect(() => {
     const nav = categoryNavRef.current;
     const list = categoryListRef.current;
     if (!nav || !list) return;
+    let frame: number | null = null;
     const measure = () => {
+      frame = null;
       const horizontal = window.matchMedia?.("(max-width: 680px)").matches ?? window.innerWidth <= 680;
-      const scroller = horizontal ? list : nav;
       const viewport = horizontal ? list.clientWidth : nav.clientHeight;
       const content = horizontal ? list.scrollWidth : nav.scrollHeight;
-      const offset = horizontal ? list.scrollLeft : nav.scrollTop;
+      // RTL horizontal scrollers start at zero and move toward negative scrollLeft.
+      const offset = horizontal ? -list.scrollLeft : nav.scrollTop;
       const maximum = Math.max(0, content - viewport);
       const thumb = content > 0 ? Math.min(100, viewport / content * 100) : 100;
       setCategoryScroll((previous) => {
-        const next = { horizontal, visible: maximum > 1, thumb, position: maximum ? offset / maximum * (100 - thumb) : 0, maximum };
+        const next = { horizontal, visible: maximum > 1, thumb, position: maximum ? Math.max(0, Math.min(maximum, offset)) / maximum * (100 - thumb) : 0, maximum };
         return Object.keys(next).every((key) => next[key as keyof typeof next] === previous[key as keyof typeof previous]) ? previous : next;
       });
     };
+    const scheduleMeasure = () => {
+      if (frame === null) frame = requestAnimationFrame(measure);
+    };
     measure();
-    nav.addEventListener("scroll", measure, { passive: true });
-    list.addEventListener("scroll", measure, { passive: true });
-    const observer = new ResizeObserver(measure);
+    nav.addEventListener("scroll", scheduleMeasure, { passive: true });
+    list.addEventListener("scroll", scheduleMeasure, { passive: true });
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(nav); observer.observe(list);
-    window.addEventListener("resize", measure);
-    return () => { nav.removeEventListener("scroll", measure); list.removeEventListener("scroll", measure); observer.disconnect(); window.removeEventListener("resize", measure); };
+    window.addEventListener("resize", scheduleMeasure);
+    return () => {
+      nav.removeEventListener("scroll", scheduleMeasure);
+      list.removeEventListener("scroll", scheduleMeasure);
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
   }, [posCatalog.length, channel]);
   const scrollCategoriesToPointer = (clientPosition: number, rect: DOMRect) => {
     const nav = categoryNavRef.current; const list = categoryListRef.current;
     if (!nav || !list) return;
-    const scroller = categoryScroll.horizontal ? list : nav;
     const trackSize = categoryScroll.horizontal ? rect.width : rect.height;
     const pointer = Math.max(0, Math.min(trackSize, clientPosition - (categoryScroll.horizontal ? rect.left : rect.top)));
-    const progress = trackSize > 0 ? pointer / trackSize : 0;
+    const progress = trackSize > 0 ? (categoryScroll.horizontal ? 1 - pointer / trackSize : pointer / trackSize) : 0;
     const thumbRatio = categoryScroll.thumb / 100;
     const max = categoryScroll.maximum;
-    if (categoryScroll.horizontal) list.scrollLeft = Math.max(0, Math.min(max, (progress - thumbRatio / 2) / (1 - thumbRatio) * max));
+    if (categoryScroll.horizontal) list.scrollLeft = -Math.max(0, Math.min(max, (progress - thumbRatio / 2) / (1 - thumbRatio) * max));
     else nav.scrollTop = Math.max(0, Math.min(max, (progress - thumbRatio / 2) / (1 - thumbRatio) * max));
   };
   const draftTotal = sumAmounts(draftForOrder.map(discountedDraftLineAmount));
@@ -1315,7 +1325,7 @@ export function OrderDesk({
         <aside className="desk-sidebar">
           <nav className="categories" aria-label="دسته‌های محصولات" ref={categoryNavRef}>
             <div className="categories__list" id="pos-category-list" ref={categoryListRef} onWheel={(event) => {
-              if (categoryScroll.horizontal && Math.abs(event.deltaY) > Math.abs(event.deltaX) && categoryListRef.current) categoryListRef.current.scrollLeft += event.deltaY;
+              if (categoryScroll.horizontal && Math.abs(event.deltaY) > Math.abs(event.deltaX) && categoryListRef.current) categoryListRef.current.scrollLeft -= event.deltaY;
             }}>
               {posCatalog.map((item) => (
                 <button
@@ -1339,9 +1349,9 @@ export function OrderDesk({
               const rect = event.currentTarget.getBoundingClientRect(); categoryDragRef.current = { start: event.clientX, scroll: categoryListRef.current?.scrollLeft ?? 0 }; event.currentTarget.setPointerCapture(event.pointerId); scrollCategoriesToPointer(event.clientX, rect);
             }} onPointerMove={(event) => { if (categoryDragRef.current) { const rect = event.currentTarget.getBoundingClientRect(); scrollCategoriesToPointer(event.clientX, rect); } }} onPointerUp={() => { categoryDragRef.current = null; }} onPointerCancel={() => { categoryDragRef.current = null; }} onKeyDown={(event) => {
               const list = categoryListRef.current; if (!list) return;
-              if (event.key === "ArrowRight") list.scrollLeft += 40; else if (event.key === "ArrowLeft") list.scrollLeft -= 40; else if (event.key === "PageDown") list.scrollLeft += list.clientWidth; else if (event.key === "PageUp") list.scrollLeft -= list.clientWidth; else if (event.key === "Home") list.scrollLeft = 0; else if (event.key === "End") list.scrollLeft = list.scrollWidth;
+              if (event.key === "ArrowRight") list.scrollLeft += 40; else if (event.key === "ArrowLeft") list.scrollLeft -= 40; else if (event.key === "PageDown") list.scrollLeft -= list.clientWidth; else if (event.key === "PageUp") list.scrollLeft += list.clientWidth; else if (event.key === "Home") list.scrollLeft = 0; else if (event.key === "End") list.scrollLeft = -categoryScroll.maximum;
               else return; event.preventDefault();
-            }}><span style={{ width: `${categoryScroll.thumb}%`, left: `${categoryScroll.position}%` }} /></div>}
+            }}><span style={{ width: `${categoryScroll.thumb}%`, right: `${categoryScroll.position}%`, left: "auto" }} /></div>}
           </nav>
         </aside>
         <section className="products">
