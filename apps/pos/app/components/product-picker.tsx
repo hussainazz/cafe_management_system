@@ -115,7 +115,9 @@ export function ProductPicker({ card, expanded, onOpen, onClose, onSelectOptions
 
   useLayoutEffect(() => {
     if (!expanded) return;
+    let frame: number | null = null;
     const reposition = () => {
+      frame = null;
       if (!cardRef.current || !popoverRef.current) return;
       const rect = cardRef.current.getBoundingClientRect();
       const margin = 12;
@@ -128,14 +130,24 @@ export function ProductPicker({ card, expanded, onOpen, onClose, onSelectOptions
         : Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin));
       const preferredTop = fitsLeft || fitsRight ? rect.top
         : rect.bottom + gap + height <= window.innerHeight - margin ? rect.bottom + gap : rect.top - height - gap;
-      setPosition({ left, top: Math.max(margin, Math.min(preferredTop, window.innerHeight - height - margin)), width, visibility: "visible" });
+      const top = Math.max(margin, Math.min(preferredTop, window.innerHeight - height - margin));
+      setPosition((previous) => previous.left === left && previous.top === top && previous.width === width && previous.visibility === "visible"
+        ? previous : { left, top, width, visibility: "visible" });
+    };
+    const scheduleReposition = () => {
+      if (frame === null) frame = requestAnimationFrame(reposition);
     };
     reposition();
-    const observer = new ResizeObserver(reposition);
+    const observer = new ResizeObserver(scheduleReposition);
     if (popoverRef.current) observer.observe(popoverRef.current);
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
-    return () => { observer.disconnect(); window.removeEventListener("resize", reposition); window.removeEventListener("scroll", reposition, true); };
+    window.addEventListener("resize", scheduleReposition);
+    window.addEventListener("scroll", scheduleReposition, { capture: true, passive: true });
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleReposition);
+      window.removeEventListener("scroll", scheduleReposition, true);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
   }, [expanded]);
 
   const variants = () => <fieldset className="pos-product__segments"><legend className="sr-only">اندازه {card.name}</legend>
