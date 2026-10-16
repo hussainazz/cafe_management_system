@@ -19,6 +19,28 @@ function desk(paymentStatus?: "UNPAID" | "PARTIALLY_PAID", weighted = false, ite
   return order;
 }
 describe("OrderDesk order workflow", () => {
+  it("keeps the mobile category thumb and wheel/keyboard scrolling aligned with RTL", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    desk();
+    const list = document.querySelector(".categories__list") as HTMLElement;
+    Object.defineProperties(list, { clientWidth: { value: 200 }, scrollWidth: { value: 1000 } });
+    fireEvent.resize(window);
+    const scrollbar = await screen.findByRole("scrollbar", { name: "دسته‌های محصولات" });
+    const thumb = scrollbar.querySelector("span")!;
+    expect(thumb.style.right).toBe("0%");
+    expect(thumb.style.left).toBe("auto");
+    fireEvent.keyDown(scrollbar, { key: "End" });
+    expect(list.scrollLeft).toBe(-800);
+    fireEvent.scroll(list);
+    await waitFor(() => expect(scrollbar.getAttribute("aria-valuenow")).toBe("800"));
+    expect(thumb.style.right).toBe("80%");
+    fireEvent.keyDown(scrollbar, { key: "Home" });
+    expect(list.scrollLeft).toBe(0);
+    fireEvent.wheel(list, { deltaY: 100, deltaX: 0 });
+    expect(list.scrollLeft).toBe(-100);
+    fireEvent.scroll(list);
+    await waitFor(() => expect(scrollbar.getAttribute("aria-valuenow")).toBe("100"));
+  });
   it("keeps the tile quantity synchronized with the order and restores its add action at zero", () => {
     desk();
     fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
