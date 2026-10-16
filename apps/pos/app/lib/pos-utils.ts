@@ -19,9 +19,7 @@ export function elapsedLabel(startedAt: string | null, now = Date.now()) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
 
-  if (hours === 0) return `${englishNumber.format(minutes)} دقیقه`;
-  if (minutes === 0) return `${englishNumber.format(hours)} ساعت`;
-  return `${englishNumber.format(hours)} ساعت و ${englishNumber.format(minutes)} دقیقه`;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 export function sumAmounts(values: readonly number[]) {
