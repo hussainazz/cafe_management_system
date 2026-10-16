@@ -54,7 +54,7 @@ they do not receive a second table-dashboard API.
 
 | Method | Path                             | Access | Stage | Purpose                                                                                                                                                                               |
 | ------ | -------------------------------- | ------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/api/v1/pos/catalog`            | Staff  | 2     | Read active categories, sellable products, allowed options, availability, product preparation-deadline minutes, final Toman prices, and each product's single image metadata for POS. |
+| `GET`  | `/api/v1/pos/catalog`            | Staff  | 2     | Read unarchived source categories, sellable products, allowed options, availability, product preparation-deadline minutes, final Toman prices, and each product's single image metadata for POS. |
 | `GET`  | `/api/v1/tables`                 | Staff  | 2     | List active physical tables with current active-order summary, seating-limit minutes, estimated preparation minutes, and estimated table release time.                                |
 | `GET`  | `/api/v1/tables/:tableId`        | Staff  | 2     | Read one table, its seating-limit minutes, active order timing summary, and active order(s).                                                                                          |
 | `GET`  | `/api/v1/tables/:tableId/orders` | Staff  | 2     | Read the active and historical orders for one table, subject to documented filters.                                                                                                   |
@@ -106,8 +106,8 @@ tracking, identity, or catalog authority.
 
 | Method | Path                                  | Access | Stage | Purpose                                                                                                                                                                                |
 | ------ | ------------------------------------- | ------ | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/api/v1/public/menu`                 | Public | 3     | Read the complete browse-only menu, including active source and promotional categories. Promotional entries reuse current product, options, availability, image, and final price data from each product's canonical source record; preparation deadlines remain private. |
-| `GET`  | `/api/v1/public/products/:productId`  | Public | 3     | Read one current, publicly visible product plus available option groups/options, without exposing the Staff-only preparation deadline.                                                  |
+| `GET`  | `/api/v1/public/menu`                 | Public | 3     | Read the complete browse-only menu, including unarchived source and promotional categories with eligible products. Promotional entries reuse current product, customer-facing menu note, options, availability, image, and final price data from each product's canonical source record; preparation deadlines remain private. |
+| `GET`  | `/api/v1/public/products/:productId`  | Public | 3     | Read one current, publicly visible product, its customer-facing menu note, and available option groups/options, without exposing the Staff-only preparation deadline.                                                  |
 | `GET`  | `/t/:token`                           | Public | 5     | Web entrypoint: exchange an eligible active printed token, set table context, record an available-table reminder, and redirect to the same `/menu`. Invalid links redirect with a safe warning. |
 | `POST` | `/api/v1/public/table-context/exchange` | Public QR bearer | 5 | Hash and resolve the raw QR token without logging it, set the signed context cookie, and return only the safe table label; the web `/t/:token` entrypoint is its intended caller. |
 | `GET`  | `/api/v1/public/table-context`        | Public cookie | 5 | Return safe table label, occupancy, call eligibility, and pending state for a current context; generic menu visits return inactive context. |
@@ -147,8 +147,8 @@ bytes.
 | `POST`  | `/api/v1/admin/categories/:categoryId/archive`                         | Manager | 6     | Archive a category while preserving historical references.                                                                                        |
 | `PATCH` | `/api/v1/admin/categories/:categoryId/products`                        | Manager | 10    | Replace product memberships for a promotional category; product source categories and catalog data remain unchanged.                              |
 | `GET`   | `/api/v1/admin/products`                                               | Manager | 6     | List products and their catalog configuration.                                                                                                    |
-| `POST`  | `/api/v1/admin/products`                                               | Manager | 6     | Create a product with its category, price, preparation-deadline minutes, and option-group configuration.                                          |
-| `PATCH` | `/api/v1/admin/products/:productId`                                    | Manager | 6     | Update product details, final price, Manager-controlled sale discount, preparation-deadline minutes, active state, availability, display order, or allowed option groups.           |
+| `POST`  | `/api/v1/admin/products`                                               | Manager | 6     | Create a product with its category, price, optional customer-facing menu note, preparation-deadline minutes, and option-group configuration.                                          |
+| `PATCH` | `/api/v1/admin/products/:productId`                                    | Manager | 6     | Update product details, customer-facing menu note, final price, Manager-controlled sale discount, preparation-deadline minutes, active state, availability, display order, or allowed option groups.           |
 | `POST`  | `/api/v1/admin/products/:productId/archive`                            | Manager | 6     | Archive a product without changing historical order snapshots.                                                                                    |
 | `PUT`   | `/api/v1/admin/products/:productId/image`                              | Manager | 6     | Validate and upload or replace the product's single image, then store its metadata record.                                                        |
 | `PATCH` | `/api/v1/admin/products/:productId/image`                              | Manager | 6     | Update the product image metadata, such as alt text.                                                                                              |
@@ -196,10 +196,10 @@ implementation change.
 | Method | Path | Access | Stage | Purpose |
 | ------ | ---- | ------ | ----- | ------- |
 | `GET` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | List stock items, base units, pack conversions, tracking state, and current valuation. |
-| `POST` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | Create a stock item with explicit base unit and item-specific pack conversions. |
-| `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager | 12 | Version-check and update a stock item's editable configuration. |
+| `POST` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | Create a stock item with explicit base unit, opening quantity/value, and item-specific pack conversions; initialize the balance and opening ledger entry. |
+| `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager | 12 | Version-check editable configuration and allow one-time opening quantity/value initialization only while the item is untracked. |
 | `POST` | `/api/v1/admin/inventory/stock-items/:stockItemId/archive` | Manager | 12 | Archive an unused or referenced item without deleting ledger history. |
-| `GET` | `/api/v1/admin/inventory/purchases` | Manager | 12 | List bounded draft and posted received purchases. |
+| `GET` | `/api/v1/admin/inventory/purchases` | Manager | 12 | Cursor-page purchases with optional supplier/item search, status, and received-time filters. |
 | `POST` | `/api/v1/admin/inventory/purchases` | Manager | 12 | Create a received-purchase draft with supplier text and itemized direct costs. |
 | `PATCH` | `/api/v1/admin/inventory/purchases/:purchaseId` | Manager | 12 | Version-check edits to a draft purchase. |
 | `POST` | `/api/v1/admin/inventory/purchases/:purchaseId/post` | Manager | 12 | Post a receipt once, append movements, update moving averages, and retry eligible pending orders. |
@@ -211,11 +211,11 @@ implementation change.
 | `GET` | `/api/v1/admin/products/:productId/costing` | Manager | 12 | Read a product's recipe or purchased-item costing configuration and option rules. |
 | `PUT` | `/api/v1/admin/products/:productId/costing` | Manager | 12 | Version-check and replace a product's costing configuration and option rules. |
 | `POST` | `/api/v1/admin/products/:productId/costing/preview` | Manager | 12 | Resolve selected options and return known ingredient quantities, cost, and incompleteness reasons. |
-| `GET` | `/api/v1/admin/inventory/counts` | Manager | 12 | List bounded physical counts and their posting/reconciliation status. |
-| `POST` | `/api/v1/admin/inventory/counts` | Manager | 12 | Create an opening or physical-count draft with observed quantities and values. |
-| `PATCH` | `/api/v1/admin/inventory/counts/:countId` | Manager | 12 | Version-check edits to a draft count. |
+| `GET` | `/api/v1/admin/inventory/counts` | Manager | 12 | Cursor-page counts with optional stock-item search, kind/status, and created-time filters. |
+| `POST` | `/api/v1/admin/inventory/counts` | Manager | 12 | Create a physical-count draft with observed quantities and values; require one shared reason if any observed quantity differs from its recorded balance. |
+| `PATCH` | `/api/v1/admin/inventory/counts/:countId` | Manager | 12 | Version-check edits to a physical-count draft and its shared discrepancy reason. |
 | `POST` | `/api/v1/admin/inventory/counts/:countId/post` | Manager | 12 | Post a count once, explicitly reconcile selected pending orders, and establish counted balances. |
-| `GET` | `/api/v1/admin/inventory/movements` | Manager | 12 | Read bounded append-only inventory history with source and compensating links. |
+| `GET` | `/api/v1/admin/inventory/movements` | Manager | 12 | Cursor-page inventory history with date-range, stock-item, movement-type, or POS order-number filters; include the visible order number on order-related movements. |
 | `GET` | `/api/v1/admin/inventory/pending-consumption` | Manager | 12 | Read whole orders awaiting stock or count reconciliation. |
 | `GET` | `/api/v1/admin/reports/gross-profit` | Manager | 13 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, and compatible inventory consumption estimates. |
 
@@ -228,10 +228,10 @@ to six decimal places. Inventory write conflicts, recognized range/constraint
 failures, dependency failures, and unrecognized failures follow the shared
 error mapping in `request-response-conventions.md`.
 
-Opening counts initialize only the selected untracked stock items. Previously
-posted opening counts for other items do not block new items; creation,
-editing, and posting reject attempts to reopen an already tracked item.
-Physical counts adjust only their selected tracked items.
+Stock-item setup creates the opening ledger entry, or initializes an existing
+untracked item once; tracked items cannot be reopened. Manager count drafts are
+physical counts over selected tracked items. If any observed quantity differs
+from the recorded quantity, the count must retain one non-empty shared reason.
 
 ## Realtime Events
 
@@ -266,3 +266,17 @@ clients must refetch affected API resources after reconnecting.
 - Add a route to this inventory and its generated OpenAPI contract in the same
   change that implements it. Remove or replace a planned route only through a
   planning update that preserves the approved scope.
+
+## Permanent inventory activation
+
+- `GET /admin/settings` includes nullable `inventoryActivatedAt`. Null means all
+  inventory management, costing, and report routes return `409 INVALID_STATE`
+  after normal Manager authentication. Order/payment APIs remain operational
+  and create no inventory snapshots, consumption records, or movements.
+- Manager-only `POST /admin/settings/inventory/activate` accepts `{}` and returns
+  `AdminSettingsResponseSchema`. It atomically records the first activation time
+  and an `ACTIVATE_INVENTORY` audit entry. Retries preserve the same time.
+- Settings updates cannot alter or clear activation. Database protection also
+  rejects changing the timestamp or deleting activated settings.
+- Only orders created at or after activation are eligible for snapshots,
+  recognition, pending consumption, retries, reports, and restorations.
