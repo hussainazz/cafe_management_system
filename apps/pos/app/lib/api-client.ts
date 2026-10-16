@@ -58,6 +58,10 @@ import {
   type PosCatalogCategory,
   type PosTable,
   type PaymentHistoryQuery,
+  type OrderListQuery,
+  type PurchaseListQuery,
+  type InventoryCountListQuery,
+  PaymentHistoryOrderFilterSchema,
 } from "@cafe/contracts";
 import type { z } from "zod";
 
@@ -78,6 +82,8 @@ export type ManagerStaff = z.infer<typeof AdminStaffResponseSchema>["data"]["sta
 export type ManagerSettings = z.infer<typeof AdminSettingsResponseSchema>["data"];
 export type PaymentHistory = z.infer<typeof PaymentHistoryResponseSchema>["data"]["payments"];
 export type PaymentHistoryFilters = PaymentHistoryQuery;
+export type PaymentHistoryOrderFilter = z.infer<typeof PaymentHistoryOrderFilterSchema>;
+export type OrderSummary = z.infer<typeof OrderListResponseSchema>["data"]["orders"][number];
 export type DailyReport = z.infer<typeof DailyReportResponseSchema>;
 export type AuditLog = z.infer<typeof AuditLogResponseSchema>;
 export type InventoryStockItem = z.infer<typeof StockItemResponseSchema>["data"];
@@ -263,6 +269,11 @@ export async function readOpenOrders() {
   return parsed.ok
     ? { ok: true as const, data: parsed.data.data.orders, replayed: parsed.replayed }
     : parsed;
+}
+
+export async function readOrderList(filters: OrderListQuery) {
+  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined) as [string, string][]);
+  return managerResponse(`/orders?${query}`, OrderListResponseSchema, "فهرست سفارش‌ها معتبر نیست.");
 }
 
 export async function markTableOccupied(tableId: string): Promise<ApiResult<PosTable>> {
@@ -494,8 +505,9 @@ export async function readManagerSettings(): Promise<ApiResult<ManagerSettings>>
   const parsed = await managerResponse("/admin/settings", AdminSettingsResponseSchema, "تنظیمات کافه معتبر نیست.");
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
 }
-export async function readPaymentHistory(filters: PaymentHistoryFilters): Promise<ApiResult<PaymentHistory>> {
+export async function readPaymentHistory(filters: PaymentHistoryFilters, orderFilter?: PaymentHistoryOrderFilter): Promise<ApiResult<PaymentHistory>> {
   const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined) as [string, string][]);
+  if (orderFilter) query.set("orderFilter", orderFilter);
   const parsed = await managerResponse(`/admin/payments?${query}`, PaymentHistoryResponseSchema, "تاریخچه پرداخت معتبر نیست.");
   return parsed.ok ? { ok: true, data: parsed.data.data.payments, replayed: parsed.replayed } : parsed;
 }
@@ -589,8 +601,15 @@ export const readInventoryStockItems = () => managerResponse("/admin/inventory/s
 export const saveInventoryStockItem = (id: string | null, body: unknown) => managerMutation(id ? `/admin/inventory/stock-items/${id}` : "/admin/inventory/stock-items", id ? "PATCH" : "POST", body, StockItemResponseSchema, "اطلاعات قلم انبار دریافت نشد.");
 export const archiveInventoryStockItem = (id: string, expectedVersion: number) => managerMutation(`/admin/inventory/stock-items/${id}/archive`, "POST", { expectedVersion }, StockItemResponseSchema, "وضعیت بایگانی قلم دریافت نشد.");
 
-export async function readInventoryPurchases(limit = 50) {
-  return managerResponse(`/admin/inventory/purchases?limit=${limit}`, PurchasesResponseSchema, "فهرست خریدها دریافت نشد.");
+export async function readInventoryPurchases(query: Partial<PurchaseListQuery> = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(query.limit ?? 20));
+  if (query.cursor) params.set("cursor", query.cursor);
+  if (query.search) params.set("search", query.search);
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
+  if (query.status) params.set("status", query.status);
+  return managerResponse(`/admin/inventory/purchases?${params.toString()}`, PurchasesResponseSchema, "فهرست خریدها دریافت نشد.");
 }
 export const createInventoryPurchase = (body: unknown) => managerMutation("/admin/inventory/purchases", "POST", body, PurchaseResponseSchema, "اطلاعات خرید دریافت نشد.");
 export const updateInventoryPurchase = (id: string, body: unknown) => managerMutation(`/admin/inventory/purchases/${id}`, "PATCH", body, PurchaseResponseSchema, "اطلاعات خرید ویرایش‌شده دریافت نشد.");
@@ -605,7 +624,17 @@ export const readProductCosting = (productId: string) => managerResponse(`/admin
 export const saveProductCosting = (productId: string, body: unknown) => managerMutation(`/admin/products/${productId}/costing`, "PUT", body, ProductCostingConfigurationResponseSchema, "تنظیم ذخیره‌شده‌ی هزینه‌ی محصول دریافت نشد.");
 export const previewProductCosting = (productId: string, body: unknown) => managerMutation(`/admin/products/${productId}/costing/preview`, "POST", body, ProductCostingPreviewResponseSchema, "اطلاعات پیش‌نمایش هزینه دریافت نشد.");
 
-export const readInventoryCounts = (limit = 50) => managerResponse(`/admin/inventory/counts?limit=${limit}`, InventoryCountsResponseSchema, "فهرست شمارش‌ها دریافت نشد.");
+export async function readInventoryCounts(query: Partial<InventoryCountListQuery> = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(query.limit ?? 20));
+  if (query.cursor) params.set("cursor", query.cursor);
+  if (query.search) params.set("search", query.search);
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
+  if (query.kind) params.set("kind", query.kind);
+  if (query.status) params.set("status", query.status);
+  return managerResponse(`/admin/inventory/counts?${params.toString()}`, InventoryCountsResponseSchema, "فهرست شمارش‌ها دریافت نشد.");
+}
 export const createInventoryCount = (body: unknown) => managerMutation("/admin/inventory/counts", "POST", body, InventoryCountResponseSchema, "اطلاعات شمارش موجودی دریافت نشد.");
 export const updateInventoryCount = (id: string, body: unknown) => managerMutation(`/admin/inventory/counts/${id}`, "PATCH", body, InventoryCountResponseSchema, "اطلاعات شمارش ویرایش‌شده دریافت نشد.");
 export const postInventoryCount = (id: string, body: unknown, key: string) => managerMutation(`/admin/inventory/counts/${id}/post`, "POST", body, InventoryCountResponseSchema, "نتیجه‌ی ثبت شمارش دریافت نشد.", key);
@@ -619,3 +648,5 @@ export const readGrossProfitReport = (fromDate: string, toDate: string) => {
   const query = new URLSearchParams({ fromDate, toDate });
   return managerResponse(`/admin/reports/gross-profit?${query}`, GrossProfitReportResponseSchema, "گزارش سود ناخالص دریافت نشد.");
 };
+
+export const activateInventory = () => managerMutation("/admin/settings/inventory/activate", "POST", {}, AdminSettingsResponseSchema, "پاسخ فعال‌سازی انبار معتبر نیست.");
