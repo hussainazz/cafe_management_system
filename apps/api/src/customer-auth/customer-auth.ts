@@ -13,7 +13,16 @@ function hmac(secret: string, value: string) {
 }
 
 export function normalizeIranMobile(input: string): string | undefined {
-  const digits = input.trim().replace(/[\s()-]/g, "").replace(/^0098/, "+98").replace(/^98/, "+98");
+  // iOS phone autofill and Persian keyboards may supply Persian/Arabic digits,
+  // non-breaking spaces, or typographic separators. Canonicalize before applying
+  // the existing Iranian mobile-number rules.
+  const digits = input
+    .trim()
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[\s\u00a0\u200e\u200f\u202a-\u202e()（）.．/／\p{Dash_Punctuation}\u2212]/gu, "")
+    .replace(/^0098/, "+98")
+    .replace(/^98/, "+98");
   const national = digits.replace(/^0/, "");
   const normalized = national.startsWith("+98") ? national : `+98${national}`;
   return /^\+989\d{9}$/.test(normalized) ? normalized : undefined;
