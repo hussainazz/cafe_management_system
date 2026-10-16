@@ -10,12 +10,20 @@ import {
   type ApiFailure,
 } from "../lib/api-client";
 import { unlockWaiterCallSound } from "../lib/waiter-call-sound";
-import { OrdersIcon } from "./icons";
+import { AccountingIcon, CatalogIcon, CloseIcon, ExitIcon, InventoryIcon, OrdersIcon, SettingsIcon, SunIcon } from "./icons";
 import { OrdersWorkspace } from "./orders-workspace";
-import { ManagerWorkspace } from "./manager-workspace";
+import { ManagerWorkspace, type ManagerSection } from "./manager-workspace";
 import { ReleaseUpdateGuard, type PosActivity } from "./release-update-guard";
 
 import { setRecoveryUser, readRecovery, writeRecovery } from "../lib/automatic-recovery";
+
+type Workspace = "orders" | ManagerSection;
+
+function restoredWorkspace(role: AuthenticatedUser["role"]): Workspace {
+  if (role !== "MANAGER") return "orders";
+  const saved = readRecovery<Workspace | "manager">("workspace");
+  return saved === "manager" ? "settings" : saved ?? "orders";
+}
 
 type SessionState =
   | { kind: "loading" }
@@ -42,7 +50,7 @@ function usePosTheme() {
     document.documentElement.setAttribute("data-theme", next);
     document.querySelector('meta[name="theme-color"]')?.setAttribute(
       "content",
-      next === "dark" ? "#19130f" : "#f5f5f3",
+      next === "dark" ? "#19130f" : "#f0e2d5",
     );
   }, []);
   useEffect(() => {
@@ -65,7 +73,7 @@ function usePosTheme() {
 export function PosSessionBoundary() {
   const [session, setSession] = useState<SessionState>({ kind: "loading" });
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [workspace, setWorkspace] = useState<"orders" | "manager">("orders");
+  const [workspace, setWorkspace] = useState<Workspace>("orders");
   const [ordersActivity, setOrdersActivity] = useState<PosActivity>({ isBusy: true, hasUnsavedChanges: false });
   const opener = useRef<HTMLButtonElement | null>(null);
   const { theme, toggle } = usePosTheme();
@@ -87,7 +95,7 @@ export function PosSessionBoundary() {
     const current = await currentSession();
     if (current.ok) {
       setRecoveryUser(current.data.id);
-      setWorkspace(readRecovery<"orders" | "manager">("workspace") === "manager" && current.data.role === "MANAGER" ? "manager" : "orders");
+      setWorkspace(restoredWorkspace(current.data.role));
       setSession({ kind: "ready", user: current.data, refreshing: false });
       return;
     }
@@ -96,7 +104,7 @@ export function PosSessionBoundary() {
       (current.error.status === 401 || current.error.code === "SESSION_EXPIRED")
     ) {
       const refreshed = await refreshSession();
-      if (refreshed.ok) { setRecoveryUser(refreshed.data.id); setWorkspace(readRecovery<"orders" | "manager">("workspace") === "manager" && refreshed.data.role === "MANAGER" ? "manager" : "orders"); }
+      if (refreshed.ok) { setRecoveryUser(refreshed.data.id); setWorkspace(restoredWorkspace(refreshed.data.role)); }
       setSession(
         refreshed.ok
           ? { kind: "ready", user: refreshed.data, refreshing: false }
@@ -119,7 +127,7 @@ export function PosSessionBoundary() {
         onRetry={() => void loadSession(true)}
         onReady={(user) => {
           setRecoveryUser(user.id);
-          setWorkspace(readRecovery<"orders" | "manager">("workspace") === "manager" && user.role === "MANAGER" ? "manager" : "orders");
+          setWorkspace(restoredWorkspace(user.role));
           setDrawerOpen(false);
           setSession({ kind: "ready", user, refreshing: false });
         }}
@@ -127,6 +135,12 @@ export function PosSessionBoundary() {
     );
 
   const role = session.user.role === "MANAGER" ? "مدیر" : "پرسنل";
+  const selectWorkspace = (next: Workspace) => {
+    setWorkspace(next);
+    writeRecovery("workspace", next);
+    setDrawerOpen(false);
+    opener.current?.focus();
+  };
   return (
     <div className="pos-shell">
       <button
@@ -141,31 +155,55 @@ export function PosSessionBoundary() {
         aria-label="منوی اصلی"
         aria-hidden={!drawerOpen}
       >
-        <div className="side-drawer__heading">
-          <div className="brand" aria-label="سامانه فروش کافه ران">
-            <span className="brand__mark" aria-hidden="true">
-              R
-            </span>
-            <span>
+        <header className="drawer-brandbar">
+          <div className="drawer-brand" aria-label="سامانه فروش کافه ران">
+            <img className="drawer-brand__mark" src="/pos/run-cafe-logo.webp" alt="" />
+            <span className="drawer-brand__copy">
               <strong>Run Cafe</strong>
               <small>صندوق فروش</small>
             </span>
           </div>
           <button
+            className="drawer-close"
             type="button"
             onClick={() => { setDrawerOpen(false); opener.current?.focus(); }}
             aria-label="بستن منو"
           >
-            ×
+            <CloseIcon />
           </button>
-        </div>
+        </header>
         <div className="drawer-operator">
-          <span className="operator">
+          <span className="drawer-operator__identity">
             <strong>{session.user.username}</strong>
-            <small>{role}</small>
+            <small>حساب کاربری</small>
           </span>
+          <span className="drawer-operator__role">{role}</span>
+        </div>
+        <nav>
+          <h2>عملیات روزانه</h2>
           <button
-            className="text-button"
+            className={`nav-item ${workspace === "orders" ? "is-active" : ""}`}
+            type="button"
+            onClick={() => selectWorkspace("orders")}
+          >
+            <OrdersIcon />
+            <span>سفارش‌گیری</span>
+          </button>
+          {session.user.role === "MANAGER" && <>
+            <h2>مدیریت</h2>
+            <button className={`nav-item ${workspace === "settings" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("settings")}><SettingsIcon /><span>تنظیمات</span></button>
+            <button className={`nav-item ${workspace === "finance" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("finance")}><AccountingIcon /><span>حسابداری</span></button>
+            <button className={`nav-item ${workspace === "catalog" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("catalog")}><CatalogIcon /><span>منو و کالاها</span></button>
+            <button className={`nav-item ${workspace === "inventory" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("inventory")}><InventoryIcon /><span>انبار</span></button>
+          </>}
+        </nav>
+        <footer className="side-drawer__footer">
+          <button className="theme-toggle" type="button" onClick={toggle} aria-label={theme === "dark" ? "تغییر به حالت روشن" : "تغییر به حالت تاریک"}>
+            <span className="theme-toggle__label"><SunIcon />{theme === "dark" ? "حالت تاریک" : "حالت روشن"}</span>
+            <span className={`theme-toggle__switch ${theme === "dark" ? "is-dark" : ""}`} aria-hidden="true"><i /></span>
+          </button>
+          <button
+            className="drawer-logout"
             type="button"
             onClick={() => {
               void endSession().then(() => {
@@ -175,30 +213,15 @@ export function PosSessionBoundary() {
               });
             }}
           >
-            خروج از حساب
+            <span>خروج از حساب</span><ExitIcon />
           </button>
-        </div>
-        <nav>
-          <button
-            className={`nav-item ${workspace === "orders" ? "is-active" : ""}`}
-            type="button"
-            onClick={() => { setWorkspace("orders"); writeRecovery("workspace", "orders"); setDrawerOpen(false); opener.current?.focus(); }}
-          >
-            <OrdersIcon />
-            <span>سفارش‌گیری</span>
-          </button>
-          {session.user.role === "MANAGER" && <button className={`nav-item ${workspace === "manager" ? "is-active" : ""}`} type="button" onClick={() => { setWorkspace("manager"); writeRecovery("workspace", "manager"); setDrawerOpen(false); opener.current?.focus(); }}><span aria-hidden="true">⚙</span><span>مدیریت</span></button>}
-        </nav>
-        <button className="theme-toggle" type="button" onClick={toggle} aria-label={theme === "dark" ? "تغییر به حالت روشن" : "تغییر به حالت تاریک"}>
-          <span>{theme === "dark" ? "حالت تاریک" : "حالت روشن"}</span>
-          <span className={`theme-toggle__switch ${theme === "dark" ? "is-dark" : ""}`} aria-hidden="true"><i /></span>
-        </button>
+        </footer>
       </aside>
 
       <main className="pos-main">
-        {workspace !== "manager" || session.user.role !== "MANAGER" ? <OrdersWorkspace refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
+        {workspace === "orders" || session.user.role !== "MANAGER" ? <OrdersWorkspace refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace section={workspace} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
       </main>
-      <ReleaseUpdateGuard activity={workspace !== "manager" || session.user.role !== "MANAGER" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
+      <ReleaseUpdateGuard activity={workspace === "orders" || session.user.role !== "MANAGER" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
     </div>
   );
 }
