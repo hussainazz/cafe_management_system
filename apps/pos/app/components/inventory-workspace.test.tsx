@@ -23,7 +23,7 @@ const stock = {
 const ok = (data: unknown) => ({ ok: true, data });
 const catalog = { categories: [], products: [], optionGroups: [], options: [] } as never;
 
-function list(data: unknown, key: string) { return ok({ data: { [key]: data }, meta: { requestId: "test" } }); }
+function list(data: unknown, key: string) { const page = { limit: 20, nextCursor: null, hasMore: false }; return ok({ data: { [key]: data, page }, meta: { requestId: "test", page } }); }
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -47,14 +47,14 @@ describe("InventoryWorkspace", () => {
     vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock, other], "stockItems") as never);
     render(<InventoryWorkspace catalog={catalog} />);
     fireEvent.click(await screen.findByRole("button", { name: "شمارش انبار" }));
-    fireEvent.change(screen.getByLabelText("نوع شمارش"), { target: { value: "PHYSICAL" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "شمارش شیر" }));
     fireEvent.change(screen.getByLabelText("مقدار گرم"), { target: { value: "80" } });
+    fireEvent.change(screen.getByLabelText("دلیل اختلاف موجودی (برای کل شمارش)"), { target: { value: "کسری در شمارش فیزیکی" } });
     fireEvent.click(screen.getByRole("button", { name: "ایجاد پیش‌نویس شمارش" }));
-    await waitFor(() => expect(api.createInventoryCount).toHaveBeenCalledWith({ kind: "PHYSICAL", lines: [{ stockItemId: stock.id, observedQuantity: "80", observedValueAmount: 20000 }] }));
+    await waitFor(() => expect(api.createInventoryCount).toHaveBeenCalledWith({ lines: [{ stockItemId: stock.id, observedQuantity: "80", observedValueAmount: 20000 }], reason: "کسری در شمارش فیزیکی", kind: "PHYSICAL" }));
   });
   it("blocks costing edits after a configuration read fails and allows a read retry", async () => {
-    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", isActive: true, archivedAt: null, optionGroups: [] }], optionGroups: [], categories: [], options: [] } as never;
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [{ options: [{ optionId: "option-1" }] }] }], optionGroups: [{ id: "group-1", name: "اندازه", options: [{ id: "option-1", name: "دبل", isActive: true, archivedAt: null }] }], categories: [], options: [] } as never;
     vi.mocked(api.readProductCosting).mockResolvedValue({ ok: false, error: { kind: "response", code: "SERVICE_UNAVAILABLE", message: "Database unavailable", requestId: "costing-read-123" } } as never);
     render(<InventoryWorkspace catalog={costingCatalog} />);
     fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
@@ -62,7 +62,7 @@ describe("InventoryWorkspace", () => {
     expect(screen.queryByLabelText("روش محاسبه")).toBeNull();
     vi.mocked(api.readProductCosting).mockResolvedValue(ok({ data: null }) as never);
     fireEvent.click(screen.getByRole("button", { name: "بارگذاری تنظیم هزینه" }));
-    await screen.findByLabelText("روش محاسبه");
+    await screen.findByLabelText("مقدار");
     expect(api.saveProductCosting).not.toHaveBeenCalled();
   });
   it("allows only one inventory write while a request is pending and releases the form after failure", async () => {
@@ -90,7 +90,7 @@ describe("InventoryWorkspace", () => {
     fireEvent.change(screen.getByLabelText("مقدار خرید (گرم)"), { target: { value: "0.123456" } });
     fireEvent.click(screen.getByRole("button", { name: "ایجاد پیش‌نویس خرید" }));
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("مقدار خرید (ردیف ۱)");
+    expect(alert.textContent).toContain("مقدار خرید (ردیف 1)");
     expect(alert.textContent).toContain("purchase-error-123");
     expect(alert.textContent).not.toContain("converted purchase");
     expect((screen.getByLabelText("مقدار خرید (گرم)") as HTMLInputElement).value).toBe("0.123456");
@@ -154,6 +154,7 @@ describe("InventoryWorkspace", () => {
     render(<InventoryWorkspace catalog={catalog} />);
     fireEvent.click(await screen.findByRole("button", { name: "خریدها" }));
 
+    await screen.findByText("تأمین‌کننده");
     fireEvent.click(screen.getByRole("button", { name: "ثبت رسید در موجودی" }));
     const dialog = screen.getByRole("alertdialog", { name: "بررسی رسید خرید" });
     expect(dialog.textContent).toContain("50 گرم");
@@ -176,7 +177,7 @@ describe("InventoryWorkspace", () => {
     vi.mocked(api.postInventoryCount).mockResolvedValue(ok({ ...draft, status: "POSTED" }) as never);
     render(<InventoryWorkspace catalog={catalog} />);
     fireEvent.click(await screen.findByRole("button", { name: "شمارش انبار" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /سفارش 42/ }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /سفارش 42/ }));
     fireEvent.click(screen.getByRole("button", { name: "ثبت شمارش" }));
 
     const dialog = screen.getByRole("alertdialog", { name: "بررسی ثبت شمارش" });
@@ -187,32 +188,33 @@ describe("InventoryWorkspace", () => {
     await waitFor(() => expect(api.postInventoryCount).toHaveBeenCalledWith("count-1", { expectedVersion: 2, absorbedOrderConsumptionIds: ["pending-1"] }, expect.any(String)));
   });
 
-  it("selects a recipe component by its readable name in an option rule", async () => {
-    const recipe = { id: "recipe-1", name: "اسپرسو", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, quantity: "18" }] };
-    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", isActive: true, archivedAt: null, optionGroups: [{ options: [{ optionId: "option-1" }] }] }], optionGroups: [{ id: "group-1", name: "اندازه", options: [{ id: "option-1", name: "دبل" }] }], categories: [], options: [] } as never;
+  it("saves a reusable option recipe and links it to product costing", async () => {
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [{ options: [{ optionId: "option-1" }] }] }], optionGroups: [{ id: "group-1", name: "اندازه", options: [{ id: "option-1", name: "دبل", isActive: true, archivedAt: null }] }], categories: [], options: [] } as never;
+    const savedRecipe = { id: "recipe-1", name: "اسپرسو دبل option-", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "component-1", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, quantity: "18" }] };
     vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
-    vi.mocked(api.readInventoryRecipes).mockResolvedValue(list([recipe], "recipes") as never);
+    vi.mocked(api.saveInventoryRecipe).mockResolvedValue(ok({ data: savedRecipe }) as never);
+    vi.mocked(api.saveProductCosting).mockResolvedValue(ok({ data: { mode: "RECIPE", recipeId: "recipe-1", optionRecipes: [{ optionId: "option-1", recipeId: "recipe-1", recipeQuantity: "1" }], optionRules: [], combinations: [], version: 1 } }) as never);
     render(<InventoryWorkspace catalog={costingCatalog} />);
     fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
-    fireEvent.change(await screen.findByLabelText("دستور تهیه‌ی پایه"), { target: { value: "recipe-1" } });
-    fireEvent.click(screen.getByRole("button", { name: "افزودن قاعده‌ی گزینه" }));
-
-    const selector = screen.getByLabelText("ماده‌ی دستور پایه") as HTMLSelectElement;
-    expect(within(selector).getByRole("option", { name: "قهوه" })).toBeTruthy();
-    fireEvent.change(selector, { target: { value: "coffee" } });
-    expect(selector.value).toBe("coffee");
+    fireEvent.change(await screen.findByLabelText("مقدار (گرم)"), { target: { value: "18" } });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+    await waitFor(() => expect(api.saveInventoryRecipe).toHaveBeenCalledWith(null, expect.objectContaining({
+      ingredientName: "اسپرسو", components: [expect.objectContaining({ stockItemId: stock.id, quantity: "18" })],
+    })));
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({
+      mode: "RECIPE", optionRecipes: [{ optionId: "option-1", recipeId: "recipe-1", recipeQuantity: "1" }],
+    })));
   });
 
-  it("changes count eligibility with count type and submits observed stock values", async () => {
+  it("creates a physical count and asks for one reason when a quantity differs", async () => {
     vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
     render(<InventoryWorkspace catalog={catalog} />);
     fireEvent.click(await screen.findByRole("button", { name: "شمارش انبار" }));
-    expect((screen.getByLabelText(/نوع شمارش/) as HTMLSelectElement).value).toBe("OPENING");
-    fireEvent.change(screen.getByLabelText(/نوع شمارش/), { target: { value: "PHYSICAL" } });
     fireEvent.change(screen.getByLabelText("مقدار گرم"), { target: { value: "99.5" } });
     fireEvent.change(screen.getByLabelText("ارزش موجودی (تومان)"), { target: { value: "19900" } });
+    fireEvent.change(screen.getByLabelText("دلیل اختلاف موجودی (برای کل شمارش)"), { target: { value: "اصلاح شمارش" } });
     fireEvent.click(screen.getByRole("button", { name: "ایجاد پیش‌نویس شمارش" }));
 
-    await waitFor(() => expect(api.createInventoryCount).toHaveBeenCalledWith({ kind: "PHYSICAL", lines: [{ stockItemId: stock.id, observedQuantity: "99.5", observedValueAmount: 19900 }] }));
+    await waitFor(() => expect(api.createInventoryCount).toHaveBeenCalledWith({ lines: [{ stockItemId: stock.id, observedQuantity: "99.5", observedValueAmount: 19900 }], reason: "اصلاح شمارش", kind: "PHYSICAL" }));
   });
 });
