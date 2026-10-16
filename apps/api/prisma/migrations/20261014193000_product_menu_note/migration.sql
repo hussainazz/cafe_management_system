@@ -1,0 +1,2 @@
+ALTER TABLE "products"
+ADD COLUMN "menuNote" VARCHAR(1000);
