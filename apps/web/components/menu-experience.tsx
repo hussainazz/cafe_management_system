@@ -48,6 +48,7 @@ const copy = {
     unavailable: "فعلاً ناموجود",
     discount: "تخفیف",
     options: "انتخاب‌های این آیتم",
+    aboutItem: "درباره‌ی محصول",
     optionCount: "انتخاب",
     finalPriceWithOption: "قیمت نهایی با انتخاب",
     from: "از",
@@ -77,6 +78,7 @@ const copy = {
     unavailable: "Unavailable for now",
     discount: "off",
     options: "Available choices",
+    aboutItem: "About this item",
     optionCount: "choices",
     finalPriceWithOption: "Final price with choice",
     from: "from",
@@ -299,7 +301,7 @@ function ProductDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="product-dialog-title"
-        aria-describedby={product.optionGroups.length > 0 ? "product-dialog-options" : undefined}
+        aria-describedby={[product.optionGroups.length > 0 ? "product-dialog-options" : null, product.menuNote ? "product-dialog-menu-note-text" : null].filter(Boolean).join(" ") || undefined}
         dir={language === "fa" ? "rtl" : "ltr"}
         onKeyDown={(event) => {
           if (event.key !== "Tab") return;
@@ -371,6 +373,13 @@ function ProductDialog({
                   </div>
                 ))}
               </div>
+            ) : null}
+
+            {product.menuNote ? (
+              <section className="menu-item-note" aria-labelledby="product-dialog-menu-note-title">
+                <h3 id="product-dialog-menu-note-title">{text.aboutItem}</h3>
+                <p id="product-dialog-menu-note-text">{product.menuNote}</p>
+              </section>
             ) : null}
 
           </div>
@@ -751,7 +760,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
           <p className="eyebrow">RUN CAFÉ · میز {tableContext.tableName}</p>
           <h1 id="customer-auth-title">برای مشاهده ی منو، لطفا شماره موبایل خود را تأیید کنید</h1>
           <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void identifyPhone(); }}>
-            <label>شماره موبایل<input inputMode="tel" autoComplete="tel" value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} /></label>
+            <label>شماره موبایل<input type="tel" inputMode="tel" autoComplete="tel" dir="ltr" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} /></label>
             <button className="auth-submit" type="submit" disabled={phoneLoading || phoneNumber.trim().length < 1}>{phoneLoading ? "در حال ثبت…" : "ادامه"}</button>
           </form>
           {phoneError ? <p className="table-context-error" role="alert">{phoneError}</p> : null}
