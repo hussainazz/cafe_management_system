@@ -1,5 +1,73 @@
 # Current Stage Status
 
+## POS polish and scrolling follow-up — 16 October 2026
+
+- Applied the explicitly requested Impeccable polish on
+  `codex/pos-polish-scroll-performance`, preserving the current POS design,
+  Persian copy, financial behavior, and the existing deployment notes below.
+- Removed the viewport-fixed gradient attachment across POS surfaces, themed
+  native scrollbars, and added shared visible keyboard focus for links and
+  disclosure summaries.
+- Coalesced category scrollbar measurement and product-option popover
+  positioning to one animation frame, canceling pending work on cleanup.
+  Popover state no longer updates when its coordinates are unchanged; product
+  grouping is memoized across scroll-driven order-editor updates.
+- Corrected mobile RTL category scrolling: thumb anchoring, negative scroll
+  offsets, wheel direction, pointer mapping, and PageUp/PageDown/Home/End.
+- Verification: all 21 POS test files / 129 tests pass, POS typecheck passes,
+  and `git diff --check` passes. The new popover regression reproduces 20
+  immediate layout reads before the fix and one scheduled read afterward;
+  a second regression covers RTL wheel/keyboard and thumb synchronization.
+  Existing pnpm Node 25 engine warning remains.
+- Local browser checks covered table board, order entry, drawer, accounting,
+  catalog, Settings, and inventory at representative 1280, 874, and 390 px
+  widths, including both themes. Inspected screens have no page-wide
+  horizontal overflow; mobile category Home/End and thumb position agree;
+  final browser warning/error log is empty. No business records were saved.
+- Left: check scrolling on the actual café computer. These changes address
+  measured scroll-event work and a plausible shared repaint cost; café-device
+  smoothness has not been established. Publishing and POS-only VPS activation
+  are in progress.
+
+## Coordinated VPS activation — 16 October 2026
+
+- Activated `cafe-20261016-a10c5ab` from clean published `main` at
+  `a10c5ab5f3efa9874c3e9d03f9adb8562e24fc0e`. This replaces the running
+  8 October API/menu plus 12 October POS receipt release and includes the
+  previously prepared `cafe-20261015-b6f0c53600` features and all later
+  application edits through the published commit.
+- Fresh verification passed: API 21 files / 151 tests, POS 21 files / 127 tests,
+  public menu 2 files / 10 tests, all package typechecks and production builds,
+  and 11 localized/international phone normalization samples. pnpm emitted its
+  existing Node 25 engine warning; the VPS runs Node 24.21.0.
+- Uploaded one 18.8 MB archive with live SFTP percentage/speed/ETA output.
+  Archive and staged-file checksums passed. The artifact includes the Debian
+  Prisma engine, matching contracts, schema and all 39 migrations, and immutable
+  POS build/release identity. Development caches, environments, local uploaded
+  images, and unused image originals were excluded; unchanged static assets
+  were compared by checksum and retained.
+- Validated fresh PostgreSQL custom-format and coordinated runtime backups.
+  Applied the nine reviewed pending migrations before starting the new API;
+  Prisma reports all 39 migrations current. No production reset or seed ran.
+- Direct readiness, menu API, menu proxy, public HTTPS menu/POS/release, logo,
+  and Anton font probes passed. Catalog data/prices match the pre-release
+  snapshot; API and proxy agree after their documented DTO transformation.
+  Uploaded image checksums are unchanged. All three services are active with
+  `NRestarts=0` and no error-level release logs.
+- Inventory remains inactive (`inventoryActivatedAt` is null), with zero
+  consumption and movement rows. Production retained 2,005 orders, 1,985
+  settlements, and 181 catalog products at verification time. Inventory
+  activation remains an explicit permanent Manager action.
+- Runtime identity and source-file hashes are recorded in the VPS
+  `/opt/cafe-menu/release-manifest.json`; rollback and database backups use
+  `before-cafe-20261016-a10c5ab` names under `/opt/cafe-menu-release-backups`.
+  Existing device/visual follow-ups are unchanged.
+- Left: rotate obsolete VPS backups to the production-gate retention limit.
+  Automatic approval review rejected deleting the older backup archives and
+  duplicate previous-runtime staging directory as beyond deployment
+  authorization. All old and new backups remain intact pending explicit
+  cleanup approval; application activation and verification are complete.
+
 ## Main branch consolidation — 16 October 2026
 
 - Consolidated all pending API, POS, public-menu, contract, migration, asset,
@@ -149,7 +217,7 @@ Lint was run and its errors remain non-blocking under the project instruction.
   every inventory order/payment hook. Exclude orders created before activation.
 - [x] Verify activation authorization, permanence, absence of inactive writes,
   and the pre-activation order boundary with the isolated test database.
-- [ ] Build and deploy the coordinated schema, ORM, API, POS, and menu release
+- [x] Build and deploy the coordinated schema, ORM, API, POS, and menu release
   with inventory inactive, verified database/runtime backups, and public probes.
 
 ## Completion Record
