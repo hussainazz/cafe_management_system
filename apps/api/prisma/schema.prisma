@@ -186,6 +186,7 @@ model Product {
   id                         String             @id @default(uuid())
   categoryId                 String
   name                       String
+  menuNote                   String?            @db.VarChar(1000)
   priceAmount                Int
   pricingMode                ProductPricingMode @default(FIXED)
   isPublic                   Boolean            @default(true)
@@ -205,6 +206,7 @@ model Product {
   orderItems           OrderItem[]
   costingConfiguration ProductCostingConfiguration?
   optionCostingRules   ProductOptionCostingRule[]
+  optionRecipeCostings ProductOptionRecipeCosting[]
   costingCombinations  ProductCostingCombination[]
 
   @@unique([categoryId, systemKey])
@@ -293,6 +295,7 @@ model Option {
   optionGroup               OptionGroup                @relation(fields: [optionGroupId], references: [id])
   productLinks              ProductOptionGroupOption[]
   orderItemOptions          OrderItemOption[]
+  recipeCostings            ProductOptionRecipeCosting[]
   optionCostingRules        ProductOptionCostingRule[]
   costingCombinationOptions CostingCombinationOption[]
 
@@ -639,6 +642,7 @@ model CafeSettings {
   id                       String   @id @default(uuid())
   singletonKey             Boolean  @unique @default(true)
   tableSeatingLimitMinutes Int?
+  inventoryActivatedAt     DateTime?
   updatedById              String?
   updatedAt                DateTime @updatedAt
 
@@ -772,6 +776,7 @@ model Recipe {
   components       RecipeComponent[]               @relation("RecipeComponents")
   nestedIn         RecipeComponent[]               @relation("NestedRecipeComponents")
   productCostings  ProductCostingConfiguration[]   @relation("ProductRecipe")
+  optionCostings   ProductOptionRecipeCosting[]
   extrasCostings   ProductCostingConfiguration[]   @relation("ProductExtrasRecipe")
   optionRules      ProductOptionCostingRule[]      @relation("OptionRuleRecipe")
   combinationRules ProductCombinationCostingRule[] @relation("CombinationRuleRecipe")
@@ -849,6 +854,25 @@ model ProductOptionCostingRule {
   @@map("product_option_costing_rules")
 }
 
+model ProductOptionRecipeCosting {
+  id            String   @id @default(uuid())
+  productId     String
+  optionId      String
+  recipeId      String
+  recipeQuantity Decimal @db.Decimal(20, 6)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  option  Option  @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  recipe  Recipe  @relation(fields: [recipeId], references: [id], onDelete: Restrict)
+
+  @@unique([productId, optionId])
+  @@index([optionId])
+  @@index([recipeId])
+  @@map("product_option_recipe_costings")
+}
+
 model ProductCostingCombination {
   id        String   @id @default(uuid())
   productId String
@@ -902,6 +926,7 @@ model InventoryCount {
   kind        InventoryCountKind
   status      InventoryCountStatus @default(DRAFT)
   version     Int                  @default(1)
+  reason      String?              @db.VarChar(500)
   createdById String
   postedAt    DateTime?
   createdAt   DateTime             @default(now())
