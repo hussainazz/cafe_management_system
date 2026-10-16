@@ -20,7 +20,7 @@ it("never mounts Manager workspace after Manager logout and Staff login, even wi
   render(<PosSessionBoundary />);
   await screen.findByText("orders workspace");
   fireEvent.click(screen.getByRole("button", { name: "open menu" }));
-  fireEvent.click(screen.getByRole("button", { name: "مدیریت" }));
+  fireEvent.click(screen.getByRole("button", { name: "تنظیمات" }));
   await screen.findByText("manager workspace");
   fireEvent.click(screen.getByRole("button", { name: "open menu" }));
   fireEvent.click(screen.getByRole("button", { name: "خروج از حساب" }));
@@ -32,5 +32,5 @@ it("never mounts Manager workspace after Manager logout and Staff login, even wi
   await screen.findByText("orders workspace");
   await waitFor(() => expect(screen.getByText("پرسنل")).toBeTruthy());
   expect(manager).not.toHaveBeenCalled();
-  expect(screen.queryByRole("button", { name: "مدیریت" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "تنظیمات" })).toBeNull();
 });
