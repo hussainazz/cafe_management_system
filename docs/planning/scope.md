@@ -35,6 +35,11 @@ v1 success criteria:
 
 ## Product Boundaries
 
+Inventory is installed but inactive until a Manager permanently activates it
+from Café Settings. Its APIs and all background order tracking remain inactive
+before activation. Only orders created after activation are eligible; earlier
+orders are never backfilled. Details are in `inventory-costing.md`.
+
 | Area           | Baseline decision                                                                                                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                                                                                                                     |
@@ -101,7 +106,7 @@ v1 staff-created order flow:
 
 1. A Staff user selects the order type: table or takeaway.
 2. They add products, options, quantities, and notes in POS.
-3. The server validates active, non-archived POS-visible products and available options, and calculates all totals from current catalog data. Active products marked unavailable remain orderable by Staff/Manager in POS; public-menu availability is unchanged.
+3. The server validates active, non-archived products in unarchived source categories and available options, and calculates all totals from current catalog data. Active products marked unavailable remain orderable by Staff/Manager in POS; public-menu availability is unchanged.
 4. The server creates the order with state `OPEN`, payment status `UNPAID`, and snapshots the item names and finished Toman prices.
 5. For each payer checkout, Staff either selects one or more order-item quantities or enters an integer Toman amount up to the remaining balance, then records one or more cash, card-terminal, or card-to-card transfer tenders as one settlement. For amount-based settlement, the server allocates the amount across remaining immutable item snapshots in display order.
 6. The payment status is `PARTIALLY_PAID` until active settlements cover every item quantity, then becomes `PAID`. A fully paid order closes immediately: table orders atomically free their table and invalidate its guest context; takeaway orders leave the active POS list.
@@ -141,10 +146,10 @@ Corrections and exceptional flows:
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Foundation             | Environment validation, database migrations, seed/bootstrap flow, structured errors, request IDs, logging, health/readiness endpoints.                                                                                                                                                                                                                                                                                          |
 | Authentication         | Staff login, secure sessions, logout, account deactivation, and Manager/Staff authorization.                                                                                                                                                                                                                                                                                                                                    |
-| Catalog                | Categories, products, options, images, display order, Manager-controlled product sale discounts, final Toman price, active state, temporary availability, and product preparation-deadline minutes.                                                                                                                                                                                                                             |
+| Catalog                | Categories, products, customer-facing product notes, options, images, display order, Manager-controlled product sale discounts, final Toman price, active state, temporary availability, and product preparation-deadline minutes.                                                                                                                                                                                                                             |
 | POS order entry        | Table/takeaway orders; quantities, options, notes, server totals, controlled edits while `OPEN`, logical deletion, and order history.                                                                                                                                                                                                                                                                                           |
 | Table operations       | Assign, transfer, view active orders with estimated table release time, mark tables occupied or available, receive QR-scan occupancy reminders, and acknowledge/resolve eligible-table waiter-calls by opening the highlighted table in the shared dashboard. No order or table split/merge. |
-| Customer menu          | Mobile-first QR menu for browse/search/category filtering, priced item options, current availability, final Toman price, and a table-scoped waiter-call action. Preparation deadlines are not displayed to customers. No checkout or order submission.                                                                                                                                                                                                                              |
+| Customer menu          | Mobile-first QR menu for browse/search/category filtering, product explanations, priced item options, current availability, final Toman price, and a table-scoped waiter-call action. Product explanations appear in the item detail popup after its options. Preparation deadlines are not displayed to customers. No checkout or order submission.                                                                                                                                                                                                                              |
 | Payments               | Per-payer settlements for selected item quantities, each with one or more manual cash, card-terminal, or card-to-card transfer tenders; split tender, item allocation, total-paid calculation, optional card-to-card transfer references, and audit trail. No online payments.                                                                                                                                                  |
 | Discounts              | Only a Manager may configure or remove a fixed or percentage sale discount on a catalog product. Staff and Manager may apply a fixed or percentage discount to an order item or whole order without a required reason while settlement immutability permits it. A reason may be recorded optionally. There are no taxes or service charges. |
 | Receipts               | Print-friendly HTML has two variants: a concise bar ticket with the order number, local time, table/takeaway context, item quantities, selected options, and notes; and a detailed customer receipt (whole-order or payer-settlement) with item snapshots, Toman totals, tender summary where applicable, order number, and `Asia/Tehran` display time. The bar ticket excludes prices, discounts, totals, and payment details. |
@@ -171,7 +176,7 @@ Pilot acceptance scenarios:
 | Module     | Owns                                                                                                                          |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Identity   | Users, credentials, sessions, Manager/Staff role, permissions, authentication events.                                         |
-| Catalog    | Categories, products, images, option groups/options, availability, preparation deadlines, and display order.                  |
+| Catalog    | Categories, products and their customer-facing explanatory notes, images, option groups/options, availability, preparation deadlines, and display order.                  |
 | Ordering   | Orders, order items, price/preparation snapshots, notes, channel, lifecycle state, payment status, and idempotency.           |
 | Tables     | Physical-table order and labels, seating limits, waiter-call eligibility, current occupancy state, QR-scan occupancy reminders, active table estimates, assignment/clearing of active orders, table QR credentials, and waiter-call lifecycle. |
 | Payments   | Settlements, tender entries, item-quantity allocations, settlement reversal policy, Tehran-business-day sequential order display numbering, and balance calculation. |
@@ -187,7 +192,11 @@ multiple active promotional categories. Manager catalog edits can create
 promotional categories and add or remove their memberships. The public menu
 uses the same product and price data in every category listing, so the source
 category remains authoritative and promotion membership never copies product
-records or pricing.
+records or pricing. POS includes every unarchived source category; the public
+menu includes unarchived source and promotional categories with eligible
+products. Promotional categories never appear in POS. Category kind determines
+these surfaces, so Managers do not configure POS or menu visibility separately.
+Removing either category kind archives it and preserves its history.
 
 Money, pricing, and tax rules:
 
@@ -198,6 +207,7 @@ Money, pricing, and tax rules:
 - The backend is the only authority for unit price, option price, discount, line total, grand total, settlement total, paid total, and balance.
 - Each order item stores a snapshot of product name, base price, product preparation-deadline minutes, selected options and their prices, quantity, discount allocation, and final line total.
 - Each product has a Manager-configurable preparation deadline in minutes. Order items snapshot this value so old bar tickets and table estimates do not change after catalog edits.
+- Each product may have one optional customer-facing explanatory note, editable and removable by a Manager in the POS catalog panel. The public menu includes it in the product detail popup after any option choices. This catalog note is distinct from an order-item preparation note, which Staff write for café preparation and which is never shown on the public menu.
 - Historical orders never recalculate from the current catalog. Referenced products are archived, not hard-deleted.
 - Rounding and discount allocation rules are tested pure functions before UI work begins.
 
@@ -335,10 +345,12 @@ Reporting and audit:
 - The applied report window is never a retention policy. Orders, order items, settlements, tenders, reversals, receipts derived from snapshots, and audit records remain in PostgreSQL regardless of age.
 - The accounting summary queries transactional tables, is verified against known fixtures, and receives supporting indexes based on measured query plans. Required applied date bounds keep reporting bounded so it cannot degrade POS work.
 
-Inventory costing does not retroactively change historical order costs. Tracking
-starts only when an opening physical count with stock values is posted. The
-detailed valuation, recipe resolution, order correction, and report rules are
-approved in [`inventory-costing.md`](inventory-costing.md) and ADR 0011.
+Inventory costing does not retroactively change historical order costs. Stock
+tracking starts when its opening quantity and value are initialized in stock-item
+setup, including an explicit zero balance. Later physical counts can adjust only
+tracked items. The detailed valuation, recipe resolution, order correction, and
+report rules are approved in [`inventory-costing.md`](inventory-costing.md) and
+ADR 0011.
 
 ## Technology Baseline
 
