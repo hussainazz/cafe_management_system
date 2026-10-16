@@ -8,6 +8,7 @@ type BackendOption = { id: string; name: string; priceAmount: number; isAvailabl
 type BackendProduct = {
   id: string;
   name: string;
+  menuNote: string | null;
   priceAmount: number;
   basePriceAmount?: number;
   saleDiscount?: { kind: "FIXED" | "PERCENTAGE"; value: number; amount: number } | null;
@@ -40,6 +41,7 @@ function adaptMenu(response: BackendResponse): PublicMenu {
       products: category.products.map((product) => ({
         id: product.id,
         name: product.name,
+        menuNote: product.menuNote ?? null,
         nameEn: null,
         basePriceAmount: product.basePriceAmount ?? product.priceAmount,
         finalPriceAmount: product.priceAmount,
