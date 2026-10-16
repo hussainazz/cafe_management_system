@@ -15,6 +15,7 @@ import {
   readManagerCatalog,
   readManagerSettings,
   readManagerStaff,
+  readOrderList,
   readOrder,
   readPaymentHistory,
   reactivateStaff,
@@ -23,6 +24,7 @@ import {
   saveOptionGroup,
   saveProduct,
   saveSettings,
+  activateInventory,
   saveStaff,
   saveTable,
   uploadProductImage,
@@ -32,6 +34,8 @@ import {
   type ManagerStaff,
   type PaymentHistory,
   type PaymentHistoryFilters,
+  type PaymentHistoryOrderFilter,
+  type OrderSummary,
   type PosOrderDetail,
 } from "../lib/api-client";
 import { formatOrderNumber, formatToman } from "../lib/pos-utils";
@@ -43,6 +47,8 @@ import { persianDateToGregorianDate, tehranPersianDateParts } from "../lib/tehra
 import { InventoryWorkspace } from "./inventory-workspace";
 
 type Panel = "catalog" | "tables" | "finance" | "audit" | "settings" | "inventory";
+type SettingsPanel = "settings" | "tables" | "audit";
+export type ManagerSection = "settings" | "finance" | "catalog" | "inventory";
 type Confirm = {
   title: string;
   detail: string;
@@ -50,6 +56,7 @@ type Confirm = {
   run: (reason?: string) => Promise<void>;
 } | null;
 type PaymentSortKey = "order" | "recordedAt" | "context" | "amount" | "method" | "recordedBy" | "status";
+type PaymentListFilter = PaymentHistoryOrderFilter | "PREVIOUS_UNPAID" | null;
 const number = (value: FormDataEntryValue | null) => Number(value ?? 0);
 const text = (value: FormDataEntryValue | null) => String(value ?? "").trim();
 
@@ -94,14 +101,58 @@ function paymentFiltersFromDraft(draft: PaymentFilterDraft): PaymentHistoryFilte
   };
 }
 
+function shiftPaymentDate(year: string, value: string, offset: -1 | 1): string | null {
+  const gregorianDate = persianDateToGregorianDate(year, value);
+  if (!gregorianDate) return null;
+  const date = new Date(`${gregorianDate}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offset);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tehran", calendar: "persian", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  if (part("year") !== year) return null;
+  return `${part("month")}/${part("day")}`;
+}
+
+type PaymentDatePreset = "today" | "yesterday" | "last7" | "custom";
+
+function paymentDatePresetRange(preset: Exclude<PaymentDatePreset, "custom">): { draft: PaymentFilterDraft; filters: PaymentHistoryFilters } {
+  const today = tehranPersianDateParts();
+  const todayGregorian = persianDateToGregorianDate(today.year, `${today.month}/${today.day}`);
+  if (!todayGregorian) {
+    const draft = initialPaymentFilterDraft();
+    return { draft, filters: { fromDate: new Date().toISOString().slice(0, 10), toDate: new Date().toISOString().slice(0, 10) } };
+  }
+  const gregorianDay = (offset: number) => {
+    const date = new Date(`${todayGregorian}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + offset);
+    return date.toISOString().slice(0, 10);
+  };
+  const persianValue = (date: string) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Tehran", calendar: "persian", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date(`${date}T12:00:00Z`));
+    const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+    return { year: value("year"), value: `${value("month")}/${value("day")}` };
+  };
+  const to = persianValue(preset === "yesterday" ? gregorianDay(-1) : todayGregorian);
+  const from = persianValue(preset === "last7" ? gregorianDay(-6) : preset === "yesterday" ? gregorianDay(-1) : todayGregorian);
+  const draft = { currentDay: preset === "today", fromDate: from.value, toDate: to.value, fromTime: "", toTime: "" };
+  return { draft, filters: { fromDate: preset === "last7" ? gregorianDay(-6) : preset === "yesterday" ? gregorianDay(-1) : todayGregorian, toDate: preset === "yesterday" ? gregorianDay(-1) : todayGregorian } };
+}
+
 export function ManagerWorkspace({
+  section = "settings",
   onOpenMenu,
   menuOpen,
 }: {
+  section?: ManagerSection;
   onOpenMenu: () => void;
   menuOpen: boolean;
 }) {
-  const [panel, setPanel] = useRecoveryState<Panel>("manager-panel", "finance");
+  const [settingsPanel, setSettingsPanel] = useRecoveryState<SettingsPanel>("manager-settings-panel", "settings");
+  const panel: Panel = section === "settings" ? settingsPanel : section;
+  const pageTitle = section === "settings" ? "تنظیمات" : section === "finance" ? "حسابداری" : section === "catalog" ? "منو و کالاها" : "انبار";
   const [catalog, setCatalog] = useState<ManagerCatalog | null>(null);
   const [staff, setStaff] = useState<ManagerStaff | null>(null);
   const [settings, setSettings] = useState<ManagerSettings | null>(null);
@@ -203,40 +254,37 @@ export function ManagerWorkspace({
             <MenuIcon />
           </button>
         </div>
+        {failure && (
+          <div className="workspace-header__notices">
+            <div className="manager-notice" role="status">
+              <strong>بخشی از اطلاعات مدیریت به‌روز نیست.</strong>
+              <span>{failure.message}</span>
+              <button type="button" onClick={() => void reloadAll()}>
+                تلاش دوباره
+              </button>
+            </div>
+          </div>
+        )}
         <div className="workspace-title">
-          <h1>مدیریت</h1>
+          <h1>{pageTitle}</h1>
         </div>
       </header>
-      <nav className="manager-tabs" aria-label="بخش‌های مدیریت">
-        {(
-          [
-            ["finance", "حسابداری"],
-            ["audit", "حسابرسی"],
-            ["catalog", "منو و کالاها"],
-            ["inventory", "موجودی و سود"],
-            ["tables", "میزها"],
-            ["settings", "تنظیمات"],
-          ] as const
-        ).map(([id, label]) => (
+      {section === "settings" && <nav className="manager-tabs" aria-label="بخش‌های تنظیمات">
+        {([
+          ["settings", "تنظیمات"],
+          ["tables", "میزها"],
+          ["audit", "حسابرسی"],
+        ] as const).map(([id, label]) => (
           <button
             key={id}
             type="button"
-            className={panel === id ? "is-active" : ""}
-            onClick={() => setPanel(id)}
+            className={settingsPanel === id ? "is-active" : ""}
+            onClick={() => setSettingsPanel(id)}
           >
             {label}
           </button>
         ))}
-      </nav>
-      {failure && (
-        <div className="manager-notice" role="status">
-          <strong>بخشی از اطلاعات مدیریت به‌روز نیست.</strong>
-          <span>{failure.message}</span>
-          <button type="button" onClick={() => void reloadAll()}>
-            تلاش دوباره
-          </button>
-        </div>
-      )}
+      </nav>}
       {loading && <div className="manager-empty">در حال دریافت اطلاعات مدیریت…</div>}
       {!loading && panel === "catalog" && catalog && (
         <CatalogPanel
@@ -247,9 +295,13 @@ export function ManagerWorkspace({
         />
       )}
       {!loading && panel === "tables" && catalog && <TablesPanel catalog={catalog} mutate={mutate} reload={reloadCatalog} requestConfirm={setConfirm} />}
-      {!loading && panel === "inventory" && catalog && <InventoryWorkspace catalog={catalog} />}
+      {!loading && panel === "inventory" && catalog && (settings?.inventoryActivatedAt
+        ? <InventoryWorkspace catalog={catalog} />
+        : <ManagerCard title="انبار غیرفعال است" hint="برای شروع، انبار را از تنظیمات کافه فعال کنید. تا آن زمان، هیچ سفارشی در انبار ثبت نمی‌شود.">
+            <p>از منوی اصلی، تنظیمات را باز کنید.</p>
+          </ManagerCard>)}
       {!loading && (panel === "finance" || panel === "audit") && (
-        <FinancePanel panel={panel} mutate={mutate} requestConfirm={setConfirm} />
+        <FinancePanel panel={panel} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
       )}
       {!loading && panel === "settings" && settings && (
         <SettingsPanel settings={settings} staff={staff} mutate={mutate} reload={reloadSettings} reloadStaff={reloadStaff} requestConfirm={setConfirm} />
@@ -281,7 +333,6 @@ function LegacyCatalogPanel({
                   name: text(data.get("name")),
                   displayOrder: number(data.get("displayOrder")),
                   isActive: true,
-                  isPosVisible: true,
                 }),
               reload,
             )
@@ -297,15 +348,13 @@ function LegacyCatalogPanel({
             <li key={row.id}>
               <EditableRow
                 label={row.name}
-                meta={`ترتیب ${row.displayOrder} · ${row.isActive ? "فعال" : "غیرفعال"}`}
+                meta={`ترتیب ${row.displayOrder}`}
                 onSave={(data) =>
                   mutate(
                     () =>
                       saveCategory(row.id, {
                         name: text(data.get("name")),
                         displayOrder: number(data.get("displayOrder")),
-                        isActive: data.get("isActive") === "on",
-                        isPosVisible: data.get("isPosVisible") === "on",
                       }),
                     reload,
                   )
@@ -313,24 +362,20 @@ function LegacyCatalogPanel({
                 fields={[
                   ["name", "نام", "text", row.name],
                   ["displayOrder", "ترتیب نمایش", "number", row.displayOrder],
-                  ["isActive", "نمایش در منوی عمومی", "checkbox", row.isActive],
-                  ["isPosVisible", "نمایش در سفارش‌گیری صندوق", "checkbox", row.isPosVisible],
                 ]}
               />
-              {row.kind === "SOURCE" && (
-                <DangerButton
-                  label="بایگانی دسته"
-                  onClick={() =>
-                    requestConfirm({
-                      title: "بایگانی دسته",
-                      detail: `دسته‌ی «${row.name}» از فهرست فعال خارج می‌شود؛ سابقه‌ی آن حفظ خواهد شد.`,
-                      run: async () => {
-                        await mutate(() => archiveCategory(row.id), reload);
-                      },
-                    })
-                  }
-                />
-              )}
+              <DangerButton
+                label="حذف دسته"
+                onClick={() =>
+                  requestConfirm({
+                    title: "حذف دسته",
+                    detail: `دسته‌ی «${row.name}» از فهرست فعال خارج می‌شود؛ سابقه‌ی آن حفظ خواهد شد.`,
+                    run: async () => {
+                      await mutate(() => archiveCategory(row.id), reload);
+                    },
+                  })
+                }
+              />
             </li>
           ))}
         </ul>
@@ -527,7 +572,7 @@ function StaffPanel({
         }
         fields={[
           ["username", "نام کاربری", "text"],
-          ["password", "رمز عبور (حداقل ۱۲ کاراکتر)", "password"],
+          ["password", "رمز عبور (حداقل 12 کاراکتر)", "password"],
         ]}
         action="ساخت حساب پرسنل"
       />
@@ -588,15 +633,30 @@ function StaffPanel({
 
 function FinancePanel({
   panel,
+  tables,
   mutate,
   requestConfirm,
 }: {
   panel: "finance" | "audit";
+  tables: ManagerCatalog["tables"];
   mutate: (action: () => Promise<any>, reload: () => Promise<any>) => Promise<void>;
   requestConfirm: (confirm: Confirm) => void;
 }) {
   const [payments, setPayments] = useState<PaymentHistory>([]);
+  const [paymentListFilter, setPaymentListFilter] = useState<PaymentListFilter>(null);
+  const [unpaidOrders, setUnpaidOrders] = useState<OrderSummary[]>([]);
+  const [unpaidOrdersCursor, setUnpaidOrdersCursor] = useState<string | null>(null);
+  const [unpaidOrdersHasMore, setUnpaidOrdersHasMore] = useState(false);
+  const [loadingUnpaidOrders, setLoadingUnpaidOrders] = useState(false);
   const [draftPaymentFilters, setDraftPaymentFilters] = useRecoveryState<PaymentFilterDraft>("payment-draft-filters", initialPaymentFilterDraft);
+  const paymentYear = tehranPersianDateParts().year;
+  const steppedPaymentDates = useMemo(() => ({
+    fromNext: shiftPaymentDate(paymentYear, draftPaymentFilters.fromDate, 1),
+    fromPrevious: shiftPaymentDate(paymentYear, draftPaymentFilters.fromDate, -1),
+    toNext: shiftPaymentDate(paymentYear, draftPaymentFilters.toDate, 1),
+    toPrevious: shiftPaymentDate(paymentYear, draftPaymentFilters.toDate, -1),
+  }), [draftPaymentFilters.fromDate, draftPaymentFilters.toDate, paymentYear]);
+  const [datePreset, setDatePreset] = useState<PaymentDatePreset>("today");
   const [appliedPaymentFilters, setAppliedPaymentFilters] = useRecoveryState<PaymentHistoryFilters>("payment-applied-filters", () => {
     const filters = paymentFiltersFromDraft(initialPaymentFilterDraft());
     if (!filters) throw new Error("Unable to resolve the current Tehran date.");
@@ -624,12 +684,29 @@ function FinancePanel({
   useEffect(() => {
     auditFiltersRef.current = auditFilters;
   }, [auditFilters]);
-  const loadPayments = useCallback(async (filters: PaymentHistoryFilters) => {
-    const result = await readPaymentHistory(filters);
+  const loadPayments = useCallback(async (filters: PaymentHistoryFilters, orderFilter?: PaymentHistoryOrderFilter) => {
+    const result = orderFilter ? await readPaymentHistory(filters, orderFilter) : await readPaymentHistory(filters);
     if (result.ok) {
       setPayments(result.data);
     } else setMessage(result.error.message);
   }, []);
+  const loadPreviousUnpaidOrders = useCallback(async (cursor?: string, append = false) => {
+    const [year = 0, month = 1, day = 1] = appliedPaymentFilters.fromDate.split("-").map(Number);
+    const rangeStart = Date.UTC(year, month - 1, day) - (3.5 * 60 * 60 * 1000);
+    const result = await readOrderList({
+      state: "OPEN",
+      paymentStatus: "UNPAID",
+      to: new Date(rangeStart - 1).toISOString(),
+      limit: 100,
+      ...(cursor ? { cursor } : {}),
+    });
+    if (result.ok) {
+      setUnpaidOrders((current) => append ? [...current, ...result.data.data.orders] : result.data.data.orders);
+      setUnpaidOrdersCursor(result.data.meta.page.nextCursor);
+      setUnpaidOrdersHasMore(result.data.meta.page.hasMore);
+    } else setMessage(result.error.message);
+    setLoadingUnpaidOrders(false);
+  }, [appliedPaymentFilters.fromDate]);
   const loadReport = useCallback(async (filters: PaymentHistoryFilters) => {
     const result = await readDailyReport(filters);
     if (result.ok) setReport(result.data);
@@ -655,8 +732,20 @@ function FinancePanel({
     [],
   );
   useEffect(() => {
-    void Promise.all([loadPayments(appliedPaymentFilters), loadReport(appliedPaymentFilters), loadAudit()]);
-  }, [appliedPaymentFilters, loadAudit, loadPayments, loadReport]);
+    void Promise.all([
+          loadPayments(appliedPaymentFilters, paymentListFilter === "PREVIOUS_UNPAID" ? undefined : paymentListFilter ?? undefined),
+      loadReport(appliedPaymentFilters),
+      loadAudit(),
+    ]);
+  }, [appliedPaymentFilters, loadAudit, loadPayments, loadReport, paymentListFilter]);
+  useEffect(() => {
+    if (paymentListFilter !== "PREVIOUS_UNPAID") return;
+    setUnpaidOrders([]);
+    setUnpaidOrdersCursor(null);
+    setUnpaidOrdersHasMore(false);
+    setLoadingUnpaidOrders(true);
+    void loadPreviousUnpaidOrders();
+  }, [paymentListFilter, loadPreviousUnpaidOrders]);
   const sortedPayments = useMemo(() => {
     const valueFor = (item: PaymentHistory[number]) => {
       switch (paymentSort.key) {
@@ -685,48 +774,85 @@ function FinancePanel({
     }));
   };
   return (
-    <div className="manager-grid">
-      {panel === "finance" && <>
-      <ManagerCard
-        className="manager-card--payments"
-        title="پرداخت‌ها و سفارش‌ها"
-        hint="با حذف سفارش، پرداخت‌های فعال آن از گزارش فروش کنار گذاشته می‌شوند؛ سوابق مالی و حسابرسی باقی می‌مانند."
-      >
-        {message && <p className="form-error">{message}</p>}
-        <form
-          className="manager-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const filters = paymentFiltersFromDraft(draftPaymentFilters);
-            if (!filters) {
-              setMessage("تاریخ را با قالب ماه/روز و ساعت را با قالب ساعت:دقیقه وارد کنید. تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.");
-              return;
-            }
-            setMessage(null);
-            setAppliedPaymentFilters(filters);
-          }}
-        >
-          <label>
-            <input
-              type="checkbox"
-              checked={draftPaymentFilters.currentDay}
-              onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, currentDay: event.target.checked }))}
-            />
-            امروز
-          </label>
+    <div className={`manager-grid${panel === "finance" ? " finance-dashboard-grid" : ""}`}>
+      {panel === "finance" && <div className="finance-dashboard">
+      <ManagerCard className="manager-card--accounting" title="نمای کلی مالی" hint="گزارش بر اساس بازه‌ی انتخاب‌شده برای پرداخت‌ها.">
+        {report ? <>
+          <div className="finance-metrics">
+            <article className="finance-metric finance-metric--primary"><span>کل</span><strong>{formatToman(report.data.salesAmount)}</strong><small>تومان</small></article>
+            <article className="finance-metric finance-metric--primary"><span>تسویه شده</span><strong>{formatToman(report.data.paidAmount)}</strong><small>تومان</small></article>
+            <article className="finance-metric"><span>کارت‌به‌کارت</span><strong>{formatToman(report.data.paymentMethodTotals.cardTransferAmount)}</strong><small>تومان</small></article>
+            <article className="finance-metric"><span>نقدی</span><strong>{formatToman(report.data.paymentMethodTotals.cashAmount)}</strong><small>تومان</small></article>
+          </div>
+          <details className="finance-breakdown">
+            <summary>جزئیات گزارش و برگشت‌ها</summary>
+            <dl className="report-grid">
+              <dt>بازه</dt><dd>{new Date(report.meta.range.from).toLocaleString("fa-IR-u-nu-latn")} تا {new Date(report.meta.range.to).toLocaleString("fa-IR-u-nu-latn")}</dd>
+              <dt>تعداد سفارش</dt><dd>{Number(report.data.orderCount).toLocaleString("fa-IR-u-nu-latn")} سفارش</dd>
+              <dt>تخفیف</dt><dd>{formatToman(report.data.discounts.totalAmount)} تومان</dd>
+              <dt>برگشت‌ها</dt><dd>{Number(report.data.reversals.count).toLocaleString("fa-IR-u-nu-latn")} مورد · {formatToman(report.data.reversals.amount)}</dd>
+            </dl>
+          </details>
+        </> : <div className="finance-loading" role="status">در حال دریافت گزارش مالی…</div>}
+      </ManagerCard>
+      <ManagerCard className="finance-filter-card" title="فیلتر پرداخت‌ها" hint="بازه‌ی زمانی و ساعت ثبت پرداخت را مشخص کنید.">
+        {message && <p className="form-error" role="alert">{message}</p>}
+        <div className="finance-filter-toolbar">
+          <div className="finance-date-presets" role="group" aria-label="بازه‌ی تاریخ">
+            {([["today", "امروز"], ["yesterday", "دیروز"], ["last7", "7 روز اخیر"], ["custom", "بازه دلخواه"]] as const).map(([preset, label]) => (
+              <button key={preset} type="button" className={datePreset === preset ? "is-active" : ""} aria-pressed={datePreset === preset} onClick={() => {
+                setDatePreset(preset);
+                if (preset === "custom") { setDraftPaymentFilters((current) => ({ ...current, currentDay: false })); return; }
+                const { draft, filters } = paymentDatePresetRange(preset);
+                setDraftPaymentFilters(draft);
+                setMessage(null); setAppliedPaymentFilters(filters);
+              }}>{label}</button>
+            ))}
+          </div>
+        </div>
+        {datePreset !== "today" && <p className="finance-active-filter">بازه‌ی فعال: {datePreset === "yesterday" ? "دیروز" : datePreset === "last7" ? "7 روز اخیر" : `${draftPaymentFilters.fromDate} تا ${draftPaymentFilters.toDate}`}{draftPaymentFilters.fromTime || draftPaymentFilters.toTime ? ` · ${draftPaymentFilters.fromTime || "ابتدای روز"} تا ${draftPaymentFilters.toTime || "پایان روز"}` : " · تمام ساعت‌ها"}</p>}
+        <form className="finance-advanced-filters" onSubmit={(event) => {
+          event.preventDefault();
+          const filters = paymentFiltersFromDraft(draftPaymentFilters);
+          if (!filters) { setMessage("تاریخ را با قالب ماه/روز و ساعت را با قالب ساعت:دقیقه وارد کنید. تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد."); return; }
+          setMessage(null); setDatePreset("custom"); setAppliedPaymentFilters(filters);
+        }}>
+          <div className="finance-advanced-fields">
+            <div className="finance-date-fields">
+              <label>
+                <span>از تاریخ</span>
+                <div className="finance-date-input">
+                  <input aria-label="از تاریخ" value={draftPaymentFilters.fromDate} placeholder="MM/DD شمسی" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => { setDatePreset("custom"); setDraftPaymentFilters((current) => ({ ...current, currentDay: false, fromDate: event.target.value })); }} />
+                  <span className="finance-date-stepper">
+                    <button type="button" aria-label="روز بعد برای تاریخ شروع" title="روز بعد" disabled={draftPaymentFilters.currentDay || !steppedPaymentDates.fromNext} onClick={() => { const fromDate = steppedPaymentDates.fromNext; if (fromDate) { setDatePreset("custom"); setDraftPaymentFilters((current) => ({ ...current, currentDay: false, fromDate })); } }}>▲</button>
+                    <button type="button" aria-label="روز قبل برای تاریخ شروع" title="روز قبل" disabled={draftPaymentFilters.currentDay || !steppedPaymentDates.fromPrevious} onClick={() => { const fromDate = steppedPaymentDates.fromPrevious; if (fromDate) { setDatePreset("custom"); setDraftPaymentFilters((current) => ({ ...current, currentDay: false, fromDate })); } }}>▼</button>
+                  </span>
+                </div>
+              </label>
+              <label>
+                <span>تا تاریخ</span>
+                <div className="finance-date-input">
+                  <input aria-label="تا تاریخ" value={draftPaymentFilters.toDate} placeholder="MM/DD شمسی" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => { setDatePreset("custom"); setDraftPaymentFilters((current) => ({ ...current, currentDay: false, toDate: event.target.value })); }} />
+                  <span className="finance-date-stepper">
+                    <button type="button" aria-label="روز بعد برای تاریخ پایان" title="روز بعد" disabled={draftPaymentFilters.currentDay || !steppedPaymentDates.toNext} onClick={() => { const toDate = steppedPaymentDates.toNext; if (toDate) { setDatePreset("custom"); setDraftPaymentFilters((current) => ({ ...current, currentDay: false, toDate })); } }}>▲</button>
+                    <button type="button" aria-label="روز قبل برای تاریخ پایان" title="روز قبل" disabled={draftPaymentFilters.currentDay || !steppedPaymentDates.toPrevious} onClick={() => { const toDate = steppedPaymentDates.toPrevious; if (toDate) { setDatePreset("custom"); setDraftPaymentFilters((current) => ({ ...current, currentDay: false, toDate })); } }}>▼</button>
+                  </span>
+                </div>
+              </label>
+            </div>
           <label>
             <span>بازه‌ی پرداخت</span>
             <select aria-label="بازه‌ی پرداخت" value={
               draftPaymentFilters.fromTime === "08:00" && draftPaymentFilters.toTime === "16:00" ? "morning"
                 : draftPaymentFilters.fromTime === "16:00" && !draftPaymentFilters.toTime ? "evening"
-                  : !draftPaymentFilters.fromTime && !draftPaymentFilters.toTime ? "all" : "custom"
+                  : "all"
             } onChange={(event) => {
               const shift = event.target.value;
-              if (shift === "custom") return;
               // An omitted upper bound means the end of each selected local
               // date, including 23:59:59. Using 00:00 would create an overnight window.
               const draft = { ...draftPaymentFilters, fromTime: shift === "morning" ? "08:00" : shift === "evening" ? "16:00" : "", toTime: shift === "morning" ? "16:00" : "" };
               setDraftPaymentFilters(draft);
+              setDatePreset("custom");
               const filters = paymentFiltersFromDraft(draft);
               if (filters) {
                 setMessage(null);
@@ -734,20 +860,11 @@ function FinancePanel({
               } else setMessage("تاریخ را با قالب ماه/روز وارد کنید. تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.");
             }}>
               <option value="all">تمام ساعت‌ها</option>
-              <option value="morning">شیفت اول (۰۸:۰۰ تا ۱۶:۰۰)</option>
-              <option value="evening">شیفت دوم (از ۱۶:۰۰ تا پایان روز)</option>
-              <option value="custom" disabled>بازه‌ی دلخواه</option>
+              <option value="morning">شیفت اول (08:00 تا 16:00)</option>
+              <option value="evening">شیفت دوم (از 16:00 تا پایان روز)</option>
             </select>
           </label>
-          <div className="manager-fields">
-            <label>
-              <span>از تاریخ</span>
-              <input aria-label="از تاریخ" value={draftPaymentFilters.fromDate} placeholder="MM/DD شمسی" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, fromDate: event.target.value }))} />
-            </label>
-            <label>
-              <span>تا تاریخ</span>
-              <input aria-label="تا تاریخ" value={draftPaymentFilters.toDate} placeholder="MM/DD شمسی" inputMode="numeric" disabled={draftPaymentFilters.currentDay} onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, toDate: event.target.value }))} />
-            </label>
+          <div className="finance-time-fields">
             <label>
               <span>از ساعت</span>
               <input aria-label="از ساعت" value={draftPaymentFilters.fromTime} placeholder="HH:MM" inputMode="numeric" onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, fromTime: event.target.value }))} />
@@ -757,20 +874,54 @@ function FinancePanel({
               <input aria-label="تا ساعت" value={draftPaymentFilters.toTime} placeholder="HH:MM" inputMode="numeric" onChange={(event) => setDraftPaymentFilters((current) => ({ ...current, toTime: event.target.value }))} />
             </label>
           </div>
-          <div className="manager-actions">
+          </div>
+          <div className="manager-actions finance-filter-actions">
             <button type="button" className="secondary-button" onClick={() => {
               const initial = initialPaymentFilterDraft();
               const filters = paymentFiltersFromDraft(initial);
               if (filters) {
                 setDraftPaymentFilters(initial);
                 setAppliedPaymentFilters(filters);
+                setDatePreset("today");
                 setMessage(null);
               }
             }}>بازنشانی فیلترها</button>
             <button type="submit">نمایش نتایج</button>
           </div>
         </form>
-        <div className="manager-payment-table-wrap">
+      </ManagerCard>
+      <ManagerCard className="manager-card--payments" title="تاریخچه‌ی پرداخت و سفارش">
+        <div className="finance-history-filters" role="group" aria-label="فیلتر سفارش‌ها">
+          <button type="button" className={`secondary-button${paymentListFilter === null ? " is-active" : ""}`} aria-pressed={paymentListFilter === null} onClick={() => setPaymentListFilter(null)}>همه</button>
+          <button type="button" className={`secondary-button${paymentListFilter === "MULTIPLE_SETTLEMENTS" ? " is-active" : ""}`} aria-pressed={paymentListFilter === "MULTIPLE_SETTLEMENTS"} onClick={() => setPaymentListFilter((current) => current === "MULTIPLE_SETTLEMENTS" ? null : "MULTIPLE_SETTLEMENTS")}>تسویه‌ی چندمرحله‌ای</button>
+          <button type="button" className={`secondary-button${paymentListFilter === "PREVIOUS_UNPAID" ? " is-active" : ""}`} aria-pressed={paymentListFilter === "PREVIOUS_UNPAID"} onClick={() => setPaymentListFilter((current) => current === "PREVIOUS_UNPAID" ? null : "PREVIOUS_UNPAID")}>پرداخت‌نشده‌ی روزهای قبل</button>
+          <button type="button" className={`secondary-button${paymentListFilter === "DISCOUNTED" ? " is-active" : ""}`} aria-pressed={paymentListFilter === "DISCOUNTED"} onClick={() => setPaymentListFilter((current) => current === "DISCOUNTED" ? null : "DISCOUNTED")}>سفارش‌های تخفیف‌دار</button>
+        </div>
+        {paymentListFilter === "PREVIOUS_UNPAID" ? (
+          <>
+            <p className="finance-history-list-title">سفارش‌های پرداخت‌نشده پیش از شروع این بازه</p>
+            <div className="manager-payment-table-wrap">
+              <table className="manager-payment-table finance-unpaid-orders" aria-label="سفارش‌های پرداخت‌نشده‌ی روزهای قبل">
+                <thead><tr><th scope="col">سفارش</th><th scope="col">زمان ثبت</th><th scope="col">محل سفارش</th><th scope="col">وضعیت پرداخت</th><th scope="col">مبلغ کل</th><th scope="col">مانده</th></tr></thead>
+                <tbody>
+                  {unpaidOrders.map((order) => (
+                    <tr key={order.id}>
+                      <td><strong>{formatOrderNumber(order.dailyOrderNumber)}</strong></td>
+                      <td>{new Date(order.createdAt).toLocaleString("fa-IR-u-nu-latn")}</td>
+                      <td>{order.channel === "TABLE" ? `میز ${tables.find((table) => table.id === order.tableId)?.name ?? "—"}` : "بیرون‌بر"}</td>
+                      <td><span className="payment-status is-warning">پرداخت‌نشده</span></td>
+                      <td className="payment-amount">{formatToman(order.totalAmount)} <small>تومان</small></td>
+                      <td className="payment-amount">{formatToman(order.balanceAmount)} <small>تومان</small></td>
+                    </tr>
+                  ))}
+                  {!loadingUnpaidOrders && unpaidOrders.length === 0 && <tr><td className="manager-payment-table__empty" colSpan={6}>سفارش پرداخت‌نشده‌ای پیش از این بازه پیدا نشد.</td></tr>}
+                  {loadingUnpaidOrders && unpaidOrders.length === 0 && <tr><td className="manager-payment-table__empty" colSpan={6}>در حال بارگذاری سفارش‌ها…</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            {unpaidOrdersHasMore && unpaidOrdersCursor && <div className="manager-actions"><button type="button" className="secondary-button" disabled={loadingUnpaidOrders} onClick={() => { setLoadingUnpaidOrders(true); void loadPreviousUnpaidOrders(unpaidOrdersCursor, true); }}>نمایش سفارش‌های بیشتر</button></div>}
+          </>
+        ) : <div className="manager-payment-table-wrap">
           <table className="manager-payment-table" aria-label="تاریخچه پرداخت‌ها">
             <thead>
               <tr>
@@ -794,12 +945,12 @@ function FinancePanel({
               {sortedPayments.map((item) => (
                 <tr key={item.id}>
                   <td><strong>{formatOrderNumber(item.dailyOrderNumber)}</strong></td>
-                  <td>{new Date(item.recordedAt).toLocaleString("fa-IR")}</td>
+                  <td>{new Date(item.recordedAt).toLocaleString("fa-IR-u-nu-latn")}</td>
                   <td>{paymentContext(item)}</td>
-                  <td>{formatToman(item.totalAmount)}</td>
+                  <td className="payment-amount">{formatToman(item.totalAmount)} <small>تومان</small></td>
                   <td>{paymentMethods(item)}</td>
                   <td>{item.recordedBy.username}</td>
-                  <td>{item.orderState === "DELETED" ? "حذف‌شده" : item.reversedAt ? "برگشت‌خورده" : "ثبت‌شده"}</td>
+                  <td><span className={`payment-status ${item.orderState === "DELETED" ? "is-neutral" : item.reversedAt ? "is-warning" : "is-success"}`}>{item.orderState === "DELETED" ? "حذف‌شده" : item.reversedAt ? "برگشت‌خورده" : "ثبت‌شده"}</span></td>
                   <td className="manager-payment-table__actions">
                     <button
                 className="secondary-button"
@@ -867,11 +1018,11 @@ function FinancePanel({
                 </tr>
               ))}
               {sortedPayments.length === 0 && (
-                <tr><td className="manager-payment-table__empty" colSpan={8}>پرداختی در این بازه ثبت نشده است.</td></tr>
+                <tr><td className="manager-payment-table__empty" colSpan={8}>{paymentListFilter === "MULTIPLE_SETTLEMENTS" ? "تسویه‌ی چندمرحله‌ای در این بازه پیدا نشد." : paymentListFilter === "DISCOUNTED" ? "سفارش تخفیف‌داری در این بازه پیدا نشد." : "پرداختی در این بازه ثبت نشده است."}</td></tr>
               )}
             </tbody>
           </table>
-        </div>
+        </div>}
       </ManagerCard>
       {selectedOrder && !editingSettlementId && (
         <div className="manager-dialog-backdrop" role="presentation" onClick={() => setSelectedOrder(null)}>
@@ -884,7 +1035,7 @@ function FinancePanel({
               <button className="text-button" type="button" onClick={() => setSelectedOrder(null)}>بستن</button>
             </header>
             <p>{selectedOrder.channel === "TABLE" ? `میز: ${selectedOrder.tableName ?? "-"}` : "نوع سفارش: بیرون‌بر"}</p>
-            <p>زمان ثبت: {new Date(selectedOrder.createdAt).toLocaleString("fa-IR")}</p>
+            <p>زمان ثبت: {new Date(selectedOrder.createdAt).toLocaleString("fa-IR-u-nu-latn")}</p>
             <ul className="manager-list">
               {selectedOrder.items.map((orderItem) => (
                 <li key={orderItem.id}>
@@ -920,30 +1071,7 @@ function FinancePanel({
           />
         ) : null;
       })()}
-      <ManagerCard className="manager-card--accounting" title="گزارش حسابداری" hint="بر اساس فیلتر اعمال‌شده برای پرداخت‌ها.">
-        {report && (
-          <dl className="report-grid">
-            <dt>بازه</dt>
-            <dd>
-              {new Date(report.meta.range.from).toLocaleString("fa-IR")} تا{" "}
-              {new Date(report.meta.range.to).toLocaleString("fa-IR")}
-            </dd>
-            <dt>فروش</dt>
-            <dd>{formatToman(report.data.salesAmount)}</dd>
-            <dt>دریافتی</dt>
-            <dd>{formatToman(report.data.paidAmount)}</dd>
-            <dt>تعداد سفارش</dt>
-            <dd>{report.data.orderCount}</dd>
-            <dt>تخفیف</dt>
-            <dd>{formatToman(report.data.discounts.totalAmount)}</dd>
-            <dt>برگشت‌ها</dt>
-            <dd>
-              {report.data.reversals.count} مورد · {formatToman(report.data.reversals.amount)}
-            </dd>
-          </dl>
-        )}
-      </ManagerCard>
-      </>}
+      </div>}
       {panel === "audit" && <ManagerCard title="گزارش رویدادها" hint="رویدادهای ثبت‌شده در سامانه را ببینید.">
         <form
           className="manager-form"
@@ -990,7 +1118,7 @@ function FinancePanel({
             </tr></thead>
             <tbody>{audit?.data.entries.map((entry: any) => (
               <tr key={entry.id}>
-                <td>{new Date(entry.occurredAt).toLocaleString("fa-IR")}</td>
+                <td>{new Date(entry.occurredAt).toLocaleString("fa-IR-u-nu-latn")}</td>
                 <td>{entry.operation}</td>
                 <td>{entry.entityType}</td>
                 <td>{entry.actor?.username ?? "سامانه"}</td>
@@ -1078,6 +1206,17 @@ function SettingsPanel({
         <button type="submit">ذخیره تنظیمات</button>
       </form>
     </ManagerCard>
+    <ManagerCard title="فعال‌سازی انبار" hint="پس از فعال‌سازی، فقط سفارش‌های جدید وارد محاسبات و گردش موجودی می‌شوند. سفارش‌های قبلی شامل نمی‌شوند. این تغییر دائمی است و امکان غیرفعال‌کردن انبار وجود ندارد.">
+      <label>
+        <input type="checkbox" checked={settings.inventoryActivatedAt !== null} disabled={settings.inventoryActivatedAt !== null}
+          onChange={() => requestConfirm({
+            title: "انبار فعال شود؟",
+            detail: "از این لحظه، انبار برای سفارش‌های جدید فعال می‌شود. سفارش‌های قبلی وارد انبار نمی‌شوند. پس از تأیید، امکان غیرفعال‌کردن انبار وجود ندارد.",
+            run: () => mutate(activateInventory, reload),
+          })} /> فعال‌سازی انبار
+      </label>
+      {settings.inventoryActivatedAt && <p role="status">انبار فعال است و امکان غیرفعال‌کردن آن وجود ندارد.</p>}
+    </ManagerCard>
     {staff ? <StaffPanel staff={staff} mutate={mutate} reload={reloadStaff} requestConfirm={requestConfirm} /> : (
       <ManagerCard title="پرسنل" hint="فهرست پرسنل بارگذاری نشد.">
         <button className="secondary-button" type="button" onClick={() => void reloadStaff()}>تلاش دوباره</button>
@@ -1094,14 +1233,14 @@ function ManagerCard({
 }: {
   className?: string;
   title: string;
-  hint: string;
+  hint?: string;
   children: ReactNode;
 }) {
   return (
     <section className={["manager-card", className].filter(Boolean).join(" ")}>
       <header>
         <h2>{title}</h2>
-        <p>{hint}</p>
+        {hint ? <p>{hint}</p> : null}
       </header>
       {children}
     </section>
