@@ -103,7 +103,7 @@ describe("SettlementSheet payment methods", () => {
   it("preserves the entered amount when the payment method changes", () => {
     renderSettlement();
     const input = amountInput(1);
-    const method = screen.getByLabelText("روش") as HTMLSelectElement;
+    const method = screen.getByLabelText("روش پرداخت") as HTMLSelectElement;
     fireEvent.change(input, { target: { value: "350000" } });
     fireEvent.change(method, { target: { value: "CARD_TRANSFER" } });
     expect(amountInput(1)).toBe(input);
@@ -123,7 +123,7 @@ describe("SettlementSheet payment methods", () => {
     renderSettlement();
     expect(amountInput(1).value).toBe("500000");
     expect(screen.queryByRole("button", { name: "حذف روش پرداخت 1" })).toBeNull();
-    expect(screen.getByText("مبلغ پرداخت با مبلغ اقلام برابر است.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "ثبت پرداخت" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
 
@@ -152,12 +152,12 @@ it("does not replay uncertain payment after remount and preserves its retry key"
   setRecoveryUser("uncertain-payment"); api.recordSettlement.mockClear();
   api.recordSettlement.mockResolvedValue({ ok: false, error: { message: "uncertain payment" } });
   renderSettlement();
-  fireEvent.click(screen.getByRole("button", { name: "تأیید پرداخت" }));
+  fireEvent.click(screen.getByRole("button", { name: "ثبت پرداخت" }));
   await screen.findByText("uncertain payment");
   const key = api.recordSettlement.mock.calls[0]![2];
   cleanup(); renderSettlement();
   expect(api.recordSettlement).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole("button", { name: "تأیید پرداخت" }));
+  fireEvent.click(screen.getByRole("button", { name: "ثبت پرداخت" }));
   await waitFor(() => expect(api.recordSettlement).toHaveBeenCalledTimes(2));
   expect(api.recordSettlement.mock.calls[1]![2]).toBe(key);
 });
@@ -169,5 +169,5 @@ it("preserves deliberately unreconciled single tender through actual reload and 
   cleanup(); setRecoveryUser("other-user"); setRecoveryUser("unreconciled-reload");
   renderSettlement(100000);
   expect(amountInput(1).value).toBe("50000");
-  expect((screen.getByRole("button", { name: "تأیید پرداخت" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "ثبت پرداخت" }) as HTMLButtonElement).disabled).toBe(true);
 });
