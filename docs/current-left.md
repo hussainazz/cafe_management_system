@@ -1,8 +1,52 @@
 # Current Stage Status
 
-Last reconciled: 14 October 2026. This file is the active completion checklist;
+## Main branch consolidation — 16 October 2026
+
+- Consolidated all pending API, POS, public-menu, contract, migration, asset,
+  review-note, and planning edits into `main`, publishing each file separately.
+- Fixed the Manager card typecheck error by making its unused hint optional
+  and omitting the empty hint paragraph. All workspace package typechecks pass;
+  this supersedes the missing-hint/typecheck blockers recorded below.
+- Fresh verification: isolated API suite passed 21 files / 151 tests,
+  POS passed 21 files / 127 tests, public menu passed 2 files / 10 tests,
+  and `git diff --check` passed. POS tests passed again after the hint fix.
+- Verification used Node 25.9.0; pnpm warned that the project requires Node 24.
+  Existing device/visual follow-ups remain as recorded. This consolidation
+  does not change the separate production activation status.
+
+- 16 October: added the selected service-bell ripple treatment to waiter-call
+  arrival: two staggered signal arcs settle in about one second, with stronger
+  inset press feedback on «رسیدگی». Table numbers stay fixed; reduced motion
+  suppresses the signal arcs. Browser inspection confirms the staggered timing
+  and that both arcs become invisible afterward; desktop/mobile layouts reviewed.
+
+## Waiter-call tile refinement — 16 October 2026
+
+- Restored the normal table-number size during pending waiter calls, added a
+  shadow and foreground layer to the response button, and shortened its visible
+  label to «رسیدگی». Reviewed in the local POS with table 3's pending mock call;
+  the number retains its normal size and the button stays visibly separated.
+- Follow-up: the response button overlays the full-height tile instead of
+  reserving a footer row, preserving the number's normal vertical position.
+- Delight: replaced the warning triangle with a service bell, added a single
+  bell arrival cue and brief shadow emphasis, and strengthened response-button
+  hover, press, and keyboard-focus feedback. Reduced motion removes movement.
+  Desktop/mobile review completed; tightened the call timer to keep it on one
+  line at narrow widths. Live arrival timing still needs operator acceptance.
+
+Last reconciled: 15 October 2026. This file is the active completion checklist;
 implementation history belongs in Git and feature-specific records, not in a
 second chronological backlog.
+
+## Promotional picker visual update — 16 October 2026
+
+- Matched the reference's compact two-column category rows, stacked counts,
+  search/category toolbar, selection tint, and footer without item images.
+  Category checkboxes select eligible source products; individual selection,
+  guarded dismissal, and save behavior remain available.
+- Visual review at 903×581 completed. Focused catalog tests pass.
+  POS typecheck remains blocked by existing test query typing errors and
+  the missing Manager panel hint. Narrow-screen device acceptance remains open.
 
 ## Stage Status
 
@@ -23,14 +67,190 @@ second chronological backlog.
 | 12 — Purchases, valuation, recipes, settlement, and reconciliation | Complete | Manager inventory APIs, order-cost snapshots, payment recognition, whole-order consumption/retry, count reconciliation, corrections, and isolated integration coverage are implemented. |
 | 13 — Manager inventory panels and gross-profit reports | Complete | Manager stock, purchases, recipe costing, counts, history, and bounded gross-profit reporting are connected to the protected APIs. |
 | 14 — Inventory integration and operational verification | Complete | API, POS component, authorization/DTO, P2 management, expanded browser, migration-upgrade, and isolated backup/restore checks pass. |
+| 15 — Menu-option recipe configuration | Implementation complete; focused regression verification remains | Product-first single-panel UI, option-level full recipes, API resolution, contracts, generated client, and local development migration are in place; API/POS typechecks and the live Manager screen pass. |
+| 16 — Customer-facing menu item notes | Complete | Manager catalog storage/API and menu popup support are implemented. Manager create/edit/clear, authorization, public response, and live POS-to-menu browser checks pass. |
+| 17 — POS product selection refresh | Corrected card layout implemented and verified; unrelated POS typecheck blocker remains | Persistent inline choices, per-card configurations, icon add actions, anchored option popovers, and a custom category-list scrollbar are implemented; focused interaction tests and responsive browser checks pass. |
+
+## Payment dialog clarification — 16 October 2026
+
+- Independent design and evidence critique completed: 26/40. Default desktop
+  and mobile dialogs fit. Follow-up findings: zero-tender readiness, Persian
+  amount normalization, touch targets/disabled cues, mixed-tender adjustment
+  behavior, and table identity. No payment was submitted during review.
+
+- [x] Clarified selected-item/payment amount labels, unpaid quantity context,
+  and the record-payment action. The second wording pass uses «اقلام این پرداخت»
+  and separates unpaid counts from historical recorded counts.
+  Single-method mismatches now show guidance
+  and distinguish a remaining amount from an excess. Payment rules are unchanged.
+- All 13 focused settlement tests and desktop browser review pass; mobile
+  acceptance remains pending. POS
+  typecheck remains blocked by the existing missing `hint` prop in
+  `manager-workspace.tsx:893`.
+
+## Product editor redesign — 16 October 2026
+
+- [x] Applied Impeccable layout/typeset refinement to all product editor tabs:
+  name-first form order, grouped status switches, explicit upload/preview/archive
+  groups, consistent type roles and supported font weights, 16px inputs,
+  readable Persian helper rhythm, narrow-screen stacked option fields, and
+  footer safe-area spacing. Existing product behavior and copy are preserved.
+- Current verification: layout/type detector scans and diff check are clean;
+  desktop/mobile browser checks show no overflow in the inspected panels.
+  Catalog tests pass 5/5 and focused image-upload progress passes 1/1.
+  The wider Manager suite has two payment-history control failures outside
+  this surface; POS typecheck retains the existing Manager missing `hint` prop.
+
+- [x] Replaced the narrow product drawer with a centered cream/olive dialog,
+  live product summary, four accessible tabs, accordion option groups, a split
+  image-management panel, and fixed Save/Cancel actions. Existing product,
+  shared-option price, override, discount, upload, and archive rules are retained.
+- [x] Desktop and 390px mobile browser layout reviewed. Draft values survive
+  tab changes; keyboard tab navigation has focused regression coverage.
+- Verification: catalog and Manager tests pass 21/21, including image-upload
+  progress through the new image tab. The broader POS run still has the
+  existing order recovery test failure. The Manager missing `hint` typecheck
+  error remain outside this change. No café records were saved during review.
+
+## POS product selection refresh — 16 October 2026
+
+- [x] Catalog category rename layout now places the name above equal-width
+  Save/Cancel actions. Switching categories closes the previous editor and
+  discards its unsaved draft. All three focused catalog tests pass.
+  Browser acceptance remains pending: local verification encountered a Manager
+  workspace compile error and an unavailable API on port 3001. POS typecheck
+  also reports the existing missing `hint` prop in `manager-workspace.tsx`.
+
+- [x] Correct the reference interpretation: show short option groups and existing
+  shot variants inside cards immediately; selections never expand the grid.
+- [x] Keep independent configurations per product/variant, icon-only add actions,
+  accessible required/optional radio and checkbox controls, and tile quantity controls.
+- [x] Portal complex groups beside their card, with search, internal scrolling,
+  a fixed action footer, viewport repositioning, and close/Escape/outside handling.
+- [x] Default available coffee-line choices to ۵۰/۵۰ and existing shot variants
+  to دبل, while preserving explicit cashier changes per variant.
+- [x] Replace the tile add action with minus/count/plus after adding its current
+  configuration; synchronize with draft order quantities and restore add at zero.
+- [x] Hide the browser scrollbar on the category list and use the POS custom
+  scrollbar in both table and takeaway orders, positioned clear of category
+  labels on desktop and along the bottom of the horizontal list on narrow
+  screens.
+- [x] Verify 26 focused product-picker/order-desk tests. Browser checks cover
+  the real grid at 390 px, long-option fixtures at 1280×720 and 390×844,
+  stable grid coordinates, no horizontal overflow, and lower-edge placement.
+
+Left: the POS-wide typecheck is blocked by an existing missing `hint` prop in
+`manager-workspace.tsx`; the changed product-selection files have no type errors.
+Lint was run and its errors remain non-blocking under the project instruction.
+
+## Active delivery — Inventory activation and coordinated VPS release
+
+- [x] Add permanent Manager activation, inactive API/UI states, and guards for
+  every inventory order/payment hook. Exclude orders created before activation.
+- [x] Verify activation authorization, permanence, absence of inactive writes,
+  and the pre-activation order boundary with the isolated test database.
+- [ ] Build and deploy the coordinated schema, ORM, API, POS, and menu release
+  with inventory inactive, verified database/runtime backups, and public probes.
 
 ## Completion Record
+
+- 16 October: the payment reconciliation summary now appears after staff add
+  another payment method. The shared settlement sheet applies this to table
+  and takeaway payments.
+
+- 16 October: corrected conflicting tender-grid rules so the payment amount
+  fills the available row width, including split tenders and mobile layouts.
+  Corrected selection-button padding and tick dimensions to center the icon.
+
+- 16 October: reduced the payment panel to a compact 520 px maximum width,
+  tightened rows and totals, and matched the quantity stepper to the reference
+  with warm filled end buttons, a thin enclosing border, and a centered count.
+
+- 16 October: payment panel now follows the supplied cream-and-sage reference,
+  with a larger heading and payable total, selectable item rows, left-side
+  quantity controls, compact tender rows, and a reconciliation summary with
+  the remaining tender balance. Existing settlement and correction flows are
+  preserved. All 13 focused payment tests pass; local browser review covers
+  the panel and totals. POS typecheck remains blocked by the existing missing
+  Manager `hint` prop.
+
+- 16 October: takeaway orders now reuse the occupied-table summary component
+  with identical header, quantity badges, settled/unsettled rows, balance, and
+  payment/receipt actions. The edit action opens the existing order editor;
+  saving returns to the summary. Takeaway summaries omit table transfer.
+  Focused order-desk tests pass 19/19; browser review confirms the shared
+  panel presentation. POS typecheck retains the unrelated Manager `hint` error.
+- 16 October: takeaway mode now uses the same compact header pill as selected
+  tables, with its order context and close action. The duplicate takeaway box
+  above product categories is removed; closing returns to the table board and
+  protects unsaved drafts through the existing leave-order dialog.
+- 16 October: selected table context now replaces the header mode switch with
+  a compact RTL sage pill and close action. The selected pill uses the
+  supplied single-row dark sage reference, without the redundant hall label. Removed the duplicate table box
+  from the product sidebar. Closing reuses the existing unsaved-change dialog
+  and returns to the table board. All 26 focused order-desk/product-picker
+  tests pass; local browser review covers the reference and narrow layouts.
+  POS typecheck remains blocked by the existing missing Manager `hint` prop.
+
+- 16 October: POS catalog categories now follow their source or promotional type.
+  Source categories appear in POS and promotional categories stay menu-only.
+  Removed category visibility controls from the catalog panel, moved rename and
+  delete actions into the selected category row, removed category type labels,
+  and replaced the actions with icon buttons. The drag handle stays in a fixed
+  left-side slot in RTL rows, and the selected category keeps its name, actions,
+  and handle on one line at every sidebar width. Category deletion archives
+  either category kind while retaining its history. The local POS layout was
+  visually reviewed at 874×581.
+- 15 October: bar-ticket item quantities use a rounded box beside the item
+  name, with a dark outline for thermal printing. Selected options use heavier
+  text. The changes remain local; VPS deployment is on hold.
+- 15 October: product categories fit columns automatically within a flexible
+  sidebar. The layout adapts to available space without a fixed desktop-width
+  cutoff; compact mobile screens retain the horizontal category list.
+- 15 October: the existing-order editor recalculates the order total in place
+  as saved quantities and newly added items change, using saved price snapshots
+  and the order's existing item and order discounts.
+- 15 October: changed elapsed time on POS order/table tiles and waiter-call
+  labels to zero-padded `HH:MM`.
+- 15 October: refreshed the POS table board with the Warm Sage Cream palette:
+  a softly lit cream canvas, warm ivory available tables, and graduated sage
+  states for occupied tables and active orders. The active channel control now
+  uses the same sage gradient. The local POS browser view was visually reviewed.
+- 15 October: gave pending waiter-call tiles a dedicated status area and action
+  footer. The table number no longer competes with the alert icon, and the
+  full-width response action retains a usable touch target. Reviewed at the
+  local POS widths 837×581 and 390×844.
 
 Stage 10 closed on 12 October 2026. The café has used the menu and POS in live
 operation for one month, completing browser/device acceptance, printing,
 security, release, and production-readiness work. Stage-specific test,
 migration, security, performance, and pilot evidence is retained in the linked
 feature records and implementation notes below.
+
+- 15 October: reduced the POS page's outer padding, the gap between table tiles,
+  and the spacing between the selected-order panel and table grid. The updated
+  layout was visually reviewed in the local POS browser. The top bar now matches
+  the full POS workspace width instead of extending beyond its side edges. On
+  narrower screens, long order-item lists are height-limited and scroll within
+  the order panel. Expanding a saved item gives its selected row stronger
+  contrast while leaving unselected rows unchanged. The payment modal's
+  confirmation button is labeled «تسویه». The occupied-table panel separates
+  settled and remaining quantities into distinct rows, puts settled rows last,
+  and marks them with reduced opacity and a subtle strike line. Its header now
+  gives the table identity more weight and places payment status below it in
+  place of elapsed time. The compact header and close control follow the
+  attached receipt-inspired layout, and the list uses subtle row separators,
+  receipt-like alignment, and a compact built-in scrollbar. The fixed footer
+  keeps payment, common actions, and the quieter transfer action visible. The
+  panel now uses the POS sage palette for selected-order cues and a tighter
+  footer to give the receipt list more vertical room.
+- 15 October: replaced the Manager drawer entry with direct Settings, Accounting,
+  Menu and Products, and Inventory entries. Settings now contains the nested
+  Café Settings, Tables, and Audit tabs; legacy saved Manager workspace state
+  opens Settings.
+- 15 October: compacted the payment-history date, shift, and clock filters into
+  one row at tablet widths, removed the payment-history hint, and added an
+  explicit «همه» order filter.
 
 ## Stage 11 Completion Record — Inventory Costing Baseline
 
@@ -165,6 +385,151 @@ Verification:
   display key such as `espresso` for multiple recipe variants while keeping
   the selected variant and costing details in the Manager/POS logic.
 
+## Active Completion Checklist — Menu-Option Recipe Configuration (Stage 15)
+
+- [x] Complete backward-compatible storage and API handling for assigning a
+  full reusable recipe to a product's public menu option. The migration is
+  applied to local development; older costing configurations remain readable.
+- [x] Simplify the Manager workflow to one panel where a manager selects a
+  menu product, sees its active public options, and enters each option's full
+  ingredient list.
+- [x] Preserve unit labels, nested recipe selection, legacy costing rules,
+  cost previews, and existing order-cost snapshots.
+- [x] Make stock-item and existing-recipe selection searchable within each
+  menu-option ingredient row.
+- [x] Confirm recipe-name search narrows the picker in the authenticated POS
+  browser without saving a recipe change.
+- [x] Build contracts and pass API/POS typechecks; visually confirm the
+  «لاته» product shows its three active menu options in the single panel.
+- [ ] Run focused integration/regression verification for option recipe saves,
+  costing previews, and simultaneous option selections before closing Stage 15.
+
+## Active Completion Checklist — Customer-Facing Menu Item Notes (Stage 16)
+
+- [x] Add one optional product explanation editable and removable by a Manager
+  in the POS catalog. Keep it distinct from order-item preparation notes.
+- [x] Persist the note and include it in the public-menu DTO without exposing it
+  as an order-item note.
+- [x] Show the note in the item detail popup beneath all option choices, or
+  beneath the item details when there are no options; hide the note when empty.
+- [x] Verify create, edit, clear, Manager authorization, and public DTO behavior.
+- [x] Complete live browser E2E from POS catalog editing through the customer
+  menu popup.
+
+Verification: the focused API integration run passed 23/23 tests across Manager
+catalog, public-menu, and POS-catalog reads. The POS catalog component passed
+2/2 tests; the web menu utility suite passed 7/7; API, POS, and web typechecks
+passed. Live browser verification saved, edited, displayed below the latte's
+three option choices, then cleared the note through the POS and refreshed the
+customer menu. Temporary local test text was cleared afterward.
+
+## Active Completion Checklist — Inventory Stock And Purchase UX
+
+- [x] Remove category entry from stock setup while preserving the stored value.
+- [x] Replace piece-unit pack conversions with one optional count-per-package
+  field beside the base-unit selector.
+- [x] Add server-filtered purchase search, received-time/status filters, and
+  cursor pagination to the Manager purchase history.
+- [x] Run contracts build, API/POS typechecks, and `git diff --check`.
+- [ ] Inspect the updated Manager panels in an authenticated browser session;
+  the current browser session returned to sign-in during this pass.
+
+## Active Completion Checklist — Inventory Count History
+
+- [x] Add server-filtered stock-item search, kind/status filters, Tehran date
+  range, and cursor pagination to inventory count history.
+
+## Active Completion Checklist — Accounting Dashboard Refresh
+
+- [x] Reorganize accounting into a vertical financial summary, compact filter
+  controls, and a full-width payment history table. Preserve the existing
+  report values, Tehran date semantics, payment-time behavior, sort controls,
+  payment actions, and record identities.
+- [x] Add today, yesterday, and last-seven-day presets, always-visible
+  date/time filters, visible active-range feedback, metric cards, and status
+  badges. Review the current data in both themes at desktop width.
+- [x] Move discounts into the report details and add cards for card-to-card
+  and cash totals from the existing filtered accounting response.
+- [x] Move the filtered order count into the report details and remove its
+  summary card.
+- [x] Label the gross total «کل» and recorded settlements «تسویه شده».
+- [x] Remove the custom-time option from the shift menu and add accessible
+  previous/next-day controls beside both date fields.
+- [x] Remove per-settlement ID text and strengthen the order, amount, and date
+  typography in the payment-history table.
+- [x] Add mutually exclusive filters for orders with at least two active
+  settlements, discounted orders, and unpaid open orders created before the
+  selected Tehran date range.
+  Prior-day unpaid orders appear in a separate paginated list; the other two
+  filters narrow settlement history.
+- [ ] Align the remaining `manager-workspace.test.tsx` cases with the current
+  section-based Manager navigation; several still expect the removed in-panel
+  navigation.
+
+Verification: contracts build, API/POS typechecks, and `git diff --check` pass.
+Focused accounting UI checks pass for the summary, payment table typography,
+exclusive filter behavior, separate prior-day unpaid list, and absence of
+settlement IDs. The focused admin integration tests pass for multi-stage
+settlement and discount filters: two active settlements appear, a one-settlement
+order does not, and reversed settlements are excluded from the installment
+count. Invalid filter values are rejected. The focused finance component test
+covers the metric values, method totals, discount details, date presets, custom
+clock bounds, and date stepping. The shift menu contains only all-hours,
+first-shift, and second-shift options. The filter toggle was removed; date,
+shift, and time controls, reset, and apply now appear immediately. Browser
+review confirmed the
+summary and table values update for today, yesterday, seven days, custom date
+plus clock-time bounds, shift filtering, and reset. The full Manager component
+suite has known pre-existing navigation failures because some tests mount the
+section-based workspace without selecting a section and expect the prior
+in-panel tabs. No
+payment, order, or accounting data was changed.
+- [x] Update the count-list contract, API documentation, and UI.
+- [x] Run contracts build, API/POS typechecks, and `git diff --check`.
+- [x] Inspect count history in an authenticated browser session.
+
+Verified behavior: the Manager count panel displays creation times and filters
+the count list by stock-item name and count type. The current local dataset has
+four counts, so the first page was inspected; the next-page path was not
+exercised against a second page.
+
+## Active Completion Checklist — Physical Counts And Stock Opening Balance
+
+- [x] Move opening quantity/value initialization into stock-item setup, with an
+  auditable opening entry and one-time initialization for legacy untracked
+  items.
+- [x] Restrict the Manager count editor to physical counts and require one
+  shared reason whenever any counted quantity differs from its recorded
+  balance.
+- [x] Update contracts, API documentation, and the inventory migration.
+- [x] Run contracts build, API/POS typechecks, and `git diff --check`.
+- [ ] Inspect stock setup and physical-count panels in the authenticated
+  browser session without posting QA data; the open browser is signed out and
+  does not expose an active Manager session.
+
+Planning updated 14 October 2026 to reflect the approved opening-balance and
+count-reason rules. Migration `20261014183000_stock_opening_physical_count_reason`
+is applied to the local development database. Contracts and API/POS typechecks
+pass. Browser verification remains pending because the available browser
+session is signed out; no inventory records were created or posted.
+
+## Active Completion Checklist — Inventory Movement History And Navigation
+
+- [x] Show POS order numbers beside order-related inventory movements.
+- [x] Add selectable movement search modes for stock-item name, POS order
+  number, or change type, combined with a Tehran date range and cursor
+  pagination.
+- [x] Rename the Manager section to «انبار», move purchases first, and move
+  gross profit to the final tab position.
+- [x] Update contracts, API documentation, and the active stage notes.
+- [x] Run contracts build, API/POS typechecks, and `git diff --check`.
+- [ ] Inspect the movement table and tab order in an authenticated browser
+  session; the available POS page is signed out.
+
+Requirements recorded 14 October 2026. The code and documentation are updated;
+contracts build, API/POS typechecks, and `git diff --check` pass. Browser
+inspection remains pending because the available session is signed out.
+
 Verified behavior: component identifiers may repeat across different recipes;
 they must be unique within each recipe. Product costing option rules target a
 component in the selected product recipe and can replace it with a specific
@@ -175,6 +540,17 @@ or ingredient list, so the curated public ingredient summary is not implemented.
 
 ## Latest Implementation Notes
 
+- 14 October: added a Manager-managed customer-facing product note separate
+  from order-item preparation notes. The POS catalog supports writing,
+  updating, and clearing it; the public menu exposes it only in the product
+  detail popup, below option choices. Focused API, POS, web checks and live
+  browser verification are recorded in Stage 16 above.
+
+- 14 October: replaced the long ingredient source dropdowns in menu-option
+  recipes with searchable, keyboard-operable pickers for active stock items and
+  reusable recipes. Searching «لاته» narrows recipe choices; the selected
+  source ID and unit guidance remain unchanged. POS typecheck and
+  `git diff --check` pass.
 - 14 October: recipe variants now carry both a precise `نام دستور تهیه` and
   a separately editable, reusable `شناسه‌ی ماده`. For example, «لاته ۵۰/۵۰»
   and «لاته ۲۰/۸۰» can each retain their own costing recipe while sharing
