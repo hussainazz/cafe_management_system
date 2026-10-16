@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 const [{ buildApp }, { hashPassword }, { UserRole }] = await Promise.all([
   import("../../src/app.js"),
@@ -8,6 +8,7 @@ const [{ buildApp }, { hashPassword }, { UserRole }] = await Promise.all([
 ]);
 
 const app = buildApp();
+beforeEach(async () => { await app.prisma.cafeSettings.create({ data: { inventoryActivatedAt: new Date("2020-01-01T00:00:00.000Z") } }); });
 const password = "InventoryBenchmarkPassword2026";
 const sampleCount = 8;
 
@@ -68,13 +69,9 @@ describe("Inventory response-time measurement", () => {
 
     const category = await app.prisma.category.create({ data: { name: "Inventory benchmark", displayOrder: 1 } });
     const product = await app.prisma.product.create({ data: { categoryId: category.id, name: "Inventory benchmark drink", priceAmount: 10_000, preparationDeadlineMinutes: 5, displayOrder: 1 } });
-    const stockItem = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: managerCookies, payload: { name: "Inventory benchmark grams", category: "Benchmark", baseUnit: "GRAM", conversions: [] } });
+    const stockItem = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: managerCookies, payload: { name: "Inventory benchmark grams", category: "Benchmark", baseUnit: "GRAM", openingQuantity: "0", openingValueAmount: 0, conversions: [] } });
     if (stockItem.statusCode !== 201) throw new Error(`Stock fixture returned ${stockItem.statusCode}: ${stockItem.body}`);
     const stockItemId = stockItem.json().data.id as string;
-    const openingCount = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: managerCookies, payload: { kind: "OPENING", lines: [{ stockItemId, observedQuantity: "0", observedValueAmount: 0 }] } });
-    if (openingCount.statusCode !== 201) throw new Error(`Opening count fixture returned ${openingCount.statusCode}: ${openingCount.body}`);
-    const openingPosted = await app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${openingCount.json().data.id}/post`, cookies: managerCookies, headers: { "idempotency-key": `inventory-benchmark-opening-${randomUUID()}` }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [] } });
-    if (openingPosted.statusCode !== 200) throw new Error(`Opening count posting returned ${openingPosted.statusCode}: ${openingPosted.body}`);
     const recipe = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/recipes", cookies: managerCookies, payload: { name: "Inventory benchmark recipe", outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "base",  sourceKind: "STOCK_ITEM", stockItemId, quantity: "1", displayOrder: 0 }] } });
     if (recipe.statusCode !== 201) throw new Error(`Recipe fixture returned ${recipe.statusCode}: ${recipe.body}`);
     const costing = await app.inject({ method: "PUT", url: `/api/v1/admin/products/${product.id}/costing`, cookies: managerCookies, payload: { expectedVersion: 1, mode: "RECIPE", recipeId: recipe.json().data.id, recipeQuantity: "1", optionRules: [], combinations: [] } });
@@ -86,7 +83,7 @@ describe("Inventory response-time measurement", () => {
       return purchase.json().data.id as string;
     };
     const createPostedZeroCount = async () => {
-      const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: managerCookies, payload: { kind: "PHYSICAL", lines: [{ stockItemId, observedQuantity: "0", observedValueAmount: 0 }] } });
+      const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: managerCookies, payload: { kind: "PHYSICAL", reason: "Benchmark reset", lines: [{ stockItemId, observedQuantity: "0", observedValueAmount: 0 }] } });
       if (count.statusCode !== 201) throw new Error(`Physical count fixture returned ${count.statusCode}: ${count.body}`);
       const result = await app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${count.json().data.id}/post`, cookies: managerCookies, headers: { "idempotency-key": `inventory-benchmark-count-reset-${randomUUID()}` }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [] } });
       if (result.statusCode !== 200) throw new Error(`Physical count reset returned ${result.statusCode}: ${result.body}`);
@@ -111,7 +108,7 @@ describe("Inventory response-time measurement", () => {
       return () => app.inject({ method: "POST", url: `/api/v1/admin/inventory/purchases/${purchaseId}/post`, cookies: managerCookies, headers: { "idempotency-key": `inventory-benchmark-retry-${randomUUID()}` }, payload: { expectedVersion: 1 } });
     }));
     results.push(await measure("physical-count posting (one stock item)", async () => {
-      const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: managerCookies, payload: { kind: "PHYSICAL", lines: [{ stockItemId, observedQuantity: "0", observedValueAmount: 0 }] } });
+      const count = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/counts", cookies: managerCookies, payload: { kind: "PHYSICAL", reason: "Benchmark physical count", lines: [{ stockItemId, observedQuantity: "0", observedValueAmount: 0 }] } });
       if (count.statusCode !== 201) throw new Error(`Physical count fixture returned ${count.statusCode}: ${count.body}`);
       return () => app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${count.json().data.id}/post`, cookies: managerCookies, headers: { "idempotency-key": `inventory-benchmark-count-${randomUUID()}` }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [] } });
     }));
