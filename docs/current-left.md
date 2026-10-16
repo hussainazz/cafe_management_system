@@ -26,8 +26,16 @@
   final browser warning/error log is empty. No business records were saved.
 - Left: check scrolling on the actual café computer. These changes address
   measured scroll-event work and a plausible shared repaint cost; café-device
-  smoothness has not been established. Publishing and POS-only VPS activation
-  are in progress.
+  smoothness has not been established.
+- Published branch `codex/pos-polish-scroll-performance` with one commit per
+  changed file. The production POS build `pos-20261016-76dbe2f` was uploaded
+  with live SFTP progress and activated by swapping only the POS `.next`
+  output. The uploaded archive SHA-256 matched the local artifact.
+- Before activation, `/opt/cafe-menu-release-backups/pos-before-pos-20261016-76dbe2f.tar.gz`
+  was created and validated. Local and public `/pos/release` return the new
+  release ID; public `/pos` returns HTTP 200; `cafe-pos.service` is active with
+  `NRestarts=0`. API, web, PostgreSQL, and uploaded product images were not
+  changed.
 
 ## Coordinated VPS activation — 16 October 2026
 
