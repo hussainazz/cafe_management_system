@@ -20,6 +20,7 @@ export type MenuProduct = {
   id: string;
   name: string;
   nameEn: string | null;
+  menuNote: string | null;
   basePriceAmount: number;
   finalPriceAmount: number;
   saleDiscount: SaleDiscount | null;
