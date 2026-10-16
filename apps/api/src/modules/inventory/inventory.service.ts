@@ -1,3 +1,4 @@
+import { inventoryActivation, orderInventoryEligible, requireInventoryActive } from "./inventory-activation.js";
 import { createHash } from "node:crypto";
 import {
   InventoryCountKind,
@@ -18,7 +19,8 @@ import type {
   UpdateStockItemRequestSchema,
   UpdateRecipeRequestSchema,
   ProductCostingConfigurationInputSchema,
-  InventoryListQuerySchema,
+  InventoryCountListQuerySchema,
+  PurchaseListQuerySchema,
   InventoryMovementQuerySchema,
   PendingConsumptionQuerySchema,
 } from "@cafe/contracts";
@@ -36,7 +38,8 @@ type RecipeUpdate = z.infer<typeof UpdateRecipeRequestSchema>;
 type CountInput = z.infer<typeof CreateInventoryCountRequestSchema>;
 type CountUpdate = z.infer<typeof UpdateInventoryCountRequestSchema>;
 type CostingInput = z.infer<typeof ProductCostingConfigurationInputSchema>;
-type InventoryListQuery = z.infer<typeof InventoryListQuerySchema>;
+type InventoryCountListQuery = z.infer<typeof InventoryCountListQuerySchema>;
+type PurchaseListQuery = z.infer<typeof PurchaseListQuerySchema>;
 type MovementQuery = z.infer<typeof InventoryMovementQuerySchema>;
 type PendingQuery = z.infer<typeof PendingConsumptionQuerySchema>;
 
@@ -80,8 +83,13 @@ export async function createStockItem(prisma: PrismaClient, actor: Authenticated
   return prisma.$transaction(async (tx) => {
     const duplicate = await tx.stockItem.findFirst({ where: { name: input.name, isActive: true, archivedAt: null }, select: { id: true } });
     if (duplicate) fail(409, ErrorCodes.CONFLICT, "An active stock item with this name already exists.");
-    const row = await tx.stockItem.create({ data: { name: input.name, category: input.category, baseUnit: input.baseUnit, createdById: actor.id, conversions: { create: input.conversions.map((conversion) => ({ label: conversion.label, baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), isActive: conversion.isActive })) }, balance: { create: {} } }, include: { conversions: true, balance: true } });
-    await audit(tx, actor.id, requestId, "CREATE_STOCK_ITEM", "STOCK_ITEM", row.id, undefined, { name: row.name, baseUnit: row.baseUnit });
+    const occurredAt = new Date();
+    const openingQuantity = decimal(input.openingQuantity);
+    const row = await tx.stockItem.create({ data: { name: input.name, category: input.category, baseUnit: input.baseUnit, createdById: actor.id, conversions: { create: input.conversions.map((conversion) => ({ label: conversion.label, baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), isActive: conversion.isActive })) }, balance: { create: { quantityOnHand: openingQuantity, carryingValueAmount: input.openingValueAmount, trackingStartedAt: occurredAt } } }, include: { conversions: true, balance: true } });
+    const openingCount = await tx.inventoryCount.create({ data: { kind: InventoryCountKind.OPENING, status: InventoryCountStatus.POSTED, createdById: actor.id, createdAt: occurredAt, postedAt: occurredAt, lines: { create: { stockItemId: row.id, observedQuantity: openingQuantity, observedValueAmount: input.openingValueAmount } } }, include: { lines: true } });
+    const openingLine = openingCount.lines[0]!;
+    if (!openingQuantity.isZero() || input.openingValueAmount !== 0) await tx.inventoryMovement.create({ data: { stockItemId: row.id, kind: InventoryMovementKind.OPENING_COUNT, quantityDelta: openingQuantity, valueDeltaAmount: input.openingValueAmount, inventoryCountLineId: openingLine.id, createdById: actor.id, occurredAt } });
+    await audit(tx, actor.id, requestId, "CREATE_STOCK_ITEM", "STOCK_ITEM", row.id, undefined, { name: row.name, baseUnit: row.baseUnit, openingQuantity: dstr(openingQuantity), openingValueAmount: input.openingValueAmount, openingCountId: openingCount.id });
     return dtoStock(row);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -91,6 +99,16 @@ export async function updateStockItem(prisma: PrismaClient, actor: Authenticated
     if (!current) fail(404, ErrorCodes.NOT_FOUND, "The stock item was not found.");
     if (current.archivedAt) fail(409, ErrorCodes.INVALID_STATE, "An archived stock item cannot be edited.");
     if (current.version !== input.expectedVersion) stale("The stock item has changed.", current.version);
+    if (input.openingQuantity !== undefined) {
+      if (current.balance?.trackingStartedAt) fail(409, ErrorCodes.INVALID_STATE, "An opening balance can only be set once, before inventory tracking starts.");
+      const priorMovements = await tx.inventoryMovement.count({ where: { stockItemId: id } });
+      if (priorMovements > 0) fail(409, ErrorCodes.INVALID_STATE, "An item with inventory history cannot receive another opening balance.");
+      const occurredAt = new Date();
+      const quantity = decimal(input.openingQuantity);
+      await tx.inventoryBalance.upsert({ where: { stockItemId: id }, create: { stockItemId: id, quantityOnHand: quantity, carryingValueAmount: input.openingValueAmount!, trackingStartedAt: occurredAt }, update: { quantityOnHand: quantity, carryingValueAmount: input.openingValueAmount!, trackingStartedAt: occurredAt } });
+      const openingCount = await tx.inventoryCount.create({ data: { kind: InventoryCountKind.OPENING, status: InventoryCountStatus.POSTED, createdById: actor.id, createdAt: occurredAt, postedAt: occurredAt, lines: { create: { stockItemId: id, observedQuantity: quantity, observedValueAmount: input.openingValueAmount! } } }, include: { lines: true } });
+      if (!quantity.isZero() || input.openingValueAmount !== 0) await tx.inventoryMovement.create({ data: { stockItemId: id, kind: InventoryMovementKind.OPENING_COUNT, quantityDelta: quantity, valueDeltaAmount: input.openingValueAmount!, inventoryCountLineId: openingCount.lines[0]!.id, createdById: actor.id, occurredAt } });
+    }
     if (input.baseUnit && input.baseUnit !== current.baseUnit) {
       const referenced = current.balance?.trackingStartedAt || current.conversions.length > 0
         || await tx.inventoryMovement.count({ where: { stockItemId: id } }) > 0
@@ -114,7 +132,7 @@ export async function updateStockItem(prisma: PrismaClient, actor: Authenticated
       }
     }
     const row = await tx.stockItem.findUniqueOrThrow({ where: { id }, include: { conversions: true, balance: true } });
-    await audit(tx, actor.id, requestId, "UPDATE_STOCK_ITEM", "STOCK_ITEM", id, { version: current.version }, { version: row.version });
+    await audit(tx, actor.id, requestId, "UPDATE_STOCK_ITEM", "STOCK_ITEM", id, { version: current.version }, { version: row.version, ...(input.openingQuantity === undefined ? {} : { openingQuantity: input.openingQuantity, openingValueAmount: input.openingValueAmount }) });
     return dtoStock(row);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -164,9 +182,15 @@ async function preparePurchaseLines(tx: Tx, lines: PurchaseInput["lines"]) {
   }
   return prepared;
 }
-export async function listPurchases(prisma: PrismaClient, query: InventoryListQuery) {
+export async function listPurchases(prisma: PrismaClient, query: PurchaseListQuery) {
   const cursor = decodePageCursor(query.cursor);
-  const rows = await prisma.purchase.findMany({ where: cursor ? { OR: [{ receivedAt: { lt: cursor.at } }, { receivedAt: cursor.at, id: { lt: cursor.id } }] } : {}, orderBy: [{ receivedAt: "desc" }, { id: "desc" }], take: query.limit + 1, include: { lines: { orderBy: { createdAt: "asc" } } } });
+  const where = {
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.from || query.to ? { receivedAt: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } } : {}),
+    ...(query.search ? { OR: [{ supplier: { contains: query.search, mode: "insensitive" as const } }, { lines: { some: { stockItem: { name: { contains: query.search, mode: "insensitive" as const } } } } }] } : {}),
+    ...(cursor ? { AND: [{ OR: [{ receivedAt: { lt: cursor.at } }, { receivedAt: cursor.at, id: { lt: cursor.id } }] }] } : {}),
+  };
+  const rows = await prisma.purchase.findMany({ where, orderBy: [{ receivedAt: "desc" }, { id: "desc" }], take: query.limit + 1, include: { lines: { orderBy: { createdAt: "asc" } } } });
   const hasMore = rows.length > query.limit; const page = rows.slice(0, query.limit);
   return { purchases: page.map(purchaseDto), page: { limit: query.limit, nextCursor: hasMore ? encodePageCursor({ id: page[page.length - 1]!.id, recordedAt: page[page.length - 1]!.receivedAt }) : null, hasMore } };
 }
@@ -230,10 +254,12 @@ function applyCostingRule(components: Array<{ componentKey: string; label: strin
 async function resolveCosting(tx: Tx, productId: string, optionIds: string[], quantity: number, weightGrams: number | null, includeCosts: boolean): Promise<CostSnapshot> {
   const product = await tx.product.findUnique({ where: { id: productId }, select: { id: true, name: true, pricingMode: true } });
   if (!product) return { components: [], isComplete: false, missingReasons: ["product-not-found"], configurationVersion: null };
-  const config: any = await tx.productCostingConfiguration.findUnique({ where: { productId }, include: { product: { select: { optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true } }, costingCombinations: { where: { isActive: true }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true } } } } } } } });
+  const config: any = await tx.productCostingConfiguration.findUnique({ where: { productId }, include: { product: { select: { optionRecipeCostings: { include: { recipe: { include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }] } } } } }, optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true } }, costingCombinations: { where: { isActive: true }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true } } } } } } } });
   if (!config) return { components: [], isComplete: false, missingReasons: [`missing-costing:${product.name}`], configurationVersion: null };
   const sortedOptionIds = [...new Set(optionIds)].sort();
-  const applicable = config.product.costingCombinations.filter((combo: any) => {
+  const selectedOptionRecipes = config.product.optionRecipeCostings.filter((entry: any) => sortedOptionIds.includes(entry.optionId));
+  if (selectedOptionRecipes.length > 1) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Select at most one menu option with a complete recipe.");
+  const applicable = selectedOptionRecipes.length ? [] : config.product.costingCombinations.filter((combo: any) => {
     const ids = combo.options.map((entry: any) => entry.optionId).sort();
     return ids.length === sortedOptionIds.length && ids.every((id: string, i: number) => id === sortedOptionIds[i]);
   });
@@ -243,7 +269,12 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
     : decimal(quantity);
   const missingReasons: string[] = [];
   const root: Array<{ componentKey: string; label: string; sourceKind: "STOCK_ITEM" | "RECIPE"; sourceId: string; quantity: Prisma.Decimal }> = [];
-  if (config.mode === "RECIPE") {
+  if (selectedOptionRecipes.length) {
+    const selected = selectedOptionRecipes[0];
+    const recipe = selected.recipe;
+    if (recipe && recipe.isActive && !recipe.archivedAt) for (const component of recipe.components) root.push({ componentKey: component.componentKey, label: component.label, sourceKind: component.sourceKind, sourceId: component.stockItemId ?? component.nestedRecipeId!, quantity: component.quantity.mul(decimal(selected.recipeQuantity).mul(unitMultiplier)).div(recipe.yieldQuantity) });
+    else missingReasons.push(`missing-recipe:${selected.recipeId}`);
+  } else if (config.mode === "RECIPE") {
     const recipe = await tx.recipe.findUnique({ where: { id: config.recipeId }, include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }] } } });
     if (recipe && recipe.isActive && !recipe.archivedAt) for (const component of recipe.components) root.push({ componentKey: component.componentKey, label: component.label, sourceKind: component.sourceKind, sourceId: component.stockItemId ?? component.nestedRecipeId!, quantity: component.quantity.mul(decimal(config.recipeQuantity).mul(unitMultiplier)).div(recipe.yieldQuantity) });
     else missingReasons.push(`missing-recipe:${config.recipeId}`);
@@ -253,7 +284,7 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
     if (stock) root.push({ componentKey: "$purchased", label: stock.name, sourceKind: "STOCK_ITEM", sourceId: config.purchasedStockItemId, quantity: units });
     else missingReasons.push(`missing-stock:${config.purchasedStockItemId}`);
   }
-  const optionRuleRows = config.product.optionCostingRules.filter((rule: any) => sortedOptionIds.includes(rule.optionId));
+  const optionRuleRows = selectedOptionRecipes.length ? [] : config.product.optionCostingRules.filter((rule: any) => sortedOptionIds.includes(rule.optionId));
   const selectedByKey = new Map<string, any>();
   for (const row of optionRuleRows) {
     if (selectedByKey.has(row.componentKey)) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Selected options have conflicting rules for the same component.");
@@ -283,7 +314,7 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
       flattened.push({ stockItemId: stock.id, stockItemName: stock.name, baseUnit: stock.baseUnit, quantity: component.quantity, sourceKey: component.componentKey });
     } else flattened.push(...await flattenRecipe(tx, component.sourceId, component.quantity, component.componentKey, new Set(), missingReasons));
   }
-  if (config.extrasRecipeId) flattened.push(...await flattenRecipe(tx, config.extrasRecipeId, unitMultiplier, "", new Set(), missingReasons));
+  if (config.extrasRecipeId && selectedOptionRecipes.length === 0) flattened.push(...await flattenRecipe(tx, config.extrasRecipeId, unitMultiplier, "", new Set(), missingReasons));
   const merged = new Map<string, FlatComponent>();
   for (const component of flattened) {
     const key = `${component.stockItemId}:${component.baseUnit}`;
@@ -313,8 +344,10 @@ async function validateCostingInput(tx: Tx, productId: string, input: CostingInp
   const allowed = new Set(product.productOptionGroups.flatMap((group: any) => group.allowedOptions.map((option: any) => option.optionId)));
   const allOptions = [
     ...input.optionRules.map((entry) => entry.optionId),
+    ...(input.mode === "RECIPE" ? (input.optionRecipes ?? []).map((entry) => entry.optionId) : []),
     ...input.combinations.flatMap((entry) => entry.optionIds),
   ];
+  if (input.mode === "RECIPE" && new Set((input.optionRecipes ?? []).map((entry) => entry.optionId)).size !== (input.optionRecipes ?? []).length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Each option can have only one complete recipe.");
   if (new Set(input.optionRules.map((entry) => entry.optionId)).size !== input.optionRules.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Each option can have only one costing-rule group.");
   for (const entry of input.optionRules) if (new Set(entry.rules.map((rule) => rule.componentKey)).size !== entry.rules.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An option cannot define multiple rules for the same component.");
   if (new Set(input.combinations.map((entry) => entry.name.toLocaleLowerCase())).size !== input.combinations.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Costing combination names must be unique.");
@@ -326,6 +359,11 @@ async function validateCostingInput(tx: Tx, productId: string, input: CostingInp
     const recipe = await tx.recipe.findFirst({ where: { id: input.recipeId, isActive: true, archivedAt: null } });
     if (!recipe) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active recipe is required.");
     if (product.pricingMode === "WEIGHTED_PER_KG" && recipe.outputUnit !== "GRAM") fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Weighted products require a recipe measured in grams.");
+    for (const entry of input.optionRecipes ?? []) {
+      const optionRecipe = await tx.recipe.findFirst({ where: { id: entry.recipeId, isActive: true, archivedAt: null } });
+      if (!optionRecipe) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active recipe is required for each configured option.");
+      if (product.pricingMode === "WEIGHTED_PER_KG" && optionRecipe.outputUnit !== "GRAM") fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Weighted products require option recipes measured in grams.");
+    }
   } else {
     const stock = await tx.stockItem.findFirst({ where: { id: input.purchasedStockItemId, isActive: true, archivedAt: null } });
     if (!stock) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active purchased stock item is required.");
@@ -346,10 +384,10 @@ async function validateCostingInput(tx: Tx, productId: string, input: CostingInp
 }
 function configurationDto(row: any) {
   if (!row) return null;
-  const common = { productId: row.productId, extrasRecipeId: row.extrasRecipeId, optionRules: row.product.optionCostingRules.reduce((result: any[], rule: any) => { let item = result.find((entry) => entry.optionId === rule.optionId); if (!item) { item = { optionId: rule.optionId, rules: [] }; result.push(item); } item.rules.push(ruleDto(rule)); return result; }, []), combinations: row.product.costingCombinations.map((combo: any) => ({ id: combo.id, name: combo.name, optionIds: combo.options.map((option: any) => option.optionId), rules: serializeRules(combo.rules), version: combo.version, isActive: combo.isActive })), version: row.version, updatedAt: row.updatedAt.toISOString() };
+  const common = { productId: row.productId, extrasRecipeId: row.extrasRecipeId, optionRecipes: row.product.optionRecipeCostings.map((entry: any) => ({ optionId: entry.optionId, recipeId: entry.recipeId, recipeQuantity: dstr(entry.recipeQuantity) })), optionRules: row.product.optionCostingRules.reduce((result: any[], rule: any) => { let item = result.find((entry) => entry.optionId === rule.optionId); if (!item) { item = { optionId: rule.optionId, rules: [] }; result.push(item); } item.rules.push(ruleDto(rule)); return result; }, []), combinations: row.product.costingCombinations.map((combo: any) => ({ id: combo.id, name: combo.name, optionIds: combo.options.map((option: any) => option.optionId), rules: serializeRules(combo.rules), version: combo.version, isActive: combo.isActive })), version: row.version, updatedAt: row.updatedAt.toISOString() };
   return row.mode === "RECIPE" ? { ...common, mode: row.mode, recipeId: row.recipeId, recipeQuantity: dstr(row.recipeQuantity) } : { ...common, mode: row.mode, purchasedStockItemId: row.purchasedStockItemId, purchasedQuantity: row.purchasedQuantity ? dstr(row.purchasedQuantity) : null };
 }
-const configInclude = { product: { select: { optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true }, orderBy: { componentKey: "asc" as const } }, costingCombinations: { orderBy: { name: "asc" as const }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true }, orderBy: { componentKey: "asc" as const } } } } } } };
+const configInclude = { product: { select: { optionRecipeCostings: { orderBy: { optionId: "asc" as const } }, optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true }, orderBy: { componentKey: "asc" as const } }, costingCombinations: { orderBy: { name: "asc" as const }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true }, orderBy: { componentKey: "asc" as const } } } } } } };
 async function replaceConfiguration(tx: Tx, actor: AuthenticatedUser, productId: string, input: CostingInput, requestId: string, existingVersion: number | null) {
   await validateCostingInput(tx, productId, input);
   if (existingVersion === null) {
@@ -358,6 +396,7 @@ async function replaceConfiguration(tx: Tx, actor: AuthenticatedUser, productId:
     const changed = await tx.productCostingConfiguration.updateMany({ where: { productId, version: existingVersion }, data: { mode: input.mode, recipeId: input.mode === "RECIPE" ? input.recipeId : null, recipeQuantity: input.mode === "RECIPE" ? decimal(input.recipeQuantity) : null, purchasedStockItemId: input.mode === "PURCHASED_ITEM" ? input.purchasedStockItemId : null, purchasedQuantity: input.mode === "PURCHASED_ITEM" ? decimal(input.purchasedQuantity ?? "1") : null, extrasRecipeId: input.extrasRecipeId ?? null, updatedById: actor.id, version: { increment: 1 } } });
     if (changed.count !== 1) fail(409, ErrorCodes.STALE_VERSION, "The costing configuration has changed.");
     await tx.productOptionCostingRule.deleteMany({ where: { productId } });
+    await tx.productOptionRecipeCosting.deleteMany({ where: { productId } });
   }
   const oldCombos = await tx.productCostingCombination.findMany({ where: { productId }, select: { id: true } });
   await tx.productCombinationCostingRule.deleteMany({ where: { combinationId: { in: oldCombos.map((combo) => combo.id) } } });
@@ -365,6 +404,7 @@ async function replaceConfiguration(tx: Tx, actor: AuthenticatedUser, productId:
   await tx.productCostingCombination.deleteMany({ where: { productId } });
   for (const combo of input.combinations) await tx.productCostingCombination.create({ data: { productId, name: combo.name, options: { create: combo.optionIds.map((optionId) => ({ optionId })) }, rules: { create: combo.rules.map(ruleFields) } } });
   await tx.productOptionCostingRule.createMany({ data: input.optionRules.flatMap((entry) => entry.rules.map((rule) => ({ productId, optionId: entry.optionId, ...ruleFields(rule) }))) });
+  if (input.mode === "RECIPE" && input.optionRecipes?.length) await tx.productOptionRecipeCosting.createMany({ data: input.optionRecipes.map((entry) => ({ productId, optionId: entry.optionId, recipeId: entry.recipeId, recipeQuantity: decimal(entry.recipeQuantity) })) });
   const completeRow = await tx.productCostingConfiguration.findUniqueOrThrow({ where: { productId }, include: configInclude });
   await audit(tx, actor.id, requestId, existingVersion === null ? "CREATE_PRODUCT_COSTING" : "UPDATE_PRODUCT_COSTING", "PRODUCT_COSTING", productId, { version: existingVersion }, { version: completeRow.version });
   return completeRow;
@@ -490,11 +530,18 @@ export async function archiveRecipe(prisma: PrismaClient, actor: AuthenticatedUs
   });
 }
 
-function countDto(row: any) { return { id: row.id, kind: row.kind, status: row.status, version: row.version, postedAt: row.postedAt?.toISOString() ?? null, lines: row.lines.map((line: any) => ({ stockItemId: line.stockItemId, observedQuantity: dstr(line.observedQuantity), observedValueAmount: line.observedValueAmount, expectedQuantity: line.expectedQuantity === null ? null : dstr(line.expectedQuantity), differenceQuantity: line.differenceQuantity === null ? null : dstr(line.differenceQuantity), expectedValueAmount: line.expectedValueAmount, differenceValueAmount: line.differenceValueAmount })) }; }
+function countDto(row: any) { return { id: row.id, kind: row.kind, status: row.status, version: row.version, reason: row.reason ?? null, createdAt: row.createdAt.toISOString(), postedAt: row.postedAt?.toISOString() ?? null, lines: row.lines.map((line: any) => ({ stockItemId: line.stockItemId, observedQuantity: dstr(line.observedQuantity), observedValueAmount: line.observedValueAmount, expectedQuantity: line.expectedQuantity === null ? null : dstr(line.expectedQuantity), differenceQuantity: line.differenceQuantity === null ? null : dstr(line.differenceQuantity), expectedValueAmount: line.expectedValueAmount, differenceValueAmount: line.differenceValueAmount })) }; }
 async function countInclude(tx: Tx) { return { lines: { orderBy: { stockItemId: "asc" as const } } }; }
-export async function listCounts(prisma: PrismaClient, query: InventoryListQuery) {
+export async function listCounts(prisma: PrismaClient, query: InventoryCountListQuery) {
   const cursor = decodePageCursor(query.cursor);
-  const rows = await prisma.inventoryCount.findMany({ where: cursor ? { OR: [{ createdAt: { lt: cursor.at } }, { createdAt: cursor.at, id: { lt: cursor.id } }] } : {}, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: query.limit + 1, include: { lines: { orderBy: { stockItemId: "asc" } } } });
+  const where = {
+    ...(query.kind ? { kind: query.kind } : {}),
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.from || query.to ? { createdAt: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } } : {}),
+    ...(query.search ? { lines: { some: { stockItem: { name: { contains: query.search, mode: "insensitive" as const } } } } } : {}),
+    ...(cursor ? { AND: [{ OR: [{ createdAt: { lt: cursor.at } }, { createdAt: cursor.at, id: { lt: cursor.id } }] }] } : {}),
+  };
+  const rows = await prisma.inventoryCount.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: query.limit + 1, include: { lines: { orderBy: { stockItemId: "asc" } } } });
   const hasMore = rows.length > query.limit; const page = rows.slice(0, query.limit);
   return { counts: page.map(countDto), page: { limit: query.limit, nextCursor: hasMore ? encodePageCursor({ id: page[page.length - 1]!.id, recordedAt: page[page.length - 1]!.createdAt }) : null, hasMore } };
 }
@@ -504,10 +551,11 @@ export async function createCount(prisma: PrismaClient, actor: AuthenticatedUser
     if (items.length !== input.lines.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Every count line must reference a distinct active stock item.");
     const balances = await tx.inventoryBalance.findMany({ where: { stockItemId: { in: input.lines.map((line) => line.stockItemId) } } });
     const balanceById = new Map(balances.map((balance) => [balance.stockItemId, balance]));
-    if (input.kind === InventoryCountKind.PHYSICAL && input.lines.some((line) => !balanceById.get(line.stockItemId)?.trackingStartedAt)) fail(409, ErrorCodes.INVALID_STATE, "A physical count can include only items whose opening count has been posted.");
-    if (input.kind === InventoryCountKind.OPENING && input.lines.some((line) => balanceById.get(line.stockItemId)?.trackingStartedAt)) fail(409, ErrorCodes.INVALID_STATE, "An opening count cannot reset an already tracked item.");
-    const row = await tx.inventoryCount.create({ data: { kind: input.kind, createdById: actor.id, lines: { create: input.lines.map((line) => { const expected = balanceById.get(line.stockItemId); const observed = decimal(line.observedQuantity); return { stockItemId: line.stockItemId, observedQuantity: observed, observedValueAmount: line.observedValueAmount, ...(input.kind === InventoryCountKind.PHYSICAL && expected ? { expectedQuantity: expected.quantityOnHand, differenceQuantity: observed.minus(expected.quantityOnHand), expectedValueAmount: expected.carryingValueAmount, differenceValueAmount: line.observedValueAmount - expected.carryingValueAmount } : {}) }; }) } }, include: { lines: true } });
-    await audit(tx, actor.id, requestId, "CREATE_INVENTORY_COUNT", "INVENTORY_COUNT", row.id, undefined, { kind: row.kind, lineCount: row.lines.length }); return countDto(row);
+    if (input.lines.some((line) => !balanceById.get(line.stockItemId)?.trackingStartedAt)) fail(409, ErrorCodes.INVALID_STATE, "A physical count can include only tracked stock items.");
+    const hasQuantityDifference = input.lines.some((line) => !decimal(line.observedQuantity).eq(balanceById.get(line.stockItemId)!.quantityOnHand));
+    if (hasQuantityDifference && !input.reason?.trim()) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reason is required when a physical count changes any item's quantity.");
+    const row = await tx.inventoryCount.create({ data: { kind: InventoryCountKind.PHYSICAL, reason: input.reason?.trim() || null, createdById: actor.id, lines: { create: input.lines.map((line) => { const expected = balanceById.get(line.stockItemId)!; const observed = decimal(line.observedQuantity); return { stockItemId: line.stockItemId, observedQuantity: observed, observedValueAmount: line.observedValueAmount, expectedQuantity: expected.quantityOnHand, differenceQuantity: observed.minus(expected.quantityOnHand), expectedValueAmount: expected.carryingValueAmount, differenceValueAmount: line.observedValueAmount - expected.carryingValueAmount }; }) } }, include: { lines: true } });
+    await audit(tx, actor.id, requestId, "CREATE_INVENTORY_COUNT", "INVENTORY_COUNT", row.id, undefined, { kind: row.kind, lineCount: row.lines.length, reason: row.reason }); return countDto(row);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 export async function updateCount(prisma: PrismaClient, actor: AuthenticatedUser, id: string, input: CountUpdate, requestId: string) {
@@ -520,11 +568,14 @@ export async function updateCount(prisma: PrismaClient, actor: AuthenticatedUser
     if (items.length !== input.lines.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Every count line must reference a distinct active stock item.");
     const balances = await tx.inventoryBalance.findMany({ where: { stockItemId: { in: input.lines.map((line) => line.stockItemId) } } });
     const balanceById = new Map(balances.map((balance) => [balance.stockItemId, balance]));
-    if (row.kind === InventoryCountKind.PHYSICAL && input.lines.some((line) => !balanceById.get(line.stockItemId)?.trackingStartedAt)) fail(409, ErrorCodes.INVALID_STATE, "A physical count can include only items whose opening count has been posted.");
-    if (row.kind === InventoryCountKind.OPENING && input.lines.some((line) => balanceById.get(line.stockItemId)?.trackingStartedAt)) fail(409, ErrorCodes.INVALID_STATE, "An opening count cannot reset an already tracked item.");
+    if (row.kind !== InventoryCountKind.PHYSICAL) fail(409, ErrorCodes.INVALID_STATE, "Only physical-count drafts can be edited here.");
+    if (input.lines.some((line) => !balanceById.get(line.stockItemId)?.trackingStartedAt)) fail(409, ErrorCodes.INVALID_STATE, "A physical count can include only tracked stock items.");
+    const hasQuantityDifference = input.lines.some((line) => !decimal(line.observedQuantity).eq(balanceById.get(line.stockItemId)!.quantityOnHand));
+    const reason = input.reason?.trim() || null;
+    if (hasQuantityDifference && !reason) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reason is required when a physical count changes any item's quantity.");
     await tx.inventoryCountLine.deleteMany({ where: { countId: id } });
     await tx.inventoryCountLine.createMany({ data: input.lines.map((line) => { const expected = balanceById.get(line.stockItemId); const observed = decimal(line.observedQuantity); return { countId: id, stockItemId: line.stockItemId, observedQuantity: observed, observedValueAmount: line.observedValueAmount, ...(row.kind === InventoryCountKind.PHYSICAL && expected ? { expectedQuantity: expected.quantityOnHand, differenceQuantity: observed.minus(expected.quantityOnHand), expectedValueAmount: expected.carryingValueAmount, differenceValueAmount: line.observedValueAmount - expected.carryingValueAmount } : {}) }; }) });
-    const changed = await tx.inventoryCount.updateMany({ where: { id, version: input.expectedVersion, status: InventoryCountStatus.DRAFT }, data: { version: { increment: 1 } } });
+    const changed = await tx.inventoryCount.updateMany({ where: { id, version: input.expectedVersion, status: InventoryCountStatus.DRAFT }, data: { reason, version: { increment: 1 } } });
     if (changed.count !== 1) fail(409, ErrorCodes.STALE_VERSION, "The inventory count has changed.");
     const updated = await tx.inventoryCount.findUniqueOrThrow({ where: { id }, include: { lines: true } });
     await audit(tx, actor.id, requestId, "UPDATE_INVENTORY_COUNT", "INVENTORY_COUNT", id, { version: row.version }, { version: updated.version }); return countDto(updated);
@@ -610,7 +661,9 @@ async function needsFromConsumption(tx: Tx, consumptionId: string) {
   return [...needs].map(([stockItemId, quantity]) => ({ stockItemId, quantity }));
 }
 export async function retryPendingConsumptions(tx: Tx, actorId: string, at = new Date()) {
-  const pending = await tx.orderConsumption.findMany({ where: { status: OrderConsumptionStatus.PENDING, order: { state: { not: "DELETED" }, paymentStatus: "PAID" } }, orderBy: [{ recognizedAt: "asc" }, { id: "asc" }], include: { items: true } });
+  const activatedAt = await inventoryActivation(tx);
+  if (!activatedAt) return 0;
+  const pending = await tx.orderConsumption.findMany({ where: { status: OrderConsumptionStatus.PENDING, order: { createdAt: { gte: activatedAt }, state: { not: "DELETED" }, paymentStatus: "PAID" } }, orderBy: [{ recognizedAt: "asc" }, { id: "asc" }], include: { items: true } });
   let resolved = 0;
   for (const item of pending) {
     const needs = await needsFromConsumption(tx, item.id);
@@ -664,7 +717,7 @@ export async function postPurchase(prisma: PrismaClient, actor: AuthenticatedUse
   }
 }
 
-function movementDto(row: any) { return { id: row.id, stockItemId: row.stockItemId, kind: row.kind, quantityDelta: dstr(row.quantityDelta), valueDeltaAmount: row.valueDeltaAmount, purchaseLineId: row.purchaseLineId, orderConsumptionId: row.orderConsumptionId, inventoryCountLineId: row.inventoryCountLineId, compensatesMovementId: row.compensatesMovementId, occurredAt: row.occurredAt.toISOString(), recordedAt: row.recordedAt.toISOString() }; }
+function movementDto(row: any) { return { id: row.id, stockItemId: row.stockItemId, orderNumber: row.orderConsumption?.order?.orderNumber ?? null, kind: row.kind, quantityDelta: dstr(row.quantityDelta), valueDeltaAmount: row.valueDeltaAmount, purchaseLineId: row.purchaseLineId, orderConsumptionId: row.orderConsumptionId, inventoryCountLineId: row.inventoryCountLineId, compensatesMovementId: row.compensatesMovementId, occurredAt: row.occurredAt.toISOString(), recordedAt: row.recordedAt.toISOString() }; }
 function decodePageCursor(value: string | undefined): { id: string; at: Date } | null {
   if (!value) return null;
   try { const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as { id?: string; at?: string }; const at = new Date(parsed.at ?? ""); if (!parsed.id || Number.isNaN(at.getTime())) throw new Error("invalid cursor"); return { id: parsed.id, at }; }
@@ -673,13 +726,22 @@ function decodePageCursor(value: string | undefined): { id: string; at: Date } |
 function encodePageCursor(row: { id: string; recordedAt: Date }) { return Buffer.from(JSON.stringify({ id: row.id, at: row.recordedAt.toISOString() })).toString("base64url"); }
 export async function listInventoryMovements(prisma: PrismaClient, query: MovementQuery) {
   const cursor = decodePageCursor(query.cursor);
-  const rows = await prisma.inventoryMovement.findMany({ where: { ...(query.stockItemId ? { stockItemId: query.stockItemId } : {}), ...(query.kind ? { kind: query.kind } : {}), ...(query.from || query.to ? { occurredAt: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } } : {}), ...(cursor ? { OR: [{ recordedAt: { lt: cursor.at } }, { recordedAt: cursor.at, id: { lt: cursor.id } }] } : {}) }, orderBy: [{ recordedAt: "desc" }, { id: "desc" }], take: query.limit + 1 });
+  const where = {
+    ...(query.stockItemId ? { stockItemId: query.stockItemId } : {}),
+    ...(query.searchBy === "PRODUCT" && query.search ? { stockItem: { OR: [{ name: { contains: query.search, mode: "insensitive" as const } }, { archivedName: { contains: query.search, mode: "insensitive" as const } }] } } : {}),
+    ...(query.searchBy === "ORDER_NUMBER" && query.search ? { orderConsumption: { order: { orderNumber: { contains: query.search, mode: "insensitive" as const } } } } : {}),
+    ...(query.searchBy === "KIND" && query.kind ? { kind: query.kind } : {}),
+    ...(query.from || query.to ? { occurredAt: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } } : {}),
+    ...(cursor ? { AND: [{ OR: [{ recordedAt: { lt: cursor.at } }, { recordedAt: cursor.at, id: { lt: cursor.id } }] }] } : {}),
+  };
+  const rows = await prisma.inventoryMovement.findMany({ where, orderBy: [{ recordedAt: "desc" }, { id: "desc" }], take: query.limit + 1, include: { orderConsumption: { select: { order: { select: { orderNumber: true } } } } } });
   const hasMore = rows.length > query.limit; const page = rows.slice(0, query.limit);
   return { movements: page.map(movementDto), page: { limit: query.limit, nextCursor: hasMore ? encodePageCursor(page[page.length - 1]!) : null, hasMore } };
 }
 export async function listPendingConsumptions(prisma: PrismaClient, query: PendingQuery) {
+  const activatedAt = await requireInventoryActive(prisma);
   const cursor = decodePageCursor(query.cursor);
-  const rows = await prisma.orderConsumption.findMany({ where: { status: OrderConsumptionStatus.PENDING, order: { state: { not: "DELETED" } }, ...(cursor ? { OR: [{ recognizedAt: { lt: cursor.at } }, { recognizedAt: cursor.at, id: { lt: cursor.id } }] } : {}) }, orderBy: [{ recognizedAt: "desc" }, { id: "desc" }], take: query.limit + 1, include: { order: { select: { id: true, orderNumber: true } }, items: true } });
+  const rows = await prisma.orderConsumption.findMany({ where: { status: OrderConsumptionStatus.PENDING, order: { createdAt: { gte: activatedAt }, state: { not: "DELETED" } }, ...(cursor ? { OR: [{ recognizedAt: { lt: cursor.at } }, { recognizedAt: cursor.at, id: { lt: cursor.id } }] } : {}) }, orderBy: [{ recognizedAt: "desc" }, { id: "desc" }], take: query.limit + 1, include: { order: { select: { id: true, orderNumber: true } }, items: true } });
   const hasMore = rows.length > query.limit; const page = rows.slice(0, query.limit);
   const consumptions = [];
   for (const row of page) {
@@ -728,6 +790,7 @@ export async function returnPurchaseStock(prisma: PrismaClient, actor: Authentic
 }
 
 export async function postInventoryCount(prisma: PrismaClient, actor: AuthenticatedUser, id: string, input: { expectedVersion: number; absorbedOrderConsumptionIds: string[] }, key: string, requestId: string) {
+  const activatedAt = await requireInventoryActive(prisma);
   const fingerprint = sha({ id, ...input });
   const previous = await prisma.idempotencyRecord.findUnique({ where: { actorId_operation_key: { actorId: actor.id, operation: POST_COUNT, key } } });
   if (previous) { if (previous.requestFingerprint !== fingerprint) fail(409, ErrorCodes.IDEMPOTENCY_CONFLICT, "This idempotency key was already used for a different request."); return previous.resultSnapshot as any; }
@@ -739,7 +802,7 @@ export async function postInventoryCount(prisma: PrismaClient, actor: Authentica
       if (count.status !== InventoryCountStatus.DRAFT) fail(409, ErrorCodes.INVALID_STATE, "The inventory count is already posted.");
       if (count.version !== input.expectedVersion) stale("The inventory count has changed.", count.version);
       await lock(tx, count.lines.map((line) => `inventory:${line.stockItemId}`));
-      const pending = input.absorbedOrderConsumptionIds.length ? await tx.orderConsumption.findMany({ where: { id: { in: input.absorbedOrderConsumptionIds }, status: OrderConsumptionStatus.PENDING, order: { state: { not: "DELETED" }, paymentStatus: "PAID" } }, include: { items: true } }) : [];
+      const pending = input.absorbedOrderConsumptionIds.length ? await tx.orderConsumption.findMany({ where: { id: { in: input.absorbedOrderConsumptionIds }, status: OrderConsumptionStatus.PENDING, order: { createdAt: { gte: activatedAt }, state: { not: "DELETED" }, paymentStatus: "PAID" } }, include: { items: true } }) : [];
       if (pending.length !== input.absorbedOrderConsumptionIds.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Every reconciled order must be an eligible pending consumption.");
       const countStockIds = new Set(count.lines.map((line) => line.stockItemId));
       for (const consumption of pending) for (const need of await needsFromConsumption(tx, consumption.id)) if (!countStockIds.has(need.stockItemId)) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The count must include every stock item for a pending order selected as already absorbed.");
@@ -758,6 +821,7 @@ export async function postInventoryCount(prisma: PrismaClient, actor: Authentica
         } else {
           if (!balance?.trackingStartedAt) fail(409, ErrorCodes.INVALID_STATE, "A physical count cannot adjust an item before its opening count is posted.");
           const difference = line.observedQuantity.minus(balance.quantityOnHand);
+          if (!difference.isZero() && !count.reason?.trim()) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reason is required when a physical count changes any item's quantity.");
           const valueDifference = line.observedValueAmount - balance.carryingValueAmount;
           await tx.inventoryBalance.update({ where: { stockItemId: line.stockItemId }, data: { quantityOnHand: line.observedQuantity, carryingValueAmount: line.observedValueAmount } });
           if (!difference.isZero() || valueDifference !== 0) {
@@ -771,7 +835,7 @@ export async function postInventoryCount(prisma: PrismaClient, actor: Authentica
         await tx.orderConsumption.update({ where: { id: consumption.id }, data: { status: OrderConsumptionStatus.RECONCILED, resolvedAt: occurredAt } });
       }
       const updated = await tx.inventoryCount.update({ where: { id }, data: { status: InventoryCountStatus.POSTED, postedAt: occurredAt, version: { increment: 1 } }, include: { lines: true } });
-      await audit(tx, actor.id, requestId, POST_COUNT, "INVENTORY_COUNT", id, { status: count.status }, { status: updated.status, reconciledOrders: pending.map((item) => item.id) });
+      await audit(tx, actor.id, requestId, POST_COUNT, "INVENTORY_COUNT", id, { status: count.status }, { status: updated.status, reason: count.reason, reconciledOrders: pending.map((item) => item.id) });
       const result = countDto(updated);
       await tx.idempotencyRecord.create({ data: { actorId: actor.id, operation: POST_COUNT, key, requestFingerprint: fingerprint, responseStatus: 200, resultSnapshot: result, expiresAt: new Date(occurredAt.getTime() + IDEMPOTENCY_TTL) } });
       return result;
@@ -785,8 +849,12 @@ export async function postInventoryCount(prisma: PrismaClient, actor: Authentica
   }
 }
 
-export async function updateOrderCostingSnapshots(tx: Tx, orderId: string) { await trackOrderItemSnapshots(tx, orderId); }
+export async function updateOrderCostingSnapshots(tx: Tx, orderId: string) {
+  if (!await orderInventoryEligible(tx, orderId)) return;
+  await trackOrderItemSnapshots(tx, orderId);
+}
 export async function recognizeOrderFullPayment(tx: Tx, orderId: string, settlementId: string, actorId: string, at = new Date()) {
+  if (!await orderInventoryEligible(tx, orderId)) return null;
   const order = await tx.order.findUnique({ where: { id: orderId }, include: { paymentSettlements: { where: { reversal: null }, select: { totalAmount: true } } } });
   if (!order || order.state === "DELETED" || order.paymentStatus !== "PAID") return null;
   const paid = order.paymentSettlements.reduce((sum, entry) => sum + entry.totalAmount, 0);
@@ -824,6 +892,7 @@ async function restoreConsumption(tx: Tx, consumption: any, actorId: string, at:
   await tx.orderConsumption.update({ where: { id: consumption.id }, data: { status: OrderConsumptionStatus.CANCELLED, resolvedAt: at } });
 }
 export async function cancelAndRestoreOrderInventory(tx: Tx, orderId: string, actorId: string, at = new Date()) {
+  if (!await orderInventoryEligible(tx, orderId)) return;
   await lock(tx, [`order:${orderId}`]);
   const consumptions = await tx.orderConsumption.findMany({ where: { orderId }, orderBy: [{ cycleNumber: "asc" }] });
   for (const consumption of consumptions) await restoreConsumption(tx, consumption, actorId, at);
