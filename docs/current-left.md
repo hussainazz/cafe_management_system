@@ -1,5 +1,24 @@
 # Current Stage Status
 
+## POS palette and compact-control refinement — 17 October 2026
+
+- Refined the POS color tokens, product-picker spacing, and live table status
+  labels for the current café interface.
+- Verification: POS suite passed 21 files / 129 tests, POS typecheck passed,
+  and the production build completed with `POS_RELEASE_ID=pos-20261017-f28c430`.
+  pnpm reported its Node 25 engine warning; the build and test commands execute
+  with Node 24.21.0.
+- Published commits `14c13af`, `9147d4f`, and `f28c430` to `main` and
+  `origin/main`.
+- Activated the POS-only artifact on 17 October. Archive SHA-256:
+  `1472d103d1c98fc376bef10df8389738ec4301731cd43ef719f5fced72355c81`.
+  The validated rollback archive is
+  `/opt/cafe-menu-release-backups/pos-before-pos-20261017-f28c430.tar.gz`.
+  Local and public `/pos/release` returned the release ID with `no-store`,
+  public `/pos` returned HTTP 200, `cafe-pos.service` is active with
+  `NRestarts=0`, and no recent POS error logs were present. API, web, and Nginx
+  remained active.
+
 ## POS polish and scrolling follow-up — 16 October 2026
 
 - Applied the explicitly requested Impeccable polish on
