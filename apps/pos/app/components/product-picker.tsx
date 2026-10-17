@@ -58,6 +58,7 @@ export function ProductPicker({ card, expanded, onOpen, onClose, onSelectOptions
   const needsPopover = complexGroups.length > 0 || product.pricingMode === "WEIGHTED_PER_KG" || card.products.length > 3;
   const hasInlineVariants = card.products.length > 1 && card.products.length <= 3;
   const hasChoices = hasInlineVariants || groups.length > 0;
+  const hasSingleChoiceRow = inlineGroups.length + Number(hasInlineVariants) === 1;
   const [search, setSearch] = useState("");
   const cardRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -179,7 +180,7 @@ export function ProductPicker({ card, expanded, onOpen, onClose, onSelectOptions
     disabled={!canAdd} onClick={add}><span aria-hidden="true">+</span></button>;
 
 
-  return <article ref={cardRef} className={`pos-product${hasChoices ? " pos-product--choices" : ""}${expanded ? " is-active" : ""}`} aria-label={card.name}>
+  return <article ref={cardRef} className={`pos-product${hasChoices ? " pos-product--choices" : ""}${hasSingleChoiceRow ? " pos-product--single-choice-row" : ""}${expanded ? " is-active" : ""}`} aria-label={card.name}>
     <h3 className="pos-product__name">{card.name}</h3>
     <div className="pos-product__inline">
       {hasInlineVariants && variants()}
