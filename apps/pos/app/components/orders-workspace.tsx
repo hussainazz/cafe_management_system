@@ -30,7 +30,6 @@ import { operationalRefreshIntervalMs } from "../lib/operational-refresh";
 import { canChangeDiscount, discountPayload } from "../lib/discount-workflow";
 import { createWaiterCallSoundObserver } from "../lib/waiter-call-sound";
 import {
-  elapsedLabel,
   englishNumber,
   formatOrderNumber,
   formatToman,
@@ -728,14 +727,19 @@ export function TableBoard({
     void onRequestTransfer(source, destination);
   };
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
+    const refreshClock = () => setNow(Date.now());
+    const timer = window.setInterval(refreshClock, 1_000);
+    document.addEventListener("visibilitychange", refreshClock);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshClock);
+    };
   }, []);
   const tableElapsedLabel = (createdAt: string) => {
     const startedAt = Date.parse(createdAt);
-    const elapsedMinutes = Number.isFinite(startedAt) ? Math.max(0, Math.floor((now - startedAt) / 60_000)) : 0;
-    const hours = Math.floor(elapsedMinutes / 60);
-    const minutes = elapsedMinutes % 60;
+    const elapsedSeconds = Number.isFinite(startedAt) ? Math.max(0, Math.floor((now - startedAt) / 1_000)) : 0;
+    const hours = Math.floor(elapsedSeconds / 3_600);
+    const minutes = Math.floor((elapsedSeconds % 3_600) / 60);
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
   };
   const totals = new Map(orders.filter((x) => x.tableId).map((x) => [x.tableId!, x.totalAmount]));
@@ -841,9 +845,9 @@ export function TableBoard({
                 </span>
                 <span className="table-tile__details">
                   <span className="table-status">{call && <span className="table-status__alert" aria-hidden="true"><ServiceBellIcon /></span>}<i />{call ? "درخواست میزبان" : hasOrder ? "سفارش باز" : table.occupancyState === "OCCUPIED" ? "اشغال‌شده" : "آزاد"}</span>
-                  {hasOrder && <span className="table-tile__meta table-tile__meta--order-time"><ClockIcon />{tableElapsedLabel(table.activeOrders[0]!.createdAt)}</span>}
-                  {call && <span className="table-tile__meta">{elapsedLabel(call.requestedAt)} از ثبت درخواست</span>}
-                  {!hasOrder && !call && <span className="table-tile__meta">{table.occupiedAt ? tableElapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>}
+                  {hasOrder && <span className="table-tile__meta table-tile__meta--order-time table-tile__meta--live-time"><ClockIcon />{tableElapsedLabel(table.activeOrders[0]!.createdAt)}</span>}
+                  {call && <span className="table-tile__meta table-tile__meta--live-time">{tableElapsedLabel(call.requestedAt)} از ثبت درخواست</span>}
+                  {!hasOrder && !call && <span className="table-tile__meta table-tile__meta--live-time">{table.occupiedAt ? tableElapsedLabel(table.occupiedAt) : "آماده پذیرش"}</span>}
 {hasOrder && <span className="table-tile__amount"><b>{formatToman(totals.get(table.id) ?? 0)}</b></span>}
                 </span>
               </button>
