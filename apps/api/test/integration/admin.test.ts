@@ -102,7 +102,7 @@ async function reportOrder(input: {
 }
 
 describe("Manager administration", () => {
-  it("lets Managers write, edit, and clear customer-facing product notes, with Staff denied", async () => {
+  it("lets Staff and Managers write customer-facing product notes", async () => {
     const category = await app.prisma.category.create({ data: { name: "Menu notes", displayOrder: 1 } });
     const manager = await session(UserRole.MANAGER, "menu.notes.manager");
     const staff = await session(UserRole.STAFF, "menu.notes.staff");
@@ -113,7 +113,9 @@ describe("Manager administration", () => {
     expect(created.statusCode).toBe(200);
     expect(created.json().data.menuNote).toBe("با شیر تازه تهیه می‌شود.");
     const productId = created.json().data.id;
-    expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${productId}`, cookies: staff, payload: { menuNote: "ویرایش غیرمجاز" } })).statusCode).toBe(403);
+    const staffEdit = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${productId}`, cookies: staff, payload: { menuNote: "یادداشت ثبت‌شده توسط پرسنل" } });
+    expect(staffEdit.statusCode).toBe(200);
+    expect(staffEdit.json().data.menuNote).toBe("یادداشت ثبت‌شده توسط پرسنل");
     const edited = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${productId}`, cookies: manager, payload: { menuNote: "با شیر بدون لاکتوز هم قابل سفارش است." } });
     expect(edited.statusCode).toBe(200);
     expect(edited.json().data.menuNote).toBe("با شیر بدون لاکتوز هم قابل سفارش است.");
@@ -123,11 +125,11 @@ describe("Manager administration", () => {
     expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${productId}`, cookies: manager, payload: { menuNote: "x".repeat(1001) } })).statusCode).toBe(400);
   });
 
-  it("rejects anonymous and Staff catalog writes, then audits Manager catalog lifecycle", async () => {
+  it("rejects anonymous catalog writes, then audits Staff and Manager catalog lifecycle", async () => {
     const payload = { name: "مدیریت", displayOrder: 1 };
     expect((await app.inject({ method: "POST", url: "/api/v1/admin/categories", payload })).statusCode).toBe(401);
     const staff = await session(UserRole.STAFF, "admin.staff");
-    expect((await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: staff, payload })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: staff, payload })).statusCode).toBe(200);
     const manager = await session(UserRole.MANAGER, "admin.manager");
     const created = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload });
     expect(created.statusCode).toBe(200);
@@ -148,8 +150,57 @@ describe("Manager administration", () => {
     expect(await app.prisma.auditLog.count({ where: { entityId: promotionalId, operation: "ARCHIVE_CATEGORY" } })).toBe(1);
   });
 
-  it("appends catalog records and persists contiguous, validated category and product reorders", async () => {
-    const manager = await session(UserRole.MANAGER, "reorder.manager");
+  it("allows Staff catalog, price, sale-discount, and payment-history access while withholding finance summaries and settings", async () => {
+    const staff = await session(UserRole.STAFF, "permissions.staff");
+    const manager = await session(UserRole.MANAGER, "permissions.manager");
+    for (const path of ["categories", "products", "option-groups"]) {
+      expect((await app.inject({ method: "GET", url: `/api/v1/admin/${path}`, cookies: staff })).statusCode).toBe(200);
+    }
+    const category = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: staff, payload: { name: "Staff catalog" } });
+    expect(category.statusCode).toBe(200);
+    const product = await app.inject({ method: "POST", url: "/api/v1/admin/products", cookies: staff, payload: { categoryId: category.json().data.id, name: "Staff price test", priceAmount: 30_000, preparationDeadlineMinutes: 5 } });
+    expect(product.statusCode).toBe(200);
+    const optionGroup = await app.inject({ method: "POST", url: "/api/v1/admin/option-groups", cookies: staff, payload: { name: "Staff option group" } });
+    expect(optionGroup.statusCode).toBe(200);
+    const option = await app.inject({ method: "POST", url: `/api/v1/admin/option-groups/${optionGroup.json().data.id}/options`, cookies: staff, payload: { name: "Soy", priceAmount: 1_000, displayOrder: 1 } });
+    expect(option.statusCode).toBe(200);
+    const optionPrice = await app.inject({ method: "PATCH", url: `/api/v1/admin/option-groups/${optionGroup.json().data.id}/options/${option.json().data.id}`, cookies: staff, payload: { priceAmount: 2_000 } });
+    expect(optionPrice.statusCode).toBe(200);
+    expect(optionPrice.json().data.priceAmount).toBe(2_000);
+    const price = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${product.json().data.id}`, cookies: staff, payload: { priceAmount: 35_000 } });
+    expect(price.statusCode).toBe(200);
+    expect(price.json().data.priceAmount).toBe(35_000);
+    const discount = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${product.json().data.id}/sale-discount`, cookies: staff, payload: { saleDiscount: { kind: "PERCENTAGE", value: 10 } } });
+    expect(discount.statusCode).toBe(200);
+    expect(discount.json().data).toMatchObject({ saleDiscountKind: "PERCENTAGE", saleDiscountValue: 10 });
+    const promotion = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: staff, payload: { name: "Staff promotion", kind: "PROMOTIONAL" } });
+    const membership = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${promotion.json().data.id}/products`, cookies: staff, payload: { productIds: [product.json().data.id] } });
+    expect(membership.statusCode).toBe(200);
+    expect(membership.json().data.productIds).toContain(product.json().data.id);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/payments?fromDate=2026-10-01&toDate=2026-10-22", cookies: staff })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-10-01&toDate=2026-10-22", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/settings", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: staff, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: true } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/tables", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/users", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-10-01&toDate=2026-10-22", cookies: manager })).statusCode).toBe(200);
+    const defaults = await app.inject({ method: "GET", url: "/api/v1/admin/settings", cookies: manager });
+    expect(defaults.json().data.settlementReversalReasonRequired).toBe(false);
+    const enabled = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: manager, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: true } });
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json().data.settlementReversalReasonRequired).toBe(true);
+    const unrelatedUpdate = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: manager, payload: { tableSeatingLimitMinutes: 60 } });
+    expect(unrelatedUpdate.json().data.settlementReversalReasonRequired).toBe(true);
+    const staffDisable = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: staff, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false } });
+    expect(staffDisable.statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/settings", cookies: manager })).json().data.settlementReversalReasonRequired).toBe(true);
+    const disabled = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: manager, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false } });
+    expect(disabled.json().data.settlementReversalReasonRequired).toBe(false);
+  });
+
+  it.each([UserRole.STAFF, UserRole.MANAGER])("lets %s append catalog records and persist contiguous, validated category and product reorders", async (role) => {
+    const manager = await session(role, `reorder.${role.toLowerCase()}`);
     const first = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "ترتیب اول" } });
     const second = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "ترتیب دوم" } });
     expect(first.json().data.displayOrder).toBeLessThan(second.json().data.displayOrder);
@@ -328,10 +379,10 @@ describe("Manager administration", () => {
     expect((await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).isActive).toBe(true);
   });
 
-  it("lists Manager payment history using required Tehran-local date and time filters", async () => {
+  it.each([UserRole.STAFF, UserRole.MANAGER])("lists %s payment history using required Tehran-local date and time filters", async (role) => {
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/payments?fromDate=2026-09-15&toDate=2026-09-15" })).statusCode).toBe(401);
     const staff = await session(UserRole.STAFF, "payments.staff");
-    expect((await app.inject({ method: "GET", url: "/api/v1/admin/payments?fromDate=2026-09-15&toDate=2026-09-15", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/payments?fromDate=2026-09-15&toDate=2026-09-15", cookies: staff })).statusCode).toBe(200);
     const manager = await session(UserRole.MANAGER, "payments.manager");
     const staffUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "payments.staff" } });
     const managerUser = await app.prisma.user.findUniqueOrThrow({ where: { username: "payments.manager" } });
@@ -350,7 +401,7 @@ describe("Manager administration", () => {
     await app.prisma.settlementReversal.create({ data: { settlementId: second.settlement.id, recordedById: managerUser.id, reason: "Test reversal" } });
     await app.prisma.order.update({ where: { id: normalLower.order.id }, data: { subtotalAmount: 11_000, discountAmount: 1_000 } });
 
-    const request = (query: string) => app.inject({ method: "GET", url: `/api/v1/admin/payments?${query}`, cookies: manager });
+    const request = (query: string) => app.inject({ method: "GET", url: `/api/v1/admin/payments?${query}`, cookies: role === UserRole.STAFF ? staff : manager });
     const ignoredLegacyLimit = await request("fromDate=2026-09-15&toDate=2026-09-15&limit=2");
     expect(ignoredLegacyLimit.statusCode).toBe(200);
     expect(ignoredLegacyLimit.json().data.payments).toHaveLength(5);
