@@ -58,9 +58,10 @@ logic in the interface.
   conflicts; UI visibility never replaces authorization.
 - Stage 7 includes no customer ordering, cart checkout, online payment,
   customer order tracking, customer identity, or QR credential management.
-- Stage 7 includes no Manager-only payment history, reports, catalog/product
-  management, Staff management, settings, audit search, or product sale
-  discount configuration.
+- Staff and Managers can manage catalog products, options, prices, images, and
+  catalog sale discounts, and browse payment history. Accounting summaries,
+  Staff-account management, café settings, audit search, and inventory remain
+  Manager-only.
 - Staff and Managers may apply item-level or order-level discounts with optional reasons
   only when server settlement rules permit them.
 - An order may be logically deleted/cleared with confirmation appropriate to
