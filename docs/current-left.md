@@ -19,7 +19,29 @@
   focused API checks pass 44 order tests and 20 administration tests. The 3
   image tests also passed during implementation. The local development
   migration and isolated test reset both applied the new field successfully.
-- Left: none for this behavior update.
+- Release verification: API build passed; the isolated API test runner exited
+  successfully; contracts passed 4 files / 18 tests; POS typecheck and all
+  21 files / 145 tests passed. The production POS build used
+  `cafe-20261022-e30d1fd`.
+- Published 26 per-file commits to `main` and `origin/main` at
+  `e30d1fd42dd1450c7cd5fdf6b5fc82dc8353fbd1`.
+- Activated coordinated API/contracts/POS release `cafe-20261022-e30d1fd` on
+  22 October. Artifact SHA-256:
+  `36cae2e6befbd52c5df3779403cf7ef3e2b8562f30bb7743160d5612fc277af6`.
+  Migration `20261022120000_staff_settlement_permissions` is applied; all 40
+  migrations are current. API readiness, API menu, public menu proxy, `/menu`,
+  `/pos`, and local/public `/pos/release` passed. The menu returned 16
+  categories and 141 products; the release endpoint returned the new ID with
+  `no-store`. API, POS, web, and Nginx are active; API/POS `NRestarts=0`; no
+  recent API/POS error logs were present.
+- Pre-release database backup validated with `pg_restore --list`:
+  `/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261022-e30d1fd.dump`.
+  Runtime rollback archive validated with `tar -tzf`:
+  `/opt/cafe-menu-release-backups/rollback-before-cafe-20261022-e30d1fd.tar.gz`.
+- Remote branches: `main` only. Left: local branch
+  `fix/partial-item-unpaid-edit` remains attached to an existing worktree with
+  uncommitted changes; preserve that worktree until those changes are safely
+  consolidated, then remove the branch.
 
 ## POS palette and compact-control refinement — 17 October 2026
 
