@@ -80,7 +80,7 @@ requires an idempotency key and the current order version.
 | `GET`   | `/api/v1/orders/:orderId`                                   | Staff  | 2     | Read an order with item/option/timing snapshots, payment status, settlement allocations/tenders, totals, estimated preparation minutes, estimated table release time where applicable, and permitted operational metadata.                                                                            |
 | `PATCH` | `/api/v1/orders/:orderId`                                   | Staff  | 2     | Apply a controlled edit, including an item/order discount with an optional reason, to an `OPEN` order; requires the current version. After settlement, edits may affect only additions/unsettled quantities; settled quantities, posted allocations, tenders, discounts affecting them, and receipts are immutable. |
 | `POST`  | `/api/v1/orders/:orderId/transfer-table`                    | Staff  | 2     | Move an `OPEN` table order to another active table; requires the current order version.                                                                                                                                                                                                               |
-| `PATCH` | `/api/v1/admin/products/:productId/sale-discount`           | Manager | 2     | Configure or remove a fixed/percentage product sale discount. It applies only to newly-created item snapshots.                                                                                                                                                                                        |
+| `PATCH` | `/api/v1/admin/products/:productId/sale-discount`           | Staff   | 2     | Configure or remove a fixed/percentage product sale discount. It applies only to newly-created item snapshots.                                                                                                                                                                                        |
 | `POST`  | `/api/v1/orders/:orderId/record-settlement`                 | Staff  | 2     | Atomically settle selected unallocated item quantities with one or more cash, card-terminal, or card-to-card transfer tenders; requires an idempotency key and current order version.                                                                                                                 |
 | `POST`  | `/api/v1/orders/:orderId/delete`                            | Staff  | 2     | Logically delete an order while retaining items, settlements, tenders, reversals, and audit history; requires the current order version and accepts an optional reason.                                                                                                                               |
 | `GET`   | `/api/v1/orders/:orderId/bar-ticket` | Staff | 2 | Read full preparation data without changing any print baseline; excludes prices and payments. |
@@ -131,35 +131,36 @@ Staff and Manager use these same contracts from the shared table dashboard.
 | `POST` | `/api/v1/tables/:tableId/make-available`         | Staff  | 5     | Return a table to available, clear reminders, resolve any pending call, and invalidate prior guest contexts. |
 | `POST` | `/api/v1/tables/:tableId/acknowledge-waiter-call`| Staff  | 5     | Open the highlighted table and atomically acknowledge and resolve its pending call; stale actions conflict. |
 
-## Manager Catalog, Staff, And Settings
+## Staff Catalog, Manager Staff Accounts, And Settings
 
-Manager writes archive/deactivate referenced records rather than physically
-remove them. Each product has at most one current image. Product images are
+Staff and Manager catalog writes archive/deactivate referenced records rather
+than physically remove them. Staff-account and café-setting operations remain
+Manager-only. Each product has at most one current image. Product images are
 uploaded through the API and subsequently served through a controlled image
 route; the database stores image metadata and storage references, not image
 bytes.
 
 | Method  | Path                                                                   | Access  | Stage | Purpose                                                                                                                                           |
 | ------- | ---------------------------------------------------------------------- | ------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`   | `/api/v1/admin/categories`                                             | Manager | 6     | List categories, including inactive/archived records when requested.                                                                              |
-| `POST`  | `/api/v1/admin/categories`                                             | Manager | 6     | Create a category.                                                                                                                                |
-| `PATCH` | `/api/v1/admin/categories/:categoryId`                                 | Manager | 6     | Update category fields, active state, or display order.                                                                                           |
-| `POST`  | `/api/v1/admin/categories/:categoryId/archive`                         | Manager | 6     | Archive a category while preserving historical references.                                                                                        |
-| `PATCH` | `/api/v1/admin/categories/:categoryId/products`                        | Manager | 10    | Replace product memberships for a promotional category; product source categories and catalog data remain unchanged.                              |
-| `GET`   | `/api/v1/admin/products`                                               | Manager | 6     | List products and their catalog configuration.                                                                                                    |
-| `POST`  | `/api/v1/admin/products`                                               | Manager | 6     | Create a product with its category, price, optional customer-facing menu note, preparation-deadline minutes, and option-group configuration.                                          |
-| `PATCH` | `/api/v1/admin/products/:productId`                                    | Manager | 6     | Update product details, customer-facing menu note, final price, Manager-controlled sale discount, preparation-deadline minutes, active state, availability, display order, or allowed option groups.           |
-| `POST`  | `/api/v1/admin/products/:productId/archive`                            | Manager | 6     | Archive a product without changing historical order snapshots.                                                                                    |
-| `PUT`   | `/api/v1/admin/products/:productId/image`                              | Manager | 6     | Validate and upload or replace the product's single image, then store its metadata record.                                                        |
-| `PATCH` | `/api/v1/admin/products/:productId/image`                              | Manager | 6     | Update the product image metadata, such as alt text.                                                                                              |
-| `POST`  | `/api/v1/admin/products/:productId/image/archive`                      | Manager | 6     | Remove the product image from current display without deleting needed history.                                                                    |
+| `GET`   | `/api/v1/admin/categories`                                             | Staff   | 6     | List categories, including inactive/archived records when requested.                                                                              |
+| `POST`  | `/api/v1/admin/categories`                                             | Staff   | 6     | Create a category.                                                                                                                                |
+| `PATCH` | `/api/v1/admin/categories/:categoryId`                                 | Staff   | 6     | Update category fields, active state, or display order.                                                                                           |
+| `POST`  | `/api/v1/admin/categories/:categoryId/archive`                         | Staff   | 6     | Archive a category while preserving historical references.                                                                                        |
+| `PATCH` | `/api/v1/admin/categories/:categoryId/products`                        | Staff   | 10    | Replace product memberships for a promotional category; product source categories and catalog data remain unchanged.                              |
+| `GET`   | `/api/v1/admin/products`                                               | Staff   | 6     | List products and their catalog configuration.                                                                                                    |
+| `POST`  | `/api/v1/admin/products`                                               | Staff   | 6     | Create a product with its category, price, optional customer-facing menu note, preparation-deadline minutes, and option-group configuration.                                          |
+| `PATCH` | `/api/v1/admin/products/:productId`                                    | Staff   | 6     | Update product details, customer-facing menu note, final price, catalog sale discount, preparation-deadline minutes, active state, availability, display order, or allowed option groups.           |
+| `POST`  | `/api/v1/admin/products/:productId/archive`                            | Staff   | 6     | Archive a product without changing historical order snapshots.                                                                                    |
+| `PUT`   | `/api/v1/admin/products/:productId/image`                              | Staff   | 6     | Validate and upload or replace the product's single image, then store its metadata record.                                                        |
+| `PATCH` | `/api/v1/admin/products/:productId/image`                              | Staff   | 6     | Update the product image metadata, such as alt text.                                                                                              |
+| `POST`  | `/api/v1/admin/products/:productId/image/archive`                      | Staff   | 6     | Remove the product image from current display without deleting needed history.                                                                    |
 | `GET`   | `/api/v1/product-images/:storageKey`                                   | Public  | 8     | Serve one opaque, validated self-hosted product image with cache headers; storage paths are never exposed.                                         |
-| `GET`   | `/api/v1/admin/option-groups`                                          | Manager | 6     | List reusable option groups and their options.                                                                                                    |
-| `POST`  | `/api/v1/admin/option-groups`                                          | Manager | 6     | Create an option group.                                                                                                                           |
-| `PATCH` | `/api/v1/admin/option-groups/:optionGroupId`                           | Manager | 6     | Update an option group or its active state.                                                                                                       |
-| `POST`  | `/api/v1/admin/option-groups/:optionGroupId/options`                   | Manager | 6     | Create an option in an option group.                                                                                                              |
-| `PATCH` | `/api/v1/admin/option-groups/:optionGroupId/options/:optionId`         | Manager | 6     | Update option name, final extra price, availability, active state, or display order.                                                              |
-| `POST`  | `/api/v1/admin/option-groups/:optionGroupId/options/:optionId/archive` | Manager | 6     | Archive an option while preserving order-item snapshots.                                                                                          |
+| `GET`   | `/api/v1/admin/option-groups`                                          | Staff   | 6     | List reusable option groups and their options.                                                                                                    |
+| `POST`  | `/api/v1/admin/option-groups`                                          | Staff   | 6     | Create an option group.                                                                                                                           |
+| `PATCH` | `/api/v1/admin/option-groups/:optionGroupId`                           | Staff   | 6     | Update an option group or its active state.                                                                                                       |
+| `POST`  | `/api/v1/admin/option-groups/:optionGroupId/options`                   | Staff   | 6     | Create an option in an option group.                                                                                                              |
+| `PATCH` | `/api/v1/admin/option-groups/:optionGroupId/options/:optionId`         | Staff   | 6     | Update option name, final extra price, availability, active state, or display order.                                                              |
+| `POST`  | `/api/v1/admin/option-groups/:optionGroupId/options/:optionId/archive` | Staff   | 6     | Archive an option while preserving order-item snapshots.                                                                                          |
 | `GET`   | `/api/v1/admin/tables`                                                 | Manager | 6     | List all physical tables and their lifecycle state.                                                                                               |
 | `POST`  | `/api/v1/admin/tables`                                                 | Manager | 6     | Create a physical table.                                                                                                                          |
 | `PATCH` | `/api/v1/admin/tables/:tableId`                                        | Manager | 6     | Update table name, seating-limit minutes, active state, or display order.                                                                         |
@@ -170,9 +171,9 @@ bytes.
 | `POST`  | `/api/v1/admin/users/:userId/deactivate`                               | Manager | 6     | Deactivate an account and revoke its sessions while retaining history.                                                                            |
 | `POST`  | `/api/v1/admin/users/:userId/reactivate`                               | Manager | 6     | Reactivate an account without altering history.                                                                                                   |
 | `GET`   | `/api/v1/admin/settings`                                               | Manager | 6     | Read the single-cafe settings record.                                                                                                             |
-| `PATCH` | `/api/v1/admin/settings`                                               | Manager | 6     | Update configurable cafe settings, including the default table seating limit, with an audit entry. There is no business-day cutoff setting in v1. |
+| `PATCH` | `/api/v1/admin/settings`                                               | Manager | 6     | Update café settings, including the default table seating limit and whether settlement reversals require a reason; audited. |
 
-## Manager Reporting, Audit, And Settlement Reversals
+## Manager Reporting And Audit; Staff Settlement Actions
 
 The first accounting report uses UTC storage but accepts only `today` or
 `yesterday`, resolved using `Asia/Tehran` calendar boundaries. This two-day
@@ -180,10 +181,11 @@ query limit does not delete or expire older orders or payment records.
 
 | Method | Path                                              | Access  | Stage | Purpose                                                                                                                        |
 | ------ | ------------------------------------------------- | ------- | ----- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `GET`  | `/api/v1/admin/payments`                          | Manager | 6     | Cursor-paginated payment history over retained settlements/tenders, with links to existing settlement receipts.               |
+| `GET`  | `/api/v1/admin/payments`                          | Staff   | 6     | Cursor-paginated payment history over retained settlements/tenders, with links to existing settlement receipts.               |
 | `GET`  | `/api/v1/admin/reports/daily`                     | Manager | 6     | Return the daily accounting summary for `period=today` or `period=yesterday`; reject arbitrary dates and ranges.               |
 | `GET`  | `/api/v1/admin/audit-log`                         | Manager | 6     | Search bounded retained audit history using safe fields only.                                                                  |
-| `POST` | `/api/v1/admin/settlements/:settlementId/reverse` | Manager | 6     | Reverse one posted settlement with a required reason; never edit its original tenders or allocations.                         |
+| `POST` | `/api/v1/admin/settlements/:settlementId/reverse` | Staff   | 6     | Reverse one posted settlement with a reason only when the Manager-only cafe setting requires it; never edit its original tenders or allocations.                         |
+| `POST` | `/api/v1/admin/settlements/:settlementId/edit`    | Staff   | 6     | Correct tender methods without a reason, retaining the old settlement and atomically recording replacement tenders.             |
 
 ## Manager Inventory, Costing, And Gross-Profit Workflows
 
@@ -208,9 +210,9 @@ implementation change.
 | `POST` | `/api/v1/admin/inventory/recipes` | Manager | 12 | Create a precise recipe variant and shared ingredient name after validating component units and cycle-free references. |
 | `PATCH` | `/api/v1/admin/inventory/recipes/:recipeId` | Manager | 12 | Version-check a precise recipe and shared ingredient name edit without changing saved order snapshots. |
 | `POST` | `/api/v1/admin/inventory/recipes/:recipeId/archive` | Manager | 12 | Archive a recipe while retaining referenced configurations and history. |
-| `GET` | `/api/v1/admin/products/:productId/costing` | Manager | 12 | Read a product's recipe or purchased-item costing configuration and option rules. |
-| `PUT` | `/api/v1/admin/products/:productId/costing` | Manager | 12 | Version-check and replace a product's costing configuration and option rules. |
-| `POST` | `/api/v1/admin/products/:productId/costing/preview` | Manager | 12 | Resolve selected options and return known ingredient quantities, cost, and incompleteness reasons. |
+| `GET` | `/api/v1/admin/products/:productId/costing` | Staff   | 12 | Read a product's recipe or purchased-item costing configuration and option rules. |
+| `PUT` | `/api/v1/admin/products/:productId/costing` | Staff   | 12 | Version-check and replace a product's costing configuration and option rules. |
+| `POST` | `/api/v1/admin/products/:productId/costing/preview` | Staff   | 12 | Resolve selected options and return known ingredient quantities, cost, and incompleteness reasons. |
 | `GET` | `/api/v1/admin/inventory/counts` | Manager | 12 | Cursor-page counts with optional stock-item search, kind/status, and created-time filters. |
 | `POST` | `/api/v1/admin/inventory/counts` | Manager | 12 | Create a physical-count draft with observed quantities and values; require one shared reason if any observed quantity differs from its recorded balance. |
 | `PATCH` | `/api/v1/admin/inventory/counts/:countId` | Manager | 12 | Version-check edits to a physical-count draft and its shared discrepancy reason. |
