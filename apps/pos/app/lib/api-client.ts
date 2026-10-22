@@ -494,6 +494,18 @@ export async function readManagerCatalog(): Promise<ApiResult<ManagerCatalog>> {
   return { ok: true, replayed: false, data: { categories: categories.data.data.categories, products: products.data.data.products, optionGroups: optionGroups.data.data.optionGroups, tables: tables.data.data.tables } };
 }
 
+export async function readStaffCatalog(): Promise<ApiResult<ManagerCatalog>> {
+  const [categories, products, optionGroups] = await Promise.all([
+    managerResponse("/admin/categories", AdminCategoriesResponseSchema, "فهرست دسته‌ها معتبر نیست."),
+    managerResponse("/admin/products", AdminProductsResponseSchema, "فهرست محصولات معتبر نیست."),
+    managerResponse("/admin/option-groups", AdminOptionGroupsResponseSchema, "فهرست گزینه‌ها معتبر نیست."),
+  ]);
+  if (!categories.ok) return categories;
+  if (!products.ok) return products;
+  if (!optionGroups.ok) return optionGroups;
+  return { ok: true, replayed: false, data: { categories: categories.data.data.categories, products: products.data.data.products, optionGroups: optionGroups.data.data.optionGroups, tables: [] } };
+}
+
 export const saveProductSaleDiscount = (productId: string, saleDiscount: ProductSaleDiscountRequest["saleDiscount"] | null) =>
   managerMutation(`/admin/products/${productId}/sale-discount`, "PATCH", { saleDiscount }, ProductSaleDiscountResponseSchema, "پاسخ تخفیف محصول معتبر نیست.");
 
@@ -539,7 +551,7 @@ export const saveStaff = (id: string | null, body: unknown) => managerMutation(i
 export const deactivateStaff = (id: string) => managerMutation(`/admin/users/${id}/deactivate`, "POST", {}, AdminStaffSingleResponseSchema, "پاسخ غیرفعال‌سازی معتبر نیست.");
 export const reactivateStaff = (id: string) => managerMutation(`/admin/users/${id}/reactivate`, "POST", {}, AdminStaffSingleResponseSchema, "پاسخ فعال‌سازی معتبر نیست.");
 export const saveSettings = (body: unknown) => managerMutation("/admin/settings", "PATCH", body, AdminSettingsResponseSchema, "پاسخ تنظیمات معتبر نیست.");
-export const reverseSettlement = (settlementId: string, body: { expectedVersion: number; reason: string }) => managerMutation(`/admin/settlements/${settlementId}/reverse`, "POST", body, ReverseSettlementResponseSchema, "پاسخ برگشت تسویه معتبر نیست.");
+export const reverseSettlement = (settlementId: string, body: { expectedVersion: number; reason?: string }) => managerMutation(`/admin/settlements/${settlementId}/reverse`, "POST", body, ReverseSettlementResponseSchema, "پاسخ برگشت تسویه معتبر نیست.");
 export async function editSettlement(settlementId: string, body: { expectedVersion: number; payments: unknown[]; reason?: string }, idempotencyKey: string): Promise<ApiResult<PosOrderDetail>> {
   const parsed = await managerMutation(`/admin/settlements/${settlementId}/edit`, "POST", body, EditSettlementResponseSchema, "پاسخ ویرایش پرداخت معتبر نیست.", idempotencyKey);
   return parsed.ok ? { ok: true, data: parsed.data.data, replayed: parsed.replayed } : parsed;
