@@ -1,5 +1,26 @@
 # Current Stage Status
 
+## Staff catalog, payment history, and settlement permissions — 22 October 2026
+
+- Approved behavior: Staff and Managers can manage catalog/prices and catalog
+  sale discounts, and browse payment history; accounting summaries stay
+  Manager-only. Staff and Managers can correct or reverse settlements.
+- Reversal reasons are optional by default. A Manager-only setting can require
+  a reason for reversals; tender corrections never require one.
+- Added the persisted Manager-only reversal policy toggle, Staff API/POS
+  access, Staff catalog/payment navigation, and route and UI regression tests.
+- Review follow-up: fixed Staff table names on older unpaid orders using the
+  operational table API, and retained the selected payment-history filter after
+  reversal, correction, or deletion. Replaced a premature reversal-button
+  assertion and added navigation, API transport, policy rejection/retry, and
+  partial-amount correction regression coverage.
+- Verification: API and POS typechecks passed; POS passed 21 files / 145 tests.
+  The complete isolated API suite passed during implementation; post-review
+  focused API checks pass 44 order tests and 20 administration tests. The 3
+  image tests also passed during implementation. The local development
+  migration and isolated test reset both applied the new field successfully.
+- Left: none for this behavior update.
+
 ## POS palette and compact-control refinement — 17 October 2026
 
 - Refined the POS color tokens, product-picker spacing, and live table status
