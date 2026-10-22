@@ -15,7 +15,7 @@ const weight = (value: unknown) => value === null || (Number.isInteger(value) &&
 function validSnapshot(name: string, value: unknown): boolean {
   if (name === "episode") return typeof value === "boolean";
   if (name === "channel") return value === "TABLE" || value === "TAKEAWAY";
-  if (name === "workspace") return ["orders", "manager", "settings", "finance", "catalog", "inventory"].includes(value as string);
+  if (name === "workspace") return ["orders", "manager", "settings", "finance", "catalog", "inventory", "payments"].includes(value as string);
   if (name === "manager-panel") return typeof value === "string" && ["finance", "catalog", "tables", "settings"].includes(value);
   if (name === "manager-settings-panel") return value === "settings" || value === "tables" || value === "audit";
   if (name.endsWith(":draft")) return Array.isArray(value) && value.every(item => record(item) && typeof item.key === "string" && record(item.product) && typeof item.product.name === "string" && Array.isArray(item.product.optionGroups) && typeof item.product.id === "string" && Number.isFinite(item.product.priceAmount) && ["FIXED", "WEIGHTED_PER_KG"].includes(item.product.pricingMode) && Number.isInteger(item.quantity) && item.quantity > 0 && typeof item.note === "string" && weight(item.weightGrams) && Array.isArray(item.options) && item.options.every((option: any) => option && typeof option.id === "string" && Number.isFinite(option.priceAmount)));
