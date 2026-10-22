@@ -15,8 +15,8 @@ stage is implemented.
   discounts, receipts, audit, and waiter-call backend increments are in place.
 - **P2 / Stage 3 — Complete.** Browse-only QR-menu API and public response
   protections are implemented.
-- **P3 / Stage 8 — Complete.** Manager catalog, settings, payment history,
-  accounting, and audit APIs are implemented.
+- **P3 / Stage 8 — Complete.** Staff catalog and payment-history APIs,
+  Manager settings, accounting, and audit APIs are implemented.
 - **P4 / Stage 10 — Complete.** Full-system test, security,
   migration/restore, measured-performance, and café pilot evidence are closed.
   See `docs/current-left.md` for the completion record.
@@ -290,13 +290,14 @@ Acceptance criteria:
 
 #### P1.8 Settlement Reversal
 
-Implement Manager-only full settlement reversal.
+Implement full settlement reversal and tender correction for Staff and Manager.
 
 Acceptance criteria:
 
-- An explicitly requested full settlement reversal requires a non-empty
-  reason. Correcting tender methods through the dedicated settlement-edit path
-  does not require a reason.
+- A full settlement reversal requires a reason only when the Manager-only cafe
+  setting `settlementReversalReasonRequired` is enabled; it defaults to false.
+  Correcting tender methods through the dedicated settlement-edit path never
+  requires a reason.
 - Reversal recalculates order paid amount, balance, and payment status.
 - Posted tenders and allocations are never edited or physically deleted.
 - Reversal writes audit data and increments the order version atomically.
@@ -368,8 +369,8 @@ Acceptance criteria:
   duplicate taps, invalid/rotated/expired/prior-occupancy contexts,
   occupied-table validation, table-opening conflicts, reconnect/refetch,
   plaintext-token exclusion, and print artifact mapping.
-- Product sale-discount configuration is Manager-only in routes and services.
-  Staff and Manager may apply item/order discounts without a required reason while permitted by
+- Product sale-discount configuration is available to Staff and Managers in
+  routes and services. Both may apply item/order discounts without a required reason while permitted by
   settlement state, and Staff retains settlement and individual-receipt access.
 
 ### P2 - Stage 3 QR-Menu Backend — Complete
@@ -410,30 +411,31 @@ Acceptance criteria:
 
 ### P3 - Stage 8 Manager Capability Backend — Complete
 
-#### P3.1 Manager Catalog, Staff, And Settings APIs
+#### P3.1 Staff Catalog, Manager Staff, And Settings APIs
 
-Implement Manager-only write APIs for catalog, Staff accounts, and café
-settings.
+Implement Staff-accessible catalog writes and Manager-only Staff-account and
+café-settings APIs.
 
 Acceptance criteria:
 
-- Manager can create/update/deactivate categories, products, option groups,
-  options, images, Staff accounts, table settings, availability, and display
-  order.
+- Staff and Manager can create/update/deactivate categories, products, option
+  groups, options, images, catalog sale discounts, prices, availability, and
+  display order. Table configuration and Staff accounts remain Manager-only.
 - Referenced records are archived or deactivated instead of physically removed.
-- Staff users cannot access Manager write APIs.
+- Staff users cannot access Manager Staff-account, table-configuration, or
+  settings APIs.
 - All writes validate DTOs, write audit entries where meaningful, and preserve
   historical order snapshots.
 
 #### P3.2 Payment History, Daily Report, And Audit Queries
 
-Implement bounded Manager accounting, payment-history, and audit reads.
+Implement bounded payment-history reads and Manager-only accounting and audit reads.
 
 Acceptance criteria:
 
-- Manager can browse cursor-paginated payment history and open its associated
-  settlement receipts; Staff cannot browse this history but can still open and
-  print an individual receipt through an authorized POS order workflow.
+- Staff and Manager can browse cursor-paginated payment history and open its
+  associated settlement receipts. Only Manager can read accounting summaries
+  and audit history.
 - The first report is one daily accounting summary. Its only accepted period is
   `today` or `yesterday` in `Asia/Tehran`; metadata includes the resolved UTC
   range.
@@ -658,6 +660,21 @@ physical counts, movement history, and gross-profit date validation. The
 expanded acceptance coverage and execution record are in `docs/current-left.md`.
 
 ## 2 October 2026 Approved POS Behavior Notes
+
+## 22 October 2026 Approved Staff Capability And Settlement Policy Update
+
+- Staff and Managers can manage the catalog, prices, and catalog sale discounts,
+  and browse payment history. Accounting summaries remain Manager-only.
+- Staff and Managers can correct settlement tenders and reverse full
+  settlements. Corrections never require a reason. Reversal reasons are
+  optional by default; the Manager-only café setting
+  `settlementReversalReasonRequired` can require them.
+- The new reversal-reason setting defaults to `false` for existing and new
+  café settings. It does not affect settlement corrections.
+- API and POS coverage includes role access, settings authorization/default,
+  validation and persistence, reversal with/without a reason as policy permits,
+  correction without a reason, audit behavior, and denial of Staff access to
+  accounting summaries and Manager-only settings.
 
 ### P9 - Stage 16 Customer-Facing Menu Item Notes — Complete
 
