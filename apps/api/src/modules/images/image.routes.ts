@@ -11,7 +11,7 @@ import {
 import { env } from "../../config/env.js";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
-import { requireManagerRoute } from "../auth/authorization.js";
+import { requireStaff } from "../auth/authorization.js";
 
 const formats = new Map<string, { extension: "jpg" | "png" | "webp"; signature: number[] }>([
   ["image/jpeg", { extension: "jpg", signature: [0xff, 0xd8, 0xff] }],
@@ -43,7 +43,7 @@ export const imageRoutes: FastifyPluginAsync = async (app) => {
   app.put(
     "/admin/products/:productId/image",
     {
-      preHandler: requireManagerRoute,
+      preHandler: requireStaff,
       schema: {
         tags: ["Manager administration"],
         summary: "Upload or replace a product image",
@@ -97,7 +97,7 @@ export const imageRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/admin/products/:productId/image/archive",
     {
-      preHandler: requireManagerRoute,
+      preHandler: requireStaff,
       schema: { tags: ["Manager administration"], summary: "Archive a product image", headers, params: productParams, response: { 200: zodToJsonSchema(AdminImageArchiveResponseSchema), ...errors } },
     },
     async (request: any) => {
