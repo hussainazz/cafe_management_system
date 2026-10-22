@@ -19,6 +19,12 @@ async function managerCookies() {
   const response = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username, password: "CafePassword2026" } });
   return Object.fromEntries(response.cookies.map((cookie) => [cookie.name, cookie.value]));
 }
+async function staffCookies() {
+  const username = `image.staff.${++managerNumber}`;
+  await app.prisma.user.create({ data: { username, passwordHash: await hashPassword("CafePassword2026"), role: UserRole.STAFF } });
+  const response = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username, password: "CafePassword2026" } });
+  return Object.fromEntries(response.cookies.map((cookie) => [cookie.name, cookie.value]));
+}
 
 describe("product image delivery", () => {
   it("accepts a valid multipart PNG upload and rejects an invalid signature", async () => {
@@ -26,7 +32,7 @@ describe("product image delivery", () => {
     const product = await app.prisma.product.create({ data: { categoryId: category.id, name: "Upload product", priceAmount: 1, preparationDeadlineMinutes: 1, displayOrder: 2 } });
     const boundary = "stage8-image-boundary";
     const body = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="image.png"\r\nContent-Type: image/png\r\n\r\n`), Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.from(`\r\n--${boundary}--\r\n`)]);
-    const uploaded = await app.inject({ method: "PUT", url: `/api/v1/admin/products/${product.id}/image`, cookies: await managerCookies(), headers: { "content-type": `multipart/form-data; boundary=${boundary}` }, payload: body });
+    const uploaded = await app.inject({ method: "PUT", url: `/api/v1/admin/products/${product.id}/image`, cookies: await staffCookies(), headers: { "content-type": `multipart/form-data; boundary=${boundary}` }, payload: body });
     expect(uploaded.statusCode, uploaded.body).toBe(200);
     uploadedKey = uploaded.json().data.storageKey;
     expect(uploadedKey).toMatch(/^[0-9a-f-]{36}\.png$/);
@@ -44,7 +50,7 @@ describe("product image delivery", () => {
     expect(served.headers["content-type"]).toContain("image/png");
     expect(served.headers["cache-control"]).toContain("immutable");
     expect((await app.inject({ method: "GET", url: "/api/v1/product-images/../secret.png" })).statusCode).toBe(404);
-    const archived = await app.inject({ method: "POST", url: `/api/v1/admin/products/${product.id}/image/archive`, cookies: await managerCookies() });
+    const archived = await app.inject({ method: "POST", url: `/api/v1/admin/products/${product.id}/image/archive`, cookies: await staffCookies() });
     expect(archived.statusCode).toBe(200);
     await expect(app.prisma.productImage.findUnique({ where: { productId: product.id } })).resolves.toBeNull();
     expect((await app.inject({ method: "GET", url: `/api/v1/product-images/${key}` })).statusCode).toBe(404);
