@@ -9,7 +9,7 @@ import {
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
-import { requireManagerRoute } from "../auth/authorization.js";
+import { requireStaff } from "../auth/authorization.js";
 
 const ProductIdPathSchema = z.object({ productId: z.uuid() });
 
@@ -21,7 +21,7 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
   app.patch<{ Params: { productId: string }; Body: ProductSaleDiscountRequest }>(
     "/admin/products/:productId/sale-discount",
     {
-      preHandler: requireManagerRoute,
+      preHandler: requireStaff,
       schema: {
         tags: ["Catalog"], summary: "Configure a product sale discount",
         headers: zodToJsonSchema(AuthRequestHeadersSchema),
