@@ -642,6 +642,7 @@ model CafeSettings {
   id                       String   @id @default(uuid())
   singletonKey             Boolean  @unique @default(true)
   tableSeatingLimitMinutes Int?
+  settlementReversalReasonRequired Boolean @default(false)
   inventoryActivatedAt     DateTime?
   updatedById              String?
   updatedAt                DateTime @updatedAt
