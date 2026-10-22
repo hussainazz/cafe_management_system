@@ -195,14 +195,14 @@ Exit gate:
 
 Exit gate:
 
-- Manager capability APIs are documented, permissioned, tested, and bounded; Staff cannot browse payment history or reports, and data older than yesterday remains retained.
+- Manager capability APIs are documented, permissioned, tested, and bounded; Staff can browse payment history but not accounting reports, and data older than yesterday remains retained.
 
 ### Stage 9 — Manager Panels In Shared POS (Implementation Complete; Acceptance Pending)
 
 - Extend the existing POS shell and navigation according to the authenticated role; do not create a separate Manager application or duplicate the table dashboard.
 - Build category, product, canonical option/subset/override, image, price, product preparation-deadline, optional café-wide seating-limit, availability, and display-order management.
 - Build Staff account creation, deactivation, and session-management interfaces.
-- Build settings, Manager-only payment history, its applied-filter accounting summary, settlement-reversal, and audit-history interfaces.
+- Build Manager settings, Staff-and-Manager payment history, its Manager-only applied-filter accounting summary, settlement corrections/reversals, and audit-history interfaces.
 - Add confirmation, permission, validation, loading, error, and empty states for every Manager action.
 
 Exit gate:
