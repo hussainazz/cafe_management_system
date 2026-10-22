@@ -9,10 +9,10 @@ import { ManagerWorkspace } from "./manager-workspace";
 const catalog = { categories: [{ id: "category-1", name: "قهوه", isActive: true, isPosVisible: true }], products: [], optionGroups: [], tables: [] };
 
 const api = vi.hoisted(() => ({
-  readManagerCatalog: vi.fn(), readManagerStaff: vi.fn(), readManagerSettings: vi.fn(),
-  readPaymentHistory: vi.fn(), readDailyReport: vi.fn(), readAuditLog: vi.fn(), readOrder: vi.fn(), readOrderList: vi.fn(),
+  readManagerCatalog: vi.fn(), readStaffCatalog: vi.fn(), readManagerStaff: vi.fn(), readManagerSettings: vi.fn(),
+  readPaymentHistory: vi.fn(), readDailyReport: vi.fn(), readAuditLog: vi.fn(), readOrder: vi.fn(), readOrderList: vi.fn(), readPosTables: vi.fn(),
   readInventoryStockItems: vi.fn(), readInventoryPurchases: vi.fn(), readInventoryRecipes: vi.fn(), readInventoryCounts: vi.fn(), readInventoryMovements: vi.fn(), readPendingInventoryConsumption: vi.fn(), readGrossProfitReport: vi.fn(), readProductCosting: vi.fn(),
-  deleteOpenOrder: vi.fn(),
+  deleteOpenOrder: vi.fn(), reverseSettlement: vi.fn(),
   archiveCategory: vi.fn(), archiveOption: vi.fn(), archiveProduct: vi.fn(), archiveProductImage: vi.fn(), archiveTable: vi.fn(), deactivateStaff: vi.fn(), reactivateStaff: vi.fn(), saveCategory: vi.fn(), saveOption: vi.fn(), saveOptionGroup: vi.fn(), saveProduct: vi.fn(), saveSettings: vi.fn(), activateInventory: vi.fn(), saveStaff: vi.fn(), saveTable: vi.fn(), uploadProductImage: vi.fn(), reorderCategories: vi.fn(), reorderProducts: vi.fn(),
 }));
 
@@ -24,9 +24,11 @@ describe("ManagerWorkspace", () => {
     setRecoveryUser(`manager-test-${crypto.randomUUID()}`);
     vi.clearAllMocks();
     api.readManagerCatalog.mockResolvedValue({ ok: true, data: catalog });
+    api.readStaffCatalog.mockResolvedValue({ ok: true, data: catalog });
     api.readManagerStaff.mockResolvedValue({ ok: true, data: [] });
-    api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "00000000-0000-4000-8000-000000000001", tableSeatingLimitMinutes: null, inventoryActivatedAt: "2026-10-15T00:00:00.000Z", updatedAt: new Date().toISOString() } });
+    api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "00000000-0000-4000-8000-000000000001", tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false, inventoryActivatedAt: "2026-10-15T00:00:00.000Z", updatedAt: new Date().toISOString() } });
     api.readPaymentHistory.mockResolvedValue({ ok: true, data: [] });
+    api.readPosTables.mockResolvedValue({ ok: true, data: { tableSeatingLimitMinutes: null, tables: [] } });
     api.readOrderList.mockResolvedValue({ ok: true, data: { data: { orders: [] }, meta: { page: { limit: 100, nextCursor: null, hasMore: false } } } });
     api.readDailyReport.mockResolvedValue({ ok: true, data: null });
     api.readAuditLog.mockResolvedValue({ ok: true, data: { data: { entries: [] }, meta: { page: { nextCursor: null } } } });
@@ -41,15 +43,40 @@ describe("ManagerWorkspace", () => {
   });
 
   it("shows inactive inventory without fetching inventory data", async () => {
-    api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "settings", tableSeatingLimitMinutes: null, inventoryActivatedAt: null, updatedAt: new Date().toISOString() } });
+    api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "settings", tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false, inventoryActivatedAt: null, updatedAt: new Date().toISOString() } });
     render(<ManagerWorkspace section="inventory" menuOpen={false} onOpenMenu={vi.fn()} />);
     expect(await screen.findByRole("heading", { name: "انبار غیرفعال است" })).toBeTruthy();
     expect(api.readInventoryStockItems).not.toHaveBeenCalled();
     expect(api.readPendingInventoryConsumption).not.toHaveBeenCalled();
   });
 
+  it("lets Staff open the catalog and payment history without loading Manager settings or accounting summaries", async () => {
+    render(<ManagerWorkspace section="catalog" role="STAFF" menuOpen={false} onOpenMenu={vi.fn()} />);
+    expect(await screen.findByRole("heading", { name: "دسته‌ها" })).toBeTruthy();
+    expect(api.readStaffCatalog).toHaveBeenCalledTimes(1);
+    expect(api.readManagerCatalog).not.toHaveBeenCalled();
+    expect(api.readManagerStaff).not.toHaveBeenCalled();
+    expect(api.readManagerSettings).not.toHaveBeenCalled();
+    cleanup();
+    render(<ManagerWorkspace section="payments" role="STAFF" menuOpen={false} onOpenMenu={vi.fn()} />);
+    await waitFor(() => expect(api.readPaymentHistory).toHaveBeenCalled());
+    expect(api.readDailyReport).not.toHaveBeenCalled();
+    expect(api.readAuditLog).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "نمای کلی مالی" })).toBeNull();
+  });
+
+  it("saves the Manager-only settlement reversal reason policy with café settings", async () => {
+    api.saveSettings.mockResolvedValue({ ok: true });
+    render(<ManagerWorkspace section="settings" menuOpen={false} onOpenMenu={vi.fn()} />);
+    const required = await screen.findByRole("checkbox", { name: "الزام ثبت دلیل برای برگشت تسویه" });
+    expect((required as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(required);
+    fireEvent.submit(screen.getByRole("button", { name: "ذخیره تنظیمات" }).closest("form")!);
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ settlementReversalReasonRequired: true })));
+  });
+
   it("confirms activation and locks the switch after the server accepts it", async () => {
-    const inactive = { id: "settings", tableSeatingLimitMinutes: null, inventoryActivatedAt: null, updatedAt: new Date().toISOString() };
+    const inactive = { id: "settings", tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false, inventoryActivatedAt: null, updatedAt: new Date().toISOString() };
     api.readManagerSettings.mockResolvedValueOnce({ ok: true, data: inactive }).mockResolvedValue({ ok: true, data: { ...inactive, inventoryActivatedAt: "2026-10-15T00:00:00.000Z" } });
     api.activateInventory.mockResolvedValue({ ok: true });
     render(<ManagerWorkspace section="settings" menuOpen={false} onOpenMenu={vi.fn()} />);
@@ -225,12 +252,56 @@ describe("ManagerWorkspace", () => {
     expect(api.readDailyReport).toHaveBeenLastCalledWith(expect.objectContaining({ fromTime: "12:00", toTime: "18:00" }));
   });
 
-  it("does not expose settlement reversal in payment history", async () => {
+  it("exposes settlement reversal after payment history has loaded", async () => {
     api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", orderNumber: "1001", dailyOrderNumber: 1, orderState: "CLOSED", totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "manager" }, channel: "TABLE", table: { name: "1" }, reversedAt: null, payments: [{ method: "CASH" }] }] });
     render(<ManagerWorkspace section="finance" menuOpen={false} onOpenMenu={() => undefined} />);
-    expect(screen.queryByText("برگشت تسویه")).toBeNull();
+    expect(await screen.findByRole("button", { name: "برگشت تسویه" })).toBeTruthy();
     expect(await screen.findByText("ویرایش پرداخت")).toBeTruthy();
     expect(await screen.findByText("حذف سفارش")).toBeTruthy();
+  });
+
+  it.each([false, true])("lets Staff reverse a filtered payment, retrying a required reason when enabled=%s", async (requiresReason) => {
+    api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", dailyOrderNumber: 1, orderState: "CLOSED", totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "staff" }, channel: "TAKEAWAY", table: null, reversedAt: null, payments: [{ method: "CASH" }] }] });
+    api.readOrder.mockResolvedValue({ ok: true, data: { version: 7 } });
+    api.reverseSettlement.mockResolvedValue({ ok: true });
+    if (requiresReason) api.reverseSettlement.mockResolvedValueOnce({ ok: false, error: { kind: "response", status: 422, message: "A reason is required to reverse this settlement." } });
+    render(<ManagerWorkspace section="payments" role="STAFF" menuOpen={false} onOpenMenu={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "سفارش‌های تخفیف‌دار" }));
+    await waitFor(() => expect(api.readPaymentHistory).toHaveBeenLastCalledWith(expect.anything(), "DISCOUNTED"));
+    fireEvent.click(screen.getByRole("button", { name: "برگشت تسویه" }));
+    const reason = screen.getByLabelText("دلیل برگشت (اختیاری)") as HTMLInputElement;
+    expect(reason.required).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "تأیید" }));
+    await waitFor(() => expect(api.reverseSettlement).toHaveBeenCalledWith("settlement-1", { expectedVersion: 7 }));
+    if (requiresReason) {
+      expect(await screen.findAllByText("A reason is required to reverse this settlement.")).not.toHaveLength(0);
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      fireEvent.change(reason, { target: { value: "Wrong tender" } });
+      fireEvent.click(screen.getByRole("button", { name: "تأیید" }));
+      await waitFor(() => expect(api.reverseSettlement).toHaveBeenLastCalledWith("settlement-1", { expectedVersion: 7, reason: "Wrong tender" }));
+    }
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(api.readPaymentHistory).toHaveBeenLastCalledWith(expect.anything(), "DISCOUNTED");
+    expect(api.readDailyReport).not.toHaveBeenCalled();
+    expect(api.readAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("shows Staff the table name on older unpaid orders through operational table access", async () => {
+    api.readPosTables.mockResolvedValue({ ok: true, data: { tableSeatingLimitMinutes: null, tables: [{ id: "table-8", name: "8" }] } });
+    api.readOrderList.mockResolvedValue({ ok: true, data: { data: { orders: [{ id: "old-table-order", dailyOrderNumber: 1, channel: "TABLE", tableId: "table-8", state: "OPEN", paymentStatus: "UNPAID", version: 1, totalAmount: 80_000, balanceAmount: 80_000, createdAt: "2026-09-14T08:00:00.000Z" }] }, meta: { page: { nextCursor: null, hasMore: false } } } });
+    render(<ManagerWorkspace section="payments" role="STAFF" menuOpen={false} onOpenMenu={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "پرداخت‌نشده‌ی روزهای قبل" }));
+    expect(await screen.findByText("میز 8")).toBeTruthy();
+    expect(api.readManagerCatalog).not.toHaveBeenCalled();
+    expect(api.readManagerSettings).not.toHaveBeenCalled();
+  });
+
+  it.each(["deleted", "reversed"])("hides Staff correction and reversal actions on a %s payment", async (state) => {
+    api.readPaymentHistory.mockResolvedValue({ ok: true, data: [{ id: "settlement-1", orderId: "order-1", dailyOrderNumber: 1, orderState: state === "deleted" ? "DELETED" : "CLOSED", totalAmount: 25_000, recordedAt: "2026-09-13T08:00:00.000Z", recordedBy: { username: "staff" }, channel: "TAKEAWAY", table: null, reversedAt: state === "reversed" ? "2026-09-13T09:00:00.000Z" : null, payments: [{ method: "CASH" }] }] });
+    render(<ManagerWorkspace section="payments" role="STAFF" menuOpen={false} onOpenMenu={vi.fn()} />);
+    await screen.findByRole("button", { name: "رسید تسویه" });
+    expect(screen.queryByRole("button", { name: "برگشت تسویه" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "ویرایش پرداخت" })).toBeNull();
   });
 
   it("renders payment history as a sortable table", async () => {
