@@ -36,7 +36,7 @@ import {
   type UpdateOrderRequest,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
-import { requireManagerRoute, requireStaff } from "../auth/authorization.js";
+import { requireStaff } from "../auth/authorization.js";
 import { ApplicationError } from "../../errors/application-error.js";
 import { prepareBarTicket, acknowledgeBarTicket, barTicket, createOrder, deleteOrder, editSettlement, listOrders, orderReceipt, readOrder, recordSettlement, reverseSettlementById, settlementReceipt, transferOrderTable, updateOrder } from "./orders.service.js";
 
@@ -86,8 +86,8 @@ export const ordersRoutes: FastifyPluginAsync = async (app) => {
     if (result.replayed) reply.header("idempotency-replayed", "true");
     return reply.status(201).send({ data: result.order, meta: { requestId: request.id } });
   });
-  app.post<{ Params: { settlementId: string }; Body: ReverseSettlementRequest }>("/admin/settlements/:settlementId/reverse", { preHandler: requireManagerRoute, schema: { tags: ["Orders"], summary: "Reverse a settlement", headers, params: settlementOnlyParams, body: zodToJsonSchema(ReverseSettlementRequestSchema), response: { 200: zodToJsonSchema(ReverseSettlementResponseSchema), ...errors } } }, async (request) => ({ data: await reverseSettlementById(app.prisma, request.authenticatedUser!, request.params.settlementId, request.body, request.id), meta: { requestId: request.id } }));
-  app.post<{ Params: { settlementId: string }; Body: EditSettlementRequest }>("/admin/settlements/:settlementId/edit", { preHandler: requireManagerRoute, schema: { tags: ["Orders"], summary: "Edit a historical settlement without changing live table state", headers: zodToJsonSchema(IdempotencyRequestHeadersSchema), params: settlementOnlyParams, body: editSettlementBodySchema, response: { 200: zodToJsonSchema(EditSettlementResponseSchema), ...errors } } }, async (request, reply) => {
+  app.post<{ Params: { settlementId: string }; Body: ReverseSettlementRequest }>("/admin/settlements/:settlementId/reverse", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Reverse a settlement", headers, params: settlementOnlyParams, body: zodToJsonSchema(ReverseSettlementRequestSchema), response: { 200: zodToJsonSchema(ReverseSettlementResponseSchema), ...errors } } }, async (request) => ({ data: await reverseSettlementById(app.prisma, request.authenticatedUser!, request.params.settlementId, request.body, request.id), meta: { requestId: request.id } }));
+  app.post<{ Params: { settlementId: string }; Body: EditSettlementRequest }>("/admin/settlements/:settlementId/edit", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Edit a historical settlement without changing live table state", headers: zodToJsonSchema(IdempotencyRequestHeadersSchema), params: settlementOnlyParams, body: editSettlementBodySchema, response: { 200: zodToJsonSchema(EditSettlementResponseSchema), ...errors } } }, async (request, reply) => {
     const parsedBody = EditSettlementRequestSchema.parse(request.body) as EditSettlementRequest;
     const key = request.headers["idempotency-key"];
     const result = await editSettlement(app.prisma, request.authenticatedUser!, request.params.settlementId, parsedBody, typeof key === "string" ? key : "", request.id);
