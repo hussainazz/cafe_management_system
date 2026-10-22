@@ -1042,7 +1042,7 @@ export async function recordSettlement(
 }
 
 export async function reverseSettlement(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string, input: ReverseSettlementRequest, requestId: string) {
-  requireRole(actor, ["MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER"]);
   return prisma.$transaction(async (transaction) => {
     const tableAssignment = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
     await lockOperationalKeys(transaction, ["order:" + orderId, ...(tableAssignment?.channel === OrderChannel.TABLE && tableAssignment.tableId ? ["table:" + tableAssignment.tableId] : [])]);
@@ -1052,7 +1052,10 @@ export async function reverseSettlement(prisma: PrismaClient, actor: Authenticat
     const settlement = order.paymentSettlements.find((candidate) => candidate.id === settlementId);
     if (!settlement) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested settlement was not found.");
     if (settlement.reversal) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The settlement has already been reversed.");
-    await transaction.settlementReversal.create({ data: { settlementId, recordedById: actor.id, reason: input.reason } });
+    const settings = await transaction.cafeSettings.findUnique({ where: { singletonKey: true }, select: { settlementReversalReasonRequired: true } });
+    const reason = input.reason?.trim() || null;
+    if (settings?.settlementReversalReasonRequired && !reason) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reason is required to reverse this settlement.");
+    await transaction.settlementReversal.create({ data: { settlementId, recordedById: actor.id, reason } });
     const paidAmount = order.paidAmount - settlement.totalAmount;
     const balanceAmount = order.totalAmount - paidAmount;
     const paymentStatus = paymentStatusForBalance(paidAmount, balanceAmount);
@@ -1070,7 +1073,7 @@ export async function reverseSettlement(prisma: PrismaClient, actor: Authenticat
         data: { occupancyState: "OCCUPIED", occupiedAt: new Date(), occupancyReminderAt: null },
       });
     }
-    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "REVERSE_SETTLEMENT", entityType: "PAYMENT_SETTLEMENT", entityId: settlementId, reason: input.reason, afterSnapshot: { orderId, paidAmount, balanceAmount, version: input.expectedVersion + 1 } } });
+    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "REVERSE_SETTLEMENT", entityType: "PAYMENT_SETTLEMENT", entityId: settlementId, reason, afterSnapshot: { orderId, paidAmount, balanceAmount, version: input.expectedVersion + 1 } } });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
 }
@@ -1089,7 +1092,7 @@ export async function editSettlement(
   idempotencyKey: string,
   requestId: string,
 ) {
-  requireRole(actor, ["MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER"]);
   const fingerprint = requestFingerprint({ settlementId, ...input });
   const previous = await existingIdempotencyResult<ReturnType<typeof orderDetailDto>>(
     prisma,
