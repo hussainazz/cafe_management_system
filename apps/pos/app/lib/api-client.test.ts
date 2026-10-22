@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acknowledgeBarTicket, createInventoryPurchase, readWaiterCalls } from "./api-client";
+import { acknowledgeBarTicket, createInventoryPurchase, readStaffCatalog, readWaiterCalls } from "./api-client";
 
 const authenticationError = {
   error: {
@@ -42,6 +42,22 @@ describe("inventory error transport", () => {
     vi.stubGlobal("fetch", fetch);
     expect(await createInventoryPurchase({ lines: [] })).toMatchObject({ ok: false, error: { kind: "response", status: 422, details, requestId: "purchase-validation-123" } });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Staff catalog transport", () => {
+  it.each([false, true])("requests only Staff catalog endpoints and propagates a failed read=%s", async (failure) => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith("/products") && failure) return jsonResponse({ error: { code: "AUTHORIZATION_DENIED", message: "Forbidden", requestId: "staff-catalog", timestamp: "2026-10-22T00:00:00.000Z" } }, 403);
+      const field = url.endsWith("/categories") ? "categories" : url.endsWith("/products") ? "products" : "optionGroups";
+      return jsonResponse({ data: { [field]: [] }, meta: { requestId: "staff-catalog" } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const result = await readStaffCatalog();
+    expect(fetch.mock.calls.map(([url]) => url).sort()).toEqual([
+      "/pos/api/v1/admin/categories", "/pos/api/v1/admin/option-groups", "/pos/api/v1/admin/products",
+    ]);
+    expect(result).toMatchObject(failure ? { ok: false, error: { status: 403 } } : { ok: true, data: { categories: [], products: [], optionGroups: [], tables: [] } });
   });
 });
 
