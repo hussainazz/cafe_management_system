@@ -13,12 +13,15 @@ import {
   readAuditLog,
   readDailyReport,
   readManagerCatalog,
+  readStaffCatalog,
   readManagerSettings,
   readManagerStaff,
   readOrderList,
   readOrder,
   readPaymentHistory,
+  readPosTables,
   reactivateStaff,
+  reverseSettlement,
   saveCategory,
   saveOption,
   saveOptionGroup,
@@ -46,13 +49,14 @@ import { SettlementSheet } from "./orders-workspace";
 import { persianDateToGregorianDate, tehranPersianDateParts } from "../lib/tehran-date";
 import { InventoryWorkspace } from "./inventory-workspace";
 
-type Panel = "catalog" | "tables" | "finance" | "audit" | "settings" | "inventory";
+type Panel = "catalog" | "tables" | "finance" | "payments" | "audit" | "settings" | "inventory";
 type SettingsPanel = "settings" | "tables" | "audit";
-export type ManagerSection = "settings" | "finance" | "catalog" | "inventory";
+export type ManagerSection = "settings" | "finance" | "payments" | "catalog" | "inventory";
 type Confirm = {
   title: string;
   detail: string;
   reasonLabel?: string;
+  reasonOptional?: boolean;
   run: (reason?: string) => Promise<void>;
 } | null;
 type PaymentSortKey = "order" | "recordedAt" | "context" | "amount" | "method" | "recordedBy" | "status";
@@ -143,16 +147,18 @@ function paymentDatePresetRange(preset: Exclude<PaymentDatePreset, "custom">): {
 
 export function ManagerWorkspace({
   section = "settings",
+  role = "MANAGER",
   onOpenMenu,
   menuOpen,
 }: {
   section?: ManagerSection;
+  role?: "STAFF" | "MANAGER";
   onOpenMenu: () => void;
   menuOpen: boolean;
 }) {
   const [settingsPanel, setSettingsPanel] = useRecoveryState<SettingsPanel>("manager-settings-panel", "settings");
   const panel: Panel = section === "settings" ? settingsPanel : section;
-  const pageTitle = section === "settings" ? "تنظیمات" : section === "finance" ? "حسابداری" : section === "catalog" ? "منو و کالاها" : "انبار";
+  const pageTitle = section === "settings" ? "تنظیمات" : section === "finance" ? "حسابداری" : section === "payments" ? "تاریخچه‌ی پرداخت" : section === "catalog" ? "منو و کالاها" : "انبار";
   const [catalog, setCatalog] = useState<ManagerCatalog | null>(null);
   const [staff, setStaff] = useState<ManagerStaff | null>(null);
   const [settings, setSettings] = useState<ManagerSettings | null>(null);
@@ -178,15 +184,15 @@ export function ManagerWorkspace({
     return () => { cancelRecovery?.(); window.removeEventListener("run-cafe:api-failure", failed); window.removeEventListener(recoveryNoticeEvent, notified); };
   }, []);
   useEffect(() => {
-    if (loading || failure || !catalog || !staff || !settings) return;
+    if (loading || failure || !catalog || (role === "MANAGER" && (!staff || !settings))) return;
     const healthy = window.setTimeout(finishRecoveryEpisode, 30_000);
     return () => window.clearTimeout(healthy);
-  }, [loading, failure, catalog, staff, settings]);
+  }, [loading, failure, catalog, staff, settings, role]);
   const reloadCatalog = useCallback(async () => {
-    const result = await readManagerCatalog();
+    const result = role === "MANAGER" ? await readManagerCatalog() : await readStaffCatalog();
     if (result.ok) setCatalog(result.data);
     return result;
-  }, []);
+  }, [role]);
   const reloadStaff = useCallback(async () => {
     const result = await readManagerStaff();
     if (result.ok) setStaff(result.data);
@@ -199,11 +205,13 @@ export function ManagerWorkspace({
   }, []);
   const reloadAll = useCallback(async () => {
     setLoading(true);
-    const results = await Promise.all([reloadCatalog(), reloadStaff(), reloadSettings()]);
+    const results = role === "MANAGER"
+      ? await Promise.all([reloadCatalog(), reloadStaff(), reloadSettings()])
+      : [await reloadCatalog()];
     const failed = results.find((result) => !result.ok);
     setFailure(failed && !failed.ok ? failed.error : null);
     setLoading(false);
-  }, [reloadCatalog, reloadSettings, reloadStaff]);
+  }, [reloadCatalog, reloadSettings, reloadStaff, role]);
   useEffect(() => {
     void reloadAll();
   }, [reloadAll]);
@@ -300,8 +308,8 @@ export function ManagerWorkspace({
         : <ManagerCard title="انبار غیرفعال است" hint="برای شروع، انبار را از تنظیمات کافه فعال کنید. تا آن زمان، هیچ سفارشی در انبار ثبت نمی‌شود.">
             <p>از منوی اصلی، تنظیمات را باز کنید.</p>
           </ManagerCard>)}
-      {!loading && (panel === "finance" || panel === "audit") && (
-        <FinancePanel panel={panel} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
+      {!loading && (panel === "finance" || panel === "payments" || panel === "audit") && (
+        <FinancePanel panel={panel} role={role} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
       )}
       {!loading && panel === "settings" && settings && (
         <SettingsPanel settings={settings} staff={staff} mutate={mutate} reload={reloadSettings} reloadStaff={reloadStaff} requestConfirm={setConfirm} />
@@ -633,11 +641,13 @@ function StaffPanel({
 
 function FinancePanel({
   panel,
+  role,
   tables,
   mutate,
   requestConfirm,
 }: {
-  panel: "finance" | "audit";
+  panel: "finance" | "payments" | "audit";
+  role: "STAFF" | "MANAGER";
   tables: ManagerCatalog["tables"];
   mutate: (action: () => Promise<any>, reload: () => Promise<any>) => Promise<void>;
   requestConfirm: (confirm: Confirm) => void;
@@ -645,6 +655,7 @@ function FinancePanel({
   const [payments, setPayments] = useState<PaymentHistory>([]);
   const [paymentListFilter, setPaymentListFilter] = useState<PaymentListFilter>(null);
   const [unpaidOrders, setUnpaidOrders] = useState<OrderSummary[]>([]);
+  const [staffTables, setStaffTables] = useState<Array<{ id: string; name: string }>>([]);
   const [unpaidOrdersCursor, setUnpaidOrdersCursor] = useState<string | null>(null);
   const [unpaidOrdersHasMore, setUnpaidOrdersHasMore] = useState(false);
   const [loadingUnpaidOrders, setLoadingUnpaidOrders] = useState(false);
@@ -690,6 +701,9 @@ function FinancePanel({
       setPayments(result.data);
     } else setMessage(result.error.message);
   }, []);
+  const refreshPayments = () => paymentListFilter && paymentListFilter !== "PREVIOUS_UNPAID"
+    ? loadPayments(appliedPaymentFilters, paymentListFilter)
+    : loadPayments(appliedPaymentFilters);
   const loadPreviousUnpaidOrders = useCallback(async (cursor?: string, append = false) => {
     const [year = 0, month = 1, day = 1] = appliedPaymentFilters.fromDate.split("-").map(Number);
     const rangeStart = Date.UTC(year, month - 1, day) - (3.5 * 60 * 60 * 1000);
@@ -733,11 +747,10 @@ function FinancePanel({
   );
   useEffect(() => {
     void Promise.all([
-          loadPayments(appliedPaymentFilters, paymentListFilter === "PREVIOUS_UNPAID" ? undefined : paymentListFilter ?? undefined),
-      loadReport(appliedPaymentFilters),
-      loadAudit(),
+      loadPayments(appliedPaymentFilters, paymentListFilter === "PREVIOUS_UNPAID" ? undefined : paymentListFilter ?? undefined),
+      ...(role === "MANAGER" ? [loadReport(appliedPaymentFilters), loadAudit()] : []),
     ]);
-  }, [appliedPaymentFilters, loadAudit, loadPayments, loadReport, paymentListFilter]);
+  }, [appliedPaymentFilters, loadAudit, loadPayments, loadReport, paymentListFilter, role]);
   useEffect(() => {
     if (paymentListFilter !== "PREVIOUS_UNPAID") return;
     setUnpaidOrders([]);
@@ -746,6 +759,16 @@ function FinancePanel({
     setLoadingUnpaidOrders(true);
     void loadPreviousUnpaidOrders();
   }, [paymentListFilter, loadPreviousUnpaidOrders]);
+  useEffect(() => {
+    if (role !== "STAFF" || paymentListFilter !== "PREVIOUS_UNPAID") return;
+    let cancelled = false;
+    void readPosTables().then((result) => {
+      if (cancelled) return;
+      if (result.ok) setStaffTables(result.data.tables);
+      else setMessage(result.error.message);
+    });
+    return () => { cancelled = true; };
+  }, [role, paymentListFilter]);
   const sortedPayments = useMemo(() => {
     const valueFor = (item: PaymentHistory[number]) => {
       switch (paymentSort.key) {
@@ -774,9 +797,9 @@ function FinancePanel({
     }));
   };
   return (
-    <div className={`manager-grid${panel === "finance" ? " finance-dashboard-grid" : ""}`}>
-      {panel === "finance" && <div className="finance-dashboard">
-      <ManagerCard className="manager-card--accounting" title="نمای کلی مالی" hint="گزارش بر اساس بازه‌ی انتخاب‌شده برای پرداخت‌ها.">
+    <div className={`manager-grid${panel === "finance" || panel === "payments" ? " finance-dashboard-grid" : ""}`}>
+      {(panel === "finance" || panel === "payments") && <div className="finance-dashboard">
+      {panel === "finance" && role === "MANAGER" && <ManagerCard className="manager-card--accounting" title="نمای کلی مالی" hint="گزارش بر اساس بازه‌ی انتخاب‌شده برای پرداخت‌ها.">
         {report ? <>
           <div className="finance-metrics">
             <article className="finance-metric finance-metric--primary"><span>کل</span><strong>{formatToman(report.data.salesAmount)}</strong><small>تومان</small></article>
@@ -794,7 +817,7 @@ function FinancePanel({
             </dl>
           </details>
         </> : <div className="finance-loading" role="status">در حال دریافت گزارش مالی…</div>}
-      </ManagerCard>
+      </ManagerCard>}
       <ManagerCard className="finance-filter-card" title="فیلتر پرداخت‌ها" hint="بازه‌ی زمانی و ساعت ثبت پرداخت را مشخص کنید.">
         {message && <p className="form-error" role="alert">{message}</p>}
         <div className="finance-filter-toolbar">
@@ -908,7 +931,7 @@ function FinancePanel({
                     <tr key={order.id}>
                       <td><strong>{formatOrderNumber(order.dailyOrderNumber)}</strong></td>
                       <td>{new Date(order.createdAt).toLocaleString("fa-IR-u-nu-latn")}</td>
-                      <td>{order.channel === "TABLE" ? `میز ${tables.find((table) => table.id === order.tableId)?.name ?? "—"}` : "بیرون‌بر"}</td>
+                      <td>{order.channel === "TABLE" ? `میز ${(role === "STAFF" ? staffTables : tables).find((table) => table.id === order.tableId)?.name ?? "—"}` : "بیرون‌بر"}</td>
                       <td><span className="payment-status is-warning">پرداخت‌نشده</span></td>
                       <td className="payment-amount">{formatToman(order.totalAmount)} <small>تومان</small></td>
                       <td className="payment-amount">{formatToman(order.balanceAmount)} <small>تومان</small></td>
@@ -992,6 +1015,29 @@ function FinancePanel({
               {item.orderState !== "DELETED" && !item.reversedAt && <button
                 className="danger-button"
                 type="button"
+                onClick={() => requestConfirm({
+                  title: "برگشت تسویه",
+                  detail: `تسویه‌ی سفارش ${formatOrderNumber(item.dailyOrderNumber)} برگشت می‌خورد و مانده‌ی سفارش دوباره محاسبه می‌شود. اگر تنظیم مدیر الزام کرده باشد، باید دلیل وارد شود.`,
+                  reasonLabel: "دلیل برگشت (اختیاری)",
+                  reasonOptional: true,
+                  run: async (reason) => {
+                    const order = await readOrder(item.orderId);
+                    if (!order.ok) throw new Error(order.error.message);
+                    await mutate(
+                      () => reverseSettlement(item.id, { expectedVersion: order.data.version, ...(reason ? { reason } : {}) }),
+                      async () => {
+                        await refreshPayments();
+                        if (role === "MANAGER") await loadReport(appliedPaymentFilters);
+                      },
+                    );
+                  },
+                })}
+              >
+                برگشت تسویه
+              </button>}
+              {item.orderState !== "DELETED" && !item.reversedAt && <button
+                className="danger-button"
+                type="button"
                 onClick={() =>
                   requestConfirm({
                     title: "حذف سفارش",
@@ -1005,7 +1051,8 @@ function FinancePanel({
                       await mutate(
                         () => deleteOpenOrder(item.orderId, { expectedVersion: order.data.version }),
                         async () => {
-                          await Promise.all([loadPayments(appliedPaymentFilters), loadReport(appliedPaymentFilters)]);
+                          await refreshPayments();
+                          if (role === "MANAGER") await loadReport(appliedPaymentFilters);
                         },
                       );
                     },
@@ -1066,7 +1113,8 @@ function FinancePanel({
             onSuccess={async () => {
               setEditingSettlementId(null);
               setSelectedOrder(null);
-              await Promise.all([loadPayments(appliedPaymentFilters), loadReport(appliedPaymentFilters)]);
+              await refreshPayments();
+              if (role === "MANAGER") await loadReport(appliedPaymentFilters);
             }}
           />
         ) : null;
@@ -1165,6 +1213,8 @@ function SettingsPanel({
   const [seatingLimitEnabled, setSeatingLimitEnabled] = useState(
     settings.tableSeatingLimitMinutes !== null,
   );
+  const [settlementReversalReasonRequired, setSettlementReversalReasonRequired] = useState(settings.settlementReversalReasonRequired);
+  useEffect(() => setSettlementReversalReasonRequired(settings.settlementReversalReasonRequired), [settings.settlementReversalReasonRequired]);
   return (
     <div className="manager-grid">
     <ManagerCard title="تنظیمات کافه" hint="ثبت مدت حضور مشتری روی میز اختیاری است و با فعال‌سازی این گزینه در سفارش‌ها نمایش داده می‌شود.">
@@ -1176,6 +1226,7 @@ function SettingsPanel({
           void mutate(
             () => saveSettings({
               tableSeatingLimitMinutes: seatingLimitEnabled ? number(data.get("minutes")) : null,
+              settlementReversalReasonRequired,
             }),
             reload,
           );
@@ -1190,6 +1241,15 @@ function SettingsPanel({
               onChange={(event) => setSeatingLimitEnabled(event.target.checked)}
             />{" "}
             نمایش مدت حضور مشتری روی میز
+          </label>
+          <label>
+            <input
+              name="settlementReversalReasonRequired"
+              type="checkbox"
+              checked={settlementReversalReasonRequired}
+              onChange={(event) => setSettlementReversalReasonRequired(event.target.checked)}
+            />{" "}
+            الزام ثبت دلیل برای برگشت تسویه
           </label>
           <label>
             <span>مدت حضور مشتری روی میز (دقیقه)</span>
@@ -1585,7 +1645,7 @@ function ConfirmDialog({ confirm, close }: { confirm: Exclude<Confirm, null>; cl
   }, []);
   const submit = () => {
     const trimmedReason = reason.trim();
-    if (confirm.reasonLabel && !trimmedReason) {
+    if (confirm.reasonLabel && !confirm.reasonOptional && !trimmedReason) {
       setError("برای ادامه، دلیل این عملیات را وارد کنید.");
       reasonRef.current?.focus();
       return;
@@ -1595,7 +1655,7 @@ function ConfirmDialog({ confirm, close }: { confirm: Exclude<Confirm, null>; cl
     void confirm
       .run(trimmedReason || undefined)
       .then(close)
-      .catch(() => setError("عملیات انجام نشد. دوباره تلاش کنید."))
+      .catch((failure) => setError(failure instanceof Error ? failure.message : "عملیات انجام نشد. دوباره تلاش کنید."))
       .finally(() => setBusy(false));
   };
   return (
@@ -1620,7 +1680,7 @@ function ConfirmDialog({ confirm, close }: { confirm: Exclude<Confirm, null>; cl
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               disabled={busy}
-              required
+              required={!confirm.reasonOptional}
             />
           </label>
         )}
