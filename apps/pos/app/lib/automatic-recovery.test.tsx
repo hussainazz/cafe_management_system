@@ -5,6 +5,11 @@ import { beginRecoveryActivity, requestAutomaticRecovery, setRecoveryUser, readR
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 function Draft() { const [value, setValue] = useRecoveryState("draft", ""); return <input aria-label="draft" value={value} onChange={e => setValue(e.target.value)} />; }
 describe("automatic recovery", () => {
+  it("restores the Staff payment-history workspace", () => {
+    setRecoveryUser("staff-payment-history");
+    writeRecovery("workspace", "payments");
+    expect(readRecovery("workspace")).toBe("payments");
+  });
   it("persists mounted draft edits across remount", () => {
     setRecoveryUser("draft-user"); render(<Draft />);
     fireEvent.change(screen.getByLabelText("draft"), { target: { value: "remember me" } });
