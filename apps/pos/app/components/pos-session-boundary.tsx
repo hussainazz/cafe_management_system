@@ -20,8 +20,8 @@ import { setRecoveryUser, readRecovery, writeRecovery } from "../lib/automatic-r
 type Workspace = "orders" | ManagerSection;
 
 function restoredWorkspace(role: AuthenticatedUser["role"]): Workspace {
-  if (role !== "MANAGER") return "orders";
   const saved = readRecovery<Workspace | "manager">("workspace");
+  if (role !== "MANAGER") return saved === "catalog" || saved === "payments" ? saved : "orders";
   return saved === "manager" ? "settings" : saved ?? "orders";
 }
 
@@ -189,6 +189,11 @@ export function PosSessionBoundary() {
             <OrdersIcon />
             <span>سفارش‌گیری</span>
           </button>
+          {session.user.role === "STAFF" && <>
+            <h2>مدیریت روزانه</h2>
+            <button className={`nav-item ${workspace === "catalog" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("catalog")}><CatalogIcon /><span>منو و کالاها</span></button>
+            <button className={`nav-item ${workspace === "payments" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("payments")}><AccountingIcon /><span>تاریخچه‌ی پرداخت</span></button>
+          </>}
           {session.user.role === "MANAGER" && <>
             <h2>مدیریت</h2>
             <button className={`nav-item ${workspace === "settings" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("settings")}><SettingsIcon /><span>تنظیمات</span></button>
@@ -219,9 +224,9 @@ export function PosSessionBoundary() {
       </aside>
 
       <main className="pos-main">
-        {workspace === "orders" || session.user.role !== "MANAGER" ? <OrdersWorkspace refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace section={workspace} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
+        {workspace === "orders" ? <OrdersWorkspace refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace section={workspace} role={session.user.role} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
       </main>
-      <ReleaseUpdateGuard activity={workspace === "orders" || session.user.role !== "MANAGER" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
+      <ReleaseUpdateGuard activity={workspace === "orders" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
     </div>
   );
 }
