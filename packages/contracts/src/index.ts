@@ -589,7 +589,7 @@ export type RecordSettlementRequest = z.infer<typeof RecordSettlementRequestSche
 
 export const RecordSettlementResponseSchema = OrderDetailResponseSchema;
 
-export const ReverseSettlementRequestSchema = z.object({ expectedVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(500) }).strict();
+export const ReverseSettlementRequestSchema = z.object({ expectedVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(500).optional() }).strict();
 export type ReverseSettlementRequest = z.infer<typeof ReverseSettlementRequestSchema>;
 export const ReverseSettlementResponseSchema = OrderDetailResponseSchema;
 
@@ -638,7 +638,7 @@ export const AdminOptionInputSchema = z.object({ name: AdminNameSchema, priceAmo
 export const AdminTableInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), waiterCallEnabled: z.boolean().optional() }).strict();
 export const AdminStaffInputSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/), password: z.string().min(12).max(128) }).strict();
 export const AdminStaffUpdateSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/).optional(), password: z.string().min(12).max(128).optional() }).strict().refine((input) => input.username !== undefined || input.password !== undefined);
-export const AdminSettingsUpdateSchema = z.object({ tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable() }).strict();
+export const AdminSettingsUpdateSchema = z.object({ tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable(), settlementReversalReasonRequired: z.boolean().optional() }).strict();
 export const AdminIdPathSchema = z.object({ id: z.uuid() });
 
 const AdminMetaSchema = z.object({ requestId: z.string() });
@@ -650,7 +650,7 @@ export const AdminOptionSchema = z.object({ id: z.uuid(), name: z.string(), pric
 export const AdminOptionGroupSchema = z.object({ id: z.uuid(), name: z.string(), isActive: z.boolean(), options: z.array(AdminOptionSchema) });
 export const AdminTableSchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), waiterCallEnabled: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminStaffSchema = z.object({ id: z.uuid(), username: z.string(), role: z.literal("STAFF"), isActive: z.boolean(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
-export const AdminSettingsSchema = z.object({ id: z.uuid(), tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable(), inventoryActivatedAt: z.iso.datetime().nullable(), updatedAt: z.iso.datetime() });
+export const AdminSettingsSchema = z.object({ id: z.uuid(), tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable(), settlementReversalReasonRequired: z.boolean(), inventoryActivatedAt: z.iso.datetime().nullable(), updatedAt: z.iso.datetime() });
 export const AdminImageResponseSchema = z.object({ data: AdminProductImageSchema, meta: AdminMetaSchema });
 export const AdminImageArchiveResponseSchema = z.object({ data: z.object({ productId: z.uuid() }), meta: AdminMetaSchema });
 export const AdminCategoriesResponseSchema = z.object({ data: z.object({ categories: z.array(AdminCategorySchema) }), meta: AdminMetaSchema });
