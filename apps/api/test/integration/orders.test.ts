@@ -437,18 +437,15 @@ describe("order reads, edits, and discounts", () => {
     expect(list.json().data.orders).toHaveLength(1);
   });
 
-  it("allows only a Manager to configure a future product sale discount and snapshots it on a new order", async () => {
-    const managerCookies = await userSession(UserRole.MANAGER, "discount.manager");
+  it("allows Staff to configure a future product sale discount and snapshots it on a new order", async () => {
     const staffCookies = await userSession(UserRole.STAFF, "discount.staff");
     const { product } = await sellableProduct();
-    const forbidden = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${product.id}/sale-discount`, cookies: staffCookies, payload: { saleDiscount: { kind: "PERCENTAGE", value: 20 } } });
-    expect(forbidden.statusCode).toBe(403);
-    const configured = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${product.id}/sale-discount`, cookies: managerCookies, payload: { saleDiscount: { kind: "PERCENTAGE", value: 20 } } });
+    const configured = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${product.id}/sale-discount`, cookies: staffCookies, payload: { saleDiscount: { kind: "PERCENTAGE", value: 20 } } });
     expect(configured.statusCode).toBe(200);
     const order = await createOrderRequest(staffCookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] }, "discount-order-create-1");
     expect(order.statusCode).toBe(201);
     expect(order.json().data).toMatchObject({ subtotalAmount: 40_000, totalAmount: 40_000, items: [{ discountKind: "PERCENTAGE", discountValue: 20, discountAmount: 10_000, lineTotalAmount: 40_000 }] });
-    const removed = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${product.id}/sale-discount`, cookies: managerCookies, payload: { saleDiscount: null } });
+    const removed = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${product.id}/sale-discount`, cookies: staffCookies, payload: { saleDiscount: null } });
     expect(removed.statusCode).toBe(200);
     const historical = await app.inject({ method: "GET", url: `/api/v1/orders/${order.json().data.id}`, cookies: staffCookies });
     expect(historical.json().data.items[0]).toMatchObject({ discountKind: "PERCENTAGE", discountValue: 20, discountAmount: 10_000, lineTotalAmount: 40_000 });
@@ -1138,9 +1135,74 @@ describe("settlement recording", () => {
 });
 
 describe("settlement reversal and print data", () => {
-  it("lets only a Manager reverse a settlement and returns safe print data", async () => {
+  it("keeps the reversal reason toggle off by default and applies a Manager change to Staff actions", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "reverse-policy-default.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "reverse-policy-default.manager");
+    await app.prisma.cafeSettings.deleteMany({});
+    const defaultSettings = await app.inject({ method: "GET", url: "/api/v1/admin/settings", cookies: managerCookies });
+    expect(defaultSettings.json().data.settlementReversalReasonRequired).toBe(false);
+    const changed = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: managerCookies, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: true } });
+    expect(changed.json().data.settlementReversalReasonRequired).toBe(true);
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(staffCookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-policy-default-order");
+    const order = created.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "reverse-policy-default-settle" }, payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
+    const settlementId = settled.json().data.settlements[0].id;
+    const url = `/api/v1/admin/settlements/${settlementId}/reverse`;
+    expect((await app.inject({ method: "POST", url, payload: { expectedVersion: settled.json().data.version } })).statusCode).toBe(401);
+    for (const cookies of [staffCookies, managerCookies]) {
+      const noReason = await app.inject({ method: "POST", url, cookies, payload: { expectedVersion: settled.json().data.version } });
+      expect(noReason.statusCode).toBe(422);
+      const blankReason = await app.inject({ method: "POST", url, cookies, payload: { expectedVersion: settled.json().data.version, reason: "   " } });
+      expect(blankReason.statusCode).toBe(422);
+      expect(blankReason.json().error.code).toBe("BUSINESS_RULE_VIOLATION");
+    }
+    expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(0);
+    expect(await app.prisma.auditLog.count({ where: { entityId: settlementId, operation: "REVERSE_SETTLEMENT" } })).toBe(0);
+    expect(await app.prisma.order.findUniqueOrThrow({ where: { id: order.id } })).toMatchObject({ version: settled.json().data.version, paidAmount: 50_000, balanceAmount: 0, state: "CLOSED" });
+    const disabled = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: managerCookies, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false } });
+    expect(disabled.statusCode).toBe(200);
+    const withoutReason = await app.inject({ method: "POST", url, cookies: staffCookies, payload: { expectedVersion: settled.json().data.version } });
+    expect(withoutReason.statusCode).toBe(200);
+    const duplicate = await app.inject({ method: "POST", url, cookies: staffCookies, payload: { expectedVersion: withoutReason.json().data.version } });
+    expect(duplicate.statusCode).toBe(409);
+    expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(1);
+    expect(await app.prisma.auditLog.count({ where: { entityId: settlementId, operation: "REVERSE_SETTLEMENT" } })).toBe(1);
+    await app.prisma.cafeSettings.deleteMany({});
+  });
+
+  it("requires a reversal reason only when Manager settings enable the policy", async () => {
+    const staffCookies = await userSession(UserRole.STAFF, "reverse-policy.staff");
+    const managerCookies = await userSession(UserRole.MANAGER, "reverse-policy.manager");
+    const configured = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: managerCookies, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: true } });
+    expect(configured.statusCode).toBe(200);
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(staffCookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-policy-order-create");
+    const order = created.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "reverse-policy-settle-0001" }, payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
+    const settlementId = settled.json().data.settlements[0].id;
+    const url = `/api/v1/admin/settlements/${settlementId}/reverse`;
+    const missingReason = await app.inject({ method: "POST", url, cookies: staffCookies, payload: { expectedVersion: settled.json().data.version } });
+    expect(missingReason.statusCode).toBe(422);
+    expect(missingReason.json().error.message).toContain("reason is required");
+    expect(await app.prisma.settlementReversal.count({ where: { settlementId } })).toBe(0);
+    const withReason = await app.inject({ method: "POST", url, cookies: staffCookies, payload: { expectedVersion: settled.json().data.version, reason: "ثبت پرداخت اشتباه" } });
+    expect(withReason.statusCode).toBe(200);
+    expect((await app.prisma.settlementReversal.findFirstOrThrow({ where: { settlementId } })).reason).toBe("ثبت پرداخت اشتباه");
+    const staff = await app.prisma.user.findUniqueOrThrow({ where: { username: "reverse-policy.staff" } });
+    expect(await app.prisma.auditLog.count({ where: { operation: "REVERSE_SETTLEMENT", entityId: settlementId, actorId: staff.id, reason: "ثبت پرداخت اشتباه" } })).toBe(1);
+    const correctedOrderResponse = await createOrderRequest(staffCookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] }, "reverse-policy-correction-order");
+    const correctedOrder = correctedOrderResponse.json().data;
+    const correctionSettlement = await app.inject({ method: "POST", url: `/api/v1/orders/${correctedOrder.id}/record-settlement`, cookies: staffCookies, headers: { "idempotency-key": "reverse-policy-correction-settle" }, payload: { expectedVersion: correctedOrder.version, allocations: [{ orderItemId: correctedOrder.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
+    const correctionSettlementId = correctionSettlement.json().data.settlements[0].id;
+    const correction = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${correctionSettlementId}/edit`, cookies: staffCookies, headers: { "idempotency-key": "reverse-policy-correction-edit" }, payload: { expectedVersion: correctionSettlement.json().data.version, payments: [{ method: "CARD_TERMINAL", amount: 50_000 }] } });
+    expect(correction.statusCode).toBe(200);
+    expect((await app.prisma.settlementReversal.findFirstOrThrow({ where: { settlementId: correctionSettlementId } })).reason).toBeNull();
+    await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: managerCookies, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false } });
+  });
+
+  it("lets Staff reverse a settlement without a reason and returns safe print data", async () => {
     const staffCookies = await userSession(UserRole.STAFF, "print.staff");
-    const managerCookies = await userSession(UserRole.MANAGER, "print.manager");
     const { product, option } = await sellableProduct();
     const created = await createOrderRequest(staffCookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, note: "No foam", options: [{ optionId: option.id, quantity: 1 }] }] }, "print-order-create-1");
     const order = created.json().data;
@@ -1158,12 +1220,11 @@ describe("settlement reversal and print data", () => {
     expect(receipt.json().data).toMatchObject({ totalAmount: 55_000 });
     expect(receipt.json().data).not.toHaveProperty("payments");
     expect(JSON.stringify(receipt.json().data)).not.toContain("REF-55");
-    const forbidden = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: staffCookies, payload: { expectedVersion: 2, reason: "Wrong tender" } });
-    expect(forbidden.statusCode).toBe(403);
-    const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: managerCookies, payload: { expectedVersion: 2, reason: "Wrong tender" } });
+    const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: staffCookies, payload: { expectedVersion: 2 } });
     expect(reversed.statusCode).toBe(200);
     expect(reversed.json().data).toMatchObject({ paymentStatus: "UNPAID", state: "OPEN" });
     expect(await app.prisma.settlementReversal.count()).toBe(1);
+    expect((await app.prisma.settlementReversal.findFirstOrThrow({ where: { settlementId } })).reason).toBeNull();
     expect(await app.prisma.payment.count()).toBe(1);
     const payerReceipt = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/settlements/${settlementId}/receipt`, cookies: staffCookies });
     expect(payerReceipt.statusCode).toBe(200);
@@ -1274,7 +1335,6 @@ describe("settlement reversal and print data", () => {
 
   it("edits a historical table settlement without touching the reused table order", async () => {
     const staffCookies = await userSession(UserRole.STAFF, "edit-payment.reuse.staff");
-    const managerCookies = await userSession(UserRole.MANAGER, "edit-payment.reuse.manager");
     const { product } = await sellableProduct();
     const table = await app.prisma.cafeTable.create({ data: { name: "Edit payment reuse", displayOrder: 157 } });
     const first = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "edit-payment-reuse-first");
@@ -1283,7 +1343,7 @@ describe("settlement reversal and print data", () => {
     const second = await createOrderRequest(staffCookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "edit-payment-reuse-second");
     const liveOrder = second.json().data;
     await app.prisma.cafeTable.update({ where: { id: table.id }, data: { occupancyState: "OCCUPIED", occupiedAt: new Date() } });
-    const edited = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settled.json().data.settlements[0].id}/edit`, cookies: managerCookies, headers: { "idempotency-key": "edit-payment-reuse-correction" }, payload: { expectedVersion: settled.json().data.version, reason: "اصلاح روش پرداخت", payments: [{ method: "CARD_TERMINAL", amount: 50_000 }] } });
+    const edited = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settled.json().data.settlements[0].id}/edit`, cookies: staffCookies, headers: { "idempotency-key": "edit-payment-reuse-correction" }, payload: { expectedVersion: settled.json().data.version, payments: [{ method: "CARD_TERMINAL", amount: 50_000 }] } });
     expect(edited.statusCode).toBe(200);
     expect(edited.json().data).toMatchObject({ id: original.id, state: "CLOSED", paymentStatus: "PAID", paidAmount: 50_000, balanceAmount: 0, version: 3 });
     expect(await app.prisma.order.findUniqueOrThrow({ where: { id: liveOrder.id }, select: { state: true, tableId: true, version: true } })).toEqual({ state: "OPEN", tableId: table.id, version: 1 });
@@ -1292,9 +1352,9 @@ describe("settlement reversal and print data", () => {
     expect(await app.prisma.auditLog.count({ where: { operation: "EDIT_SETTLEMENT", entityType: "PAYMENT_SETTLEMENT" } })).toBeGreaterThan(0);
   });
 
-  it("replays a settlement correction without duplicating replacement tenders, reversal, audit, or idempotency rows", async () => {
+  it.each(["ITEM_QUANTITY", "AMOUNT"] as const)("corrects %s settlements and replays without changing allocations or duplicating financial records", async (allocationMode) => {
     const staffCookies = await userSession(UserRole.STAFF, "edit-payment.retry.staff");
-    const managerCookies = await userSession(UserRole.MANAGER, "edit-payment.retry.manager");
+    const amount = allocationMode === "AMOUNT" ? 25_000 : 50_000;
     const { product } = await sellableProduct();
     const created = await createOrderRequest(
       staffCookies,
@@ -1309,22 +1369,24 @@ describe("settlement reversal and print data", () => {
       headers: { "idempotency-key": "edit-payment-retry-settle" },
       payload: {
         expectedVersion: order.version,
-        allocations: [{ orderItemId: order.items[0].id, quantity: 1 }],
-        payments: [{ method: "CASH", amount: 50_000 }],
+        ...(allocationMode === "AMOUNT" ? { allocationMode, amount } : { allocations: [{ orderItemId: order.items[0].id, quantity: 1 }] }),
+        payments: [{ method: "CASH", amount }],
       },
     });
     const settlementId = settled.json().data.settlements[0].id;
     const key = "edit-payment-retry-correction";
     const payload = {
       expectedVersion: settled.json().data.version,
-      reason: "Correct tender method",
-      payments: [{ method: "CARD_TERMINAL", amount: 50_000 }],
+      payments: [{ method: "CARD_TERMINAL", amount }],
     };
     const url = `/api/v1/admin/settlements/${settlementId}/edit`;
-    const first = await app.inject({ method: "POST", url, cookies: managerCookies, headers: { "idempotency-key": key }, payload });
-    const replay = await app.inject({ method: "POST", url, cookies: managerCookies, headers: { "idempotency-key": key }, payload });
+    const first = await app.inject({ method: "POST", url, cookies: staffCookies, headers: { "idempotency-key": key }, payload });
+    const replay = await app.inject({ method: "POST", url, cookies: staffCookies, headers: { "idempotency-key": key }, payload });
 
     expect(first.statusCode).toBe(200);
+    const replacement = first.json().data.settlements.find((settlement: { id: string }) => settlement.id !== settlementId);
+    expect(replacement).toMatchObject({ totalAmount: amount, allocations: settled.json().data.settlements[0].allocations });
+    expect(first.json().data).toMatchObject({ paidAmount: amount, balanceAmount: 50_000 - amount, state: settled.json().data.state });
     expect(replay.statusCode).toBe(200);
     expect(replay.headers["idempotency-replayed"]).toBe("true");
     expect(replay.json().data).toEqual(first.json().data);
@@ -1338,7 +1400,7 @@ describe("settlement reversal and print data", () => {
     const conflictingRetry = await app.inject({
       method: "POST",
       url,
-      cookies: managerCookies,
+      cookies: staffCookies,
       headers: { "idempotency-key": key },
       payload: { ...payload, payments: [{ method: "CARD_TRANSFER", amount: 50_000, reference: "Different tender" }] },
     });
