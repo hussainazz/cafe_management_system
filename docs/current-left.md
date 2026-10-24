@@ -1,5 +1,19 @@
 # Current Stage Status
 
+## Public-menu item visibility — 24 October 2026
+
+- Added a product-level catalog control in the POS to show or hide an item
+  from the public menu while keeping it available for POS order entry.
+- Reused the existing persisted `isPublic` field and public-menu filtering;
+  no database migration is required.
+- Rebuilt the ignored local contracts output, which had rejected `isPublic`,
+  then restarted the local API and POS dev servers so they load the updated schema.
+- Verification: the full isolated API suite passed, including the 21/21
+  administration tests and visibility/order flow; POS catalog tests passed
+  6/6 and the full POS suite passed 146/146; API and POS typechecks passed.
+- Left: a real browser interaction could not be run because this session has no
+  browser surface; the API path and POS editor submission were verified in tests.
+
 ## Staff catalog, payment history, and settlement permissions — 22 October 2026
 
 - Approved behavior: Staff and Managers can manage catalog/prices and catalog
