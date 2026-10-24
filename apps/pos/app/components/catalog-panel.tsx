@@ -1054,6 +1054,7 @@ function ProductDrawer({
           pricingMode: value(data, "pricingMode"),
           preparationDeadlineMinutes: numeric(data, "preparationDeadlineMinutes"),
           menuNote: value(data, "menuNote") || null,
+          isPublic: data.get("isPublic") === "on",
           isActive: data.get("isActive") === "on",
           isAvailable: data.get("isAvailable") === "on",
           optionGroups,
@@ -1166,8 +1167,16 @@ function ProductDrawer({
             </label>
             <div className="product-editor__states">
             <label className="catalog-product-state">
+              <input
+                name="isPublic"
+                type="checkbox"
+                defaultChecked={initial?.isPublic ?? true}
+              />
+              <span><strong>نمایش در منوی عمومی</strong><small>اگر خاموش باشد، مشتریان آن را در منو نمی‌بینند؛ محصول در صندوق برای سفارش‌گیری باقی می‌ماند.</small></span>
+            </label>
+            <label className="catalog-product-state">
               <input name="isActive" type="checkbox" defaultChecked={initial?.isActive ?? true} />
-              <span><strong>فعال در سفارش‌گیری</strong><small>در صندوق و منوی عمومی نمایش داده شود.</small></span>
+              <span><strong>فعال در سفارش‌گیری</strong><small>اگر خاموش باشد، محصول در صندوق سفارش‌پذیر نیست و در منوی عمومی هم نمایش داده نمی‌شود.</small></span>
             </label>
             <label className="catalog-product-state">
               <input
