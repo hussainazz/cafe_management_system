@@ -102,6 +102,47 @@ async function reportOrder(input: {
 }
 
 describe("Manager administration", () => {
+  it("hides an active product from the public menu while keeping it orderable in POS", async () => {
+    const manager = await session(UserRole.MANAGER, "product.visibility.e2e");
+    const category = await app.prisma.category.create({ data: { name: "Visibility E2E", displayOrder: 1 } });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/products",
+      cookies: manager,
+      payload: { categoryId: category.id, name: "Visibility test item", priceAmount: 12_000, preparationDeadlineMinutes: 5 },
+    });
+    expect(created.statusCode).toBe(200);
+    const productId = created.json().data.id as string;
+
+    const hidden = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/products/${productId}`,
+      cookies: manager,
+      payload: { isPublic: false },
+    });
+    expect(hidden.statusCode).toBe(200);
+    expect(hidden.json().data.isPublic).toBe(false);
+
+    const posCatalog = await app.inject({ method: "GET", url: "/api/v1/admin/products", cookies: manager });
+    expect(posCatalog.json().data.products).toContainEqual(expect.objectContaining({ id: productId, isPublic: false, isActive: true }));
+    const publicMenu = await app.inject({ method: "GET", url: `/api/v1/public/menu?categoryId=${category.id}` });
+    expect(publicMenu.json().data.categories.flatMap((row: any) => row.products).some((row: any) => row.id === productId)).toBe(false);
+
+    const order = await app.inject({
+      method: "POST",
+      url: "/api/v1/orders",
+      cookies: manager,
+      headers: { "idempotency-key": "product-visibility-e2e-order-01" },
+      payload: { channel: "TAKEAWAY", items: [{ productId, quantity: 1, options: [] }] },
+    });
+    expect(order.statusCode).toBe(201);
+
+    const visible = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${productId}`, cookies: manager, payload: { isPublic: true } });
+    expect(visible.statusCode).toBe(200);
+    const restoredMenu = await app.inject({ method: "GET", url: `/api/v1/public/menu?categoryId=${category.id}` });
+    expect(restoredMenu.json().data.categories.flatMap((row: any) => row.products).some((row: any) => row.id === productId)).toBe(true);
+  });
+
   it("lets Staff and Managers write customer-facing product notes", async () => {
     const category = await app.prisma.category.create({ data: { name: "Menu notes", displayOrder: 1 } });
     const manager = await session(UserRole.MANAGER, "menu.notes.manager");
