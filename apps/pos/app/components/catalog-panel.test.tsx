@@ -3,12 +3,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CatalogPanel } from "./catalog-panel";
 
-const api = vi.hoisted(() => ({ savePromotionalCategoryProducts: vi.fn() }));
+const api = vi.hoisted(() => ({ savePromotionalCategoryProducts: vi.fn(), saveProduct: vi.fn() }));
 vi.mock("../lib/api-client", () => ({
   archiveCategory: vi.fn(), archiveProduct: vi.fn(), archiveProductImage: vi.fn(),
   reorderCategories: vi.fn(), reorderProducts: vi.fn(), saveCategory: vi.fn(),
   savePromotionalCategoryProducts: api.savePromotionalCategoryProducts,
-  saveOption: vi.fn(), saveOptionGroup: vi.fn(), saveProduct: vi.fn(),
+  saveOption: vi.fn(), saveOptionGroup: vi.fn(), saveProduct: api.saveProduct,
   saveProductSaleDiscount: vi.fn(), uploadProductImage: vi.fn(),
 }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -82,6 +82,25 @@ describe("Manager promotional product picker", () => {
 
 
 describe("Product editor tabs", () => {
+  it("sends the public-menu visibility toggle when saving a product", async () => {
+    api.saveProduct.mockResolvedValueOnce({ ok: true });
+    const reload = vi.fn(async () => undefined);
+    const mutate = vi.fn(async (action: () => Promise<unknown>, refresh: () => Promise<unknown>) => {
+      await action();
+      await refresh();
+    });
+    render(<CatalogPanel catalog={catalog} mutate={mutate} reload={reload} requestConfirm={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "قهوه" }));
+    fireEvent.click(screen.getByRole("button", { name: /لاته.*50,000/ }));
+    const visibility = screen.getByRole("checkbox", { name: /نمایش در منوی عمومی/ });
+    expect((visibility as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(visibility);
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره مشخصات محصول" }));
+
+    await waitFor(() => expect(api.saveProduct).toHaveBeenCalledWith("product-1", expect.objectContaining({ isPublic: false })));
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
   it("keeps unsaved product fields when moving between tabs and supports arrow navigation", () => {
     render(<CatalogPanel catalog={catalog} mutate={vi.fn()} reload={vi.fn()} requestConfirm={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "قهوه" }));
