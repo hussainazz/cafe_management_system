@@ -18,6 +18,7 @@ import { waiterCallRoutes } from "./modules/waiter-calls/waiter-calls.routes.js"
 import { adminRoutes } from "./modules/admin/admin.routes.js";
 import { imageRoutes } from "./modules/images/image.routes.js";
 import { inventoryRoutes } from "./modules/inventory/inventory.routes.js";
+import { terminalPaymentRoutes } from "./modules/terminal-payments/terminal-payments.routes.js";
 import { databasePlugin } from "./plugins/database.js";
 import { ErrorResponseSchema } from "@cafe/contracts";
 import { zodToJsonSchema } from "./contracts/openapi.js";
@@ -26,7 +27,7 @@ export function buildApp() {
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
-      redact: ["req.headers.cookie", "res.headers.set-cookie"],
+      redact: ["req.headers.cookie", "res.headers.set-cookie", "req.headers.authorization", "req.headers.x-sep-signature"],
     },
     genReqId(request) {
       const requestId = request.headers["x-request-id"];
@@ -104,6 +105,7 @@ export function buildApp() {
       api.register(adminRoutes);
       api.register(imageRoutes);
       api.register(inventoryRoutes);
+      api.register(terminalPaymentRoutes);
     },
     {
       prefix: "/api/v1",
