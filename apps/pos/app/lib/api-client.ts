@@ -1,5 +1,6 @@
 import { beginRecoveryActivity } from "./automatic-recovery";
 import {
+  TerminalConfigResponseSchema, TerminalActiveResponseSchema, TerminalAttemptResponseSchema,
   AuthenticationResponseSchema,
   BarTicketResponseSchema,
   AcknowledgeBarTicketResponseSchema,
@@ -662,3 +663,25 @@ export const readGrossProfitReport = (fromDate: string, toDate: string) => {
 };
 
 export const activateInventory = () => managerMutation("/admin/settings/inventory/activate", "POST", {}, AdminSettingsResponseSchema, "پاسخ فعال‌سازی انبار معتبر نیست.");
+
+// Terminal attempts share session recovery, but never retry a local purchase.
+export async function terminalConfig() {
+  const result = parseResponse(await request<unknown>("/terminal-payments/config", undefined, false), TerminalConfigResponseSchema, "وضعیت اتصال کارت‌خوان مشخص نشد.");
+  return result.ok ? { ...result, data: result.data.data } : result;
+}
+export async function terminalActive(orderId: string) {
+  const result = parseResponse(await request<unknown>(`/terminal-payments/active?orderId=${encodeURIComponent(orderId)}`, undefined, false), TerminalActiveResponseSchema, "وضعیت پرداخت کارت‌خوان مشخص نشد.");
+  return result.ok ? { ...result, data: result.data.data } : result;
+}
+export async function terminalRead(id: string) {
+  const result = parseResponse(await request<unknown>(`/terminal-payments/${encodeURIComponent(id)}`, undefined, false), TerminalAttemptResponseSchema, "وضعیت پرداخت کارت‌خوان مشخص نشد.");
+  return result.ok ? { ...result, data: result.data.data } : result;
+}
+export async function terminalPrepare(orderId: string, input: RecordSettlementRequest, key: string) {
+  const result = parseResponse(await request<unknown>(`/orders/${encodeURIComponent(orderId)}/terminal-payment`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(input) }), TerminalAttemptResponseSchema, "پاسخ درخواست کارت‌خوان معتبر نیست.");
+  return result.ok ? { ...result, data: result.data.data } : result;
+}
+export async function terminalReconcile(id: string, input: import("@cafe/contracts").TerminalReconcile) {
+  const result = parseResponse(await request<unknown>(`/terminal-payments/${encodeURIComponent(id)}/reconcile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }), TerminalAttemptResponseSchema, "نتیجه بررسی پرداخت مشخص نشد.");
+  return result.ok ? { ...result, data: result.data.data } : result;
+}
