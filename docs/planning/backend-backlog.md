@@ -1,5 +1,45 @@
 # Backend Backlog
 
+## SEP SSP1126 integration (approved 25 October 2026)
+
+ADR 0012 adds the bounded terminal integration after the existing phases.
+
+- Phase A: audit and scope approval complete.
+- Phase B: health-only x86 .NET 4.8 bridge and opt-in POS diagnostic. Prove
+  actual Windows Firefox ESR 115 fetch, preflight, origin, CSP, and proxy/VPN
+  behavior before financial implementation. Code, artifact, host/POS tests,
+  typecheck, production build, and local route checks are complete. Approved
+  Windows installation, quiet startup, loopback binding, health and HTTP
+  origin/preflight and clean stop/restart checks pass. The user supplied actual
+  Firefox 200 results for plain/headered fetches with no VPN/proxy active.
+  Normal browser transport passes; detailed Network capture, browser offline
+  recovery, and subsequent-login startup remain operational follow-ups.
+- Phase C: inspect exact official DLL contract, units, responses, timeout and
+  cleanup effects, and vendor logging. Implement fake-tested diagnostics and
+  serialized adapter lifecycle. Adapter, default-off x86 diagnostic worker,
+  pinned-package build, guarded launcher, and 17 fake plus 4 worker guard checks
+  are ready. Approved Windows installation and one connection diagnostic pass:
+  00, terminal 31187710, clean exit, no observed vendor-log changes; disabled
+  again afterward. Forced deadline and cross-session contention remain fault
+  verification follow-ups. No real purchase.
+- Phase D: additive attempt/pairing/reservation schema, authenticated tickets
+  and results, idempotency, restart recovery, verified atomic posting, and
+  audited reconciliation. Preserve existing accounting and permission guards.
+  The user approved both Staff and Manager reconciliation authority; require an
+  explicit audited resolution, separate from ordinary manual card entry.
+  The user selected separate partial settlements for multiple cards, with one
+  terminal charge per assisted settlement and optional cash/transfer companions.
+- Phase E: extend the existing settlement UI behind a disabled flag, including
+  explicit initiation, pending/unknown recovery, and cash/manual/split regression.
+- Phase F: fake failure/restart/concurrency/replay coverage, reproducible x86
+  artifact, installer and SSH runbook, rollback, and separate live approvals.
+
+Left: complete target-machine financial acceptance and Phase B operational
+follow-ups. Phase C connection diagnostics passed; Phases D/E implementation and Phase F
+local verification/package preparation are complete. Financial installation,
+activation, and real payment verification remain separately gated. No automated test may initiate a real payment. See the integration audit
+for the required fault scenarios and existing-flow evidence.
+
 This document tracks backend work. Product and business rules live in `scope.md`; current stage status lives in `../current-left.md`; production readiness lives in `production-gates.md`.
 
 ## Current Backend Status
