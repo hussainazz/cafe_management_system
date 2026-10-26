@@ -23,6 +23,7 @@ import type { AuthenticatedUser } from "../auth/auth.service.js";
 import { requireRole } from "../auth/permissions.js";
 
 import { preparationItems, type PreparationItem } from "./bar-ticket.js";
+import { assertNoTerminalReservation } from "./terminal-reservation.js";
 import { allocationAmountForQuantity, calculatedDiscount, catalogSaleDiscountAmount, discountedFinalAmount, paymentStatusForBalance } from "./order-calculations.js";
 import { cancelAndRestoreOrderInventory, recognizeOrderFullPayment, updateOrderCostingSnapshots } from "../inventory/inventory.service.js";
 
@@ -656,6 +657,7 @@ export async function updateOrder(
 ) {
   requireRole(actor, ["STAFF", "MANAGER"]);
   return prisma.$transaction(async (transaction) => {
+    await assertNoTerminalReservation(transaction, orderId);
     const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be edited.");
@@ -788,6 +790,7 @@ export async function transferOrderTable(prisma: PrismaClient, actor: Authentica
     const orderForLock = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
     if (orderForLock?.channel === OrderChannel.TABLE && orderForLock.tableId) lockKeys.push(`table:${orderForLock.tableId}`);
     await lockOperationalKeys(transaction, lockKeys);
+    await assertNoTerminalReservation(transaction, orderId);
     const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.state !== OrderState.OPEN || order.channel !== OrderChannel.TABLE) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open table orders can be transferred.");
@@ -809,6 +812,7 @@ export async function transferOrderTable(prisma: PrismaClient, actor: Authentica
     const now = new Date();
     // PostgreSQL checks partial unique indexes per row, so briefly remove the
     // displaced order from the TABLE predicate inside this transaction.
+    if (destinationOrder) await assertNoTerminalReservation(transaction, destinationOrder.id);
     if (destinationOrder) await transaction.order.update({ where: { id: destinationOrder.id }, data: { channel: OrderChannel.TAKEAWAY, tableId: null } });
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { tableId: destinationTable.id, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
@@ -839,6 +843,7 @@ export async function deleteOrder(
 ) {
   requireRole(actor, ["STAFF", "MANAGER"]);
   return prisma.$transaction(async (transaction) => {
+    await assertNoTerminalReservation(transaction, orderId);
     const order = await transaction.order.findUnique({ where: { id: orderId } });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.state !== OrderState.OPEN && order.state !== OrderState.CLOSED) {
@@ -873,6 +878,151 @@ export async function deleteOrder(
   });
 }
 
+export async function planSettlementInTransaction(
+  transaction: Prisma.TransactionClient, orderId: string, input: RecordSettlementRequest, exceptAttemptId?: string,
+) {
+  const current = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
+  if (!current) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+  if (current.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be settled.");
+  if (current.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+  await assertNoTerminalReservation(transaction, orderId, exceptAttemptId);
+
+  const activeAllocatedQuantity = new Map<string, number>();
+  const activeAllocatedAmount = new Map<string, number>();
+  let hasAmountPartialAllocation = false;
+  current.paymentSettlements
+    .filter((settlement) => !settlement.reversal)
+    .forEach((settlement) => settlement.allocations.forEach((allocation) => {
+      activeAllocatedQuantity.set(
+        allocation.orderItemId,
+        (activeAllocatedQuantity.get(allocation.orderItemId) ?? 0) + allocation.quantity,
+      );
+      activeAllocatedAmount.set(allocation.orderItemId, (activeAllocatedAmount.get(allocation.orderItemId) ?? 0) + allocation.amount);
+      if (allocation.quantity === 0) hasAmountPartialAllocation = true;
+    }));
+
+  const finalLineAmount = new Map<string, number>();
+  let runningSubtotal = 0;
+  for (const item of current.items) {
+    const orderDiscountBefore = Math.floor((current.discountAmount * runningSubtotal) / current.subtotalAmount);
+    runningSubtotal += item.lineTotalAmount;
+    const orderDiscountAfter = Math.floor((current.discountAmount * runningSubtotal) / current.subtotalAmount);
+    finalLineAmount.set(item.id, item.lineTotalAmount - (orderDiscountAfter - orderDiscountBefore));
+  }
+
+  const requestedQuantities = new Map<string, number>();
+  if (input.allocationMode !== "AMOUNT") {
+    for (const requested of input.allocations) {
+      requestedQuantities.set(requested.orderItemId, (requestedQuantities.get(requested.orderItemId) ?? 0) + requested.quantity);
+    }
+  }
+  const allocations = input.allocationMode !== "AMOUNT" ? Array.from(requestedQuantities, ([orderItemId, quantity]) => ({ orderItemId, quantity })).map((requested) => {
+    if (hasAmountPartialAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Complete an amount-based partial payment by amount.");
+    const item = current.items.find((candidate) => candidate.id === requested.orderItemId);
+    if (!item) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An allocated item does not belong to this order.");
+    const alreadyAllocated = activeAllocatedQuantity.get(item.id) ?? 0;
+    if (alreadyAllocated + requested.quantity > item.quantity) {
+      throw new ApplicationError(409, ErrorCodes.SETTLEMENT_ALLOCATION_CONFLICT, "The selected item quantity has already been settled.");
+    }
+    const amount = allocationAmountForQuantity({
+      finalLineAmount: finalLineAmount.get(item.id)!,
+      itemQuantity: item.quantity,
+      alreadyAllocatedQuantity: alreadyAllocated,
+      quantity: requested.quantity,
+    });
+    if (amount <= 0) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The selected quantity has no payable amount.");
+    return { orderItemId: item.id, quantity: requested.quantity, amount };
+  }) : (() => {
+    if (input.amount > current.balanceAmount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The entered amount exceeds the remaining balance.");
+    let remaining = input.amount;
+    return current.items.flatMap((item) => {
+      const availableAmount = finalLineAmount.get(item.id)! - (activeAllocatedAmount.get(item.id) ?? 0);
+      if (availableAmount <= 0 || remaining <= 0) return [];
+      const amount = Math.min(remaining, availableAmount);
+      remaining -= amount;
+      const alreadyQuantity = activeAllocatedQuantity.get(item.id) ?? 0;
+      // A zero quantity records an amount that pays only part of this item.
+      // Fully covered later items still retain their immutable quantity snapshot.
+      const quantity = amount === availableAmount ? item.quantity - alreadyQuantity : 0;
+      return [{ orderItemId: item.id, quantity, amount }];
+    });
+  })();
+  const totalAmount = allocations.reduce((total, allocation) => total + allocation.amount, 0);
+  const tenderAmount = input.payments.reduce((total, payment) => total + payment.amount, 0);
+  if (tenderAmount !== totalAmount) {
+    throw new ApplicationError(422, ErrorCodes.PAYMENT_RECONCILIATION_FAILED, "Tender amounts must equal the selected item total.");
+  }
+
+  return { current, allocations, totalAmount };
+}
+
+export async function postSettlementInTransaction(
+  transaction: Prisma.TransactionClient, actor: AuthenticatedUser, orderId: string,
+  input: RecordSettlementRequest, idempotencyKey: string, requestId: string, exceptAttemptId?: string,
+) {
+  const { current, allocations, totalAmount } = await planSettlementInTransaction(transaction, orderId, input, exceptAttemptId);
+  const fingerprint = requestFingerprint({ orderId, ...input });
+  const recordedAt = new Date();
+  const settlement = await transaction.paymentSettlement.create({
+    data: {
+      orderId,
+      recordedById: actor.id,
+      idempotencyKey,
+      totalAmount,
+      recordedAt,
+      allocations: { create: allocations },
+      payments: { create: input.payments.map((payment) => ({
+        method: payment.method,
+        amount: payment.amount,
+        reference: payment.method === "CARD_TRANSFER" ? payment.reference ?? null : null,
+      })) },
+    },
+  });
+  const paidAmount = current.paidAmount + totalAmount;
+  const balanceAmount = current.totalAmount - paidAmount;
+  const paymentStatus = paymentStatusForBalance(paidAmount, balanceAmount);
+  const closesOrder = balanceAmount === 0;
+  const updated = await transaction.order.updateMany({
+    where: { id: orderId, state: OrderState.OPEN, version: input.expectedVersion },
+    data: { paidAmount, balanceAmount, paymentStatus, ...(closesOrder ? { state: OrderState.CLOSED } : {}), version: { increment: 1 } },
+  });
+  if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+  if (closesOrder) await recognizeOrderFullPayment(transaction, orderId, settlement.id, actor.id, recordedAt);
+  if (closesOrder && current.channel === OrderChannel.TABLE && current.tableId) {
+    await transaction.cafeTable.update({
+      where: { id: current.tableId },
+      data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, customerAuthBypassEnabled: false, tableContextInvalidBefore: recordedAt },
+    });
+    await transaction.waiterCall.updateMany({
+      where: { tableId: current.tableId, status: "PENDING" },
+      data: { status: "RESOLVED", acknowledgedAt: recordedAt, resolvedAt: recordedAt, version: { increment: 1 } },
+    });
+  }
+  const result = orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
+  await transaction.auditLog.create({
+    data: {
+      actorId: actor.id,
+      requestId,
+      operation: RECORD_SETTLEMENT_OPERATION,
+      entityType: "PAYMENT_SETTLEMENT",
+      entityId: settlement.id,
+      afterSnapshot: { orderId, totalAmount, paymentStatus, version: result.version },
+    },
+  });
+  await transaction.idempotencyRecord.create({
+    data: {
+      actorId: actor.id,
+      operation: RECORD_SETTLEMENT_OPERATION,
+      key: idempotencyKey,
+      requestFingerprint: fingerprint,
+      responseStatus: 201,
+      resultSnapshot: result,
+      expiresAt: new Date(recordedAt.getTime() + IDEMPOTENCY_RETENTION_MS),
+    },
+  });
+  return { order: result, settlementId: settlement.id };
+}
+
 export async function recordSettlement(
   prisma: PrismaClient,
   actor: AuthenticatedUser,
@@ -894,136 +1044,7 @@ export async function recordSettlement(
 
   try {
     const order = await prisma.$transaction(async (transaction) => {
-      const current = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
-      if (!current) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-      if (current.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be settled.");
-      if (current.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
-
-      const activeAllocatedQuantity = new Map<string, number>();
-      const activeAllocatedAmount = new Map<string, number>();
-      let hasAmountPartialAllocation = false;
-      current.paymentSettlements
-        .filter((settlement) => !settlement.reversal)
-        .forEach((settlement) => settlement.allocations.forEach((allocation) => {
-          activeAllocatedQuantity.set(
-            allocation.orderItemId,
-            (activeAllocatedQuantity.get(allocation.orderItemId) ?? 0) + allocation.quantity,
-          );
-          activeAllocatedAmount.set(allocation.orderItemId, (activeAllocatedAmount.get(allocation.orderItemId) ?? 0) + allocation.amount);
-          if (allocation.quantity === 0) hasAmountPartialAllocation = true;
-        }));
-
-      const finalLineAmount = new Map<string, number>();
-      let runningSubtotal = 0;
-      for (const item of current.items) {
-        const orderDiscountBefore = Math.floor((current.discountAmount * runningSubtotal) / current.subtotalAmount);
-        runningSubtotal += item.lineTotalAmount;
-        const orderDiscountAfter = Math.floor((current.discountAmount * runningSubtotal) / current.subtotalAmount);
-        finalLineAmount.set(item.id, item.lineTotalAmount - (orderDiscountAfter - orderDiscountBefore));
-      }
-
-      const requestedQuantities = new Map<string, number>();
-      if (input.allocationMode !== "AMOUNT") {
-        for (const requested of input.allocations) {
-          requestedQuantities.set(requested.orderItemId, (requestedQuantities.get(requested.orderItemId) ?? 0) + requested.quantity);
-        }
-      }
-      const allocations = input.allocationMode !== "AMOUNT" ? Array.from(requestedQuantities, ([orderItemId, quantity]) => ({ orderItemId, quantity })).map((requested) => {
-        if (hasAmountPartialAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Complete an amount-based partial payment by amount.");
-        const item = current.items.find((candidate) => candidate.id === requested.orderItemId);
-        if (!item) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An allocated item does not belong to this order.");
-        const alreadyAllocated = activeAllocatedQuantity.get(item.id) ?? 0;
-        if (alreadyAllocated + requested.quantity > item.quantity) {
-          throw new ApplicationError(409, ErrorCodes.SETTLEMENT_ALLOCATION_CONFLICT, "The selected item quantity has already been settled.");
-        }
-        const amount = allocationAmountForQuantity({
-          finalLineAmount: finalLineAmount.get(item.id)!,
-          itemQuantity: item.quantity,
-          alreadyAllocatedQuantity: alreadyAllocated,
-          quantity: requested.quantity,
-        });
-        if (amount <= 0) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The selected quantity has no payable amount.");
-        return { orderItemId: item.id, quantity: requested.quantity, amount };
-      }) : (() => {
-        if (input.amount > current.balanceAmount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The entered amount exceeds the remaining balance.");
-        let remaining = input.amount;
-        return current.items.flatMap((item) => {
-          const availableAmount = finalLineAmount.get(item.id)! - (activeAllocatedAmount.get(item.id) ?? 0);
-          if (availableAmount <= 0 || remaining <= 0) return [];
-          const amount = Math.min(remaining, availableAmount);
-          remaining -= amount;
-          const alreadyQuantity = activeAllocatedQuantity.get(item.id) ?? 0;
-          // A zero quantity records an amount that pays only part of this item.
-          // Fully covered later items still retain their immutable quantity snapshot.
-          const quantity = amount === availableAmount ? item.quantity - alreadyQuantity : 0;
-          return [{ orderItemId: item.id, quantity, amount }];
-        });
-      })();
-      const totalAmount = allocations.reduce((total, allocation) => total + allocation.amount, 0);
-      const tenderAmount = input.payments.reduce((total, payment) => total + payment.amount, 0);
-      if (tenderAmount !== totalAmount) {
-        throw new ApplicationError(422, ErrorCodes.PAYMENT_RECONCILIATION_FAILED, "Tender amounts must equal the selected item total.");
-      }
-
-      const recordedAt = new Date();
-      const settlement = await transaction.paymentSettlement.create({
-        data: {
-          orderId,
-          recordedById: actor.id,
-          idempotencyKey,
-          totalAmount,
-          recordedAt,
-          allocations: { create: allocations },
-          payments: { create: input.payments.map((payment) => ({
-            method: payment.method,
-            amount: payment.amount,
-            reference: payment.method === "CARD_TRANSFER" ? payment.reference ?? null : null,
-          })) },
-        },
-      });
-      const paidAmount = current.paidAmount + totalAmount;
-      const balanceAmount = current.totalAmount - paidAmount;
-      const paymentStatus = paymentStatusForBalance(paidAmount, balanceAmount);
-      const closesOrder = balanceAmount === 0;
-      const updated = await transaction.order.updateMany({
-        where: { id: orderId, state: OrderState.OPEN, version: input.expectedVersion },
-        data: { paidAmount, balanceAmount, paymentStatus, ...(closesOrder ? { state: OrderState.CLOSED } : {}), version: { increment: 1 } },
-      });
-      if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
-      if (closesOrder) await recognizeOrderFullPayment(transaction, orderId, settlement.id, actor.id, recordedAt);
-      if (closesOrder && current.channel === OrderChannel.TABLE && current.tableId) {
-        await transaction.cafeTable.update({
-          where: { id: current.tableId },
-          data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, customerAuthBypassEnabled: false, tableContextInvalidBefore: recordedAt },
-        });
-        await transaction.waiterCall.updateMany({
-          where: { tableId: current.tableId, status: "PENDING" },
-          data: { status: "RESOLVED", acknowledgedAt: recordedAt, resolvedAt: recordedAt, version: { increment: 1 } },
-        });
-      }
-      const result = orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
-      await transaction.auditLog.create({
-        data: {
-          actorId: actor.id,
-          requestId,
-          operation: RECORD_SETTLEMENT_OPERATION,
-          entityType: "PAYMENT_SETTLEMENT",
-          entityId: settlement.id,
-          afterSnapshot: { orderId, totalAmount, paymentStatus, version: result.version },
-        },
-      });
-      await transaction.idempotencyRecord.create({
-        data: {
-          actorId: actor.id,
-          operation: RECORD_SETTLEMENT_OPERATION,
-          key: idempotencyKey,
-          requestFingerprint: fingerprint,
-          responseStatus: 201,
-          resultSnapshot: result,
-          expiresAt: new Date(recordedAt.getTime() + IDEMPOTENCY_RETENTION_MS),
-        },
-      });
-      return result;
+      return (await postSettlementInTransaction(transaction, actor, orderId, input, idempotencyKey, requestId)).order;
     });
     return { order, replayed: false };
   } catch (error) {
@@ -1046,6 +1067,7 @@ export async function reverseSettlement(prisma: PrismaClient, actor: Authenticat
   return prisma.$transaction(async (transaction) => {
     const tableAssignment = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
     await lockOperationalKeys(transaction, ["order:" + orderId, ...(tableAssignment?.channel === OrderChannel.TABLE && tableAssignment.tableId ? ["table:" + tableAssignment.tableId] : [])]);
+    await assertNoTerminalReservation(transaction, orderId);
     const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
@@ -1111,6 +1133,7 @@ export async function editSettlement(
       });
       if (!original) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested settlement was not found.");
       await lockOperationalKeys(transaction, ["order:" + original.orderId]);
+      await assertNoTerminalReservation(transaction, original.orderId);
       const current = await transaction.order.findUnique({ where: { id: original.orderId }, include: orderDetailInclude });
       if (!current) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
       if (current.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
