@@ -1,8 +1,9 @@
-# SEP SSP1126 delivery record, 25 October 2026
+# SEP SSP1126 delivery record, 26 October 2026
 
-Local implementation and deployment preparation are complete, disabled by
-default. Financial Windows execution, production activation and actual purchase
-acceptance remain open. No commit, push or production deployment was performed.
+Local implementation and deployment preparation are complete. The coordinated
+POS/API release was published and activated on 26 October with terminal payments
+disabled. Financial Windows installation, protected pairing, runtime activation
+and actual purchase acceptance remain open.
 
 The approved hardware scope and business choices are in ADR 0012. Current
 completion/Left items are in `docs/current-left.md`. The full Windows procedure,
@@ -116,12 +117,18 @@ recreates a manifest for each build; re-record the checksum if rebuilding with
 another compiler or source revision. The financial configuration defaults false
 in both executable configs and the backend environment.
 
-Approval still required for financial-package transfer/installation, production
-pairing and coordinated additive migration/API/contracts/POS release, activation,
-and an explicitly specified real payment. Production release must follow the
-existing backup/migration/rollback gates and preserve runtime product images.
-No terminal configuration change is part of this delivery. Automatic financial
-posting and automatic refunds are not enabled by any of these steps.
+The coordinated disabled release is `cafe-sep-75a2f4a`, commit
+`75a2f4acb39ee500e3dd4741289f1d419cb07c1e`, artifact SHA-256
+`94c0bb859479a3671205ed40efb9b1ad6d42af3d60afb7444406f402ec6a284c`. Migration
+`20261025120000_sep_terminal_attempts` is applied; all 41 production migrations
+are current. The pre-release PostgreSQL 17 backup and runtime rollback archive
+are recorded in `docs/current-left.md`. Production health and public POS release
+probes passed. No pairing key was provisioned, financial bridge was installed,
+or real payment initiated. After café setup, runtime activation uses the backend
+environment flag and Windows bridge configuration; it does not require another
+code release. Financial bridge installation, pairing, activation and any real
+payment test remain separate operations. Automatic financial posting and refunds
+are not enabled.
 
 ## Changed source and documentation files
 
