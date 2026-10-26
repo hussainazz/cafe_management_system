@@ -2,6 +2,7 @@ import { Client } from "pg";
 import { beforeEach } from "vitest";
 
 const tableNames = [
+  "terminal_payment_attempts",
   "inventory_movements",
   "order_consumption_items",
   "order_consumptions",
