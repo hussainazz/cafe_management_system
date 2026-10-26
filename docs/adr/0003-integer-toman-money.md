@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. The terminal-boundary conversion exclusion is superseded only by [ADR 0012](0012-sep-ssp1126-local-bridge.md). Accounting remains integer Toman; SEP units must be verified before conversion is implemented.
 
 ## Context
 
