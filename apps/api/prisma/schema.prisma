@@ -52,6 +52,13 @@ enum PaymentMethod {
   CARD_TRANSFER
 }
 
+enum TerminalAttemptStatus {
+  PENDING
+  UNKNOWN
+  SUCCEEDED
+  FAILED
+}
+
 enum TableOccupancyState {
   AVAILABLE
   OCCUPIED
@@ -134,6 +141,8 @@ model User {
   inventoryMovements           InventoryMovement[]           @relation("InventoryMovementCreatedBy")
   orderConsumptions            OrderConsumption[]            @relation("OrderConsumptionRecognizedBy")
   updatedCostingConfigurations ProductCostingConfiguration[] @relation("CostingConfigurationUpdatedBy")
+  terminalAttemptsCreated      TerminalPaymentAttempt[] @relation("TerminalAttemptCreatedBy")
+  terminalAttemptsResolved     TerminalPaymentAttempt[] @relation("TerminalAttemptResolvedBy")
 
   @@map("users")
 }
@@ -477,6 +486,7 @@ model Order {
   barTicketSequence     Int                    @default(0)
   barTicketPreparations BarTicketPreparation[]
   orderConsumptions     OrderConsumption[]
+  terminalPaymentAttempts TerminalPaymentAttempt[]
 
   @@index([tableId, state])
   @@index([state, paymentStatus])
@@ -550,11 +560,50 @@ model PaymentSettlement {
   payments          Payment[]
   reversal          SettlementReversal?
   orderConsumptions OrderConsumption[]
+  terminalAttempt TerminalPaymentAttempt?
 
   @@unique([orderId, idempotencyKey])
   @@index([recordedById])
   @@index([recordedAt, id])
   @@map("payment_settlements")
+}
+
+model TerminalPaymentAttempt {
+  id                   String @id @default(uuid())
+  orderId              String
+  createdById          String
+  idempotencyKey       String
+  fingerprint          String
+  bridgeId             String
+  terminalId           String
+  cardAmount           Int
+  expectedOrderVersion Int
+  checkoutSnapshot     Json
+  nonce                String
+  status               TerminalAttemptStatus @default(PENDING)
+  version              Int @default(1)
+  authorizationExpiresAt DateTime
+  dispatchedAt         DateTime?
+  resultReceivedAt     DateTime?
+  resultFingerprint    String?
+  responseCode         String?
+  rrn                  String?
+  trace                String?
+  resolvedById         String?
+  resolvedAt           DateTime?
+  verificationBasis    String?
+  settlementId         String? @unique
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  createdBy User @relation("TerminalAttemptCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  resolvedBy User? @relation("TerminalAttemptResolvedBy", fields: [resolvedById], references: [id], onDelete: Restrict)
+  settlement PaymentSettlement? @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+
+  @@unique([createdById, idempotencyKey])
+  @@index([orderId, createdAt])
+  @@map("terminal_payment_attempts")
 }
 
 model SettlementAllocation {
