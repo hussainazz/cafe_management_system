@@ -1,5 +1,127 @@
 # Current Stage Status
 
+## SEP SSP1126 / PAX Q80 integration — 25 October 2026
+
+- Phase A repository and payment-flow audit completed. The user explicitly
+  approved the bounded scope amendment on 25 October. ADR 0012, scope, prior
+  ADR annotations, backend backlog, API inventory, model/constraint planning,
+  and production gates now record that approval.
+- Recorded the approved amendment, current settlement lifecycle,
+  payment-reference constraint, architecture, safety requirements, and Phase B–F
+  gates in [the integration audit](planning/sep-ssp1126-integration-audit.md).
+- Confirmed the supplied Linux DLL directory, PDF, and IL file exist; assembly
+  metadata matches SSP1126 1.4.11.1 and Sep.Logger 1.0.0.2. Windows SDK package
+  identity and exact purchase contract have since been inspected and matched.
+  Browser transport is confirmed below; the initial Linux public POS HTTPS probe had reset.
+- Baseline verification: full POS suite passed 21 files / 146 tests; focused
+  API order integration and calculation tests passed 2 files / 49 tests using
+  `.env.test` and the authorized isolated database; `git diff --check` passed.
+- Phase B implementation is ready: health-only C# 5/.NET 4.8 x86 GUI bridge,
+  exclusive IPv4 loopback socket, strict Host/Origin/preflight checks, bounded
+  read-only HTTP handling, sanitized rotated logs, clean file-based stop, and
+  reviewed login-task installation scripts. No SEP DLL is loaded or packaged.
+- Added the explicitly initiated Persian POS diagnostic, unavailable by default
+  behind `SEP_BRIDGE_DIAGNOSTICS_ENABLED`. Local HTTP checks confirmed 404 when
+  disabled and 200 with the intended markup when enabled. The existing POS
+  returned 200. No browser surface was available for visual/runtime interaction.
+- Phase B verification: host tests passed 8/8, focused POS diagnostic tests
+  passed 15/15, and the full POS suite passed 23 files / 161 tests. POS typecheck
+  and production build passed. Mono x86 compilation
+  and PE/CLR 32-bit flags passed; the legacy xbuild check passed with its
+  unsupported-v4.8-toolset warning. This is not Windows execution evidence.
+- Prepared and verified `apps/sep-bridge/dist/run-cafe-sep-health-0.1.0-x86.zip`
+  (12,784 bytes), SHA-256
+  `6411104c97e93ca14190e9c2212fa5dbb119c63d0b39ccd717d23787b140236d`.
+  [The bridge runbook](../apps/sep-bridge/README.md) contains exact build,
+  transfer/install/start/stop/inspection/rollback commands and a console health
+  diagnostic usable from the existing HTTPS POS without a production release.
+- The user approved health-only cashier installation/startup. Transferred and
+  verified the approved ZIP, installed under the existing account, and started
+  the limited interactive login task. Windows confirms a quiet process and
+  only `127.0.0.1:18711` listening. GET returned 200; allowed preflight 204;
+  wrong Origin 403; the health host's purchase route 404. Installed binary and
+  configuration hashes match. Execution policy remains Restricted; reviewed
+  installer commands ran directly through SSH, with no policy change.
+- Confirmed Windows 8.1 Enterprise 32-bit, PowerShell 4.0, .NET release 528049,
+  and installed Firefox executable version 115.43.1. The Windows HTTPS POS read
+  returned 200 without CSP headers/meta in that response. The user then supplied
+  actual Firefox 200 responses for both plain and headered health fetches and
+  confirmed no VPN/proxy was active. Normal browser transport passes. See
+  [Windows verification evidence](runbooks/sep-health-windows-verification.md).
+- Phase C groundwork: inspected the three-page PDF and actual DLL metadata/IL;
+  documented the direct managed signatures, port, response-only diagnostic
+  classification, default-enabled raw vendor logging, and network-active
+  Dispose/timeout behavior in [the SDK contract](planning/sep-ssp1126-sdk-contract.md).
+  Added the official diagnostic adapter, default-off/effective-logging-off/hash
+  guards, serialization through cleanup, and SDK-free fake tests (17/17 pass).
+  The one-shot x86 worker has a Global device mutex and a 30-second launcher
+  deadline, with raw output discarded unless it matches the diagnostic allowlist.
+  Real worker guard checks pass 4/4 without SDK files; direct compilation passes;
+  the launcher parses with zero errors in the cashier's PowerShell 4.0. Health
+  tests pass again 8/8.
+- Prepared the separate disabled diagnostic ZIP (87,509 bytes), SHA-256
+  `a71d68a69f63b40923acf4949ac48f521a49eea079e197804f38291990990d56`.
+  [Its runbook](../apps/sep-bridge/Diagnostics/README.md) contains build,
+  installation, guarded execution, and rollback steps. The approved health ZIP
+  remains unchanged. Read-only hashes confirm the Windows SDK matches exactly.
+- The user reports the existing tester transaction was entered as 1000 and
+  printed as 10000 Rial / 1000 Toman. Read-only native tester inspection finds
+  its amount text passed unchanged to PcStarterPurchase. Preserve that observed
+  setup-specific calibration; no x10 conversion or purchase is implemented.
+  The inspected SDK does not visibly populate PaidAmount, so automatic posting
+  must remain behind returned-amount verification or audited manual reconciliation.
+- Verified clean Windows health stop, failed health read while stopped, then
+  restart and health 200. The health task is left running. Actual next-login
+  startup and browser offline/recovery remain untested.
+- The user approved the separate diagnostic installation and one device test.
+  Installed the verified package and ran ConnectionTest once: Connected, code
+  00, terminal 31187710, cleanupFailed=false, launcher exit 0. The worker exited,
+  diagnostics were disabled again, vendor logging remains off, and all nine
+  existing vendor log files have unchanged metadata. Original DLLs and COM
+  registration were preserved; the health task still runs. See [device-test
+  evidence](runbooks/sep-diagnostic-windows-verification.md).
+- Phase D decisions: Staff and Managers may explicitly reconcile uncertain
+  payments with audit. Terminal-assisted multi-card payments use separate
+  partial settlements, one terminal charge per settlement; cash/card-transfer
+  alongside that charge remains supported. Existing manual workflows remain.
+- Phase D local implementation complete: durable attempt reservations,
+  immutable checkout snapshots, signed intent/claim/result contracts, strict
+  evidence validation, audited Staff/Manager reconciliation, and reuse of
+  atomic settlement posting. Additive migration applied to local development;
+  fresh isolated test reset passed. Full isolated API suite passed. Final focused
+  terminal suite passes 12 integration + 2 shared-signature tests, including
+  simultaneous reconciliation, reservation/manual-settlement races, transfer
+  guards and audit-failure rollback.
+- Phase E local implementation complete in the existing settlement sheet:
+  explicit opt-in charge, authorized amount, backend status recovery, no automatic
+  redispatch, Persian uncertainty/reconciliation controls, and separate amount
+  settlements for multiple bank cards. Existing cash/manual/split/historical
+  behavior is covered. Full POS suite passes 25 files / 171 tests. Both API/POS
+  typechecks and production builds passed.
+- Phase F local preparation complete: SDK-free fake payment lifecycle tests,
+  three shared C#/TypeScript HMAC vectors, 8 health-host tests, 17 diagnostic
+  cases, 4 financial-host HTTP checks, 4 diagnostic + 4 purchase-worker guard
+  checks without SDK files, and a fake-only CI workflow. Windows financial host
+  and isolated worker compile as .NET 4.8 x86 GUI executables; PE/CLR flags,
+  archive contents and manifest hashes verified. Prepared disabled financial ZIP
+  `run-cafe-sep-payments-0.2.0-x86.zip`, 108,112 bytes, SHA-256
+  `f5c30e524d6642307150f6ece195130dea885205b7ada622a2939fc56fdf09e7`.
+- [Financial bridge runbook](../apps/sep-bridge/Payments/README.md) includes
+  reproducible build/transfer/install/pair/configure/start/stop/inspection and
+  rollback commands. Restricted-policy inline command generation was checked
+  below the Windows command-length limit, without executing those new commands.
+- Left: separately approve financial bridge installation, protected production
+  pairing and coordinated API/migration/POS release, then activation and a
+  specifically authorized hardware payment test. Windows financial DPAPI/TLS,
+  worker deadline/cross-session contention, financial POST/preflight, offline/
+  recovery and next-login startup still require target-machine acceptance. Do
+  not mark these live gates complete from local fake tests. Automatic financial
+  posting remains unavailable until the SDK returned amount is independently
+  verified; this release intentionally requires audited manual reconciliation.
+  No financial artifact was transferred/installed, production deployed, real
+  payment initiated, or terminal configuration changed. Previously approved
+  health task remains the installed running bridge.
+
 ## Public-menu item visibility — 24 October 2026
 
 - Added a product-level catalog control in the POS to show or hide an item
