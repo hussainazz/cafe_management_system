@@ -13,6 +13,21 @@ indexes for this model.
 
 ## Mermaid ERD
 
+ADR 0012 now adds `TerminalPaymentAttempt` in migration
+`20261025120000_sep_terminal_attempts`. Each attempt belongs to an order and
+creating user, freezes a checkout/amount/installation/terminal identity, stores
+allowlisted response/RRN/trace evidence, and optionally links one posted
+PaymentSettlement plus its resolving user/time/basis. Partial unique indexes
+reserve one unresolved attempt per order and installation. Ledger amounts remain
+integer Toman. Pairing is private configuration, not an additional business model.
+
+```mermaid
+erDiagram
+  Order ||--o{ TerminalPaymentAttempt : reserves
+  User ||--o{ TerminalPaymentAttempt : creates_or_resolves
+  TerminalPaymentAttempt o|--o| PaymentSettlement : posts_once
+```
+
 ```mermaid
 erDiagram
     User {
