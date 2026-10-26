@@ -1,5 +1,31 @@
 # API Inventory
 
+## SEP bridge health-only API (Phase B, ADR 0012)
+
+The separate Windows bridge binds only to `127.0.0.1:18711` by default.
+`GET /health` returns versioned health-only capability metadata, never device
+readiness or payment status. It permits CLI reads without Origin; browser reads
+require exact configured Origin. `OPTIONS /health` permits GET and only the
+`x-run-cafe-diagnostic` request header. No credentials are shared. Host validation,
+bounded input/deadlines, and exact-origin CORS apply; no purchase/diagnostic
+terminal route exists. This is not a VPS `/api/v1` endpoint.
+
+The POS `/pos/diagnostics/payment-bridge` page ships unavailable unless the
+server's `SEP_BRIDGE_DIAGNOSTICS_ENABLED` flag is exactly `true`. It uses the
+existing session read and performs bridge requests only after an explicit
+click. `SEP_BRIDGE_PORT` configures its loopback port. See
+[`apps/sep-bridge/README.md`](../../apps/sep-bridge/README.md) for commands and
+actual Firefox acceptance requirements.
+
+## SEP payment-attempt API (Phases D/E, disabled by default)
+
+Implemented routes and exact signing field order are recorded in
+[the terminal backend contract](sep-terminal-backend.md#implemented-http-and-signing-contract).
+They reuse current Staff/Manager authentication and settlement contracts. The
+separate financial loopback host adds POST /payments and POST /status with signed
+intent authentication; GET /health never contacts the terminal. The Phase B host
+above remains a separate health-only executable.
+
 ## Purpose And Status
 
 This is the approved v1 API surface inventory. It maps the scope to stable
@@ -69,8 +95,9 @@ totals, balance, state transitions, and snapshots.
 tenders. The server calculates allocation and settlement amounts, rather than
 accepting a client total. A settlement may contain `CASH`, `CARD_TERMINAL`, and
 `CARD_TRANSFER` tenders. Card-terminal tenders store no reconciliation
-reference because terminal entry is manual and not synchronized with the
-application. Card-to-card transfer references are optional. The operation
+reference for the manual path. ADR 0012 approves a separate durable attempt
+and authenticated terminal evidence for optional SEP integration; new financial
+routes are not implemented yet. Card-to-card transfer references are optional. The operation
 requires an idempotency key and the current order version.
 
 | Method  | Path                                                        | Access | Stage | Purpose                                                                                                                                                                                                                                                                                               |
