@@ -41,6 +41,7 @@ import {
 } from "../lib/pos-utils";
 import { AccountingIcon, CheckIcon, AlertIcon, ServiceBellIcon, BagIcon, ClockIcon, CloseIcon, CupIcon, MenuIcon, RefreshIcon, TableIcon, WifiIcon } from "./icons";
 import type { PosActivity } from "./release-update-guard";
+import { useTerminalPayment, TerminalPaymentStatus } from "./terminal-payment";
 import { ProductPicker } from "./product-picker";
 
 type Channel = "TABLE" | "TAKEAWAY";
@@ -1732,19 +1733,39 @@ export function SettlementSheet({
   const selected = available
     .map((entry) => ({ ...entry, quantity: selectedQuantities[entry.item.id] ?? 0 }))
     .filter((entry) => historicalSettlement ? (entry.fixedAmount ?? 0) > 0 : entry.quantity > 0);
-  const selectedAmount = historicalSettlement
+  const quantityAmount = historicalSettlement
     ? sumAmounts(selected.map((entry) => entry.fixedAmount ?? 0))
     : sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
+  const hasAmountPartial = !historicalSettlement && order.settlements.some(settlement => !settlement.reversedAt && settlement.allocations.some(allocation => allocation.quantity === 0));
+  const [amountMode, setAmountMode] = useRecoveryState(`${paymentPrefix}:amount-mode`, hasAmountPartial);
+  const [enteredAmount, setEnteredAmount] = useRecoveryState(`${paymentPrefix}:amount`, String(order.balanceAmount ?? quantityAmount));
+  const byAmount = !historicalSettlement && (hasAmountPartial || amountMode);
+  const selectedAmount = byAmount ? positiveIntegerAmount(enteredAmount) : quantityAmount;
   const [tenders, setTenders] = useRecoveryState<TenderDraft[]>(`${paymentPrefix}:tenders`, () => historicalSettlement
     ? historicalSettlement.payments.map((payment) => ({ id: requestKey(), method: payment.method, amount: String(payment.amount), reference: payment.reference ?? "" }))
     : [{ id: requestKey(), method: "CARD_TERMINAL", amount: String(selectedAmount), reference: "" }]);
   const [showSettlementSummary, setShowSettlementSummary] = useState(false);
   const [reason, setReason] = useRecoveryState(`${paymentPrefix}:reason`, "");
-  const [busy, setBusy] = useState(false);
+  const [manualBusy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attemptKey, setAttemptKey] = useRecoveryState<string>(`${paymentPrefix}:attempt-key`, requestKey);
+  const [useTerminal, setUseTerminal] = useState(false);
+  const complete = (updated: OrderDetail) => {
+    writeRecovery(`${paymentPrefix}:tenders`, undefined);
+    writeRecovery(`${paymentPrefix}:quantities`, undefined);
+    writeRecovery(`${paymentPrefix}:attempt-key`, undefined);
+    writeRecovery(`${paymentPrefix}:amount`, undefined);
+    writeRecovery(`${paymentPrefix}:amount-mode`, undefined);
+    onSuccess(updated);
+  };
+  const terminal = useTerminalPayment(order.id, complete, Boolean(historicalSettlement));
+  const terminalLocked = Boolean(terminal.attempt);
+  const terminalResolved = terminal.attempt?.status === "SUCCEEDED" || terminal.attempt?.status === "FAILED";
+  const cardTenders = tenders.filter(tender => tender.method === "CARD_TERMINAL");
+  useEffect(() => { if (cardTenders.length !== 1) setUseTerminal(false); }, [cardTenders.length]);
+  const busy = manualBusy || terminal.busy || terminal.loading;
   const tenderAmount = sumAmounts(tenders.map((tender) => positiveIntegerAmount(tender.amount)));
-  const isReconciled = selectedAmount > 0 && tenderAmount === selectedAmount;
+  const isReconciled = selectedAmount > 0 && tenderAmount === selectedAmount && (!byAmount || selectedAmount <= order.balanceAmount);
   const previousSelectedAmount = useRef(selectedAmount);
   useEffect(() => {
     if (previousSelectedAmount.current === selectedAmount) return;
@@ -1771,7 +1792,11 @@ export function SettlementSheet({
     setTenders((current) => current.map((tender) => (tender.id === id ? { ...tender, ...patch } : tender)));
   };
   const settle = async () => {
-    if (!isReconciled || busy) return;
+    if (busy || terminalLocked || !isReconciled) return;
+    if (useTerminal) {
+      await terminal.start({ expectedVersion: order.version, ...(byAmount ? { allocationMode: "AMOUNT" as const, amount: selectedAmount } : { allocationMode: "ITEM_QUANTITY" as const, allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })) }), payments: tenders.map(tender => tender.method === "CARD_TRANSFER" && tender.reference.trim() ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() } : { method: tender.method, amount: positiveIntegerAmount(tender.amount) }) }, attemptKey);
+      return;
+    }
     setBusy(true);
     const result = historicalSettlement
       ? await editSettlement(historicalSettlement.id, {
@@ -1783,8 +1808,10 @@ export function SettlementSheet({
       order.id,
       {
         expectedVersion: order.version,
-        allocationMode: "ITEM_QUANTITY" as const,
-        allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })),
+        ...(byAmount ? { allocationMode: "AMOUNT" as const, amount: selectedAmount } : {
+          allocationMode: "ITEM_QUANTITY" as const,
+          allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })),
+        }),
         payments: tenders.map((tender) =>
           tender.method === "CARD_TRANSFER" && tender.reference.trim()
             ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() }
@@ -1798,10 +1825,7 @@ export function SettlementSheet({
       setError(result.error.message);
       return;
     }
-    writeRecovery(`${paymentPrefix}:tenders`, undefined);
-    writeRecovery(`${paymentPrefix}:quantities`, undefined);
-    writeRecovery(`${paymentPrefix}:attempt-key`, undefined);
-    onSuccess(result.data);
+    complete(result.data);
   };
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -1821,10 +1845,11 @@ export function SettlementSheet({
             <h2 id="settlement-title">{historicalSettlement ? "اصلاح پرداخت" : "ثبت پرداخت"} {formatOrderNumber(order.dailyOrderNumber)}</h2>
             {historicalSettlement && <p className="settlement-history-note">این اصلاح سابقه‌ی پرداخت را تغییر می‌دهد و وضعیت زنده‌ی سفارش یا میز را عوض نمی‌کند.</p>}
           </div>
-          <button className="icon-button" type="button" ref={closeButtonRef} onClick={onClose} aria-label="بستن ثبت پرداخت">
+          <button className="icon-button" type="button" ref={closeButtonRef} disabled={busy} onClick={onClose} aria-label="بستن ثبت پرداخت">
             <CloseIcon />
           </button>
         </div>
+        {!terminalLocked && <>
         <section className="settlement-selection" aria-labelledby="settlement-items-title">
           <div className="settlement-section-heading">
             <h3 id="settlement-items-title">{historicalSettlement ? "اقلام این پرداخت" : "اقلام این پرداخت"}</h3>
@@ -1834,7 +1859,9 @@ export function SettlementSheet({
           <strong>{formatToman(selectedAmount)} <small>تومان</small></strong></div>
           <span className="settlement-payable-icon" aria-hidden="true"><BagIcon /></span>
         </div>
-          {available.map(({ item, availableQuantity }) => {
+          {!historicalSettlement && (terminal.enabled || hasAmountPartial) && <label><input type="checkbox" checked={byAmount} disabled={busy || hasAmountPartial} onChange={event => { resetAttempt(); setAmountMode(event.target.checked); }} />پرداخت بخشی از مبلغ سفارش</label>}
+          {byAmount && <label>مبلغ این بخش (تومان)<input aria-label="مبلغ این بخش (تومان)" inputMode="numeric" value={enteredAmount} disabled={busy} onChange={event => { resetAttempt(); setEnteredAmount(event.target.value.replace(/[^0-9]/g, "")); }} /><small>مانده سفارش: {formatToman(order.balanceAmount)} تومان. سرور این مبلغ را بین اقلام پرداخت‌نشده تقسیم می‌کند.</small></label>}
+          {!byAmount && available.map(({ item, availableQuantity }) => {
             const quantity = selectedQuantities[item.id] ?? 0;
             return (
               <div className={`settlement-item ${quantity > 0 ? "is-selected" : ""}`} key={item.id}>
@@ -1898,17 +1925,21 @@ export function SettlementSheet({
           <span>جمع مبالغ پرداخت <strong>{formatToman(tenderAmount)} <small>تومان</small></strong></span>
           <div className="settlement-balance"><span>{tenderAmount > selectedAmount ? "مبلغ اضافه: " : "باقی‌مانده: "}<strong>{formatToman(Math.abs(selectedAmount - tenderAmount))}</strong> تومان</span><b>{isReconciled && <CheckIcon />}{selectedAmount === 0 ? "برای ثبت پرداخت، دست‌کم یک قلم انتخاب کنید." : isReconciled ? "مبلغ پرداخت با مبلغ اقلام برابر است." : tenderAmount < selectedAmount ? "مبلغ باقی‌مانده را به یکی از روش‌های پرداخت اضافه کنید." : "مبلغ اضافه را از روش‌های پرداخت کم کنید."}</b></div>
         </div>}
+        {terminal.enabled && !historicalSettlement && <label className="settlement-history-note"><input type="checkbox" checked={useTerminal} disabled={busy || cardTenders.length !== 1} onChange={event => setUseTerminal(event.target.checked)} />ارسال مبلغ به کارت‌خوان</label>}
+        {useTerminal && <p>مبلغ ارسالی: {formatToman(positiveIntegerAmount(cardTenders[0]?.amount ?? "0"))} تومان. برای دو کارت بانکی، دو پرداخت جدا ثبت کنید.</p>}
+        </>}
+        <TerminalPaymentStatus payment={terminal} />
         {error && <div className="toast toast--error" role="alert">{error}</div>}
         <div className="modal-actions">
-          <button className="button button--quiet" onClick={onClose}>
-            انصراف
+          <button className="button button--quiet" disabled={busy} onClick={onClose}>
+            {terminalLocked ? "بستن پنجره" : "انصراف"}
           </button>
           <button
             className="button button--primary"
-            disabled={busy || !isReconciled}
-            onClick={() => void settle()}
+            disabled={busy || (terminalLocked ? !terminalResolved : !isReconciled || (useTerminal && cardTenders.length !== 1))}
+            onClick={() => void (terminalResolved ? terminal.finish() : settle())}
           >
-            {busy ? "در حال ثبت…" : historicalSettlement ? "ثبت اصلاح پرداخت" : "ثبت پرداخت"}
+            {busy ? "در حال بررسی…" : terminalResolved ? "بازگشت به سفارش" : terminalLocked ? "در انتظار بررسی پرداخت" : historicalSettlement ? "ثبت اصلاح پرداخت" : useTerminal ? "شروع پرداخت با کارت‌خوان" : "ثبت پرداخت"}
           </button>
         </div>
       </section>
