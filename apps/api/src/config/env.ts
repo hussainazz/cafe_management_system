@@ -18,6 +18,10 @@ const EnvironmentSchema = z.object({
   CUSTOMER_SESSION_SECRET: z.string().min(32).optional(),
   CUSTOMER_OTP_DEV_CODE: z.string().regex(/^\d{6}$/).optional(),
   PRODUCT_IMAGE_STORAGE_DIR: z.string().min(1).default("./data/product-images"),
+  SEP_TERMINAL_ENABLED: z.enum(["true", "false"]).default("false").transform(value => value === "true"),
+  SEP_BRIDGE_ID: z.uuid().transform(value => value.toLowerCase()).optional(),
+  SEP_TERMINAL_ID: z.string().regex(/^[0-9]{8}$/).optional(),
+  SEP_BRIDGE_HMAC_KEY: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
 const result = EnvironmentSchema.safeParse(process.env);
@@ -25,6 +29,11 @@ const result = EnvironmentSchema.safeParse(process.env);
 if (!result.success) {
   console.error("Invalid environment configuration:");
   console.error(z.prettifyError(result.error));
+  process.exit(1);
+}
+
+if (result.data.SEP_TERMINAL_ENABLED && (!result.data.SEP_BRIDGE_ID || !result.data.SEP_TERMINAL_ID || !result.data.SEP_BRIDGE_HMAC_KEY)) {
+  console.error("Enabled SEP integration requires an installation ID, terminal ID, and protected HMAC key");
   process.exit(1);
 }
 
