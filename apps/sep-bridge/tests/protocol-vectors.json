@@ -1,0 +1,38 @@
+{
+  "purpose": "Fake all-zero conformance key only. Never provision this key.",
+  "intent": {
+    "attemptId": "50000000-0000-4000-8000-000000000003",
+    "bridgeId": "50000000-0000-4000-8000-000000000004",
+    "terminalId": "31187710",
+    "orderId": "50000000-0000-4000-8000-000000000001",
+    "orderVersion": 2,
+    "cardAmount": 1000,
+    "unit": "TOMAN",
+    "checkoutHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "nonce": "50000000-0000-4000-8000-000000000005",
+    "issuedAtUnix": 1792920000,
+    "expiresAtUnix": 1792920120
+  },
+  "intentMessage": "sep-intent-v1\n50000000-0000-4000-8000-000000000003\n50000000-0000-4000-8000-000000000004\n31187710\n50000000-0000-4000-8000-000000000001\n2\n1000\nTOMAN\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n50000000-0000-4000-8000-000000000005\n1792920000\n1792920120",
+  "intentSignature": "862297cce4c6bb3b95ae9b7330a18837c3d8c705494fd735929ce4660183957d",
+  "claim": {
+    "attemptId": "50000000-0000-4000-8000-000000000003",
+    "bridgeId": "50000000-0000-4000-8000-000000000004",
+    "nonce": "50000000-0000-4000-8000-000000000005",
+    "sentAtUnix": 1792920000
+  },
+  "claimMessage": "sep-claim-v1\n50000000-0000-4000-8000-000000000003\n50000000-0000-4000-8000-000000000004\n50000000-0000-4000-8000-000000000005\n1792920000",
+  "claimSignature": "7ce60ad306c9fe88fc956ed070d45688e8b280bb451e0f229661c1e9145aef4e",
+  "result": {
+    "attemptId": "50000000-0000-4000-8000-000000000003",
+    "bridgeId": "50000000-0000-4000-8000-000000000004",
+    "terminalId": "31187710",
+    "sentAtUnix": 1792920000,
+    "finishedAtUnix": 1792919999,
+    "responseCode": "00",
+    "rrn": null,
+    "trace": "123456"
+  },
+  "resultMessage": "sep-result-v1\n50000000-0000-4000-8000-000000000003\n50000000-0000-4000-8000-000000000004\n31187710\n1792920000\n1792919999\n00\n\n123456",
+  "resultSignature": "c9a8ce73538b3c3433a219be191f9117247641733f3a4a674e8c293dc67e99eb"
+}
