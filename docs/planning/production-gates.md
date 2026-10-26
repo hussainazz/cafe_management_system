@@ -1,5 +1,23 @@
 # Production Gates
 
+## SEP SSP1126 activation gate (ADR 0012)
+
+Ship disabled. Prove health/preflight from the actual HTTPS POS in Windows 8.1
+Firefox ESR 115, record delivered CSP and proxy/VPN behavior, and verify an
+IPv4 loopback-only socket before financial operations. No browser security
+exceptions or LAN firewall opening. Inspect vendor logging before loading SEP.
+Use protected per-installation credentials, durable single-dispatch recovery,
+verified result posting, and audited reconciliation. Test uncertain approval,
+restart, duplicate/concurrent requests, and cash/split regressions with fakes.
+Validate a .NET Framework 4.8 x86 artifact and matching dependency hashes, with
+quiet least-privilege Task Scheduler startup, SSH diagnostics, and rollback.
+The 0.2.0 financial package is prepared locally with fake-only lifecycle tests
+and explicit manual reconciliation. Actual financial-host DPAPI/TLS, POST CORS,
+worker deadline/contention, restart and login acceptance remain open. Do not
+substitute the earlier health/ConnectionTest evidence for purchase verification.
+Cashier installation/execution, production activation, terminal configuration,
+and real payment tests each remain separately authorized live actions.
+
 This document owns deployment, resilience, quality, fixed production decisions, and production readiness evidence.
 
 ## Live VPS Observation (2026-09-01)
