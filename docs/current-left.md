@@ -1,6 +1,6 @@
 # Current Stage Status
 
-## SEP SSP1126 / PAX Q80 integration — 25 October 2026
+## SEP SSP1126 / PAX Q80 integration — 26 October 2026
 
 - Phase A repository and payment-flow audit completed. The user explicitly
   approved the bounded scope amendment on 25 October. ADR 0012, scope, prior
@@ -110,17 +110,33 @@
   reproducible build/transfer/install/pair/configure/start/stop/inspection and
   rollback commands. Restricted-policy inline command generation was checked
   below the Windows command-length limit, without executing those new commands.
-- Left: separately approve financial bridge installation, protected production
-  pairing and coordinated API/migration/POS release, then activation and a
-  specifically authorized hardware payment test. Windows financial DPAPI/TLS,
-  worker deadline/cross-session contention, financial POST/preflight, offline/
-  recovery and next-login startup still require target-machine acceptance. Do
-  not mark these live gates complete from local fake tests. Automatic financial
-  posting remains unavailable until the SDK returned amount is independently
-  verified; this release intentionally requires audited manual reconciliation.
-  No financial artifact was transferred/installed, production deployed, real
-  payment initiated, or terminal configuration changed. Previously approved
-  health task remains the installed running bridge.
+- Published coordinated disabled release `cafe-sep-75a2f4a` from commit
+  `75a2f4acb39ee500e3dd4741289f1d419cb07c1e`; all 84 changed files were pushed
+  to `main` as individual commits. The POS build ID and public `/pos/release`
+  both report `cafe-sep-75a2f4a`. Artifact SHA-256:
+  `94c0bb859479a3671205ed40efb9b1ad6d42af3d60afb7444406f402ec6a284c`.
+- Production backup
+  `/opt/cafe-menu-release-backups/cafe-db-before-cafe-sep-75a2f4a.dump`
+  was produced with PostgreSQL 17 and passed `pg_restore --list`. Runtime
+  rollback archive
+  `/opt/cafe-menu-release-backups/rollback-before-cafe-sep-75a2f4a.tar.gz`
+  passed `tar -tzf`. Migration `20261025120000_sep_terminal_attempts` was
+  applied before API activation; all 41 migrations are current.
+- Public `/api/public-menu`, `/menu`, `/pos`, `/pos/release`, and the POS API
+  readiness proxy returned expected HTTP statuses. `/pos/release` returns
+  `Cache-Control: no-store`; API and POS services are active with
+  `NRestarts=0`; no service error logs appeared during release verification.
+  `SEP_TERMINAL_ENABLED` remains unset and therefore defaults to false. No
+  pairing key was provisioned, no financial bridge was installed, and no real
+  payment or terminal configuration change occurred.
+- Left: complete cashier-PC financial bridge installation and protected
+  pairing, then perform target-machine DPAPI/TLS, POST/preflight, deadline,
+  mutex, restart/login, and recovery acceptance. After café setup, terminal
+  activation can use the existing backend environment flag and Windows bridge
+  configuration; it does not require another code release. Keep automatic
+  financial posting behind audited reconciliation until the SDK's approved
+  amount field is independently verified. Authorize any real payment test
+  separately and specify its order and amount.
 
 ## Public-menu item visibility — 24 October 2026
 
