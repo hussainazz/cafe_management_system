@@ -1,0 +1,26 @@
+name: SEP bridge safety tests
+
+on:
+  pull_request:
+    paths:
+      - 'apps/sep-bridge/**'
+      - '.github/workflows/sep-bridge-fakes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdk-free:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Mono reference assemblies
+        run: sudo apt-get update && sudo apt-get install -y mono-devel
+      # These checks never use the SEP package, terminal IP, Windows credentials,
+      # deployment keys, or real financial transactions.
+      - run: python3 apps/sep-bridge/tests/health_test.py
+      - run: python3 apps/sep-bridge/tests/diagnostics_test.py
+      - run: python3 apps/sep-bridge/tests/payments_test.py
+      - run: python3 apps/sep-bridge/tests/payment_host_test.py
