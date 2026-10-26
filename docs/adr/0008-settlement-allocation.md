@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. The manual-only terminal boundary is superseded only by [ADR 0012](0012-sep-ssp1126-local-bridge.md). Existing settlement accounting remains authoritative; terminal outcomes live on a durable attempt until verified posting or audited reconciliation.
 
 ## Context
 
