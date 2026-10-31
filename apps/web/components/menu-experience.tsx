@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { MenuCategory, MenuProduct, PublicMenu } from "../lib/menu-types";
 import {
   categoryTone,
@@ -30,11 +30,15 @@ import {
 import type { PublicTableContext } from "../lib/public-table-context";
 import {
   createProductImageState,
-  isProductImageNearViewport,
   productImageRetryDelays,
   productImageStallTimeoutMs,
   reduceProductImageState,
 } from "../lib/product-image-state";
+import {
+  createMenuImageReadiness,
+  isMenuImageReadinessComplete,
+  settleMenuImage,
+} from "../lib/menu-image-readiness";
 
 type MenuExperienceProps = {
   initialMenu: PublicMenu | null;
@@ -129,14 +133,25 @@ function isAddOnCategory(category: MenuCategory) {
     normalizeSearch(category.nameEn ?? "") === "add-ons";
 }
 
+function productCardImageIdentity(product: MenuProduct, category: MenuCategory) {
+  const sources = isAddOnCategory(category) && !product.image
+    ? []
+    : productImageSources(product, category);
+  return sources.length > 0
+    ? `${product.id}:${category.name}:card:${sources.join("|")}`
+    : null;
+}
+
 function ProductVisual({
   product,
   category,
   presentation = "card",
+  onSettled,
 }: {
   product: MenuProduct;
   category: MenuCategory;
   presentation?: "card" | "dialog";
+  onSettled?: (identity: string) => void;
 }) {
   const isAddOn = isAddOnCategory(category);
   const imageSources = isAddOn && !product.image ? [] : productImageSources(product, category);
@@ -159,36 +174,10 @@ function ProductVisual({
   }, [identity, imageSources.length, storedImageState.identity]);
 
   useEffect(() => {
-    const image = imageRef.current;
-    if (!image || !imageSource || imageState.phase !== "waiting") return;
-
-    if (typeof IntersectionObserver !== "undefined") {
-      const observer = new IntersectionObserver((entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          dispatchImageEvent({ type: "visible" });
-          observer.disconnect();
-        }
-      }, { rootMargin: "200px" });
-      observer.observe(image);
-      return () => {
-        observer.disconnect();
-      };
+    if ((imageState.phase === "loaded" || imageState.phase === "fallback") && imageSources.length > 0) {
+      onSettled?.(identity);
     }
-
-    const checkVisibility = () => {
-      const bounds = image.getBoundingClientRect();
-      if (isProductImageNearViewport(bounds.top, bounds.bottom, window.innerHeight)) {
-        dispatchImageEvent({ type: "visible" });
-      }
-    };
-    checkVisibility();
-    window.addEventListener("scroll", checkVisibility, { passive: true });
-    window.addEventListener("resize", checkVisibility);
-    return () => {
-      window.removeEventListener("scroll", checkVisibility);
-      window.removeEventListener("resize", checkVisibility);
-    };
-  }, [identity, imageSource, imageState.phase]);
+  }, [identity, imageSources.length, imageState.phase, onSettled]);
 
   useEffect(() => {
     if (imageState.phase !== "retry-wait") return;
@@ -202,14 +191,14 @@ function ProductVisual({
   }, [imageState.phase, imageState.retries]);
 
   useEffect(() => {
-    if (imageState.phase !== "loading" || !imageState.visible) return;
+    if (imageState.phase !== "loading") return;
     const timer = window.setTimeout(() => {
       dispatchImageEvent({ type: "stalled" });
     }, productImageStallTimeoutMs);
     return () => {
       window.clearTimeout(timer);
     };
-  }, [imageState.phase, imageState.sourceIndex, imageState.retries, imageState.visible]);
+  }, [imageState.phase, imageState.sourceIndex, imageState.retries]);
 
   if (imageSource) {
     const imageLoaded = imageState.phase === "loaded";
@@ -234,7 +223,7 @@ function ProductVisual({
             className="product-visual-image-main"
             src={imageSource}
             alt={imageState.sourceIndex === 0 ? product.image?.altText ?? product.name : product.name}
-            loading={imageState.visible ? "eager" : "lazy"}
+            loading="eager"
             decoding="async"
             width="480"
             height="360"
@@ -292,11 +281,13 @@ function ProductCard({
   category,
   language,
   onSelect,
+  onImageSettled,
 }: {
   product: MenuProduct;
   category: MenuCategory;
   language: Language;
   onSelect: (opener: HTMLButtonElement) => void;
+  onImageSettled: (identity: string) => void;
 }) {
   const text = copy[language];
   const detail = secondaryName(product, language);
@@ -316,7 +307,7 @@ function ProductCard({
       onClick={(event) => onSelect(event.currentTarget)}
       aria-label={`${localizedName(product, language)}، ${startingPriceDescription}${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${product.saleDiscount ? `، ${formatToman(product.saleDiscount.value, language)}٪ ${text.discount}` : ""}${availabilityDescription}${optionsDescription}`}
     >
-      <ProductVisual product={product} category={category} />
+      <ProductVisual product={product} category={category} onSettled={onImageSettled} />
       <span className="product-card-body">
         <span className="product-card-topline">
           <span className="product-name-wrap">
@@ -593,6 +584,26 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
     () => (menu ? filterMenu(menu, deferredQuery, null) : []),
     [deferredQuery, menu],
   );
+  const menuImageIds = useMemo(
+    () => menu?.categories.flatMap((category) =>
+      category.products.flatMap((product) => {
+        const identity = productCardImageIdentity(product, category);
+        return identity ? [identity] : [];
+      }),
+    ) ?? [],
+    [menu],
+  );
+  const menuImageIdentity = menuImageIds.join("\u001f");
+  const [menuImageReadiness, setMenuImageReadiness] = useState(
+    () => createMenuImageReadiness("", []),
+  );
+  const reportMenuImageSettled = useCallback((imageIdentity: string) => {
+    setMenuImageReadiness((current) =>
+      settleMenuImage(current, menuImageIdentity, menuImageIds, imageIdentity),
+    );
+  }, [menuImageIdentity, menuImageIds]);
+  const menuImagesReady = menuImageIds.length === 0 ||
+    isMenuImageReadinessComplete(menuImageReadiness, menuImageIdentity);
   const resultCount = filteredCategories.reduce(
     (count, category) => count + category.products.length,
     0,
@@ -861,7 +872,19 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
 
   return (
     <>
-    <div className="site-shell" dir={direction} lang={language}>
+    {menu && !menuImagesReady ? (
+      <div className="menu-image-loading-screen" role="status" aria-live="polite">
+        <LoadingMenu />
+      </div>
+    ) : null}
+    <div
+      className="site-shell"
+      dir={direction}
+      lang={language}
+      aria-busy={!menuImagesReady}
+      aria-hidden={!menuImagesReady || undefined}
+      inert={!menuImagesReady}
+    >
       <a className="skip-link" href="#menu-content">
         {text.menu}
       </a>
@@ -990,6 +1013,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
                         selectedProductTriggerRef.current = opener;
                         setSelectedProduct({ product, category });
                       }}
+                      onImageSettled={reportMenuImageSettled}
                       key={product.id}
                     />
                   ))}
