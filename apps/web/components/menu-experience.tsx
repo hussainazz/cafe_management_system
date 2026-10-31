@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { MenuCategory, MenuProduct, PublicMenu } from "../lib/menu-types";
 import {
   categoryTone,
@@ -28,6 +28,13 @@ import {
   SparkIcon,
 } from "./icons";
 import type { PublicTableContext } from "../lib/public-table-context";
+import {
+  createProductImageState,
+  isProductImageNearViewport,
+  productImageRetryDelays,
+  productImageStallTimeoutMs,
+  reduceProductImageState,
+} from "../lib/product-image-state";
 
 type MenuExperienceProps = {
   initialMenu: PublicMenu | null;
@@ -131,37 +138,120 @@ function ProductVisual({
   category: MenuCategory;
   presentation?: "card" | "dialog";
 }) {
-  const [imageIndex, setImageIndex] = useState(0);
   const isAddOn = isAddOnCategory(category);
   const imageSources = isAddOn && !product.image ? [] : productImageSources(product, category);
-  const imageSource = imageSources[imageIndex];
+  const identity = `${product.id}:${category.name}:${presentation}:${imageSources.join("|")}`;
+  const [storedImageState, dispatchImageEvent] = useReducer(
+    reduceProductImageState,
+    { identity, sourceCount: imageSources.length },
+    ({ identity: initialIdentity, sourceCount }) => createProductImageState(initialIdentity, sourceCount),
+  );
+  const imageState = storedImageState.identity === identity
+    ? storedImageState
+    : createProductImageState(identity, imageSources.length);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const imageSource = imageSources[imageState.sourceIndex];
+
+  useEffect(() => {
+    if (storedImageState.identity !== identity) {
+      dispatchImageEvent({ type: "reset", identity, sourceCount: imageSources.length });
+    }
+  }, [identity, imageSources.length, storedImageState.identity]);
+
+  useEffect(() => {
+    const image = imageRef.current;
+    if (!image || !imageSource || imageState.phase !== "waiting") return;
+
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          dispatchImageEvent({ type: "visible" });
+          observer.disconnect();
+        }
+      }, { rootMargin: "200px" });
+      observer.observe(image);
+      return () => {
+        observer.disconnect();
+      };
+    }
+
+    const checkVisibility = () => {
+      const bounds = image.getBoundingClientRect();
+      if (isProductImageNearViewport(bounds.top, bounds.bottom, window.innerHeight)) {
+        dispatchImageEvent({ type: "visible" });
+      }
+    };
+    checkVisibility();
+    window.addEventListener("scroll", checkVisibility, { passive: true });
+    window.addEventListener("resize", checkVisibility);
+    return () => {
+      window.removeEventListener("scroll", checkVisibility);
+      window.removeEventListener("resize", checkVisibility);
+    };
+  }, [identity, imageSource, imageState.phase]);
+
+  useEffect(() => {
+    if (imageState.phase !== "retry-wait") return;
+    const delay = productImageRetryDelays[imageState.retries - 1] ?? 1_500;
+    const timer = window.setTimeout(() => {
+      dispatchImageEvent({ type: "retry" });
+    }, delay);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [imageState.phase, imageState.retries]);
+
+  useEffect(() => {
+    if (imageState.phase !== "loading" || !imageState.visible) return;
+    const timer = window.setTimeout(() => {
+      dispatchImageEvent({ type: "stalled" });
+    }, productImageStallTimeoutMs);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [imageState.phase, imageState.sourceIndex, imageState.retries, imageState.visible]);
 
   if (imageSource) {
+    const imageLoaded = imageState.phase === "loaded";
     return (
-      <span className={`product-visual product-visual--image product-visual--${presentation}`}>
-        {/* Product files are self-hosted; dimensions and lazy decoding keep the grid stable. */}
-        {presentation === "dialog" ? (
-          // Decorative blurred copy fills the contain-image letterboxing in the product sheet.
-          // eslint-disable-next-line @next/next/no-img-element
+      <span className={`product-visual product-visual--image product-visual--${presentation} product-visual--${categoryTone(category)} product-visual--${imageLoaded ? "loaded" : "loading"}`}>
+        {!imageLoaded ? (
+          <span className={`product-visual-placeholder product-visual--${categoryTone(category)}`} aria-hidden="true">
+            <span className="visual-ring visual-ring--outer" />
+            <span className="visual-ring visual-ring--inner" />
+            <CategoryMark category={category} className="product-visual-mark" />
+            <span className="visual-grain" />
+          </span>
+        ) : null}
+        {presentation === "dialog" && imageLoaded ? (
+          // The decorative blurred copy is mounted after the primary image succeeds.
           <img className="product-visual-image-backdrop" src={imageSource} alt="" aria-hidden="true" />
         ) : null}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          className="product-visual-image-main"
-          src={imageSource}
-          alt={product.image?.altText ?? product.name}
-          loading="lazy"
-          decoding="async"
-          width="480"
-          height="360"
-          onError={() => setImageIndex((currentIndex) => currentIndex + 1)}
-        />
-        <span className="image-shade" />
+        {imageState.phase !== "retry-wait" ? (
+          <img
+            key={`${String(imageState.sourceIndex)}:${String(imageState.retries)}`}
+            ref={imageRef}
+            className="product-visual-image-main"
+            src={imageSource}
+            alt={imageState.sourceIndex === 0 ? product.image?.altText ?? product.name : product.name}
+            loading={imageState.visible ? "eager" : "lazy"}
+            decoding="async"
+            width="480"
+            height="360"
+            onLoad={() => {
+              dispatchImageEvent({ type: "loaded" });
+            }}
+            onError={() => {
+              dispatchImageEvent({ type: "failed" });
+            }}
+          />
+        ) : null}
+        {imageLoaded ? <span className="image-shade" /> : null}
       </span>
     );
   }
 
-  if (isAddOn) return null;
+  if (isAddOn && !product.image) return null;
 
   return (
     <span className={`product-visual product-visual--${categoryTone(category)}`} aria-hidden="true">
