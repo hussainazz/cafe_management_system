@@ -23,6 +23,15 @@ describe("product image loading state", () => {
     expect(productImageStallTimeoutMs).toBeGreaterThan(8_000);
   });
 
+  it("ignores duplicate error events while a retry is already scheduled", () => {
+    const loading = createProductImageState("item-a:image-a", 2);
+    const retrying = event(loading, { type: "failed" });
+
+    expect(event(retrying, { type: "failed" })).toEqual(retrying);
+    expect(retrying.sourceIndex).toBe(0);
+    expect(retrying.retries).toBe(1);
+  });
+
   it("retries a source twice with bounded backoff, then advances to the local image", () => {
     let state = createProductImageState("item-a:manager+local", 2);
     state = event(state, { type: "failed" });
