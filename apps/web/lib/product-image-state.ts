@@ -55,7 +55,7 @@ export function reduceProductImageState(
         ? state
         : { ...state, phase: "loaded" };
     case "failed":
-      return state.phase === "loaded" || state.phase === "fallback"
+      return state.phase !== "loading"
         ? state
         : advanceAfterFailure(state);
     case "stalled":
