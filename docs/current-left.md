@@ -1359,3 +1359,8 @@ or full Stage 10 exit gate.
   `/opt/cafe-menu-release-backups/menu-before-menu-20261031-eager-images-c901fdf.tar.gz`
   (SHA-256 `fb3243c45066d22d24ccc1a196b0ada1e6153c9cbb6f3bd13d3102da4bcf5cc0`).
   No API, database, Nginx, or uploaded-image changes were made.
+- Lazy loading follow-up is implemented locally: product images again use
+  browser lazy loading for both Manager uploads and bundled menu assets. Removed
+  the all-images opening gate so offscreen images do not block menu access;
+  per-image retry and fallback behavior remains. Focused component test, web
+  typecheck, and production build pass. VPS release and live image checks remain.
