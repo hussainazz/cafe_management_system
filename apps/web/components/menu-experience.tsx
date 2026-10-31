@@ -174,6 +174,12 @@ function ProductVisual({
   }, [identity, imageSources.length, storedImageState.identity]);
 
   useEffect(() => {
+    const image = imageRef.current;
+    if (!image || !imageSource || imageState.phase !== "loading" || !image.complete) return;
+    dispatchImageEvent({ type: image.naturalWidth > 0 ? "loaded" : "failed" });
+  }, [identity, imageSource, imageState.phase]);
+
+  useEffect(() => {
     if ((imageState.phase === "loaded" || imageState.phase === "fallback") && imageSources.length > 0) {
       onSettled?.(identity);
     }
