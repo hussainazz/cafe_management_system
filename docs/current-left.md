@@ -1340,3 +1340,20 @@ or full Stage 10 exit gate.
   No API, database, Nginx, or uploaded-image changes were made. Optional future
   upload resizing/compression can target about 840–900 px square; the measured
   current sizes do not justify changing existing images.
+- Follow-up completed and released on 31 October as
+  `menu-20261031-eager-images-ef17670` (build `cuHbQnhg2Il0UchX6yEKI`, commit
+  `ef17670`). Inspection found bundled `/items_pictures` assets used `max-age=0`;
+  they now cache for one day with stale-while-revalidate. Manager UUID images
+  retain one-year immutable caching. All product images start eagerly, and the
+  opening skeleton remains until each image succeeds or reaches the bounded
+  Manager → bundled → decorative fallback. Web tests passed 7 files / 29 tests;
+  typecheck, production build, focused lint, and `git diff --check` passed. Local
+  production-mode smoke returned `/menu` 200 with eager image tags, zero lazy
+  image tags, the opening gate, and the bundled cache header. VPS API readiness,
+  local/public menu routes, and both image URLs returned 200. Public HTML had 79
+  eager image tags and zero lazy tags. API, proxy, and public Manager-image
+  SHA-256 matched the stored image; all 32 uploads remain unchanged. Web service
+  is active with zero restart failures. Rollback archive is
+  `/opt/cafe-menu-release-backups/menu-before-menu-20261031-eager-images-ef17670.tar.gz`
+  (SHA-256 `e995b5beafc270859d2378babf794228883bd358b3776fd03141d84721b8dd67`).
+  No API, database, Nginx, or uploaded-image changes were made.
