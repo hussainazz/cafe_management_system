@@ -4,6 +4,17 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   agentRules: false,
+  headers: () => Promise.resolve([
+      {
+        source: "/items_pictures/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
+          },
+        ],
+      },
+    ]),
   // Allow phone testing from the private LAN ranges commonly used by Wi-Fi routers.
   allowedDevOrigins: [
     "127.0.0.1",
