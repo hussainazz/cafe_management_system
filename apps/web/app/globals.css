@@ -732,9 +732,32 @@ main {
   object-fit: cover;
 }
 
+.product-visual--image .product-visual-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  overflow: hidden;
+  place-items: center;
+}
+
+.product-visual--image .product-visual-image-main {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+.product-visual--loaded .product-visual-image-main {
+  opacity: 1;
+}
+
 .image-shade {
   position: absolute;
   inset: 0;
+  z-index: 2;
   background: linear-gradient(to top, rgba(15, 12, 9, 0.25), transparent 60%);
 }
 
