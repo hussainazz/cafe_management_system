@@ -1363,4 +1363,13 @@ or full Stage 10 exit gate.
   browser lazy loading for both Manager uploads and bundled menu assets. Removed
   the all-images opening gate so offscreen images do not block menu access;
   per-image retry and fallback behavior remains. Focused component test, web
-  typecheck, and production build pass. VPS release and live image checks remain.
+  typecheck, and production build pass. Released on 31 October 2026 as
+  `menu-20261031-lazy-images-affc9d6` from `main` commit `d38b000` (build
+  `3PyFUgGa2O1Vt43timU-j`). Local production-mode and public `/menu` probes
+  returned 200 with 79 lazy images, zero eager images, and no all-images gate.
+  The public-menu API and web proxy returned 200 with 16 categories and 147
+  products. Direct and public Manager-upload image SHA-256 values matched; a
+  bundled image returned 200 with one-day cache headers. `cafe-web.service` is
+  active with zero restarts; the 32 VPS uploads remain in place. Rollback
+  archive: `/opt/cafe-menu-release-backups/menu-before-menu-20261031-lazy-images-affc9d6.tar.gz`
+  (SHA-256 `c08acc6bbe9a37a034d095c7eaf248294410d5a52083c02f8d7584433debf7a7`).
