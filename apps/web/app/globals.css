@@ -1663,6 +1663,14 @@ footer span {
   padding-block: 60px;
 }
 
+.menu-image-loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: auto;
+  background: #100c09;
+}
+
 .skeleton {
   position: relative;
   overflow: hidden;
