@@ -1301,3 +1301,42 @@ API/POS typechecks, POS production build, and attached-browser verification at
 469×343, 390×844, and desktop sizes. These checks predate the 3 October changes;
 they do not verify the pending migrations, current uncommitted tree, printer,
 or full Stage 10 exit gate.
+
+## Public QR menu uploaded-image reliability — 31 October 2026
+
+- Phase 1 read-only VPS audit completed. The active image directory contains 32
+  files / 5.49 MiB; median is 178,131 bytes, P95 is 210,030 bytes, and the
+  maximum is 222,548 bytes. No file exceeds 250 KiB. All 20 largest are
+  1254×1254 WebP. No production image was modified.
+- Confirmed the API returns one-year immutable cache headers while the deployed
+  Next.js proxy returns `no-store`. The proxy's eight-second fetch signal also
+  remains active for streamed body reads. One direct API sample took 9.58 s;
+  this makes slow responses a plausible contributor but does not establish the
+  root cause. Nginx uses its general route to Next.js with default buffering
+  and timeouts; bounded logs showed no image-specific errors.
+- Phases 2–4 implemented locally on `fix/public-menu-uploaded-image-loading`:
+  the proxy now validates keys and image MIME type, handles upstream errors and
+  header/body stalls, streams with backpressure, checks declared body length,
+  forwards safe metadata, and applies immutable caching only to valid image
+  responses. Product images show category artwork while loading; visible images
+  use bounded retries and stall recovery, then fall back Manager image → bundled
+  image → decorative category artwork. Offscreen images remain lazy and have no
+  stall timer until near the viewport. State resets on product/source changes.
+- Verification: web suite 4 files / 24 tests, web typecheck, production build,
+  focused proxy/state ESLint, and `git diff --check` pass. Component ESLint still
+  reports existing errors outside this change; the project instruction is to
+  ignore pnpm lint errors. A local end-to-end HTTP check returned HTTP 200 for
+  `/menu` with 61 image placeholders and 61 lazy images. The same-origin proxy's
+  local image SHA-256 exactly matched the source file and Fastify response.
+  No browser surface was available for screenshot-level inspection.
+- Released to production on 31 October 2026 as `menu-20261031-ed0c544`
+  (build `RaRdU35vDOa0g1-puZpab`, commit `ed0c544`). The web-only systemd
+  release is recorded in the VPS manifest. Live API, local menu, and public menu
+  probes returned 200; direct API, local proxy, and public proxy image bytes
+  matched the stored upload SHA-256. `cafe-web.service` remained active with
+  zero restarts; all 32 uploaded images and the representative file hash are
+  unchanged. Rollback archive:
+  `/opt/cafe-menu-release-backups/menu-before-menu-20261031-ed0c544.tar.gz`.
+  No API, database, Nginx, or uploaded-image changes were made. Optional future
+  upload resizing/compression can target about 840–900 px square; the measured
+  current sizes do not justify changing existing images.
