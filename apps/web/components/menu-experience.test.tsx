@@ -42,7 +42,7 @@ const menu: PublicMenu = {
 };
 
 describe("menu image opening behavior", () => {
-  it("eagerly starts all product images and keeps the menu covered until they settle", () => {
+  it("lazy loads manager-uploaded and bundled product images without blocking the menu", () => {
     const markup = renderToStaticMarkup(createElement(MenuExperience, {
       initialMenu: menu,
       initialRequestFailed: false,
@@ -50,9 +50,11 @@ describe("menu image opening behavior", () => {
       initialTableContext: null,
     }));
 
-    expect(markup.match(/loading="eager"/g)).toHaveLength(2);
-    expect(markup).toContain("menu-image-loading-screen");
-    expect(markup).toContain("aria-busy=\"true\"");
-    expect(markup).toContain("inert");
+    expect(markup.match(/loading="lazy"/g)).toHaveLength(2);
+    expect(markup).not.toContain("menu-image-loading-screen");
+    expect(markup).not.toContain("aria-busy=\"true\"");
+    expect(markup).not.toContain("inert");
+    expect(markup).toContain("/api/product-images/123e4567-e89b-12d3-a456-426614174000.webp");
+    expect(markup).toContain("/items_pictures/");
   });
 });
