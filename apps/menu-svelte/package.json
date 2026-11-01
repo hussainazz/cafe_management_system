@@ -1,0 +1,38 @@
+{
+  "name": "@cafe/menu-svelte",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3003",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3003",
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "lint": "eslint .",
+    "test": "pnpm --filter @cafe/contracts build && vitest run",
+    "format:check": "prettier --plugin prettier-plugin-svelte --check \"src/**/*.{ts,svelte,html}\" \"tests/**/*.ts\" \"*.{ts,js,json}\" README.md"
+  },
+  "imports": {
+    "#lib/*": "./src/lib/*"
+  },
+  "dependencies": {
+    "@cafe/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@sveltejs/adapter-node": "^6.0.1",
+    "@sveltejs/adapter-vercel": "^7.0.2",
+    "@sveltejs/kit": "^3.1.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "eslint-plugin-svelte": "^3.23.1",
+    "prettier-plugin-svelte": "^4.1.1",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.7",
+    "svelte-eslint-parser": "^1.10.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.5",
+    "vitest": "^4.1.11"
+  }
+}
