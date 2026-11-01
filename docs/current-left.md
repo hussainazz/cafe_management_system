@@ -1,5 +1,31 @@
 # Current Stage Status
 
+## Main consolidation and VPS release boundary — 1 November 2026
+
+- Consolidated the unpaid-item editing work and the local SEP bridge updates
+  into `main`, published as commit `27755da`. The SvelteKit scaffold remains
+  separate on `sveltekit` at `79812b4`; it is not part of `main` or the active
+  public-menu deployment.
+- Removed the other local and remote branches. Only `main` and `sveltekit`
+  remain. Existing stashes were left intact.
+- The existing API/POS production artifact was built with release ID
+  `cafe-20261101-27755da`, checksum
+  `6fe11811b4533e5d7d0a341a122f5150a8e6a6717e7d012872446038e71eccfb`, and
+  42 reviewed migration directories. It was uploaded and extracted to
+  `/opt/cafe-menu-release-staging/cafe-20261101-27755da` for pre-activation
+  staging.
+- The user then directed that VPS deployment stop. No production database
+  backup, migration, runtime swap, service restart, or release-manifest update
+  was performed. The existing production release remains active; the staged
+  candidate is retained for a later explicit release decision.
+- Verification before the stop: API order integration 58/58, inventory 21/21,
+  focused POS order-desk 27/27, SEP fake tests 14/14, SvelteKit scaffold tests
+  7/7, API/POS/SvelteKit typechecks, and production builds passed. The
+  `20261017120000_settlement_allocation_mode` migration is applied locally and
+  on the isolated test database.
+- Left: production activation is pending. Do not apply the staged migration or
+  replace runtime artifacts without a new explicit deployment request.
+
 ## SEP SSP1126 / PAX Q80 integration — 26 October 2026
 
 - Phase A repository and payment-flow audit completed. The user explicitly
@@ -453,7 +479,7 @@ Lint was run and its errors remain non-blocking under the project instruction.
 - [x] Verify API/payment invariants, POS save/recovery behavior, and the
   additive migration; record results here.
 
-- Implementation is on `fix/partial-item-unpaid-edit`. Removing the last
+- Implementation is included in `main` commit `27755da`. Removing the last
   unpaid line closes the order, releases a table and its guest context, and
   recognizes inventory only for retained items. Removed snapshots are audited;
   items referenced by historical settlements or inventory cannot be deleted.
@@ -472,7 +498,8 @@ Lint was run and its errors remain non-blocking under the project instruction.
   schema inside `cafe_management_test`; no additional test database was used.
 - The wider POS run encountered the unchanged Manager finance test's 5-second
   timeout, which also occurs when that test runs alone. This remains outside
-  the order-item change. Changes are local on the feature branch.
+  the order-item change. Production activation remains pending, as recorded in
+  the main-consolidation status above.
 
 ## Completion Record
 
