@@ -11,12 +11,132 @@ verified result posting, and audited reconciliation. Test uncertain approval,
 restart, duplicate/concurrent requests, and cash/split regressions with fakes.
 Validate a .NET Framework 4.8 x86 artifact and matching dependency hashes, with
 quiet least-privilege Task Scheduler startup, SSH diagnostics, and rollback.
-The 0.2.0 financial package is prepared locally with fake-only lifecycle tests
-and explicit manual reconciliation. Actual financial-host DPAPI/TLS, POST CORS,
-worker deadline/contention, restart and login acceptance remain open. Do not
-substitute the earlier health/ConnectionTest evidence for purchase verification.
-Cashier installation/execution, production activation, terminal configuration,
-and real payment tests each remain separately authorized live actions.
+The 0.2.0 bridge dispatched the supervised 350,000 Toman test as attempt
+`3ae7bd3a-07e5-4cbd-a107-c86f2f032a41` for order
+`456e0c4e-61b9-4154-ab58-63322f458704`. Its phase details were not persisted,
+so the journal cannot show whether `PcStarterPurchase` was entered. The cashier
+clock was about 9 seconds behind the signed backend issue time, within the
+30-second allowance; authorization validation passed. The operator found no
+receipt or debit, and the POS audit now records that attempt as `FAILED` with no
+settlement. The order remains OPEN/UNPAID with 350,000 Toman due, and no
+unresolved terminal attempts remain for it.
+
+Version 0.2.1 with local allowlisted worker-phase diagnostics was transferred,
+verified, and installed under the existing account. It preserves the pairing,
+attempt journal, and old binary. At install the task and both payment switches
+were disabled; no device call occurred. Following the user's explicit retry
+request, both Windows payment switches and `SEP_TERMINAL_ENABLED` are now true,
+the Task Scheduler task is Running, and loopback health reports 0.2.1 with
+payment enabled. API readiness and database health returned 200. Any payment
+must originate through the authenticated POS workflow; do not issue a direct
+bridge request or retry if a result is uncertain.
+The final ZIP in cashier Documents has SHA-256
+`b10ed2af00ea851c62f46a00f5fde98ddfcb32fc53316633057eb385a24dfb6c` and its
+installed executable/DLL hashes match the package manifest.
+
+Two subsequent POS attempts were created for this order. Attempt
+`4e72ae38-6b21-4c52-a892-91cf6b28de92` is `FAILED`, reconciled with
+`TERMINAL_RECEIPT`. Attempt
+`26f4fe04-7faa-491c-998d-49921f8813ad` was reconciled `FAILED` with
+`TERMINAL_RECEIPT`, no response code, and no linked settlement. Its audit records
+no-charge, terminal-idle, and bridge-stopped confirmations. Its 0.2.1 diagnostic
+confirms `ConnectionTest` returned `00`, then
+`PcStarterPurchase` was entered and returned null (worker exit code 1); SDK
+cleanup succeeded. The local evidence cannot establish whether the purchase
+message was sent or whether the terminal/bank approved it. The operator saw a
+terminal communication message. Staff later reconciled it as no-charge after
+checking records. New initiation has been paused: backend flag
+false, both Windows payment configs false, task Disabled, no worker/listener.
+The API is active; direct and POS-prefixed readiness return 200. The operator
+reports no matching bank transaction for the latest terminal attempt. A
+separate manual POS settlement `3377c445-ea5d-47e9-94c3-453faa90f11e` was
+recorded seven seconds after the no-charge reconciliation as 350,000 Toman
+`CARD_TERMINAL`; it is not linked to the terminal attempt. The order is now
+CLOSED/PAID, and the user confirms this separate settlement corresponds to an
+actual debit. A fresh production query confirms the paid order and settlement.
+Keep terminal initiation disabled while validating the 0.2.3 lifecycle fix.
+Do not substitute the earlier ConnectionTest for a purchase result.
+
+### 0.2.3 lifecycle diagnosis and cashier verification — 29 October 2026
+
+Static inspection of the pinned SDK IL confirmed the null-result path. The
+successful `ConnectionTest()` ends a synchronous transaction, and SDK network
+disposal closes the channel and clears its connection settings. The previous
+bridge called `PcStarterPurchase()` on that closed factory; the SDK guard then
+returned null before constructing or sending a purchase message. The 0.2.3
+worker now reapplies `SetLan` and `Initialization(English, 10, Sync)` between
+the connection test and purchase call. Fake lifecycle tests verify that order.
+
+Version 0.2.3 was transferred, remotely checksum-verified, and installed under
+the existing cashier account. A hidden Windows health-only launch returned
+version 0.2.3 and the expected disabled/manual-verification fields. The host was
+stopped; final inspection confirmed the task remains Disabled, both payment
+switches remain false, and no bridge/worker/listener remains. No terminal SDK
+call or financial operation occurred. Thus the lifecycle fix is installed but
+has not yet had a supervised hardware purchase test. Keep backend and Windows
+payment initiation disabled until that test is explicitly approved. A timeout,
+null result, or lost response remains UNKNOWN and must not be retried. Receipt or
+bank verification and audited reconciliation remain required before posting.
+
+### Authorized 590,000 Toman supervised checkout — 29 October 2026
+
+The user authorized one charge for order
+`46f27c22-cf07-48c1-8cdd-6af015313de5`. A read-only production check showed
+OPEN/UNPAID, 590,000 Toman due, version 1, and no terminal attempt for the
+order; no unresolved terminal attempts exist. The backend terminal flag was
+enabled and `cafe-api.service` restarted; internal readiness returned 200. On
+the cashier, both 0.2.3 payment switches were enabled with vendor logging off,
+and the task was started. `/health` reports payments mode; `netstat` confirms
+the only listener is `127.0.0.1:18711`. No purchase has been initiated. The
+cashier must explicitly start the amount-matched POS checkout while watching
+the Q80. After outcome inspection, disable the backend flag and both Windows
+switches, stop and disable the task, and confirm no listener. Any uncertain
+outcome stays UNKNOWN pending receipt/bank reconciliation; do not retry.
+
+### Amount-unit incident and 0.2.4 local correction — 29 October 2026
+
+The supervised bridge attempt for the order above was attempt
+`e3a0a92e-ebc1-484f-a098-47c7902b3e48`. Production read-only evidence showed
+OPEN/UNPAID, 590,000 Toman due, no settlement, and attempt status UNKNOWN.
+Windows diagnostics show intent authorization and claim succeeded, the pinned
+SDK hashes matched, `SetLan`, initialization, `ConnectionTest` (`00`, terminal
+`31187710`), and purchase reinitialization passed, then
+`PcStarterPurchase` returned response code `98`; cleanup and worker exit code 0
+were recorded. The SDK defines `98` as cancellation. The bridge source passed
+the 590,000 Toman value unchanged while the terminal displayed 590,000 instead
+of the expected 5,900,000 Rial. The remembered terminal display
+`signum(13)` is not identified in the official local SDK material. Its exact
+meaning and causal link to the amount remain unverified.
+
+After inspection, `SEP_TERMINAL_ENABLED` was set false and the API returned
+ready. The cashier task is Disabled; both 0.2.3 payment switches are false;
+the host and worker are stopped; port 18711 has no listener. No payment was
+initiated during diagnosis. The operator reports no debit and cleared terminal
+history, but the durable attempt remains UNKNOWN until an authenticated audited
+POS reconciliation; do not retry this attempt.
+
+Local bridge 0.2.4 now converts authorized integer Toman to Rial exactly once
+(`590000` -> `5900000`) before the SDK call. Fake payment, host, worker-guard,
+lifecycle and amount tests passed. The disabled x86/net48 artifact and manifest
+were verified; ZIP SHA-256 is
+`6d7937b87e891f3287eda0e3a9e86ec515a0884ba18f544b5de32822256d879d`. The
+artifact is not transferred or installed. Keep both initiation controls disabled; any new supervised
+hardware test requires separate explicit authorization and amount confirmation.
+
+### Bridge activation retry — 30 October 2026
+
+After the user requested activation, the 0.2.4 x86 package was transferred with
+the recorded SHA-256, staged, and upgraded under the existing Windows account.
+The scheduled task is Running; bridge health reports `mode=payments`,
+`paymentEnabled=true`, `terminalAccess=true`, and
+`manualVerificationRequired=true`. Windows `netstat` shows the only listener at
+`127.0.0.1:18711`. The VPS configuration has
+`SEP_TERMINAL_ENABLED=true`; `cafe-api.service` is active and readiness reports
+the database connected. Public `/pos/release` reports `cafe-sep-75a2f4a`.
+No purchase worker or payment was initiated during verification. This enables
+the terminal option in the authenticated POS settlement window; it does not
+resolve the earlier UNKNOWN attempt. The cashier must explicitly initiate a
+new, amount-confirmed checkout and reconcile its evidence before posting.
 
 This document owns deployment, resilience, quality, fixed production decisions, and production readiness evidence.
 
