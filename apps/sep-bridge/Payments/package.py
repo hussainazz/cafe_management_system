@@ -19,21 +19,21 @@ for name, digest in expected.items():
         raise SystemExit('SDK checksum mismatch')
 shared = ['mcs', '-sdk:4.8', '-langversion:5', '-warnaserror', '-platform:x86', '-target:winexe', '-optimize+', '-r:System.Configuration', '-r:System.Web.Extensions', '-r:System.Security']
 subprocess.run([*shared, f'-out:{out / "RunCafe.SepBridge.Payments.exe"}', *[str(root / name) for name in ('PaymentProtocol.cs', 'PaymentEngine.cs', 'BackendClient.cs', 'ProcessPurchaseWorker.cs', 'PaymentHost.cs')]], check=True)
-subprocess.run([*shared, f'-out:{out / "RunCafe.SepBridge.PurchaseWorker.exe"}', *[f'-r:{args.sdk_directory / name}' for name in expected], str(root / 'PaymentProtocol.cs'), str(root / 'BackendClient.cs'), str(root / 'PaymentEngine.cs'), str(root / 'PurchaseWorker.cs')], check=True)
+subprocess.run([*shared, f'-out:{out / "RunCafe.SepBridge.PurchaseWorker.exe"}', *[f'-r:{args.sdk_directory / name}' for name in expected], str(root / 'PaymentProtocol.cs'), str(root / 'SepAmount.cs'), str(root / 'BackendClient.cs'), str(root / 'PaymentEngine.cs'), str(root / 'PurchaseLifecycle.cs'), str(root / 'PurchaseWorker.cs')], check=True)
 names = ['RunCafe.SepBridge.Payments.exe', 'RunCafe.SepBridge.PurchaseWorker.exe', *expected]
 for name in names[:2]:
     shutil.copyfile(root / 'App.config', out / (name + '.config'))
 names += ['RunCafe.SepBridge.Payments.exe.config', 'RunCafe.SepBridge.PurchaseWorker.exe.config']
 for name in expected:
     shutil.copyfile(args.sdk_directory / name, out / name)
-for name in ('README.md', 'install.ps1', 'pair.ps1', 'configure.ps1', 'stop.ps1'):
+for name in ('README.md', 'install.ps1', 'pair.ps1', 'configure.ps1', 'stop.ps1', 'upgrade.ps1'):
     shutil.copyfile(root / name, out / name)
     names.append(name)
-manifest = {'version': '0.2.0', 'platform': 'x86', 'framework': 'net48', 'paymentsEnabledByDefault': False, 'manualVerificationRequired': True,
+manifest = {'version': '0.2.4', 'platform': 'x86', 'framework': 'net48', 'paymentsEnabledByDefault': False, 'manualVerificationRequired': True,
             'files': [{'name': name, 'sha256': hashlib.sha256((out / name).read_bytes()).hexdigest()} for name in names],
             'sources': {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(root.glob('*.cs'))}}
 (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-archive = out / 'run-cafe-sep-payments-0.2.0-x86.zip'
+archive = out / 'run-cafe-sep-payments-0.2.4-x86.zip'
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as package:
     for name in names + ['manifest.json']:
         # Stable ZIP metadata for reproducible builds with the same compiler.
