@@ -309,6 +309,7 @@ export const OrderChannelSchema = z.enum(["TABLE", "TAKEAWAY"]);
 export const SettlementSummarySchema = z.object({
   id: z.uuid(),
   totalAmount: z.number().int().nonnegative(),
+  allocationMode: z.enum(["ITEM_QUANTITY", "AMOUNT"]).nullable().optional(),
   recordedAt: z.iso.datetime(),
   reversedAt: z.iso.datetime().nullable(),
   allocations: z.array(
@@ -501,7 +502,8 @@ export const AuditLogResponseSchema = z.object({
 export const ExistingOrderItemUpdateSchema = z
   .object({
     orderItemId: z.uuid(),
-    quantity: z.number().int().positive().optional(),
+    // Zero removes an entirely unpaid item only after item-quantity payments.
+    quantity: z.number().int().nonnegative().optional(),
     weightGrams: z.number().int().positive().optional(),
     note: z.string().trim().min(1).max(1_000).nullable().optional(),
     discount: ReasonedDiscountInputSchema.optional(),
