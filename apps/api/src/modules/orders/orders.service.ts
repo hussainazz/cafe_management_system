@@ -561,6 +561,7 @@ function orderDetailDto(order: OrderDetailRecord) {
     settlements: order.paymentSettlements.map((settlement) => ({
       id: settlement.id,
       totalAmount: settlement.totalAmount,
+      allocationMode: settlement.allocationMode,
       recordedAt: settlement.recordedAt.toISOString(),
       reversedAt: settlement.reversal?.recordedAt.toISOString() ?? null,
       allocations: settlement.allocations,
@@ -658,6 +659,7 @@ export async function updateOrder(
   requireRole(actor, ["STAFF", "MANAGER"]);
   return prisma.$transaction(async (transaction) => {
     await assertNoTerminalReservation(transaction, orderId);
+    await lockOperationalKeys(transaction, [`order:${orderId}`]);
     const order = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be edited.");
@@ -669,6 +671,12 @@ export async function updateOrder(
       activeAllocatedAmounts.set(allocation.orderItemId, (activeAllocatedAmounts.get(allocation.orderItemId) ?? 0) + allocation.amount);
     }));
     const hasActiveAllocations = activeAllocations.size > 0 || activeAllocatedAmounts.size > 0;
+    const activeSettlements = order.paymentSettlements.filter((settlement) => !settlement.reversal);
+    const allowsUnpaidItemEdits = order.paymentStatus === PaymentStatus.PARTIALLY_PAID
+      && activeSettlements.length > 0
+      && activeSettlements.every((settlement) => settlement.allocationMode === "ITEM_QUANTITY");
+    const removedItems: OrderDetailRecord["items"] = [];
+    let editsUnpaidItem = false;
     if (input.items && hasActiveAllocations) {
       throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Order contents cannot be replaced after settlement.");
     }
@@ -683,6 +691,7 @@ export async function updateOrder(
         },
       });
       const productById = new Map(products.map((product) => [product.id, product as ProductForOrder]));
+      const nextDisplayOrder = order.items.reduce((highest, item) => Math.max(highest, item.displayOrder), -1) + 1;
       const prepared = catalogItems.map((requested, index) => {
         const product = productById.get(requested.productId);
         if (!product || !isAvailableProduct(product)) throw new ApplicationError(422, ErrorCodes.UNAVAILABLE_PRODUCT, "One or more selected products are unavailable.");
@@ -705,7 +714,7 @@ export async function updateOrder(
           quantity: requested.quantity,
           note: requested.note ?? null, discountKind: saleDiscount?.kind ?? null, discountValue: saleDiscount?.value ?? null,
           discountAmount, discountReason: null, lineTotalAmount: finalAmount,
-          displayOrder: input.items ? index : order.items.length + index, options,
+          displayOrder: input.items ? index : nextDisplayOrder + index, options,
         };
       });
       // A full unpaid replacement must retain preparation identities for equivalent
@@ -741,6 +750,23 @@ export async function updateOrder(
       const allocated = activeAllocations.get(item.id) ?? 0;
       const allocatedAmount = activeAllocatedAmounts.get(item.id) ?? 0;
       const hasActiveAllocation = allocated > 0 || allocatedAmount > 0;
+      const reducesQuantity = change.quantity !== undefined && change.quantity < item.quantity;
+      if (order.paymentStatus === PaymentStatus.PARTIALLY_PAID && !hasActiveAllocation
+        && (reducesQuantity || change.note !== undefined || change.weightGrams !== undefined)) {
+        if (!allowsUnpaidItemEdits) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Unpaid items can be edited only after item-quantity payments.");
+      }
+      if (allowsUnpaidItemEdits && !hasActiveAllocation) editsUnpaidItem = true;
+      if (change.quantity === 0) {
+        if (!allowsUnpaidItemEdits || hasActiveAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only entirely unpaid items after item-quantity payments can be removed.");
+        if (change.note !== undefined || change.discount !== undefined || change.weightGrams !== undefined) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An item removal cannot include other item changes.");
+        const hasSettlementHistory = order.paymentSettlements.some((settlement) => settlement.allocations.some((allocation) => allocation.orderItemId === item.id));
+        if (hasSettlementHistory || await transaction.orderConsumptionItem.count({ where: { orderItemId: item.id } })) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "An item referenced by payment or inventory history cannot be removed.");
+        await transaction.orderItemOption.deleteMany({ where: { orderItemId: item.id } });
+        await transaction.orderItemCostingSnapshot.deleteMany({ where: { orderItemId: item.id } });
+        await transaction.orderItem.delete({ where: { id: item.id } });
+        removedItems.push(item);
+        continue;
+      }
       if (change.quantity !== undefined && change.quantity < allocated) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "An item quantity cannot be reduced below settled quantity.");
       if (change.quantity !== undefined && change.quantity < item.quantity && allocatedAmount > 0) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "An item with an amount-based settlement cannot be reduced.");
       if (change.note !== undefined && hasActiveAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "A settled item note cannot be changed.");
@@ -749,18 +775,27 @@ export async function updateOrder(
       if (item.pricingModeSnapshot === "FIXED" && change.weightGrams !== undefined) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Fixed-price products cannot include a weight.");
       if (item.pricingModeSnapshot === "WEIGHTED_PER_KG" && change.weightGrams === undefined && item.weightGrams === null) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A weighted item is missing its weight.");
       const quantity = change.quantity ?? item.quantity;
-      if (item.options.some((option) => option.quantity > quantity)) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An option quantity cannot exceed its order item quantity.");
+      // Entirely unpaid lines retain their selected options per unit. Never
+      // rescale an option snapshot belonging to an active settlement.
+      const options = allowsUnpaidItemEdits && !hasActiveAllocation && item.pricingModeSnapshot === "FIXED"
+        ? item.options.map((option) => ({ ...option, quantity: option.quantity * quantity / item.quantity }))
+        : item.options;
+      if (options.some((option) => !Number.isSafeInteger(option.quantity) || option.quantity <= 0 || option.quantity > quantity)) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The selected options cannot be preserved at this item quantity.");
       const weightGrams = change.weightGrams ?? item.weightGrams;
-      const pricing = calculateLinePricing({ pricingMode: item.pricingModeSnapshot, basePrice: item.basePriceSnapshot, options: item.options.map((option) => ({ price: option.priceSnapshot, quantity: option.quantity })), quantity, weightGrams });
+      const pricing = calculateLinePricing({ pricingMode: item.pricingModeSnapshot, basePrice: item.basePriceSnapshot, options: options.map((option) => ({ price: option.priceSnapshot, quantity: option.quantity })), quantity, weightGrams });
       const grossLineAmount = pricing.grossLineAmount;
       const discount = change.discount;
       const existingDiscount = item.discountKind && item.discountValue ? { kind: item.discountKind, value: item.discountValue } : null;
       const appliedDiscount = discount === undefined ? existingDiscount : discount;
       const { discountAmount, finalAmount: lineTotalAmount } = discountedFinalAmount(grossLineAmount, appliedDiscount);
+      for (const option of options) {
+        if (option.quantity !== item.options.find((original) => original.id === option.id)!.quantity) await transaction.orderItemOption.update({ where: { id: option.id }, data: { quantity: option.quantity } });
+      }
+      const changesPricing = change.quantity !== undefined || change.weightGrams !== undefined || discount !== undefined;
       await transaction.orderItem.update({ where: { id: item.id }, data: {
         quantity, weightGrams, ...(change.note !== undefined ? { note: change.note } : {}),
-        ...(discount === undefined ? {} : { discountKind: discount?.kind ?? null, discountValue: discount?.value ?? null, discountAmount, discountReason: discount?.reason ?? null }),
-        lineTotalAmount,
+        ...(discount === undefined ? {} : { discountKind: discount?.kind ?? null, discountValue: discount?.value ?? null, discountReason: discount?.reason ?? null }),
+        ...(changesPricing ? { discountAmount, lineTotalAmount } : {}),
       } });
     }
     const items = await transaction.orderItem.findMany({ where: { orderId }, include: { options: true } });
@@ -772,13 +807,40 @@ export async function updateOrder(
     const { discountAmount: orderDiscountAmount, finalAmount: totalAmount } = discountedFinalAmount(subtotalAmount, activeOrderDiscount);
     if (orderDiscountAmount > subtotalAmount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The existing order discount exceeds the updated order amount.");
     const balanceAmount = totalAmount - order.paidAmount;
+    if (balanceAmount < 0) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The edited order total cannot be less than its recorded payments.");
+    if (editsUnpaidItem) {
+      const amounts = (lines: Array<{ id: string; lineTotalAmount: number }>, subtotal: number, discount: number) => {
+        let running = 0;
+        return new Map(lines.map((line) => {
+          const before = subtotal > 0 ? Math.floor(discount * running / subtotal) : 0;
+          running += line.lineTotalAmount;
+          const after = subtotal > 0 ? Math.floor(discount * running / subtotal) : 0;
+          return [line.id, line.lineTotalAmount - (after - before)];
+        }));
+      };
+      const before = amounts(order.items, order.subtotalAmount, order.discountAmount);
+      const after = amounts([...items].sort((a, b) => a.displayOrder - b.displayOrder), subtotalAmount, orderDiscountAmount);
+      for (const [itemId, amount] of activeAllocatedAmounts) {
+        if (amount > 0 && before.get(itemId) !== after.get(itemId)) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "This edit would change an item's settled amount.");
+      }
+    }
     const paymentStatus = paymentStatusForBalance(order.paidAmount, balanceAmount);
-    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, version: { increment: 1 } } });
+    const closesOrder = editsUnpaidItem && balanceAmount === 0;
+    if (closesOrder && order.channel === OrderChannel.TABLE && order.tableId) await lockOperationalKeys(transaction, [`table:${order.tableId}`]);
+    const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, ...(closesOrder ? { state: OrderState.CLOSED } : {}), version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     if (input.items || input.addItems || input.itemUpdates?.some((change) => change.quantity !== undefined || change.weightGrams !== undefined)) {
       await updateOrderCostingSnapshots(transaction, orderId);
     }
-    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, afterSnapshot: { version: input.expectedVersion + 1 } } });
+    if (closesOrder) {
+      const closedAt = new Date();
+      await recognizeOrderFullPayment(transaction, orderId, activeSettlements[activeSettlements.length - 1]!.id, actor.id, closedAt);
+      if (order.channel === OrderChannel.TABLE && order.tableId) {
+        await transaction.cafeTable.update({ where: { id: order.tableId }, data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, customerAuthBypassEnabled: false, tableContextInvalidBefore: closedAt } });
+        await transaction.waiterCall.updateMany({ where: { tableId: order.tableId, status: "PENDING" }, data: { status: "RESOLVED", acknowledgedAt: closedAt, resolvedAt: closedAt, version: { increment: 1 } } });
+      }
+    }
+    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, ...(removedItems.length ? { beforeSnapshot: { removedItems } } : {}), afterSnapshot: { version: input.expectedVersion + 1, ...(removedItems.length ? { removedItemIds: removedItems.map((item) => item.id) } : {}) } } });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
 }
@@ -883,8 +945,8 @@ export async function planSettlementInTransaction(
 ) {
   const current = await transaction.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
   if (!current) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-  if (current.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be settled.");
   if (current.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+  if (current.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be settled.");
   await assertNoTerminalReservation(transaction, orderId, exceptAttemptId);
 
   const activeAllocatedQuantity = new Map<string, number>();
@@ -969,6 +1031,7 @@ export async function postSettlementInTransaction(
       recordedById: actor.id,
       idempotencyKey,
       totalAmount,
+      allocationMode: input.allocationMode ?? "ITEM_QUANTITY",
       recordedAt,
       allocations: { create: allocations },
       payments: { create: input.payments.map((payment) => ({
@@ -1044,6 +1107,7 @@ export async function recordSettlement(
 
   try {
     const order = await prisma.$transaction(async (transaction) => {
+      await lockOperationalKeys(transaction, [`order:${orderId}`]);
       return (await postSettlementInTransaction(transaction, actor, orderId, input, idempotencyKey, requestId)).order;
     });
     return { order, replayed: false };
@@ -1149,6 +1213,7 @@ export async function editSettlement(
           recordedById: actor.id,
           idempotencyKey: `edit:${settlementId}:${idempotencyKey}`,
           totalAmount: original.totalAmount,
+          allocationMode: original.allocationMode,
           recordedAt,
           allocations: { create: original.allocations.map(({ orderItemId, quantity, amount }) => ({ orderItemId, quantity, amount })) },
           payments: { create: input.payments.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.method === "CARD_TRANSFER" ? payment.reference ?? null : null })) },
