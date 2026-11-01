@@ -61,6 +61,35 @@ async function settleAmount(staff: Record<string, string>, order: any, amount: n
 }
 
 describe("inventory costing and settlement integration", () => {
+  it("consumes only retained items when removing the final unpaid line closes an item-paid order", async () => {
+    const manager = await session(UserRole.MANAGER, "unpaid-removal.manager");
+    const staff = await session(UserRole.STAFF, "unpaid-removal.staff");
+    const paid = await productFixture("Retained coffee");
+    const unpaid = await productFixture("Removed coffee");
+    const stockItemId = await stockFixture(manager, "Removal beans", "1000", 10_000);
+    await recipeFixture(manager, paid.id, stockItemId);
+    await recipeFixture(manager, unpaid.id, stockItemId);
+    const created = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": "inventory-unpaid-removal-order" }, payload: { channel: "TAKEAWAY", items: [{ productId: paid.id, quantity: 1, options: [] }, { productId: unpaid.id, quantity: 1, options: [] }] } });
+    expect(created.statusCode, created.body).toBe(201);
+    const order = created.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staff, headers: { "idempotency-key": "inventory-unpaid-removal-payment" }, payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 1_000 }] } });
+    expect(settled.statusCode, settled.body).toBe(201);
+    expect(await app.prisma.orderConsumption.count()).toBe(0);
+    const payload = { expectedVersion: settled.json().data.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 0 }] };
+    const removed = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies: staff, payload });
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.json().data).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", totalAmount: 1_000, paidAmount: 1_000, balanceAmount: 0 });
+    const balance = await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } });
+    expect(balance.quantityOnHand.toString()).toBe("920");
+    expect(balance.carryingValueAmount).toBe(9_200);
+    const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: order.id }, include: { items: true } });
+    expect(consumption).toMatchObject({ status: "POSTED", theoreticalCogsAmount: 800 });
+    expect(consumption.items.map((item) => item.orderItemId)).toEqual([order.items[0].id]);
+    const retry = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies: staff, payload });
+    expect(retry.statusCode).toBe(409);
+    expect(await app.prisma.inventoryMovement.count({ where: { kind: "ORDER_CONSUMPTION" } })).toBe(1);
+  });
+
   it("initializes a new stock item after other items are tracked while preventing a tracked item from being reopened", async () => {
     const manager = await session(UserRole.MANAGER, "opening-per-item.manager");
     const first = await stockFixture(manager, "Existing opening beans", "100", 1000);
