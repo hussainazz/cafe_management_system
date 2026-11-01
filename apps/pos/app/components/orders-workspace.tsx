@@ -101,25 +101,29 @@ function discountedDraftLineAmount(item: Draft): number {
     : grossAmount;
 }
 
+function editedSavedLineAmount(order: OrderDetail, item: OrderDetail["items"][number], edit: SavedDraft): number {
+  if (edit.quantity <= 0) return 0;
+  if (edit.quantity === item.quantity && edit.weightGrams === item.weightGrams) return item.lineTotalAmount;
+  const optionAmount = item.options.reduce(
+    (sum, option) => sum + option.priceSnapshot * (item.pricingModeSnapshot === "FIXED" && canEditSavedItem(order, item.id) ? option.quantity * edit.quantity / item.quantity : option.quantity),
+    0,
+  );
+  const grossAmount = item.pricingModeSnapshot === "WEIGHTED_PER_KG"
+    ? Math.floor((item.basePriceSnapshot * (edit.weightGrams ?? 0) * edit.quantity) / 1000)
+      + Math.floor((optionAmount * (edit.weightGrams ?? 0) * edit.quantity) / 1000)
+    : item.basePriceSnapshot * edit.quantity + optionAmount;
+  const requestedDiscount = item.discountKind === "PERCENTAGE" && item.discountValue
+    ? Math.floor(grossAmount * item.discountValue / 100)
+    : item.discountKind === "FIXED" ? item.discountValue ?? 0 : 0;
+  return requestedDiscount > 0
+    ? Math.min(grossAmount, roundDiscountedAmount(Math.max(0, grossAmount - requestedDiscount)))
+    : grossAmount;
+}
+
 function editedOrderTotal(order: OrderDetail, saved: SavedDraft[], draftTotal: number): number {
   const savedSubtotal = order.items.reduce((subtotal, item) => {
     const edit = saved.find((candidate) => candidate.id === item.id);
-    if (!edit || edit.quantity <= 0) return subtotal;
-    const optionAmount = item.options.reduce(
-      (sum, option) => sum + option.priceSnapshot * (item.pricingModeSnapshot === "FIXED" && order.paymentStatus === "UNPAID" ? edit.quantity : option.quantity),
-      0,
-    );
-    const grossAmount = item.pricingModeSnapshot === "WEIGHTED_PER_KG"
-      ? Math.floor((item.basePriceSnapshot * (edit.weightGrams ?? 0) * edit.quantity) / 1000)
-        + Math.floor((optionAmount * (edit.weightGrams ?? 0) * edit.quantity) / 1000)
-      : item.basePriceSnapshot * edit.quantity + optionAmount;
-    const requestedDiscount = item.discountKind === "PERCENTAGE" && item.discountValue
-      ? Math.floor(grossAmount * item.discountValue / 100)
-      : item.discountKind === "FIXED" ? item.discountValue ?? 0 : 0;
-    const lineTotal = requestedDiscount > 0
-      ? Math.min(grossAmount, roundDiscountedAmount(Math.max(0, grossAmount - requestedDiscount)))
-      : grossAmount;
-    return subtotal + lineTotal;
+    return subtotal + (edit ? editedSavedLineAmount(order, item, edit) : 0);
   }, 0);
   const subtotal = savedSubtotal + draftTotal;
   const requestedOrderDiscount = order.discountKind === "PERCENTAGE" && order.discountValue
@@ -129,6 +133,30 @@ function editedOrderTotal(order: OrderDetail, saved: SavedDraft[], draftTotal: n
     ? Math.min(subtotal, roundDiscountedAmount(Math.max(0, subtotal - requestedOrderDiscount)))
     : subtotal;
 }
+
+function canEditSavedItem(order: OrderDetail, itemId: string): boolean {
+  if (order.state !== "OPEN") return false;
+  if (order.paymentStatus === "UNPAID") return true;
+  const active = order.settlements.filter((settlement) => !settlement.reversedAt);
+  return order.paymentStatus === "PARTIALLY_PAID"
+    && active.length > 0
+    && active.every((settlement) => settlement.allocationMode === "ITEM_QUANTITY")
+    && !active.some((settlement) => settlement.allocations.some((allocation) => allocation.orderItemId === itemId));
+}
+
+function minimumSavedQuantity(order: OrderDetail, itemId: string): number {
+  // Historical receipts must keep their referenced item even after reversal.
+  return order.paymentStatus === "UNPAID" || !order.settlements.some((settlement) => settlement.allocations.some((allocation) => allocation.orderItemId === itemId)) ? 0 : 1;
+}
+
+const orderEditErrorMessages: Record<string, string> = {
+  "Unpaid items can be edited only after item-quantity payments.": "ویرایش اقلام پرداخت‌نشده فقط پس از پرداخت بر اساس کالا ممکن است.",
+  "Only entirely unpaid items after item-quantity payments can be removed.": "فقط کالایی که هیچ بخشی از آن پرداخت نشده است، پس از پرداخت بر اساس کالا قابل حذف است.",
+  "An item referenced by payment or inventory history cannot be removed.": "این کالا در سابقهٔ پرداخت یا انبار ثبت شده است و قابل حذف نیست.",
+  "The selected options cannot be preserved at this item quantity.": "با این تعداد، گزینه‌های ثبت‌شدهٔ کالا قابل حفظ نیستند.",
+  "The edited order total cannot be less than its recorded payments.": "مبلغ سفارش نمی‌تواند از پرداخت‌های ثبت‌شده کمتر شود.",
+  "This edit would change an item's settled amount.": "این ویرایش سهم تخفیف کالای پرداخت‌شده را تغییر می‌دهد و قابل ثبت نیست.",
+};
 
 function savedDrafts(order: OrderDetail | null): SavedDraft[] {
   return (order?.items ?? []).map((item) => ({
@@ -1163,6 +1191,11 @@ export function OrderDesk({
     writeRecovery(`${recoveryPrefix}:create-fingerprint`, undefined);
     if (!initialOrder) clearDeskRecovery(channel, table?.id ?? null, null);
     onDirtyChange(false);
+    if (initialOrder && updatedOrder.state === "CLOSED") {
+      if (printAfterSave) await printOrderDocument(updatedOrder.id, printAfterSave);
+      onDone(channel === "TABLE" ? "ویرایش ثبت شد و میز آزاد شد." : "ویرایش ثبت شد و سفارش بیرون‌بر بسته شد.");
+      return;
+    }
     await onOrder(updatedOrder);
     if (printAfterSave) await printOrderDocument(updatedOrder.id, printAfterSave);
   };
@@ -1182,11 +1215,15 @@ export function OrderDesk({
         : {
             expectedVersion: initialOrder.version,
             ...(draftForOrder.length ? { addItems: payloadItems() } : {}),
-            ...(changedSaved.length ? { itemUpdates: changedSaved.map((item) => ({ orderItemId: item.id, quantity: item.quantity })) } : {}),
+            ...(changedSaved.length ? { itemUpdates: changedSaved.map((item) => ({
+              orderItemId: item.id,
+              ...(item.quantity !== item.originalQuantity ? { quantity: item.quantity } : {}),
+              ...(item.quantity > 0 && item.note !== (item.originalNote ?? "") ? { note: item.note.trim() || null } : {}),
+            })) } : {}),
           });
       if (!result.ok) {
         setBusy(false);
-        setError(result.error.message);
+        setError(orderEditErrorMessages[result.error.message] ?? result.error.message);
         return;
       }
       await finishSuccessfulSave(result.data, printAfterSave);
@@ -1283,7 +1320,6 @@ export function OrderDesk({
         order={initialOrder}
         draft={draftForOrder}
         saved={savedForOrder}
-        canEditSaved={initialOrder?.paymentStatus === "UNPAID"}
         total={orderTotal}
         onQuantity={(key, value) =>
           setDraft((items) =>
@@ -1296,7 +1332,10 @@ export function OrderDesk({
             ),
           )
         }
-        onSavedQuantity={(id, delta) => setSaved((items) => items.map((item) => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item))}
+        onSavedQuantity={(id, delta) => setSaved((items) => items.map((item) => {
+          if (item.id !== id || !initialOrder || (delta < 0 && !canEditSavedItem(initialOrder, id))) return item;
+          return { ...item, quantity: Math.max(minimumSavedQuantity(initialOrder, id), item.quantity + delta) };
+        }))}
         onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
         onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
         onSave={() => void save()}
@@ -1429,7 +1468,6 @@ function OrderSummary({
   order,
   draft,
   saved,
-  canEditSaved,
   total,
   onQuantity,
   onSavedQuantity,
@@ -1446,7 +1484,6 @@ function OrderSummary({
   order: OrderDetail | null;
   draft: Draft[];
   saved: SavedDraft[];
-  canEditSaved: boolean;
   total: number;
   onQuantity: (key: string, delta: number) => void;
   onSavedQuantity: (id: string, delta: number) => void;
@@ -1480,9 +1517,10 @@ function OrderSummary({
         {order?.items.map((item) => {
           const edit = saved.find((candidate) => candidate.id === item.id)!;
           const expanded = expandedSavedId === item.id;
+          const canEditSaved = canEditSavedItem(order, item.id);
           return edit.quantity > 0 && <article className={`order-line order-line--saved${expanded ? " order-line--expanded" : ""}`} key={item.id}>
-            <button className="order-line__summary" type="button" aria-expanded={expanded} onClick={() => setExpandedSavedId((current) => current === item.id ? null : item.id)}><span className="order-line__details"><b>{edit.name}{edit.weightGrams ? ` · ${englishNumber.format(edit.weightGrams)} گرم` : ""} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></span><strong>{formatToman(item.lineTotalAmount)}</strong></button>
-            {expanded && <><div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <ItemNoteInput productId={edit.productId} name={edit.name} value={edit.note} onChange={(note) => onSavedNote(edit.id, note)} /> : <small className="saved-lock">پس از ثبت پرداخت، فقط می‌توانید تعداد را افزایش دهید.</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
+            <button className="order-line__summary" type="button" aria-expanded={expanded} onClick={() => setExpandedSavedId((current) => current === item.id ? null : item.id)}><span className="order-line__details"><b>{edit.name}{edit.weightGrams ? ` · ${englishNumber.format(edit.weightGrams)} گرم` : ""} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></span><strong>{formatToman(editedSavedLineAmount(order, item, edit))}</strong></button>
+            {expanded && <><div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} disabled={edit.quantity <= minimumSavedQuantity(order, item.id)} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <ItemNoteInput productId={edit.productId} name={edit.name} value={edit.note} onChange={(note) => onSavedNote(edit.id, note)} /> : <small className="saved-lock">پس از ثبت پرداخت، فقط می‌توانید تعداد را افزایش دهید.</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
           </article>;
         })}
         {draft.map((item) => {
