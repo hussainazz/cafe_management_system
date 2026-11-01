@@ -1,6 +1,6 @@
 # SSP1126 managed API inspection and diagnostic contract
 
-Date: 25 October 2026. Phase C groundwork; no purchase adapter is implemented.
+Date: 29 October 2026. Phase C contract plus the later purchase adapter and amount-unit correction.
 
 ## Evidence and boundaries
 
@@ -151,12 +151,22 @@ converts string representation, and passes it as the first argument to COM
 DISPID 0x60020019, PcStarterPurchase, without an observed numeric scaling step.
 The inspected managed purchase builder places mainAmount in request field 4.
 
-Together, this is setup-specific evidence that the tested numeric SDK input
-corresponds to Toman. It does not justify multiplying a Toman order amount by
-10 before that same call. Preserve the observed calibration explicitly rather
-than imposing a generic provider-unit assumption. The underlying bank wire unit
-and returned amount fields still need verification before automatic financial
-posting. No conversion or purchase is implemented in this phase.
+That older tester observation is contradicted by the 29 October automated
+bridge attempt: the bridge passed 590000 and the operator observed 590000 on
+the terminal, where 5900000 Rial was expected. The bridge made no conversion.
+The SDK's inspected purchase builder uses currency `364` (IRR) and places
+`mainAmount` into the request amount field unchanged. Together these support a
+Toman-to-Rial `x10` conversion at the automated bridge boundary. Version 0.2.4
+implements that conversion and has an SDK-free regression test for 590000
+Toman -> 5900000 Rial. The old tester result may reflect tester-specific or
+terminal-display behavior; it did not validate the bridge's resulting display.
+Returned amount fields and automatic financial posting remain unverified.
+
+In the 29 October incident the SDK returned response code `98`, which the
+inspected SDK defines as its cancellation response. It did not return an
+approval result. The terminal's remembered `signum(13)` text is absent from the
+local DLL IL and setup guide; its meaning and its relationship to the wrong
+amount remain unknown pending authoritative SEP documentation/support.
 
 The SDK parses mainAmount as Int64 and reads a configurable MinimumAmount.
 Its config/file fallback behavior means a guessed minimum is unsafe too.
