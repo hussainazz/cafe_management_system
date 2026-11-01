@@ -1,10 +1,15 @@
-param([switch]$EnablePayments, [switch]$ConfirmedTomanCalibration)
+param([switch]$EnablePayments, [switch]$ConfirmedTomanToRialConversion)
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $env:LOCALAPPDATA 'RunCafe\SepBridge.Payments'
-if ((Get-ScheduledTask -TaskName 'RunCafe SEP Payments').State -eq 'Running' -or @(Get-Process -Name 'RunCafe.SepBridge.PurchaseWorker' -ErrorAction SilentlyContinue).Count -gt 0) { throw 'Stop host and purchase workers before configuration.' }
-if ($EnablePayments -and !$ConfirmedTomanCalibration) { throw 'Explicit confirmation of tester 1000 = 1000 Toman calibration is required.' }
+$task = Get-ScheduledTask -TaskName 'RunCafe SEP Payments' -ErrorAction Stop
+if ($task.State -ne 'Disabled' -or @(Get-Process -Name 'RunCafe.SepBridge.Payments','RunCafe.SepBridge.PurchaseWorker' -ErrorAction SilentlyContinue).Count -gt 0) { throw 'Keep the payment task disabled and stop host/workers before configuration.' }
+$hostPath = [IO.Path]::GetFullPath($task.Actions[0].Execute)
+$rootPath = [IO.Path]::GetFullPath($root).TrimEnd('\') + '\'
+if (!$hostPath.StartsWith($rootPath, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($hostPath) -ne 'RunCafe.SepBridge.Payments.exe') { throw 'Payment task does not point to the managed bridge installation.' }
+$versionDirectory = Split-Path -Parent $hostPath
+if ($EnablePayments -and !$ConfirmedTomanToRialConversion) { throw 'Explicit confirmation of the reviewed Toman-to-Rial conversion in bridge 0.2.4 is required.' }
 if ($EnablePayments -and !(Test-Path (Join-Path $root 'pairing.dpapi'))) { throw 'Pair first.' }
-$paths = @('RunCafe.SepBridge.Payments.exe','RunCafe.SepBridge.PurchaseWorker.exe') | ForEach-Object { Join-Path $root "0.2.0\$_.config" }
+$paths = @('RunCafe.SepBridge.Payments.exe','RunCafe.SepBridge.PurchaseWorker.exe') | ForEach-Object { Join-Path $versionDirectory "$_.config" }
 $configs = @()
 foreach ($path in $paths) {
   [xml]$config = Get-Content $path
