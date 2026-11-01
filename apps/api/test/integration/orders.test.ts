@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 import { UserRole } from "../../generated/prisma/client.js";
 import { hashPassword } from "../../src/auth/password.js";
 import { buildApp } from "../../src/app.js";
@@ -1547,5 +1548,209 @@ describe("bar ticket unpaid replacement identity", () => {
     expect(added.json().data.items[0].quantity).toBe(1);
     expect(added.json().data.items[0].options[0].quantity).toBe(1);
     expect(added.json().data.items[1].quantity).toBe(1);
+  });
+});
+
+describe("unpaid item edits after item-quantity payments", () => {
+  it("upgrades legacy mode metadata without guessing whole-item amount payments", async () => {
+    const migration = await readFile(new URL("../../prisma/migrations/20261017120000_settlement_allocation_mode/migration.sql", import.meta.url), "utf8");
+    await app.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`CREATE SCHEMA settlement_mode_upgrade_test`;
+      await tx.$executeRaw`SET LOCAL search_path TO settlement_mode_upgrade_test`;
+      await tx.$executeRaw`CREATE TABLE payment_settlements (id text PRIMARY KEY)`;
+      await tx.$executeRaw`CREATE TABLE settlement_allocations ("settlementId" text, quantity integer)`;
+      await tx.$executeRaw`INSERT INTO payment_settlements VALUES ('fractional-amount'), ('whole-item-amount'), ('item-payment')`;
+      await tx.$executeRaw`INSERT INTO settlement_allocations VALUES ('fractional-amount', 0), ('whole-item-amount', 1), ('item-payment', 1)`;
+      for (const statement of migration.split(";").filter((part) => part.trim())) await tx.$executeRawUnsafe(statement);
+      const rows = await tx.$queryRaw<Array<{ id: string; allocationMode: string | null }>>`SELECT id, "allocationMode"::text FROM payment_settlements ORDER BY id`;
+      expect(rows).toEqual([
+        { id: "fractional-amount", allocationMode: "AMOUNT" },
+        { id: "item-payment", allocationMode: null },
+        { id: "whole-item-amount", allocationMode: null },
+      ]);
+      await tx.$executeRaw`DROP SCHEMA settlement_mode_upgrade_test CASCADE`;
+    });
+  });
+
+  async function partialOrder(mode: "ITEM_QUANTITY" | "AMOUNT" = "ITEM_QUANTITY", channel: "TABLE" | "TAKEAWAY" = "TAKEAWAY", amount = 50_000) {
+    const cookies = await userSession(UserRole.STAFF, "unpaid-edit.staff");
+    const paid = await sellableProduct();
+    const unpaid = await sellableProduct();
+    const table = channel === "TABLE" ? await app.prisma.cafeTable.create({ data: { name: "Unpaid edit", displayOrder: 1, occupancyState: "OCCUPIED", occupiedAt: new Date(), customerAuthBypassEnabled: true } }) : null;
+    const created = await createOrderRequest(cookies, { channel, ...(table ? { tableId: table.id } : {}), items: [
+      { productId: paid.product.id, quantity: 1, options: [] },
+      { productId: unpaid.product.id, quantity: 2, options: [{ optionId: unpaid.option.id, quantity: 2 }], note: "Original unpaid note" },
+    ] }, "unpaid-edit-order-create");
+    expect(created.statusCode, created.body).toBe(201);
+    const order = created.json().data;
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "unpaid-edit-payment-record" }, payload: {
+      expectedVersion: order.version,
+      ...(mode === "AMOUNT" ? { allocationMode: mode, amount } : { allocationMode: mode, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }] }),
+      payments: [{ method: "CASH", amount }],
+    } });
+    expect(settled.statusCode, settled.body).toBe(201);
+    return { cookies, order: settled.json().data, unpaid, table };
+  }
+
+  it("reduces an untouched item with options and edits/clears its note using its original price", async () => {
+    const { cookies, order, unpaid } = await partialOrder();
+    await app.prisma.product.update({ where: { id: unpaid.product.id }, data: { priceAmount: 90_000 } });
+    const changed = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 1, note: "Updated unpaid note" }] } });
+    expect(changed.statusCode, changed.body).toBe(200);
+    const updated = changed.json().data;
+    expect(updated).toMatchObject({ state: "OPEN", paymentStatus: "PARTIALLY_PAID", paidAmount: 50_000, totalAmount: 105_000, balanceAmount: 55_000, version: 3 });
+    expect(updated.items[0]).toEqual(order.items[0]);
+    expect(updated.items[1]).toMatchObject({ quantity: 1, basePriceSnapshot: 50_000, lineTotalAmount: 55_000, note: "Updated unpaid note", options: [{ quantity: 1, priceSnapshot: 5_000 }] });
+    expect(updated.settlements).toEqual(order.settlements);
+    const stale = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 0 }] } });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe("STALE_VERSION");
+    const cleared = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: updated.version, itemUpdates: [{ orderItemId: order.items[1].id, note: null }] } });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    expect(cleared.json().data.items[1]).toMatchObject({ note: null, lineTotalAmount: 55_000 });
+  });
+
+  it.each(["TABLE", "TAKEAWAY"] as const)("removes the final unpaid item and closes the %s order without changing payments", async (channel) => {
+    await app.prisma.cafeSettings.create({ data: { inventoryActivatedAt: new Date("2020-01-01T00:00:00.000Z") } });
+    const { cookies, order, table } = await partialOrder("ITEM_QUANTITY", channel);
+    expect(await app.prisma.orderItemCostingSnapshot.count()).toBe(2);
+    const removed = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 0 }] } });
+    expect(removed.statusCode, removed.body).toBe(200);
+    const result = removed.json().data;
+    expect(result).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", subtotalAmount: 50_000, totalAmount: 50_000, paidAmount: 50_000, balanceAmount: 0, version: 3 });
+    expect(result.items).toEqual([order.items[0]]);
+    expect(result.settlements).toEqual(order.settlements);
+    expect(await app.prisma.payment.count()).toBe(1);
+    expect(await app.prisma.orderItemOption.count()).toBe(0);
+    expect(await app.prisma.orderItemCostingSnapshot.count()).toBe(1);
+    const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: order.id }, include: { items: true } });
+    expect(consumption.paymentSettlementId).toBe(order.settlements[0].id);
+    expect(consumption.items.map((item) => item.orderItemId)).toEqual([order.items[0].id]);
+    const audit = await app.prisma.auditLog.findFirstOrThrow({ where: { entityId: order.id, operation: "UPDATE_ORDER" } });
+    expect(audit.beforeSnapshot).toMatchObject({ removedItems: [{ id: order.items[1].id, quantity: 2, options: [{ quantity: 2 }] }] });
+    if (table) {
+      const released = await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } });
+      expect(released).toMatchObject({ occupancyState: "AVAILABLE", occupiedAt: null, customerAuthBypassEnabled: false });
+      expect(released.tableContextInvalidBefore!.getTime()).toBeGreaterThanOrEqual(table.tableContextInvalidBefore?.getTime() ?? 0);
+    }
+    const receipt = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}/receipt`, cookies });
+    expect(receipt.statusCode, receipt.body).toBe(200);
+    expect(receipt.json().data.items).toHaveLength(1);
+  });
+
+  it.each([25_000, 50_000])("keeps unpaid items locked after an amount payment of %s, including a whole-item allocation", async (amount) => {
+    const { cookies, order } = await partialOrder("AMOUNT", "TAKEAWAY", amount);
+    expect(order.settlements[0].allocationMode).toBe("AMOUNT");
+    expect(order.settlements[0].allocations[0].quantity).toBe(amount === 50_000 ? 1 : 0);
+    for (const change of [{ quantity: 0 }, { quantity: 1 }, { note: "Blocked note" }]) {
+      const blocked = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[1].id, ...change }] } });
+      expect(blocked.statusCode, blocked.body).toBe(409);
+      expect(blocked.json().error.code).toBe("INVALID_STATE");
+    }
+    const current = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}`, cookies });
+    expect(current.json().data).toEqual(order);
+  });
+
+  it("keeps the order partially paid and preserves item/option identities when adding after a middle-line removal", async () => {
+    const { cookies, order } = await partialOrder();
+    const third = await sellableProduct();
+    const fourth = await sellableProduct();
+    const add = async (version: number, productId: string, optionId?: string) => app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: version, addItems: [{ productId, quantity: 1, options: optionId ? [{ optionId, quantity: 1 }] : [] }] } });
+    const withThird = await add(order.version, third.product.id);
+    expect(withThird.statusCode, withThird.body).toBe(200);
+    const removed = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: withThird.json().data.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 0 }] } });
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.json().data).toMatchObject({ state: "OPEN", paymentStatus: "PARTIALLY_PAID", totalAmount: 100_000, paidAmount: 50_000, balanceAmount: 50_000 });
+    const withFourth = await add(removed.json().data.version, fourth.product.id, fourth.option.id);
+    expect(withFourth.statusCode, withFourth.body).toBe(200);
+    const result = withFourth.json().data;
+    expect(result.items[0]).toEqual(order.items[0]);
+    expect(result.items[1]).toMatchObject({ productId: third.product.id, options: [] });
+    expect(result.items[2]).toMatchObject({ productId: fourth.product.id, options: [{ optionId: fourth.option.id }] });
+    expect(result.settlements).toEqual(order.settlements);
+    const rows = await app.prisma.orderItem.findMany({ where: { orderId: order.id }, orderBy: { displayOrder: "asc" } });
+    expect(rows.map((row) => row.displayOrder)).toEqual([0, 2, 3]);
+  });
+
+  it("rolls back an unpaid removal when it would redistribute a posted item's order discount", async () => {
+    const cookies = await userSession(UserRole.STAFF, "unpaid-discount.staff");
+    const { product } = await sellableProduct();
+    const created = await createOrderRequest(cookies, { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }, { productId: product.id, quantity: 2, options: [] }] }, "unpaid-discount-create-order");
+    const order = created.json().data;
+    const discounted = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, orderDiscount: { kind: "FIXED", value: 15_000 } } });
+    expect(discounted.statusCode, discounted.body).toBe(200);
+    const settled = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "unpaid-discount-record-payment" }, payload: { expectedVersion: discounted.json().data.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 45_000 }] } });
+    expect(settled.statusCode, settled.body).toBe(201);
+    for (const [quantity, message] of [[1, "This edit would change an item's settled amount."], [0, "The edited order total cannot be less than its recorded payments."]] as const) {
+      const removed = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: settled.json().data.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity }] } });
+      expect(removed.statusCode, removed.body).toBe(409);
+      expect(removed.json().error.message).toBe(message);
+    }
+    const current = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}`, cookies });
+    expect(current.json().data).toEqual(settled.json().data);
+  });
+
+  it("keeps ambiguous historical payment modes locked and protects settled rows", async () => {
+    const { cookies, order } = await partialOrder();
+    for (const change of [{ quantity: 0 }, { note: "Cannot rewrite a paid item" }]) {
+      const blocked = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[0].id, ...change }] } });
+      expect(blocked.statusCode, blocked.body).toBe(409);
+    }
+    await app.prisma.paymentSettlement.update({ where: { id: order.settlements[0].id }, data: { allocationMode: null } });
+    const blocked = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 0 }] } });
+    expect(blocked.statusCode, blocked.body).toBe(409);
+    expect(await app.prisma.orderItem.count({ where: { orderId: order.id } })).toBe(2);
+  });
+
+  it("keeps untouched lines locked when active item payments are mixed with amount payments", async () => {
+    const { cookies, order } = await partialOrder();
+    const { product } = await sellableProduct();
+    const added = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, addItems: [{ productId: product.id, quantity: 1, options: [] }] } });
+    expect(added.statusCode, added.body).toBe(200);
+    const mixed = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "unpaid-mixed-amount-payment" }, payload: { expectedVersion: added.json().data.version, allocationMode: "AMOUNT", amount: 20_000, payments: [{ method: "CASH", amount: 20_000 }] } });
+    expect(mixed.statusCode, mixed.body).toBe(201);
+    const blocked = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: mixed.json().data.version, itemUpdates: [{ orderItemId: added.json().data.items[2].id, quantity: 0 }] } });
+    expect(blocked.statusCode, blocked.body).toBe(409);
+    expect(await app.prisma.orderItem.count({ where: { orderId: order.id } })).toBe(3);
+  });
+
+  it("commits either removal or settlement when both target the final unpaid item concurrently", async () => {
+    const { cookies, order } = await partialOrder();
+    const [removed, settled] = await Promise.all([
+      app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 0 }] } }),
+      app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "unpaid-removal-settlement-race" }, payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[1].id, quantity: 2 }], payments: [{ method: "CASH", amount: 110_000 }] } }),
+    ]);
+    expect([[200, 409], [409, 201]]).toContainEqual([removed.statusCode, settled.statusCode]);
+    const current = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}`, cookies });
+    const result = current.json().data;
+    expect(result).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", balanceAmount: 0, version: 3 });
+    expect(result.paidAmount).toBe(result.totalAmount);
+    expect(result.totalAmount).toBe(removed.statusCode === 200 ? 50_000 : 160_000);
+    expect(result.items).toHaveLength(removed.statusCode === 200 ? 1 : 2);
+    expect(await app.prisma.payment.count()).toBe(removed.statusCode === 200 ? 1 : 2);
+  });
+
+  it.each(["ITEM_QUANTITY", "AMOUNT"] as const)("preserves %s mode when a Manager corrects the tender method", async (mode) => {
+    const { cookies, order } = await partialOrder(mode);
+    const manager = await userSession(UserRole.MANAGER, "unpaid-edit.manager");
+    const corrected = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${order.settlements[0].id}/edit`, cookies: manager, headers: { "idempotency-key": "unpaid-edit-tender-correction" }, payload: { expectedVersion: order.version, payments: [{ method: "CARD_TERMINAL", amount: 50_000 }] } });
+    expect(corrected.statusCode, corrected.body).toBe(200);
+    expect(corrected.json().data.settlements.every((settlement: { allocationMode: string }) => settlement.allocationMode === mode)).toBe(true);
+    const removed = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: corrected.json().data.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 0 }] } });
+    expect(removed.statusCode, removed.body).toBe(mode === "ITEM_QUANTITY" ? 200 : 409);
+  });
+
+  it("retains items referenced by a reversed settlement", async () => {
+    const { cookies, order } = await partialOrder();
+    const manager = await userSession(UserRole.MANAGER, "unpaid-history.manager");
+    const paidRest = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "unpaid-history-second-payment" }, payload: { expectedVersion: order.version, allocations: [{ orderItemId: order.items[1].id, quantity: 2 }], payments: [{ method: "CASH", amount: 110_000 }] } });
+    expect(paidRest.statusCode, paidRest.body).toBe(201);
+    const settled = paidRest.json().data;
+    const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settled.settlements[1].id}/reverse`, cookies: manager, payload: { expectedVersion: settled.version, reason: "Correct unpaid items" } });
+    expect(reversed.statusCode, reversed.body).toBe(200);
+    const removed = await app.inject({ method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies, payload: { expectedVersion: reversed.json().data.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 0 }] } });
+    expect(removed.statusCode, removed.body).toBe(409);
+    expect(await app.prisma.settlementAllocation.count()).toBe(2);
+    expect(await app.prisma.orderItem.count({ where: { orderId: order.id } })).toBe(2);
   });
 });
