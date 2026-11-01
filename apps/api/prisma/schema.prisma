@@ -31,6 +31,11 @@ enum PaymentStatus {
   PAID
 }
 
+enum SettlementAllocationMode {
+  ITEM_QUANTITY
+  AMOUNT
+}
+
 enum DiscountKind {
   FIXED
   PERCENTAGE
@@ -547,12 +552,13 @@ model OrderItemOption {
 }
 
 model PaymentSettlement {
-  id             String   @id @default(uuid())
+  id             String                    @id @default(uuid())
   orderId        String
   recordedById   String
   idempotencyKey String
   totalAmount    Int
-  recordedAt     DateTime @default(now())
+  allocationMode SettlementAllocationMode?
+  recordedAt     DateTime                  @default(now())
 
   order             Order                  @relation(fields: [orderId], references: [id])
   recordedBy        User                   @relation(fields: [recordedById], references: [id])
