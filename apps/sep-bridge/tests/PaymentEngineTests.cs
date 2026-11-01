@@ -15,7 +15,7 @@ internal static class PaymentEngineTests
     private sealed class Worker : IPurchaseWorker
     {
         public Backend Backend; public int Calls; public bool Lost; public readonly ManualResetEvent Started = new ManualResetEvent(false), Release = new ManualResetEvent(false);
-        public Dictionary<string, object> Run(string path) { if (!Backend.Claim(PaymentProtocol.Parse(File.ReadAllText(path)))) return null; Interlocked.Increment(ref Calls); Started.Set(); Release.WaitOne(3000); return Lost ? null : new Dictionary<string, object> { { "terminalId", "31187710" }, { "responseCode", "00" }, { "rrn", "123456789012" }, { "trace", "123456" } }; }
+        public Dictionary<string, object> Run(string path) { if (!Backend.Claim(PaymentProtocol.Parse(File.ReadAllText(path)))) return null; Interlocked.Increment(ref Calls); Started.Set(); Release.WaitOne(3000); if (Lost) { PaymentProtocol.AppendDiagnostic(path, "PURCHASE_CALL", "RETURNED_NO_RESULT", 1); return null; } PaymentProtocol.AppendDiagnostic(path, "PURCHASE_CALL", "RETURNED_RESULT"); return new Dictionary<string, object> { { "terminalId", "31187710" }, { "responseCode", "00" }, { "rrn", "123456789012" }, { "trace", "123456" } }; }
     }
     private static byte[] key = new byte[32];
     private const string bridge = "7b150841-7a93-4e1c-8283-bbab396a7689";
@@ -61,6 +61,16 @@ internal static class PaymentEngineTests
             Check(backend.Claims == 1 && worker.Calls == 1);
             var evidence = PaymentProtocol.Parse(File.ReadAllText(Path.Combine(root, intent["attemptId"] + ".evidence.json")));
             Check((string)evidence["responseCode"] == "00"); Check((string)restarted.Status(intent)["status"] == "UNKNOWN");
+            string diagnosticsPath = Path.Combine(root, intent["attemptId"] + ".intent.json.diagnostics.jsonl");
+            string diagnostics = File.ReadAllText(diagnosticsPath);
+            Check(diagnostics.Contains("WORKER_STARTING") && diagnostics.Contains("PURCHASE_CALL") && diagnostics.Contains("RETURNED_RESULT"));
+            Check(!diagnostics.Contains("rrn") && !diagnostics.Contains("trace") && !diagnostics.Contains("pan") && !diagnostics.Contains("123456789012"));
+            Throws(delegate { PaymentProtocol.AppendDiagnostic(Path.Combine(root, "invalid.intent.json"), "PURCHASE_CALL\nPAN", "RETURNED_RESULT"); });
+            string safePath = Path.Combine(root, "safe.intent.json");
+            PaymentProtocol.AppendDiagnostic(safePath, "CONNECTION_TEST", "NON_SUCCESS", 1, "03");
+            PaymentProtocol.AppendDiagnostic(safePath, "PURCHASE_CALL", "NO_RESULT", 1, "9999888877776666");
+            string safeDiagnostics = File.ReadAllText(safePath + ".diagnostics.jsonl");
+            Check(safeDiagnostics.Contains("03") && !safeDiagnostics.Contains("9999888877776666"));
             // A lost claim response never reaches the purchase worker and remains blocked after restart.
             string lostRoot = Path.Combine(root, "lost-claim"); var lostBackend = new Backend { ClaimOk = false }; var lostWorker = new Worker();
             var lost = Engine(lostRoot, lostBackend, lostWorker); var lostIntent = Intent(); lost.Start(lostIntent);
@@ -74,6 +84,8 @@ internal static class PaymentEngineTests
             Check(timeoutWorker.Calls == 1 && timeoutBackend.Claims == 1 && timeoutBackend.Reports >= 2);
             var unknown = PaymentProtocol.Parse(File.ReadAllText(Path.Combine(timeoutRoot, timeoutIntent["attemptId"] + ".evidence.json")));
             Check(unknown["responseCode"] == null);
+            string unknownDiagnostics = File.ReadAllText(Path.Combine(timeoutRoot, timeoutIntent["attemptId"] + ".intent.json.diagnostics.jsonl"));
+            Check(unknownDiagnostics.Contains("RETURNED_NO_RESULT") && unknownDiagnostics.Contains("NO_WORKER_RESULT"));
             Console.WriteLine("Payment safety scenarios passed: tamper, terminal mismatch, duplicate, concurrent, polling, refresh, restart, lost claim, timeout, approval loss, evidence retry."); return 0;
         }
         finally { Directory.Delete(root, true); }
