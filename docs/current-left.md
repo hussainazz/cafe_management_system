@@ -442,6 +442,38 @@ Lint was run and its errors remain non-blocking under the project instruction.
 - [x] Build and deploy the coordinated schema, ORM, API, POS, and menu release
   with inventory inactive, verified database/runtime backups, and public probes.
 
+## Unpaid items after payment by item — 17 October 2026
+
+- [x] Allow reducing quantities, editing notes, and removing entirely unpaid
+  items from a partially paid order when every active payment used item
+  quantities. Keep settled lines and amount-payment orders protected.
+- [x] Persist payment allocation mode without guessing ambiguous historical
+  modes. Preserve settlement and inventory references, and close/free orders
+  when removing the final unpaid item settles the remaining balance.
+- [x] Verify API/payment invariants, POS save/recovery behavior, and the
+  additive migration; record results here.
+
+- Implementation is on `fix/partial-item-unpaid-edit`. Removing the last
+  unpaid line closes the order, releases a table and its guest context, and
+  recognizes inventory only for retained items. Removed snapshots are audited;
+  items referenced by historical settlements or inventory cannot be deleted.
+- New settlements store `ITEM_QUANTITY` or `AMOUNT`; tender corrections retain
+  the original mode. Migration `20261017120000_settlement_allocation_mode`
+  is applied to the local development database and the isolated test database.
+  Historical fractional allocations are marked `AMOUNT`; ambiguous historical
+  modes stay unknown and keep the editor locked.
+- Edits that would change a posted item's share of an order discount or lower
+  the order total below its existing payments are rejected atomically.
+- Verification: affected API order/inventory suites passed 74/74, followed by
+  15/15 focused final regressions, including the two added mixed-payment and
+  concurrent removal/payment cases. All 40 focused POS order-desk/payment
+  tests, API/POS/contracts typechecks, Persian copy checks, and `git diff
+  --check` pass. The existing-data migration rehearsal ran in a temporary
+  schema inside `cafe_management_test`; no additional test database was used.
+- The wider POS run encountered the unchanged Manager finance test's 5-second
+  timeout, which also occurs when that test runs alone. This remains outside
+  the order-item change. Changes are local on the feature branch.
+
 ## Completion Record
 
 - 16 October: the payment reconciliation summary now appears after staff add
