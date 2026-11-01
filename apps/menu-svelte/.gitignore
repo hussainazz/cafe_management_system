@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+.svelte-kit/
+.vercel/
+build/
+coverage/
