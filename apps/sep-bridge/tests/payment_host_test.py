@@ -44,7 +44,13 @@ class PaymentHostTests(unittest.TestCase):
     def test_health_never_loads_sdk_and_payment_requires_opt_in(self):
         status, _, body = self.request()
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)['paymentEnabled'], False)
+        health = json.loads(body)
+        self.assertEqual(health['service'], 'run-cafe-sep-bridge')
+        self.assertEqual(health['version'], '0.2.4')
+        self.assertEqual(health['mode'], 'health-only')
+        self.assertEqual(health['paymentEnabled'], False)
+        self.assertEqual(health['terminalAccess'], False)
+        self.assertEqual(health['manualVerificationRequired'], True)
         self.assertEqual(self.request('POST', '/payments', {'Origin':'https://runncafe.ir', 'Content-Type':'application/json'}, '{}')[0], 503)
         self.assertFalse((self.work / 'data/attempts').exists())
     def test_payment_preflight_is_narrow_and_has_no_credentials(self):
