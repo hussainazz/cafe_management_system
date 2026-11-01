@@ -11,7 +11,7 @@ $shared = @('/nologo','/target:winexe','/platform:x86','/langversion:5','/warnas
 $hostSources = @('PaymentProtocol.cs','PaymentEngine.cs','BackendClient.cs','ProcessPurchaseWorker.cs','PaymentHost.cs') | ForEach-Object { Join-Path $PSScriptRoot $_ }
 & $csc @shared "/out:$(Join-Path $OutputDirectory 'RunCafe.SepBridge.Payments.exe')" @hostSources
 if ($LASTEXITCODE -ne 0) { throw 'Host build failed.' }
-& $csc @shared "/out:$(Join-Path $OutputDirectory 'RunCafe.SepBridge.PurchaseWorker.exe')" "/r:$(Join-Path $SdkDirectory 'SSP1126.PcPos.dll')" "/r:$(Join-Path $SdkDirectory 'Sep.Logger.dll')" (Join-Path $PSScriptRoot 'PaymentProtocol.cs') (Join-Path $PSScriptRoot 'BackendClient.cs') (Join-Path $PSScriptRoot 'PaymentEngine.cs') (Join-Path $PSScriptRoot 'PurchaseWorker.cs')
+& $csc @shared "/out:$(Join-Path $OutputDirectory 'RunCafe.SepBridge.PurchaseWorker.exe')" "/r:$(Join-Path $SdkDirectory 'SSP1126.PcPos.dll')" "/r:$(Join-Path $SdkDirectory 'Sep.Logger.dll')" (Join-Path $PSScriptRoot 'PaymentProtocol.cs') (Join-Path $PSScriptRoot 'SepAmount.cs') (Join-Path $PSScriptRoot 'BackendClient.cs') (Join-Path $PSScriptRoot 'PaymentEngine.cs') (Join-Path $PSScriptRoot 'PurchaseLifecycle.cs') (Join-Path $PSScriptRoot 'PurchaseWorker.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Worker build failed.' }
 foreach ($name in @('RunCafe.SepBridge.Payments.exe','RunCafe.SepBridge.PurchaseWorker.exe')) { Copy-Item (Join-Path $PSScriptRoot 'App.config') (Join-Path $OutputDirectory "$name.config") -Force }
 foreach ($name in $expected.Keys) { Copy-Item (Join-Path $SdkDirectory $name) $OutputDirectory -Force }
