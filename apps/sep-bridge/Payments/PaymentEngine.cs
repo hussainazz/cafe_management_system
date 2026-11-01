@@ -51,7 +51,9 @@ namespace RunCafe.SepBridge.Payments
             try
             {
                 // The isolated worker redeems backend authorization once before loading the SDK.
+                PaymentProtocol.AppendDiagnostic(path, "HOST_EXECUTION", "WORKER_STARTING");
                 Dictionary<string, object> result = worker.Run(path);
+                PaymentProtocol.AppendDiagnostic(path, "HOST_EXECUTION", result == null ? "NO_WORKER_RESULT" : "WORKER_RESULT_RECEIVED");
                 var evidence = new Dictionary<string, object> {
                     { "attemptId", intent["attemptId"] }, { "bridgeId", bridgeId }, { "terminalId", terminalId },
                     { "finishedAtUnix", PaymentProtocol.Now() },
@@ -64,7 +66,11 @@ namespace RunCafe.SepBridge.Payments
                 { evidence["responseCode"] = null; evidence["rrn"] = null; evidence["trace"] = null; }
                 PaymentProtocol.DurableCreate(path.Replace(".intent.json", ".evidence.json"), PaymentProtocol.Json.Serialize(evidence));
             }
-            catch (Exception) { /* Persisted dispatch marker keeps this attempt uncertain after any fault. */ }
+            catch (Exception)
+            {
+                try { PaymentProtocol.AppendDiagnostic(path, "HOST_EXECUTION", "EXCEPTION"); } catch (Exception) { }
+                /* Persisted dispatch marker keeps this attempt uncertain after any fault. */
+            }
             finally { lock (gate) running = false; }
             DeliverEvidence();
         }
