@@ -70,5 +70,20 @@ namespace RunCafe.SepBridge.Payments
         }
         public static string SafeCode(string value) { return Match(value, "[0-9A-Z]{2,3}"); }
         public static string SafeReference(string value) { return Match(value, "[0-9]{1,12}"); }
+        public static void AppendDiagnostic(string intentPath, string phase, string outcome, int? exitCode = null, string responseCode = null)
+        {
+            if (String.IsNullOrEmpty(intentPath) || Match(phase, "[A-Z0-9_]{1,48}") == null || Match(outcome, "[A-Z0-9_]{1,48}") == null ||
+                (exitCode.HasValue && (exitCode.Value < 0 || exitCode.Value > 255))) throw new SecurityException();
+            string fullIntentPath = Path.GetFullPath(intentPath);
+            if (!fullIntentPath.EndsWith(".intent.json", StringComparison.Ordinal)) throw new SecurityException();
+            var record = new Dictionary<string, object> { { "phase", phase }, { "outcome", outcome } };
+            if (exitCode.HasValue) record["exitCode"] = exitCode.Value;
+            string code = SafeCode(responseCode);
+            if (code != null) record["responseCode"] = code;
+            byte[] line = Encoding.UTF8.GetBytes(Json.Serialize(record) + "\n");
+            string path = fullIntentPath + ".diagnostics.jsonl";
+            using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough))
+            { stream.Write(line, 0, line.Length); stream.Flush(true); }
+        }
     }
 }
