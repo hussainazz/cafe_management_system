@@ -142,6 +142,92 @@ describe("OrderDesk order workflow", () => {
   });
 });
 
+describe("unpaid lines after payment by item", () => {
+  beforeEach(() => { sessionStorage.clear(); setRecoveryUser("partial-item-tests"); });
+  function partialDesk(mode: "ITEM_QUANTITY" | "AMOUNT" | null = "ITEM_QUANTITY", mixed = false) {
+    const paid = { id: "paid-item", productId: "coffee", productNameSnapshot: "قهوه", basePriceSnapshot: 50_000, quantity: 1, lineTotalAmount: 50_000, discountAmount: 0, discountKind: null, discountValue: null, note: null, weightGrams: null, pricingModeSnapshot: "FIXED", options: [] };
+    const unpaid = { ...paid, id: "unpaid-item", productId: "cake", productNameSnapshot: "کیک", quantity: 2, lineTotalAmount: 110_000, note: "یادداشت قبلی", options: [{ optionId: "extra", optionNameSnapshot: "افزودنی", priceSnapshot: 5_000, quantity: 2 }] };
+    const settlement = { id: "settlement", allocationMode: mode, totalAmount: 50_000, recordedAt: "2026-10-17T08:00:00.000Z", reversedAt: null, payments: [{ method: "CASH", amount: 50_000, reference: null }], allocations: [{ orderItemId: paid.id, quantity: 1, amount: 50_000 }] };
+    const order = { id: "partial-order", state: "OPEN", version: 2, dailyOrderNumber: 1, channel: "TAKEAWAY", paymentStatus: "PARTIALLY_PAID", subtotalAmount: 160_000, totalAmount: 160_000, paidAmount: 50_000, balanceAmount: 110_000, discountAmount: 0, discountKind: null, discountValue: null, items: [paid, unpaid], settlements: [settlement, ...(mixed ? [{ ...settlement, id: "amount-settlement", allocationMode: "AMOUNT" }] : [])] };
+    const onDone = vi.fn();
+    const mount = () => {
+      render(<OrderDesk catalog={[]} table={null} channel="TAKEAWAY" initialOrder={order as never} onOrder={vi.fn(async () => undefined)} onDone={onDone} onTableClearNeeded={vi.fn()} onCreateFailure={vi.fn(async () => undefined)} onDirtyChange={vi.fn()} onSubmitReady={vi.fn()} takeawayOrders={[]} onOpenTakeaway={vi.fn(async () => undefined)} onCloseTakeawayPanel={vi.fn()} />);
+      const editButton = screen.queryByRole("button", { name: "ویرایش سفارش" });
+      if (editButton) fireEvent.click(editButton);
+    };
+    mount();
+    return { order, mount, onDone };
+  }
+
+  it("edits an unpaid line's quantity/options and note while the paid line stays locked", async () => {
+    partialDesk();
+    fireEvent.click(screen.getByRole("button", { name: /قهوه × 1/ }));
+    expect(screen.queryByRole("button", { name: "کم کردن قهوه" })).toBeNull();
+    expect(screen.queryByLabelText("یادداشت قهوه")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /کیک × 2/ }));
+    fireEvent.change(screen.getByLabelText("یادداشت کیک"), { target: { value: "  بدون شکر  " } });
+    fireEvent.click(screen.getByRole("button", { name: "کم کردن کیک" }));
+    expect(document.querySelector(".order-total strong")?.textContent).toBe("105,000");
+    expect(screen.getByRole("button", { name: /کیک × 1/ }).textContent).toContain("55,000");
+    api.updateOpenOrder.mockResolvedValueOnce({ ok: false, error: { message: "Save retry" } });
+    fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت ویرایش" }));
+    await screen.findByText("Save retry");
+    expect(api.updateOpenOrder).toHaveBeenCalledWith("partial-order", { expectedVersion: 2, itemUpdates: [{ orderItemId: "unpaid-item", quantity: 1, note: "بدون شکر" }] });
+  });
+
+  it("retains a pending removal through a failed save and editor recovery", async () => {
+    setRecoveryUser("per-item-removal-recovery");
+    const { mount } = partialDesk();
+    fireEvent.click(screen.getByRole("button", { name: /کیک × 2/ }));
+    fireEvent.click(screen.getByRole("button", { name: "کم کردن کیک" }));
+    fireEvent.click(screen.getByRole("button", { name: "کم کردن کیک" }));
+    expect(screen.queryByRole("button", { name: /کیک ×/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /قهوه × 1/ })).toBeTruthy();
+    api.updateOpenOrder.mockResolvedValueOnce({ ok: false, error: { message: "Connection lost" } });
+    fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت ویرایش" }));
+    await screen.findByText("Connection lost");
+    expect(api.updateOpenOrder).toHaveBeenCalledWith("partial-order", { expectedVersion: 2, itemUpdates: [{ orderItemId: "unpaid-item", quantity: 0 }] });
+    cleanup();
+    mount();
+    expect(screen.queryByRole("button", { name: /کیک ×/ })).toBeNull();
+    expect((screen.getByRole("button", { name: "تأیید و ثبت ویرایش" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it.each(["AMOUNT", null] as const)("keeps untouched lines locked when the payment mode is %s", (mode) => {
+    partialDesk(mode);
+    fireEvent.click(screen.getByRole("button", { name: /کیک × 2/ }));
+    expect(screen.queryByRole("button", { name: "کم کردن کیک" })).toBeNull();
+    expect(screen.queryByLabelText("یادداشت کیک")).toBeNull();
+  });
+
+  it("keeps unpaid lines locked for mixed item/amount payments", () => {
+    partialDesk("ITEM_QUANTITY", true);
+    fireEvent.click(screen.getByRole("button", { name: /کیک × 2/ }));
+    expect(screen.queryByRole("button", { name: "کم کردن کیک" })).toBeNull();
+    expect(screen.queryByLabelText("یادداشت کیک")).toBeNull();
+  });
+
+  it("saves clearing an unpaid note without sending an unchanged quantity", async () => {
+    partialDesk();
+    fireEvent.click(screen.getByRole("button", { name: /کیک × 2/ }));
+    fireEvent.change(screen.getByLabelText("یادداشت کیک"), { target: { value: "  " } });
+    api.updateOpenOrder.mockResolvedValueOnce({ ok: false, error: { message: "Note retry" } });
+    fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت ویرایش" }));
+    await screen.findByText("Note retry");
+    expect(api.updateOpenOrder).toHaveBeenCalledWith("partial-order", { expectedVersion: 2, itemUpdates: [{ orderItemId: "unpaid-item", note: null }] });
+  });
+
+  it("reports an order closed by editing without claiming another payment was recorded", async () => {
+    const { order, onDone } = partialDesk();
+    fireEvent.click(screen.getByRole("button", { name: /کیک × 2/ }));
+    fireEvent.click(screen.getByRole("button", { name: "کم کردن کیک" }));
+    fireEvent.click(screen.getByRole("button", { name: "کم کردن کیک" }));
+    api.updateOpenOrder.mockResolvedValueOnce({ ok: true, data: { ...order, version: 3, state: "CLOSED", paymentStatus: "PAID", items: [order.items[0]], balanceAmount: 0, subtotalAmount: 50_000, totalAmount: 50_000 } });
+    fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت ویرایش" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith("ویرایش ثبت شد و سفارش بیرون‌بر بسته شد."));
+  });
+});
+
 
 describe("mounted order recovery", () => {
   it("renders an authoritative newly added takeaway item when recovered editor rows are stale", async () => {
