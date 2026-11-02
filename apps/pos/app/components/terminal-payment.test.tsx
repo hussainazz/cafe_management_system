@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TerminalAttempt, TerminalIntent } from "@cafe/contracts";
 import { SettlementSheet } from "./orders-workspace";
 import { setRecoveryUser } from "../lib/automatic-recovery";
-const api = vi.hoisted(() => ({ terminalConfig: vi.fn(), terminalActive: vi.fn(), terminalRead: vi.fn(), terminalPrepare: vi.fn(), terminalReconcile: vi.fn(), readOrder: vi.fn(), recordSettlement: vi.fn(), editSettlement: vi.fn() }));
+const api = vi.hoisted(() => ({ recordTerminalTiming: vi.fn(), terminalConfig: vi.fn(), terminalActive: vi.fn(), terminalRead: vi.fn(), terminalPrepare: vi.fn(), terminalReconcile: vi.fn(), readOrder: vi.fn(), recordSettlement: vi.fn(), editSettlement: vi.fn() }));
 const bridge = vi.hoisted(() => ({ sendTerminalPurchase: vi.fn() }));
 vi.mock("../lib/api-client", () => api);
 vi.mock("../lib/sep-payment", () => bridge);
@@ -46,6 +46,8 @@ describe("Terminal-assisted settlement", () => {
     render(<SettlementSheet order={order} onClose={vi.fn()} onSuccess={vi.fn()} />);
     await screen.findByRole("region", { name: "وضعیت پرداخت کارت‌خوان" });
     expect(bridge.sendTerminalPurchase).toHaveBeenCalledTimes(1); expect(api.terminalPrepare).toHaveBeenCalledTimes(1);
+    expect(api.recordTerminalTiming).toHaveBeenCalledWith(intent.attemptId, "prepare_roundtrip", expect.any(Number), "ok");
+    expect(api.recordTerminalTiming).toHaveBeenCalledWith(intent.attemptId, "bridge_roundtrip", expect.any(Number), "error");
   });
   it("keeps reconciliation available when the feature is disabled and requires explicit receipt verification", async () => {
     api.terminalConfig.mockResolvedValue(ok({ enabled: false }));
