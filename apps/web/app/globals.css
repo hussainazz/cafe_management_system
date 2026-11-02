@@ -746,12 +746,25 @@ main {
   inset: 0;
   z-index: 1;
   display: block;
-  opacity: 0;
-  transition: opacity 180ms ease-out;
+  opacity: 0.88;
+  filter: blur(18px);
+  transform: scale(1.08);
+  transition:
+    opacity 180ms ease-out,
+    filter 320ms ease-out,
+    transform 320ms ease-out;
+}
+
+.product-visual--loading .product-visual-image-main {
+  opacity: 0.88;
+  filter: blur(18px);
+  transform: scale(1.08);
 }
 
 .product-visual--loaded .product-visual-image-main {
   opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
 }
 
 .image-shade {
