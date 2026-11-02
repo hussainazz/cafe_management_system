@@ -1,4 +1,4 @@
-# SEP payment bridge 0.2.4
+# SEP payment bridge — 0.2.4 deployment record and 0.2.5 timing candidate
 
 Windows 8.1 32-bit, .NET Framework 4.8, x86 WinExe. No Node.js runtime,
 HTTP.sys URL reservation, administrator account, or inbound firewall rule.
@@ -42,7 +42,7 @@ empty `UNKNOWN` evidence. Consequently the journal cannot show whether
 `PcStarterPurchase` was reached or which preflight failed. That old journal is
 not evidence about version 0.2.1's phase logging.
 
-Version 0.2.1 writes ordered local-only `.diagnostics.jsonl` records beside
+Version 0.2.1 originally wrote ordered local-only `.diagnostics.jsonl` records beside
 each intent. Records contain fixed phase/outcome codes, a bounded process exit
 code, and only a validated response code. They never contain exception text,
 response descriptions, PAN, RRN, or trace and are never sent to the backend.
@@ -138,6 +138,30 @@ exists. Sync English initialization uses 10 seconds; SetLan precedes it.
 The process deadline is 30 seconds, followed by a kill/wait boundary of 5 seconds.
 A surviving worker keeps the terminal mutex. Never assume the bank declined
 because that worker timed out, was killed, or failed cleanup.
+
+## Per-attempt timing records
+
+The payment bridge records bounded elapsed milliseconds for intent validation,
+claim, terminal mutex, SDK setup, connection test, purchase call, cleanup and
+worker execution. A separate authenticated timing report carries those timings to the
+VPS, where they are stored as `TERMINAL_PAYMENT_TIMING` audit records. API
+preparation duration and the backend-created-to-dispatch interval are recorded
+under the same attempt ID. No schema migration is needed. For the field list,
+cashier journal location, VPS SQL query and service-journal command, see the
+[SEP payment timing runbook](../../../docs/runbooks/sep-payment-timing.md).
+
+The prepared 0.2.5 source package is built with:
+
+```bash
+python3 apps/sep-bridge/Payments/package.py --sdk-directory '/home/hosein/Downloads/Telegram Desktop/SSP1126-DLLs'
+(cd apps/sep-bridge/dist/payments && sha256sum -c run-cafe-sep-payments-0.2.5-x86.zip.sha256)
+```
+
+The 0.2.5 upgrade script expects the existing 0.2.4 files and pairing, requires
+the bridge task and backend initiation to be disabled, and leaves the new task
+disabled. The 0.2.4 package remains available for rollback. The 0.2.5 package
+has not been transferred or installed; its SHA-256 is recorded in
+`docs/current-left.md`.
 
 The worker converts authorized integer Toman to Rial before the SDK call;
 unused extensions are null, ReserveFlag and totalAmount are -1, and
