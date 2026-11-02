@@ -104,19 +104,20 @@ live waiter-call or ordering interactions.
 
 ## Vercel staging
 
-No Vercel project is created by this change. For a later staging project:
+The app includes [`vercel.json`](vercel.json) with the SvelteKit framework,
+frozen pnpm workspace install, and dependency-ordered build. Create and link a
+Vercel project for staging with these dashboard settings:
 
 1. Import `hussainazz/cafe_management_system` in Vercel.
 2. Set **Root Directory** to `apps/menu-svelte` and enable **Include source
    files outside of the Root Directory** so the pnpm workspace and
    `packages/contracts` are available.
-3. Use the SvelteKit framework preset. Keep the repository's pnpm 11 package
-   manager and Node 24 compatibility. `package.json` declares pnpm 11 and the
-   project adapter selects the Vercel Node.js 24 runtime.
-4. Use `pnpm install --frozen-lockfile` as the install command. Use
-   `pnpm --filter @cafe/menu-svelte... build` as the build command so the shared
-   contracts package is built first. The output is selected by
-   `@sveltejs/adapter-vercel`; do not set a static output directory.
+3. Keep the repository's pnpm 11 package manager and Node 24 compatibility.
+   The app package constrains build Node to 24, and the project adapter selects
+   the Vercel Node.js 24 function runtime.
+4. Let `vercel.json` provide the install and build commands. The output is
+   selected by `@sveltejs/adapter-vercel`; do not set a static output
+   directory.
 5. Add `API_BASE_URL` as a server environment variable for Preview and
    Production environments, with an approved HTTPS API origin. Do not prefix
    it with `PUBLIC_` or put credentials in it.
