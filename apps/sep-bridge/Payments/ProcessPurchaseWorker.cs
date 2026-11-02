@@ -41,7 +41,10 @@ namespace RunCafe.SepBridge.Payments
                         Dictionary<string, object> result;
                         try { result = PaymentProtocol.Parse(output.ToString()); }
                         catch (Exception) { Record(path, "WORKER_PROCESS", "OUTPUT_INVALID", process.ExitCode); return null; }
-                        if (result.Count != 4 || PaymentProtocol.Text(result, "terminalId") == null) { Record(path, "WORKER_PROCESS", "OUTPUT_INVALID", process.ExitCode); return null; }
+                        object rawTimings;
+                        if (result.Count != 5 || PaymentProtocol.Text(result, "terminalId") == null || !result.TryGetValue("timingsMs", out rawTimings) || !(rawTimings is Dictionary<string, object>))
+                        { Record(path, "WORKER_PROCESS", "OUTPUT_INVALID", process.ExitCode); return null; }
+                        PaymentProtocol.TimingMessage((Dictionary<string, object>)rawTimings);
                         Record(path, "WORKER_PROCESS", "EXITED", process.ExitCode);
                         return result;
                     }
