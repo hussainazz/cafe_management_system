@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { RecordSettlementRequest, TerminalAttempt, TerminalReconcile } from "@cafe/contracts";
-import { readOrder, terminalActive, terminalConfig, terminalPrepare, terminalRead, terminalReconcile, type PosOrderDetail } from "../lib/api-client";
+import { recordTerminalTiming, readOrder, terminalActive, terminalConfig, terminalPrepare, terminalRead, terminalReconcile, type PosOrderDetail } from "../lib/api-client";
 import { sendTerminalPurchase } from "../lib/sep-payment";
 import { formatToman } from "../lib/pos-utils";
 
@@ -12,6 +12,8 @@ export function useTerminalPayment(orderId: string, onSuccess: (order: PosOrderD
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const actionGate = useRef(false);
+  const timingStart = useRef<number | null>(null);
+  const timingObserved = useRef<string | null>(null);
   const success = useRef(onSuccess); success.current = onSuccess;
   useEffect(() => {
     if (historical) return;
@@ -32,7 +34,14 @@ export function useTerminalPayment(orderId: string, onSuccess: (order: PosOrderD
     if (!attempt || attempt.status === "SUCCEEDED" || attempt.status === "FAILED") return;
     let alive = true; let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
+      const pollStarted = performance.now();
       const result = await terminalRead(attempt.id);
+      const observedAt = performance.now();
+      recordTerminalTiming(attempt.id, "status_roundtrip", observedAt - pollStarted, result.ok ? "ok" : "error");
+      if (result.ok && result.data.resultReceivedAt && timingStart.current !== null && timingObserved.current !== attempt.id) {
+        timingObserved.current = attempt.id;
+        recordTerminalTiming(attempt.id, "result_observed", observedAt - timingStart.current, "ok");
+      }
       if (!alive) return;
       if (result.ok) { setAttempt(result.data); setError(null); }
       else setError("ارتباط با سرور قطع شده است. وضعیت پرداخت مشخص نیست؛ دوباره پرداخت نکنید.");
@@ -45,14 +54,21 @@ export function useTerminalPayment(orderId: string, onSuccess: (order: PosOrderD
     if (actionGate.current || attempt) return;
     actionGate.current = true; setBusy(true); setError(null);
     try {
+      timingStart.current = performance.now();
       const prepared = await terminalPrepare(orderId, checkout, key);
       if (!prepared.ok) { setError("درخواست پرداخت تأیید نشد. وضعیت سفارش را دوباره بررسی کنید."); return; }
+      const prepareMs = performance.now() - timingStart.current;
       setAttempt(prepared.data);
       // No dispatch when recovery returns an existing claimed/expired/final attempt.
       if (prepared.data.authorization && !prepared.replayed) {
-        const accepted = await sendTerminalPurchase(prepared.data.authorization);
+        const bridgeStarted = performance.now();
+        let bridgeOutcome: "error" | "timeout" = "error";
+        const accepted = await sendTerminalPurchase(prepared.data.authorization, outcome => { if (outcome === "timeout") bridgeOutcome = "timeout"; });
+        const bridgeMs = performance.now() - bridgeStarted;
+        recordTerminalTiming(prepared.data.id, "prepare_roundtrip", prepareMs, "ok");
+        recordTerminalTiming(prepared.data.id, "bridge_roundtrip", bridgeMs, accepted ? "ok" : bridgeOutcome);
         if (!accepted) setError("پاسخ برنامه کارت‌خوان دریافت نشد. نتیجه نامشخص است؛ پرداخت را تکرار نکنید و رسید یا حساب بانکی را بررسی کنید.");
-      }
+      } else recordTerminalTiming(prepared.data.id, "prepare_roundtrip", prepareMs, "ok");
     } finally { actionGate.current = false; setBusy(false); }
   };
   const reconcile = async (input: TerminalReconcile) => {
