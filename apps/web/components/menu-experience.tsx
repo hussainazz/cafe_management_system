@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { MenuCategory, MenuProduct, PublicMenu } from "../lib/menu-types";
 import {
   categoryTone,
@@ -34,6 +34,10 @@ import {
   productImageStallTimeoutMs,
   reduceProductImageState,
 } from "../lib/product-image-state";
+
+import { MenuImageQueue, downloadMenuImage, type ImageDownload } from "../lib/menu-image-queue";
+
+const MenuImages = createContext<ReadonlyMap<string, ImageDownload>>(new Map());
 
 type MenuExperienceProps = {
   initialMenu: PublicMenu | null;
@@ -132,13 +136,16 @@ function ProductVisual({
   product,
   category,
   presentation = "card",
+  priority = presentation === "dialog",
 }: {
   product: MenuProduct;
   category: MenuCategory;
   presentation?: "card" | "dialog";
+  priority?: boolean;
 }) {
   const isAddOn = isAddOnCategory(category);
-  const imageSources = isAddOn && !product.image ? [] : productImageSources(product, category);
+  const downloaded = useContext(MenuImages).get(product.id);
+  const imageSources = downloaded?.url ? [downloaded.url] : [];
   const identity = `${product.id}:${category.name}:${presentation}:${imageSources.join("|")}`;
   const [storedImageState, dispatchImageEvent] = useReducer(
     reduceProductImageState,
@@ -207,7 +214,8 @@ function ProductVisual({
             className="product-visual-image-main"
             src={imageSource}
             alt={imageState.sourceIndex === 0 ? product.image?.altText ?? product.name : product.name}
-            loading="lazy"
+            loading={priority ? "eager" : "lazy"}
+            fetchPriority={priority ? "high" : "auto"}
             decoding="async"
             width="480"
             height="360"
@@ -264,11 +272,13 @@ function ProductCard({
   product,
   category,
   language,
+  priority,
   onSelect,
 }: {
   product: MenuProduct;
   category: MenuCategory;
   language: Language;
+  priority: boolean;
   onSelect: (opener: HTMLButtonElement) => void;
 }) {
   const text = copy[language];
@@ -289,7 +299,7 @@ function ProductCard({
       onClick={(event) => onSelect(event.currentTarget)}
       aria-label={`${localizedName(product, language)}، ${startingPriceDescription}${formatCompactToman(product.finalPriceAmount, language)} ${text.toman}${product.saleDiscount ? `، ${formatToman(product.saleDiscount.value, language)}٪ ${text.discount}` : ""}${availabilityDescription}${optionsDescription}`}
     >
-      <ProductVisual product={product} category={category} />
+      <ProductVisual product={product} category={category} priority={priority} />
       <span className="product-card-body">
         <span className="product-card-topline">
           <span className="product-name-wrap">
@@ -486,7 +496,38 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
   const language: Language = "fa";
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
+  useEffect(() => {
+    if (initialMenu || !initialTableContext?.authenticationRequired) return;
+    const controller = new AbortController();
+    void fetch("/api/public-menu", { signal: controller.signal }).then(async response => {
+      if (!response.ok) throw new Error("Menu unavailable");
+      const body = await response.json() as { data: PublicMenu };
+      if (!controller.signal.aborted) setMenu(body.data);
+    }).catch(() => {
+      if (!controller.signal.aborted) setRequestFailed(true);
+    });
+    return () => controller.abort();
+  }, [initialMenu, initialTableContext?.authenticationRequired]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [downloadedImages, setDownloadedImages] = useState<ReadonlyMap<string, ImageDownload>>(new Map());
+  const imageQueueRef = useRef<MenuImageQueue | null>(null);
+  const imageTasks = useMemo(() => menu?.categories.flatMap(category =>
+    category.products.filter(product => !isAddOnCategory(category) || product.image).map(product => ({
+      id: product.id, categoryId: category.id, sources: productImageSources(product, category),
+    }))) ?? [], [menu]);
+  // Refreshing menu metadata must not restart unchanged downloads.
+  const imageTasksKey = JSON.stringify(imageTasks);
+  useEffect(() => {
+    const queue = new MenuImageQueue(JSON.parse(imageTasksKey), downloadMenuImage,
+      setDownloadedImages, URL.revokeObjectURL);
+    setDownloadedImages(new Map());
+    imageQueueRef.current = queue;
+    queue.start();
+    return () => { queue.stop(); imageQueueRef.current = null; };
+  }, [imageTasksKey]);
+  useEffect(() => {
+    if (selectedCategory) imageQueueRef.current?.select(selectedCategory);
+  }, [selectedCategory, imageTasksKey]);
   const [showCategoryScrollCue, setShowCategoryScrollCue] = useState(true);
   const categoryScrollerRef = useRef<HTMLDivElement>(null);
   const categoryNavigationTargetRef = useRef<string | null>(null);
@@ -797,6 +838,22 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
     finally { setPhoneLoading(false); }
   }
 
+  if (tableContext?.active && tableContext.authenticationRequired) {
+    return (
+      <main className="error-page auth-page" dir="rtl">
+        <section className="auth-card" aria-labelledby="customer-auth-title">
+          <p className="eyebrow">RUN CAFÉ · میز {tableContext.tableName}</p>
+          <h1 id="customer-auth-title">برای مشاهده ی منو، لطفا شماره موبایل خود را تأیید کنید</h1>
+          <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void identifyPhone(); }}>
+            <label>شماره موبایل<input type="tel" inputMode="tel" autoComplete="tel" dir="ltr" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} /></label>
+            <button className="auth-submit" type="submit" disabled={phoneLoading || phoneNumber.trim().length < 1}>{phoneLoading ? "در حال ثبت…" : "ادامه"}</button>
+          </form>
+          {phoneError ? <p className="table-context-error" role="alert">{phoneError}</p> : null}
+        </section>
+      </main>
+    );
+  }
+
   if (!menu && !requestFailed) return <LoadingMenu />;
 
   if (!menu) {
@@ -816,24 +873,9 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
     );
   }
 
-  if (tableContext?.active && tableContext.authenticationRequired) {
-    return (
-      <main className="error-page auth-page" dir="rtl">
-        <section className="auth-card" aria-labelledby="customer-auth-title">
-          <p className="eyebrow">RUN CAFÉ · میز {tableContext.tableName}</p>
-          <h1 id="customer-auth-title">برای مشاهده ی منو، لطفا شماره موبایل خود را تأیید کنید</h1>
-          <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void identifyPhone(); }}>
-            <label>شماره موبایل<input type="tel" inputMode="tel" autoComplete="tel" dir="ltr" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} /></label>
-            <button className="auth-submit" type="submit" disabled={phoneLoading || phoneNumber.trim().length < 1}>{phoneLoading ? "در حال ثبت…" : "ادامه"}</button>
-          </form>
-          {phoneError ? <p className="table-context-error" role="alert">{phoneError}</p> : null}
-        </section>
-      </main>
-    );
-  }
 
   return (
-    <>
+    <MenuImages.Provider value={downloadedImages}>
     <div
       className="site-shell"
       dir={direction}
@@ -963,6 +1005,7 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
                       product={product}
                       category={category}
                       language={language}
+                      priority={selectedCategory === category.id}
                       onSelect={(opener) => {
                         selectedProductTriggerRef.current = opener;
                         setSelectedProduct({ product, category });
@@ -1031,6 +1074,6 @@ export function MenuExperience({ initialMenu, initialRequestFailed, invalidTable
         <span className="waiter-call-label">{waiterCallSentState ? text.waiterCalled : text.callWaiter}</span>
       </button>
     ) : null}
-    </>
+    </MenuImages.Provider>
   );
 }
