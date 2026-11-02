@@ -10,7 +10,7 @@ using System.Text;
 using System.Threading;
 
 [assembly: TargetFramework(".NETFramework,Version=v4.8")]
-[assembly: System.Reflection.AssemblyVersion("0.2.4.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.5.0")]
 
 namespace RunCafe.SepBridge.Payments
 {
@@ -19,7 +19,7 @@ namespace RunCafe.SepBridge.Payments
     {
         private static PaymentEngine engine;
         private static bool paymentEnabled;
-        private static string Health { get { return "{\"service\":\"run-cafe-sep-bridge\",\"version\":\"0.2.4\",\"mode\":\"" + (paymentEnabled ? "payments" : "health-only") + "\",\"paymentEnabled\":" + (paymentEnabled ? "true" : "false") + ",\"terminalAccess\":" + (paymentEnabled ? "true" : "false") + ",\"manualVerificationRequired\":true}"; } }
+        private static string Health { get { return "{\"service\":\"run-cafe-sep-bridge\",\"version\":\"0.2.5\",\"mode\":\"" + (paymentEnabled ? "payments" : "health-only") + "\",\"paymentEnabled\":" + (paymentEnabled ? "true" : "false") + ",\"terminalAccess\":" + (paymentEnabled ? "true" : "false") + ",\"manualVerificationRequired\":true}"; } }
         private static readonly object LogLock = new object();
         private static readonly Semaphore Slots = new Semaphore(8, 8);
         private static string dataDirectory;
