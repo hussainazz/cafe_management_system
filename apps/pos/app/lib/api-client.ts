@@ -685,3 +685,37 @@ export async function terminalReconcile(id: string, input: import("@cafe/contrac
   const result = parseResponse(await request<unknown>(`/terminal-payments/${encodeURIComponent(id)}/reconcile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }), TerminalAttemptResponseSchema, "نتیجه بررسی پرداخت مشخص نشد.");
   return result.ok ? { ...result, data: result.data.data } : result;
 }
+
+const terminalTimingKey = "run-cafe:terminal-timing-v1";
+let timingFlushActive = false;
+function recordTerminalTimingImpl(attemptId: string, phase: "prepare_roundtrip" | "bridge_roundtrip" | "status_roundtrip" | "result_observed", elapsedMs: number, outcome: "ok" | "error" | "timeout") {
+  const event = { attemptId, reportId: crypto.randomUUID(), phase, elapsedMs: Math.round(elapsedMs), outcome };
+  try {
+    const queued = JSON.parse(localStorage.getItem(terminalTimingKey) ?? "[]") as Array<typeof event>;
+    if (queued.length >= 64) console.warn("sep_terminal_timing_queue_full", { droppedReportId: queued[0]?.reportId });
+    localStorage.setItem(terminalTimingKey, JSON.stringify([...queued, event].slice(-64)));
+  } catch { console.info("sep_terminal_timing", event); return; }
+  if (timingFlushActive) return;
+  timingFlushActive = true;
+  void (async () => {
+    try {
+      for (let count = 0; count < 64; count++) {
+        const queued = JSON.parse(localStorage.getItem(terminalTimingKey) ?? "[]") as Array<typeof event>;
+        const item = queued[0]; if (!item) break;
+        const { attemptId: id, ...body } = item;
+        const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 3000);
+        let sent = false;
+        try { const response = await fetch(`/pos/api/v1/terminal-payments/${encodeURIComponent(id)}/timing`, { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal }); sent = response.ok; }
+        finally { clearTimeout(timer); }
+        if (!sent) break;
+        const latest = JSON.parse(localStorage.getItem(terminalTimingKey) ?? "[]") as Array<typeof event>;
+        localStorage.setItem(terminalTimingKey, JSON.stringify(latest.filter(value => value.reportId !== item.reportId)));
+      }
+    } catch { /* Keep queued telemetry for a later status/payment observation. */ }
+    finally { timingFlushActive = false; }
+  })();
+}
+
+export function recordTerminalTiming(...args: Parameters<typeof recordTerminalTimingImpl>) {
+  try { recordTerminalTimingImpl(...args); } catch { /* Diagnostics cannot interrupt payment handling. */ }
+}
