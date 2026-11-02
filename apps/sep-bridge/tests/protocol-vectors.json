@@ -34,5 +34,18 @@
     "trace": "123456"
   },
   "resultMessage": "sep-result-v1\n50000000-0000-4000-8000-000000000003\n50000000-0000-4000-8000-000000000004\n31187710\n1792920000\n1792919999\n00\n\n123456",
-  "resultSignature": "c9a8ce73538b3c3433a219be191f9117247641733f3a4a674e8c293dc67e99eb"
+  "resultSignature": "c9a8ce73538b3c3433a219be191f9117247641733f3a4a674e8c293dc67e99eb",
+  "timing": {
+    "attemptId": "50000000-0000-4000-8000-000000000003",
+    "bridgeId": "50000000-0000-4000-8000-000000000004",
+    "terminalId": "31187710",
+    "sentAtUnix": 1792920000,
+    "timingsMs": {
+      "backendClaimMs": 8,
+      "connectionTestMs": 112,
+      "workerTotalMs": 290
+    }
+  },
+  "timingMessage": "sep-timing-v1\n50000000-0000-4000-8000-000000000003\n50000000-0000-4000-8000-000000000004\n31187710\n1792920000\nbackendClaimMs:8,connectionTestMs:112,workerTotalMs:290",
+  "timingSignature": "db2887c3fb07ab550548693e815adb6d56dcd9fcd88917d1eb1fea5e8452b0f9"
 }
