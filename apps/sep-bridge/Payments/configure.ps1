@@ -7,7 +7,7 @@ $hostPath = [IO.Path]::GetFullPath($task.Actions[0].Execute)
 $rootPath = [IO.Path]::GetFullPath($root).TrimEnd('\') + '\'
 if (!$hostPath.StartsWith($rootPath, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($hostPath) -ne 'RunCafe.SepBridge.Payments.exe') { throw 'Payment task does not point to the managed bridge installation.' }
 $versionDirectory = Split-Path -Parent $hostPath
-if ($EnablePayments -and !$ConfirmedTomanToRialConversion) { throw 'Explicit confirmation of the reviewed Toman-to-Rial conversion in bridge 0.2.4 is required.' }
+if ($EnablePayments -and !$ConfirmedTomanToRialConversion) { throw 'Explicit confirmation of the reviewed Toman-to-Rial conversion in bridge 0.2.5 is required.' }
 if ($EnablePayments -and !(Test-Path (Join-Path $root 'pairing.dpapi'))) { throw 'Pair first.' }
 $paths = @('RunCafe.SepBridge.Payments.exe','RunCafe.SepBridge.PurchaseWorker.exe') | ForEach-Object { Join-Path $versionDirectory "$_.config" }
 $configs = @()
