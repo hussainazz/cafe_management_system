@@ -1,5 +1,13 @@
 # Current Stage Status
 
+## SvelteKit Vercel staging preparation — 2 November 2026
+
+- Added Vercel project build configuration for the SvelteKit app, pinned build
+  Node to 24, and verified the adapter emits Vercel serverless functions.
+- Left: create/link the Vercel staging project, set its root to
+  `apps/menu-svelte` with outside-root workspace files enabled, and configure
+  an approved HTTPS staging `API_BASE_URL`. Keep staging browse-only.
+
 ## SEP SSP1126 / PAX Q80 integration — 26 October 2026
 
 - Phase A repository and payment-flow audit completed. The user explicitly
