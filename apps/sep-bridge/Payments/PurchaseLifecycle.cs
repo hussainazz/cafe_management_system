@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace RunCafe.SepBridge.Payments
 {
@@ -24,21 +25,22 @@ namespace RunCafe.SepBridge.Payments
     internal static class PurchaseLifecycle
     {
         public static SepSdkResult Execute(ISepPurchaseDevice device, string terminalIp, string terminalId,
-            string amount, Func<bool> intentIsCurrent, PurchaseDiagnostic diagnostic)
+            string amount, Func<bool> intentIsCurrent, PurchaseDiagnostic diagnostic, Action<string, long> timing)
         {
-            if (device == null || intentIsCurrent == null || diagnostic == null) throw new ArgumentNullException();
+            if (device == null || intentIsCurrent == null || diagnostic == null || timing == null) throw new ArgumentNullException();
             try
             {
                 diagnostic("SET_LAN", "CALLING", null, null);
-                if (!device.SetLan(terminalIp)) { diagnostic("SET_LAN", "REJECTED", 1, null); return null; }
+                bool setLan = Measure("setLanMs", delegate { return device.SetLan(terminalIp); }, timing);
+                if (!setLan) { diagnostic("SET_LAN", "REJECTED", 1, null); return null; }
                 diagnostic("SET_LAN", "PASSED", null, null);
 
                 diagnostic("SDK_INITIALIZATION", "CALLING", null, null);
-                device.Initialize();
+                Measure("sdkInitializationMs", delegate { device.Initialize(); return true; }, timing);
                 diagnostic("SDK_INITIALIZATION", "PASSED", null, null);
 
                 diagnostic("CONNECTION_TEST", "CALLING", null, null);
-                SepSdkResult connection = device.ConnectionTest();
+                SepSdkResult connection = Measure("connectionTestMs", delegate { return device.ConnectionTest(); }, timing);
                 if (connection == null) { diagnostic("CONNECTION_TEST", "NO_RESULT", 1, null); return null; }
                 string connectionCode = PaymentProtocol.SafeCode(connection.ResponseCode);
                 if (connectionCode != "00") { diagnostic("CONNECTION_TEST", "NON_SUCCESS", 1, connectionCode); return null; }
@@ -51,12 +53,12 @@ namespace RunCafe.SepBridge.Payments
                 // which clears Channel, IP, and port. Restore the configured network
                 // before PcStarterPurchase or its TransactionInitialization returns null.
                 diagnostic("PURCHASE_REINITIALIZATION", "CALLING", null, null);
-                if (!device.SetLan(terminalIp)) { diagnostic("PURCHASE_REINITIALIZATION", "SET_LAN_REJECTED", 1, null); return null; }
-                device.Initialize();
+                bool reinitialized = Measure("purchaseReinitializationMs", delegate { if (!device.SetLan(terminalIp)) return false; device.Initialize(); return true; }, timing);
+                if (!reinitialized) { diagnostic("PURCHASE_REINITIALIZATION", "SET_LAN_REJECTED", 1, null); return null; }
                 diagnostic("PURCHASE_REINITIALIZATION", "PASSED", null, null);
 
                 diagnostic("PURCHASE_CALL", "ENTERING", null, null);
-                SepSdkResult result = device.Purchase(amount, terminalId);
+                SepSdkResult result = Measure("purchaseCallMs", delegate { timing("prePurchaseMs", 0); return device.Purchase(amount, terminalId); }, timing);
                 if (result == null) { diagnostic("PURCHASE_CALL", "RETURNED_NO_RESULT", 1, null); return null; }
                 if (result.TerminalId != terminalId) { diagnostic("PURCHASE_CALL", "RETURNED_TERMINAL_MISMATCH", 1, null); return null; }
                 string purchaseCode = PaymentProtocol.SafeCode(result.ResponseCode);
@@ -66,9 +68,15 @@ namespace RunCafe.SepBridge.Payments
             finally
             {
                 try { diagnostic("SDK_CLEANUP", "CALLING", null, null); } catch (Exception) { }
-                device.Dispose();
+                Measure("sdkCleanupMs", delegate { device.Dispose(); return true; }, timing);
                 try { diagnostic("SDK_CLEANUP", "PASSED", null, null); } catch (Exception) { }
             }
+        }
+        private static T Measure<T>(string name, Func<T> action, Action<string, long> timing)
+        {
+            var watch = Stopwatch.StartNew();
+            try { return action(); }
+            finally { watch.Stop(); timing(name, watch.ElapsedMilliseconds); }
         }
     }
 }
