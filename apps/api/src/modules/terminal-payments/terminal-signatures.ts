@@ -16,6 +16,10 @@ export function resultMessage(value: TerminalResult): string {
   return message("sep-result-v1", [value.attemptId, value.bridgeId, value.terminalId,
     value.sentAtUnix, value.finishedAtUnix, value.responseCode, value.rrn, value.trace]);
 }
+export function timingMessage(value: { attemptId: string; bridgeId: string; terminalId: string; sentAtUnix: number; timingsMs: Record<string, number | undefined> }): string {
+  return message("sep-timing-v1", [value.attemptId, value.bridgeId, value.terminalId, value.sentAtUnix]) + "\n" +
+    Object.entries(value.timingsMs).filter(([, duration]) => duration !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, duration]) => `${key}:${duration}`).join(",");
+}
 export function signTerminalMessage(value: string, key: string): string {
   return createHmac("sha256", Buffer.from(key, "hex")).update(value, "utf8").digest("hex");
 }
