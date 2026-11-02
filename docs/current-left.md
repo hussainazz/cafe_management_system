@@ -1,5 +1,48 @@
 # Current Stage Status
 
+## Public-menu product image loading — 1 November 2026
+
+- Added a three-request image queue that finishes the active category before
+  starting other categories. A new category takes priority after a 200 ms dwell;
+  unrelated requests are aborted and resumed later. Completed images are retained.
+- Downloaded photos use local blob URLs, preventing rendered cards from bypassing
+  the queue or downloading the same image again. The blur clears after image load.
+- QR phone authentication now renders before fetching catalog data. Menu data and
+  image downloads run in the background while the customer enters their number.
+- Added queue, transport, authentication UI, and server-page tests covering these
+  scenarios, cancellation, fallback, failures, cleanup, and rapid navigation.
+- Verification: all 42 web tests across 10 files, the web TypeScript check, and
+  `git diff --check` passed using Node 24.21.0.
+- Left: browser visual review on a real throttled connection remains to be done.
+
+## SEP payment timing instrumentation — 1 November 2026
+
+- Corrected the initial review findings. Financial result encoding stays
+  compatible with bridge 0.2.4 and legacy saved evidence. Timing uploads use a
+  separate signed endpoint and never enter payment evidence fingerprints.
+- Added browser preparation/bridge/status round trips and result observation,
+  API request-to-response spans, worker SDK factory/pre-purchase durations,
+  diagnostic overhead, and local evidence/timing delivery attempt records.
+- The external `purchaseCallMs` interval covers the SDK/terminal call. Per the
+  user's clarification, terminal display/bank internals are outside scope.
+  Network/proxy time remains visible within browser round trips rather than
+  being assigned to a specific unobserved network component.
+- API financial responses do not await timing persistence. Timing writes have
+  bounded queues and DB deadlines; telemetry endpoints acknowledge persistence,
+  and browser/bridge retries keep stable IDs. Incomplete and dropped samples
+  are documented in [the timing runbook](runbooks/sep-payment-timing.md).
+- Verification: focused API integration/signature/persistence checks passed
+  17/17 across the integration and final unit runs, focused POS checks passed 10/10, C# legacy/timing HMAC and payment
+  safety scenarios passed, and SDK lifecycle fakes passed. Contracts build and
+  API/POS typechecks passed. Local Node 25.9.0 emits the Node-24 engine warning.
+- Rebuilt the disabled Windows x86/.NET 4.8 candidate
+  `run-cafe-sep-payments-0.2.5-x86.zip` (123,147 bytes), SHA-256
+  `febce6c062913afa2864f44bb5f0a05ab8b1a6af80f79b68b48f78ee0a373602`.
+  The upgrade listener check uses the .NET API available on the cashier OS.
+- Left: authorized publication/deployment of API/POS and installation of the
+  bridge candidate, followed by collection of actual production timings.
+  No production deployment, terminal request, or real charge was performed.
+
 ## Main consolidation and VPS release boundary — 1 November 2026
 
 - Consolidated the unpaid-item editing work and the local SEP bridge updates
@@ -25,6 +68,11 @@
   on the isolated test database.
 - Left: production activation is pending. Do not apply the staged migration or
   replace runtime artifacts without a new explicit deployment request.
+- Left after activation: Verify rollback and backup handling against the
+  production gates: exactly one validated rollback bundle for the previous
+  coordinated runtime and one PostgreSQL-compatible, validated pre-release
+  database backup; preserve VPS product-image storage and keep the active
+  runtime and only verified recovery copies intact.
 
 ## SEP SSP1126 / PAX Q80 integration — 26 October 2026
 
