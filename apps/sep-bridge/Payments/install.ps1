@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 if (!$ApproveFinancialBridgeInstall) { throw 'Explicit approval switch required. This does not enable payments.' }
 if ($env:USERNAME -ine 'cafe run') { throw 'Run as the existing cafe run account.' }
 $root = Join-Path $env:LOCALAPPDATA 'RunCafe\SepBridge.Payments'
-$bin = Join-Path $root '0.2.4'
+$bin = Join-Path $root '0.2.5'
 $taskName = 'RunCafe SEP Payments'
 if ((Test-Path $bin) -or (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) { throw 'Installation exists; stop and use versioned rollback procedure.' }
 $manifest = Get-Content (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
