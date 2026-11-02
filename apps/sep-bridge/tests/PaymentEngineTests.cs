@@ -6,16 +6,17 @@ using RunCafe.SepBridge.Payments;
 
 internal static class PaymentEngineTests
 {
-    private sealed class Backend : IPaymentBackend
+    private sealed class Backend : IPaymentBackend, ITimingBackend
     {
-        public int Claims, Reports; public bool ClaimOk = true, ReportOk = true;
+        public int Claims, Reports, TimingReports; public bool TimingOk = true; public bool ClaimOk = true, ReportOk = true;
         public bool Claim(Dictionary<string, object> value) { Interlocked.Increment(ref Claims); return ClaimOk; }
+        public bool ReportTiming(Dictionary<string, object> value) { Interlocked.Increment(ref TimingReports); return TimingOk; }
         public bool Report(Dictionary<string, object> value) { Interlocked.Increment(ref Reports); return ReportOk; }
     }
     private sealed class Worker : IPurchaseWorker
     {
         public Backend Backend; public int Calls; public bool Lost; public readonly ManualResetEvent Started = new ManualResetEvent(false), Release = new ManualResetEvent(false);
-        public Dictionary<string, object> Run(string path) { if (!Backend.Claim(PaymentProtocol.Parse(File.ReadAllText(path)))) return null; Interlocked.Increment(ref Calls); Started.Set(); Release.WaitOne(3000); if (Lost) { PaymentProtocol.AppendDiagnostic(path, "PURCHASE_CALL", "RETURNED_NO_RESULT", 1); return null; } PaymentProtocol.AppendDiagnostic(path, "PURCHASE_CALL", "RETURNED_RESULT"); return new Dictionary<string, object> { { "terminalId", "31187710" }, { "responseCode", "00" }, { "rrn", "123456789012" }, { "trace", "123456" } }; }
+        public Dictionary<string, object> Run(string path) { if (!Backend.Claim(PaymentProtocol.Parse(File.ReadAllText(path)))) return null; Interlocked.Increment(ref Calls); Started.Set(); Release.WaitOne(3000); if (Lost) { PaymentProtocol.AppendDiagnostic(path, "PURCHASE_CALL", "RETURNED_NO_RESULT", 1); return null; } PaymentProtocol.AppendDiagnostic(path, "PURCHASE_CALL", "RETURNED_RESULT"); return new Dictionary<string, object> { { "terminalId", "31187710" }, { "responseCode", "00" }, { "rrn", "123456789012" }, { "trace", "123456" }, { "timingsMs", new Dictionary<string, object> { { "workerTotalMs", 8L } } } }; }
     }
     private static byte[] key = new byte[32];
     private const string bridge = "7b150841-7a93-4e1c-8283-bbab396a7689";
@@ -42,9 +43,18 @@ internal static class PaymentEngineTests
         string claimMessage = PaymentProtocol.Message("sep-claim-v1", vectorClaim["attemptId"], vectorClaim["bridgeId"], vectorClaim["nonce"], vectorClaim["sentAtUnix"]);
         Check(claimMessage == (string)vectors["claimMessage"] && PaymentProtocol.Sign(claimMessage, key) == (string)vectors["claimSignature"]);
         var vectorResult = (Dictionary<string, object>)vectors["result"];
-        string resultMessage = PaymentProtocol.Message("sep-result-v1", vectorResult["attemptId"], vectorResult["bridgeId"], vectorResult["terminalId"], vectorResult["sentAtUnix"], vectorResult["finishedAtUnix"], vectorResult["responseCode"], vectorResult["rrn"], vectorResult["trace"]);
+        string resultMessage = PaymentProtocol.ResultMessage(vectorResult);
         Check(resultMessage == (string)vectors["resultMessage"] && PaymentProtocol.Sign(resultMessage, key) == (string)vectors["resultSignature"]);
-        Console.WriteLine("Three shared HMAC conformance vectors passed.");
+        var timedJournal = new Dictionary<string, object>(vectorResult); timedJournal["timingsMs"] = ((Dictionary<string, object>)vectors["timing"])["timingsMs"];
+        var financial = PaymentProtocol.FinancialResult(timedJournal, (long)Convert.ToInt64(vectorResult["sentAtUnix"]));
+        Check(!financial.ContainsKey("timingsMs") && financial.Count == 8);
+        Check(PaymentProtocol.ResultMessage(financial) == resultMessage);
+        var legacy = new Dictionary<string, object>(vectorResult); legacy.Remove("timingsMs");
+        Check(PaymentProtocol.ResultMessage(PaymentProtocol.FinancialResult(legacy, Convert.ToInt64(legacy["sentAtUnix"]))) == resultMessage);
+        string timed = PaymentProtocol.TimingReportMessage((Dictionary<string, object>)vectors["timing"]);
+        Check(timed == (string)vectors["timingMessage"] && PaymentProtocol.Sign(timed, key) == (string)vectors["timingSignature"]);
+        Throws(delegate { PaymentProtocol.TimingMessage(new Dictionary<string, object> { { "purchaseCallMs", 0.5m } }); });
+        Console.WriteLine("Legacy financial and separate timing HMAC vectors passed.");
         string root = Path.Combine(Path.GetTempPath(), "sep-fake-" + Guid.NewGuid()); Directory.CreateDirectory(root);
         try
         {
@@ -77,6 +87,14 @@ internal static class PaymentEngineTests
             Await(delegate { return lostBackend.Claims == 1; }); Thread.Sleep(30);
             Engine(lostRoot, lostBackend, lostWorker).Start(lostIntent); Check(lostWorker.Calls == 0 && lostBackend.Claims == 1);
             // Timeout / lost response after approval is only unknown evidence, never a retry.
+            string timingRoot = Path.Combine(root, "timing-retry"); var timingBackend = new Backend { TimingOk = false }; var timingWorker = new Worker(); timingWorker.Release.Set();
+            var timingEngine = Engine(timingRoot, timingBackend, timingWorker); timingEngine.Start(Intent());
+            Await(delegate { return timingBackend.TimingReports > 0; });
+            int financialReports = timingBackend.Reports; timingEngine.DeliverEvidence();
+            Check(timingBackend.Reports == financialReports && timingWorker.Calls == 1);
+            timingBackend.TimingOk = true; timingEngine.DeliverEvidence();
+            int timingReports = timingBackend.TimingReports; timingEngine.DeliverEvidence();
+            Check(timingBackend.TimingReports == timingReports && timingBackend.Reports == financialReports);
             string timeoutRoot = Path.Combine(root, "timeout"); var timeoutBackend = new Backend { ReportOk = false }; var timeoutWorker = new Worker { Lost = true }; timeoutWorker.Release.Set();
             var timeout = Engine(timeoutRoot, timeoutBackend, timeoutWorker); var timeoutIntent = Intent(); timeout.Start(timeoutIntent);
             Await(delegate { return timeoutBackend.Reports > 0; });
