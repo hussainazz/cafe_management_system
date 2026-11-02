@@ -11,6 +11,10 @@ verified result posting, and audited reconciliation. Test uncertain approval,
 restart, duplicate/concurrent requests, and cash/split regressions with fakes.
 Validate a .NET Framework 4.8 x86 artifact and matching dependency hashes, with
 quiet least-privilege Task Scheduler startup, SSH diagnostics, and rollback.
+Per-attempt payment timing must be available from the cashier JSONL journal and
+as `TERMINAL_PAYMENT_TIMING` rows on the VPS; use
+[`sep-payment-timing.md`](../runbooks/sep-payment-timing.md) to compare distinct
+attempt IDs. Timing measurements are operational evidence, not payment results.
 The 0.2.0 bridge dispatched the supervised 350,000 Toman test as attempt
 `3ae7bd3a-07e5-4cbd-a107-c86f2f032a41` for order
 `456e0c4e-61b9-4154-ab58-63322f458704`. Its phase details were not persisted,
