@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -11,15 +12,19 @@ using SSP1126.PcPos.BaseClasses;
 using SSP1126.PcPos.Infrastructure;
 
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
-[assembly: System.Reflection.AssemblyVersion("0.2.4.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.5.0")]
 
 namespace RunCafe.SepBridge.Payments
 {
     internal static class PurchaseWorker
     {
         private static string currentPhase = "WORKER_START";
+        private static readonly Dictionary<string, object> Timings = new Dictionary<string, object>();
+        private static Stopwatch workerWatch;
+        private static long diagnosticWriteMs;
         private static int Main(string[] args)
         {
+            workerWatch = Stopwatch.StartNew();
             string path = null;
             try
             {
@@ -33,9 +38,13 @@ namespace RunCafe.SepBridge.Payments
                     ConfigurationManager.AppSettings["LogPermission"] != "0" || Environment.OSVersion.Platform != PlatformID.Win32NT || Environment.Is64BitProcess)
                 { Record(path, "WORKER_GUARD", "REJECTED", 2); return 2; }
                 Record(path, "INTENT_VALIDATION", "STARTED");
-                var intent = PaymentProtocol.Parse(File.ReadAllText(path));
-                byte[] key = PaymentProtocol.LoadKey(root);
-                PaymentProtocol.ValidateIntent(intent, key, ConfigurationManager.AppSettings["BridgeId"], ConfigurationManager.AppSettings["ExpectedTerminalId"], true);
+                byte[] key = null;
+                var intent = Measure(path, "intentValidationMs", "INTENT_VALIDATION", delegate {
+                    var parsed = PaymentProtocol.Parse(File.ReadAllText(path));
+                    key = PaymentProtocol.LoadKey(root);
+                    PaymentProtocol.ValidateIntent(parsed, key, ConfigurationManager.AppSettings["BridgeId"], ConfigurationManager.AppSettings["ExpectedTerminalId"], true);
+                    return parsed;
+                });
                 Record(path, "INTENT_VALIDATION", "PASSED");
                 PaymentProtocol.DurableCreate(path + ".worker-started", "{}");
                 using (var gate = new Mutex(false, "Global\\RunCafe.SepDiagnostic." + ConfigurationManager.AppSettings["ExpectedTerminalId"]))
@@ -44,13 +53,16 @@ namespace RunCafe.SepBridge.Payments
                     try
                     {
                         Record(path, "DEVICE_MUTEX", "WAITING");
+                        var mutexWatch = Stopwatch.StartNew();
                         try { owns = gate.WaitOne(0); } catch (AbandonedMutexException) { owns = true; }
+                        mutexWatch.Stop(); AddTiming(path, "deviceMutexMs", "DEVICE_MUTEX", mutexWatch.ElapsedMilliseconds);
                         if (!owns) { Record(path, "DEVICE_MUTEX", "BUSY", 3); return 3; }
                         Record(path, "DEVICE_MUTEX", "ACQUIRED");
                         // Redeem from inside this single-use worker. A lost acknowledgment never reaches SDK construction.
                         Record(path, "BACKEND_CLAIM", "REQUESTED");
                         var backend = new BackendClient(ConfigurationManager.AppSettings["BackendUrl"], key);
-                        if (!backend.Claim(intent)) { Record(path, "BACKEND_CLAIM", "REJECTED", 1); return 1; }
+                        bool claimed = Measure(path, "backendClaimMs", "BACKEND_CLAIM", delegate { return backend.Claim(intent); });
+                        if (!claimed) { Record(path, "BACKEND_CLAIM", "REJECTED", 1); return 1; }
                         Record(path, "BACKEND_CLAIM", "ACCEPTED");
                         return Purchase(intent, path);
                     }
@@ -67,20 +79,29 @@ namespace RunCafe.SepBridge.Payments
         private static int Purchase(Dictionary<string, object> intent, string path)
         {
             Record(path, "SDK_HASHES", "CHECKING");
-            RequireHash(typeof(PcPosFactory).Assembly.Location, "b1785db76f5b7748dc4cc59895f11a41d34542808fc61a317c175f4f0f821ffa");
-            RequireHash(typeof(Sep.Logger.Constants).Assembly.Location, "19327d291e42d9adaf6905d80fe6aadfe1d255fb5b8d2e447d420bada5d52aa9");
+            Measure(path, "sdkVerificationMs", "SDK_HASHES", delegate {
+                RequireHash(typeof(PcPosFactory).Assembly.Location, "b1785db76f5b7748dc4cc59895f11a41d34542808fc61a317c175f4f0f821ffa");
+                RequireHash(typeof(Sep.Logger.Constants).Assembly.Location, "19327d291e42d9adaf6905d80fe6aadfe1d255fb5b8d2e447d420bada5d52aa9");
+                return true;
+            });
             Record(path, "SDK_HASHES", "PASSED");
             if (Sep.Logger.Constants.logPermission != 0) { Record(path, "VENDOR_LOGGING", "ENABLED", 1); return 1; }
             Record(path, "SDK_FACTORY", "CREATING");
-            var result = PurchaseLifecycle.Execute(new OfficialSepPurchaseDevice(),
+            var device = Measure(path, "sdkFactoryMs", "SDK_FACTORY", delegate { return new OfficialSepPurchaseDevice(); });
+            var result = PurchaseLifecycle.Execute(device,
                 ConfigurationManager.AppSettings["TerminalIp"], (string)intent["terminalId"],
                 SepAmount.TomanToRial(PaymentProtocol.Number(intent, "cardAmount", Int32.MaxValue)),
                 delegate { return PaymentProtocol.Number(intent, "expiresAtUnix", 9007199254740991) > PaymentProtocol.Now(); },
-                delegate(string phase, string outcome, int? exitCode, string responseCode) { Record(path, phase, outcome, exitCode, responseCode); });
-            if (result == null) return 1;
+                delegate(string phase, string outcome, int? exitCode, string responseCode) { Record(path, phase, outcome, exitCode, responseCode); },
+                delegate(string phase, long elapsedMs) { if (phase == "prePurchaseMs") Timings[phase] = workerWatch.ElapsedMilliseconds; else AddTiming(path, phase, TimingPhase(phase), elapsedMs); });
+            Timings["diagnosticWriteMs"] = diagnosticWriteMs;
+            workerWatch.Stop(); AddTiming(path, "workerTotalMs", "WORKER_TOTAL", workerWatch.ElapsedMilliseconds);
             Dictionary<string, object> evidence = new Dictionary<string, object> {
-                { "terminalId", result.TerminalId }, { "responseCode", PaymentProtocol.SafeCode(result.ResponseCode) },
-                { "rrn", PaymentProtocol.SafeReference(result.Rrn) }, { "trace", PaymentProtocol.SafeReference(result.Trace) }
+                { "terminalId", result == null ? ConfigurationManager.AppSettings["ExpectedTerminalId"] : result.TerminalId },
+                { "responseCode", result == null ? null : PaymentProtocol.SafeCode(result.ResponseCode) },
+                { "rrn", result == null ? null : PaymentProtocol.SafeReference(result.Rrn) },
+                { "trace", result == null ? null : PaymentProtocol.SafeReference(result.Trace) },
+                { "timingsMs", new Dictionary<string, object>(Timings) }
             };
             Record(path, "WORKER_RESULT", "EMITTED");
             Console.WriteLine(PaymentProtocol.Json.Serialize(evidence)); return 0;
@@ -88,7 +109,36 @@ namespace RunCafe.SepBridge.Payments
         private static void Record(string path, string phase, string outcome, int? exitCode = null, string responseCode = null)
         {
             currentPhase = phase;
-            PaymentProtocol.AppendDiagnostic(path, phase, outcome, exitCode, responseCode);
+            var watch = Stopwatch.StartNew();
+            try { PaymentProtocol.AppendDiagnostic(path, phase, outcome, exitCode, responseCode); } catch (Exception) { }
+            finally { diagnosticWriteMs += watch.ElapsedMilliseconds; }
+        }
+        private static T Measure<T>(string path, string timingName, string phase, Func<T> action)
+        {
+            var watch = Stopwatch.StartNew();
+            try { return action(); }
+            finally { watch.Stop(); AddTiming(path, timingName, phase, watch.ElapsedMilliseconds); }
+        }
+        private static void AddTiming(string path, string name, string phase, long elapsedMs)
+        {
+            if (elapsedMs < 0) elapsedMs = 0;
+            Timings[name] = elapsedMs;
+            var watch = Stopwatch.StartNew();
+            try { PaymentProtocol.AppendDiagnostic(path, phase, "TIMED", null, null, elapsedMs); } catch (Exception) { }
+            finally { diagnosticWriteMs += watch.ElapsedMilliseconds; }
+        }
+        private static string TimingPhase(string name)
+        {
+            switch (name)
+            {
+                case "setLanMs": return "SET_LAN";
+                case "sdkInitializationMs": return "SDK_INITIALIZATION";
+                case "connectionTestMs": return "CONNECTION_TEST";
+                case "purchaseReinitializationMs": return "PURCHASE_REINITIALIZATION";
+                case "purchaseCallMs": return "PURCHASE_CALL";
+                case "sdkCleanupMs": return "SDK_CLEANUP";
+                default: return "WORKER_TOTAL";
+            }
         }
         private static void RequireHash(string path, string expected)
         {
