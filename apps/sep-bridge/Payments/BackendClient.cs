@@ -6,7 +6,7 @@ using System.Text;
 
 namespace RunCafe.SepBridge.Payments
 {
-    internal sealed class BackendClient : IPaymentBackend
+    internal sealed class BackendClient : IPaymentBackend, ITimingBackend
     {
         private readonly Uri endpoint;
         private readonly byte[] key;
@@ -25,9 +25,18 @@ namespace RunCafe.SepBridge.Payments
         }
         public bool Report(Dictionary<string, object> result)
         {
-            result["sentAtUnix"] = PaymentProtocol.Now();
-            string message = PaymentProtocol.Message("sep-result-v1", result["attemptId"], result["bridgeId"], result["terminalId"], result["sentAtUnix"], result["finishedAtUnix"], result["responseCode"], result["rrn"], result["trace"]);
-            return Post("terminal-payments/result", result, message, false);
+            // Financial wire format stays byte-for-byte compatible with 0.2.4.
+            var body = PaymentProtocol.FinancialResult(result, PaymentProtocol.Now());
+            return Post("terminal-payments/result", body, PaymentProtocol.ResultMessage(body), false);
+        }
+        public bool ReportTiming(Dictionary<string, object> result)
+        {
+            object timings;
+            if (!result.TryGetValue("timingsMs", out timings)) return true; // Legacy journal has no telemetry.
+            var body = new Dictionary<string, object> { { "attemptId", result["attemptId"] }, { "bridgeId", result["bridgeId"] },
+                { "terminalId", result["terminalId"] }, { "sentAtUnix", PaymentProtocol.Now() }, { "timingsMs", timings } };
+            string message = PaymentProtocol.TimingReportMessage(body);
+            return Post("terminal-payments/timing", body, message, false);
         }
         private bool Post(string path, Dictionary<string, object> body, string message, bool claim)
         {
