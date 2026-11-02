@@ -30,7 +30,8 @@ internal static class PurchaseLifecycleTests
     private static SepSdkResult Run(FakeDevice device, bool current, List<string> diagnostics)
     {
         return PurchaseLifecycle.Execute(device, "192.168.1.101", "31187710", "350000", delegate { return current; },
-            delegate(string phase, string outcome, int? exitCode, string code) { diagnostics.Add(phase + ":" + outcome); });
+            delegate(string phase, string outcome, int? exitCode, string code) { diagnostics.Add(phase + ":" + outcome); },
+            delegate(string phase, long elapsedMs) { diagnostics.Add("TIMING:" + phase + ":" + elapsedMs); });
     }
 
     private static int Main()
