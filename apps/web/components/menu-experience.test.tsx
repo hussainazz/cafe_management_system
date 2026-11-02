@@ -42,7 +42,7 @@ const menu: PublicMenu = {
 };
 
 describe("menu image opening behavior", () => {
-  it("lazy loads manager-uploaded and bundled product images without blocking the menu", () => {
+  it("renders the menu without starting image downloads outside the queue", () => {
     const markup = renderToStaticMarkup(createElement(MenuExperience, {
       initialMenu: menu,
       initialRequestFailed: false,
@@ -50,11 +50,11 @@ describe("menu image opening behavior", () => {
       initialTableContext: null,
     }));
 
-    expect(markup.match(/loading="lazy"/g)).toHaveLength(2);
+    expect(markup).not.toContain("product-visual-image-main");
     expect(markup).not.toContain("menu-image-loading-screen");
     expect(markup).not.toContain("aria-busy=\"true\"");
     expect(markup).not.toContain("inert");
-    expect(markup).toContain("/api/product-images/123e4567-e89b-12d3-a456-426614174000.webp");
-    expect(markup).toContain("/items_pictures/");
+    expect(markup).toContain("قهوه مدیر");
+    expect(markup).toContain("آمریکانو سینگل");
   });
 });
