@@ -29,11 +29,11 @@ for name in expected:
 for name in ('README.md', 'install.ps1', 'pair.ps1', 'configure.ps1', 'stop.ps1', 'upgrade.ps1'):
     shutil.copyfile(root / name, out / name)
     names.append(name)
-manifest = {'version': '0.2.4', 'platform': 'x86', 'framework': 'net48', 'paymentsEnabledByDefault': False, 'manualVerificationRequired': True,
+manifest = {'version': '0.2.5', 'platform': 'x86', 'framework': 'net48', 'paymentsEnabledByDefault': False, 'manualVerificationRequired': True,
             'files': [{'name': name, 'sha256': hashlib.sha256((out / name).read_bytes()).hexdigest()} for name in names],
             'sources': {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(root.glob('*.cs'))}}
 (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-archive = out / 'run-cafe-sep-payments-0.2.4-x86.zip'
+archive = out / 'run-cafe-sep-payments-0.2.5-x86.zip'
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as package:
     for name in names + ['manifest.json']:
         # Stable ZIP metadata for reproducible builds with the same compiler.
