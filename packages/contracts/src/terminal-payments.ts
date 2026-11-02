@@ -29,9 +29,29 @@ export const TerminalConfigResponseSchema = z.object({ data: z.object({ enabled:
 
 export const TerminalClaimSchema = z.object({ attemptId: z.uuid(), bridgeId: z.uuid(), nonce: z.uuid(), sentAtUnix: Time }).strict();
 export type TerminalClaim = z.infer<typeof TerminalClaimSchema>;
+export const TerminalTimingDurationsSchema = z.object({
+    bridgeAcceptMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    dispatchQueueMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    intentValidationMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    deviceMutexMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    backendClaimMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    setLanMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    sdkInitializationMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    connectionTestMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    purchaseReinitializationMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    purchaseCallMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    sdkCleanupMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    sdkVerificationMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    workerProcessMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    sdkFactoryMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    prePurchaseMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    diagnosticWriteMs: z.number().int().nonnegative().max(86_400_000).optional(),
+    workerTotalMs: z.number().int().nonnegative().max(86_400_000).optional(),
+  }).strict();
 export const TerminalResultSchema = z.object({
   attemptId: z.uuid(), bridgeId: z.uuid(), terminalId: z.string().regex(/^[0-9]{8}$/),
   sentAtUnix: Time, finishedAtUnix: Time, responseCode: Code.nullable(), rrn: Reference.nullable(), trace: Reference.nullable(),
+
 }).strict();
 export type TerminalResult = z.infer<typeof TerminalResultSchema>;
 const ReconcileBase = z.object({ expectedVersion: z.number().int().positive(), basis: z.enum(["TERMINAL_RECEIPT", "BANK_RECORD"]) });
@@ -40,3 +60,13 @@ export const TerminalReconcileSchema = z.discriminatedUnion("decision", [
   ReconcileBase.extend({ decision: z.literal("FAILED"), terminalIdleConfirmed: z.literal(true), bridgeStoppedConfirmed: z.literal(true), noChargeConfirmed: z.literal(true) }).strict(),
 ]);
 export type TerminalReconcile = z.infer<typeof TerminalReconcileSchema>;
+
+export const TerminalTimingSchema = z.object({
+  attemptId: z.uuid(), bridgeId: z.uuid(), terminalId: z.string().regex(/^[0-9]{8}$/),
+  sentAtUnix: Time, timingsMs: TerminalTimingDurationsSchema,
+}).strict();
+export const PosTerminalTimingSchema = z.object({
+  reportId: z.uuid(), phase: z.enum(["prepare_roundtrip", "bridge_roundtrip", "status_roundtrip", "result_observed"]),
+  elapsedMs: z.number().int().nonnegative().max(86_400_000),
+  outcome: z.enum(["ok", "error", "timeout"]),
+}).strict();
