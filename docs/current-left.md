@@ -1,5 +1,26 @@
 # Current Stage Status
 
+## Local release candidate — 2 November 2026
+
+- Published all requested source changes to `main`; `main` and `origin/main`
+  currently identify commit `36162d7becba24ff9966c128ad1ccbcc871a4d49`.
+- Built local candidate `cafe-20261102-36162d7` for API, contracts, POS, and
+  public web. The coordinated archive is
+  `.release-artifacts/cafe-20261102-36162d7/run-cafe-release-cafe-20261102-36162d7.tar.gz`
+  (138 MB, SHA-256
+  `1f8ddf42dce64624a1d72e5bd2cf5f165c01ae6a1c0f8c7872947589020b34bb`). It
+  includes the Debian OpenSSL 3 Prisma engine and excludes runtime product
+  uploads and build caches. POS build ID is `cafe-20261102-36162d7`.
+- Kept the separate disabled SEP bridge 0.2.5 package alongside the release
+  (SHA-256 `febce6c062913afa2864f44bb5f0a05ab8b1a6af80f79b68b48f78ee0a373602`).
+- The prior candidate `cafe-20261101-27755da` remains staged on the VPS per the
+  previous record. This new candidate is local only; no VPS transfer, activation,
+  migration, or service operation was performed.
+- Left: production activation and supervised bridge installation remain pending
+  separate authorization. The public-menu throttled-browser visual review also
+  remains outstanding.
+
+
 ## Public-menu product image loading — 1 November 2026
 
 - Added a three-request image queue that finishes the active category before
