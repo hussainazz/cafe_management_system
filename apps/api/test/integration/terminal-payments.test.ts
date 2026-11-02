@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
 import { hashPassword } from "../../src/auth/password.js";
 import { env } from "../../src/config/env.js";
-import { claimMessage, intentMessage, resultMessage, signTerminalMessage, verifyTerminalMessage } from "../../src/modules/terminal-payments/terminal-signatures.js";
+import { claimMessage, intentMessage, resultMessage, timingMessage, signTerminalMessage, verifyTerminalMessage } from "../../src/modules/terminal-payments/terminal-signatures.js";
 import type { TerminalAttempt, TerminalClaim, TerminalResult } from "@cafe/contracts";
 
 const app = buildApp();
@@ -178,4 +178,22 @@ describe("Terminal reservations and evidence", () => {
     expect(await app.prisma.payment.count()).toBe(0);
   });
 
+});
+
+// Timing messages cannot change payment evidence or initiate a terminal claim.
+it("stores independently authenticated timings once and preserves legacy result delivery", async () => {
+  const f = await fixture();
+  const attempt = (await prepare(f)).json().data as TerminalAttempt;
+  const payload = { attemptId: attempt.id, bridgeId, terminalId: "31187710", sentAtUnix: Math.floor(Date.now() / 1000), timingsMs: { prePurchaseMs: 150, purchaseCallMs: 5000 } };
+  const signature = signTerminalMessage(timingMessage(payload), key);
+  const send = (body = payload, proof = signature) => app.inject({ method: "POST", url: "/api/v1/terminal-payments/timing", headers: { "x-sep-signature": proof }, payload: body });
+  expect((await send({ ...payload, timingsMs: { ...payload.timingsMs, prePurchaseMs: 151 } })).statusCode).toBe(401);
+  expect((await send()).statusCode).toBe(200);
+  expect((await send()).statusCode).toBe(200);
+  await expect.poll(async () => app.prisma.auditLog.count({ where: { id: attempt.id } })).toBe(1);
+  const stored = await app.prisma.terminalPaymentAttempt.findUniqueOrThrow({ where: { id: attempt.id } });
+  expect(stored.dispatchedAt).toBeNull(); expect(stored.resultFingerprint).toBeNull();
+  expect((await claim(attempt)).statusCode).toBe(200);
+  expect((await evidence(attempt)).statusCode).toBe(200);
+  expect(await app.prisma.payment.count()).toBe(0);
 });
