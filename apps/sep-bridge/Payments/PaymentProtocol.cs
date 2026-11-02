@@ -70,20 +70,52 @@ namespace RunCafe.SepBridge.Payments
         }
         public static string SafeCode(string value) { return Match(value, "[0-9A-Z]{2,3}"); }
         public static string SafeReference(string value) { return Match(value, "[0-9]{1,12}"); }
-        public static void AppendDiagnostic(string intentPath, string phase, string outcome, int? exitCode = null, string responseCode = null)
+        public static void AppendDiagnostic(string intentPath, string phase, string outcome, int? exitCode = null, string responseCode = null, long? elapsedMs = null)
         {
             if (String.IsNullOrEmpty(intentPath) || Match(phase, "[A-Z0-9_]{1,48}") == null || Match(outcome, "[A-Z0-9_]{1,48}") == null ||
-                (exitCode.HasValue && (exitCode.Value < 0 || exitCode.Value > 255))) throw new SecurityException();
+                (exitCode.HasValue && (exitCode.Value < 0 || exitCode.Value > 255)) || (elapsedMs.HasValue && (elapsedMs.Value < 0 || elapsedMs.Value > 86400000))) throw new SecurityException();
             string fullIntentPath = Path.GetFullPath(intentPath);
             if (!fullIntentPath.EndsWith(".intent.json", StringComparison.Ordinal)) throw new SecurityException();
-            var record = new Dictionary<string, object> { { "phase", phase }, { "outcome", outcome } };
+            var record = new Dictionary<string, object> { { "schemaVersion", 1 }, { "bridgeVersion", "0.2.5" }, { "processId", System.Diagnostics.Process.GetCurrentProcess().Id }, { "timestampUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) }, { "phase", phase }, { "outcome", outcome } };
             if (exitCode.HasValue) record["exitCode"] = exitCode.Value;
+            if (elapsedMs.HasValue) record["elapsedMs"] = elapsedMs.Value;
             string code = SafeCode(responseCode);
             if (code != null) record["responseCode"] = code;
             byte[] line = Encoding.UTF8.GetBytes(Json.Serialize(record) + "\n");
             string path = fullIntentPath + ".diagnostics.jsonl";
-            using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough))
-            { stream.Write(line, 0, line.Length); stream.Flush(true); }
+            using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.None))
+            { stream.Write(line, 0, line.Length); }
+        }
+        public static Dictionary<string, object> FinancialResult(Dictionary<string, object> result, long sentAt)
+        {
+            var body = new Dictionary<string, object>();
+            foreach (string field in new[] { "attemptId", "bridgeId", "terminalId", "finishedAtUnix", "responseCode", "rrn", "trace" }) body[field] = result[field];
+            body["sentAtUnix"] = sentAt;
+            return body;
+        }
+        public static string TimingReportMessage(Dictionary<string, object> body)
+        {
+            return Message("sep-timing-v1", body["attemptId"], body["bridgeId"], body["terminalId"], body["sentAtUnix"]) + "\n" + TimingMessage((Dictionary<string, object>)body["timingsMs"]);
+        }
+        public static string ResultMessage(Dictionary<string, object> result)
+        {
+            return Message("sep-result-v1", result["attemptId"], result["bridgeId"], result["terminalId"], result["sentAtUnix"], result["finishedAtUnix"], result["responseCode"], result["rrn"], result["trace"]);
+        }
+        public static string TimingMessage(Dictionary<string, object> timings)
+        {
+            if (timings == null) return "";
+            string[] allowed = { "sdkFactoryMs", "prePurchaseMs", "diagnosticWriteMs", "backendClaimMs", "bridgeAcceptMs", "connectionTestMs", "deviceMutexMs", "dispatchQueueMs", "intentValidationMs", "purchaseCallMs", "purchaseReinitializationMs", "sdkCleanupMs", "sdkInitializationMs", "sdkVerificationMs", "setLanMs", "workerProcessMs", "workerTotalMs" };
+            var values = new SortedDictionary<string, long>(StringComparer.Ordinal);
+            foreach (var item in timings)
+            {
+                if (Array.IndexOf(allowed, item.Key) < 0 || !(item.Value is int || item.Value is long || item.Value is decimal)) throw new SecurityException();
+                long duration = Number(timings, item.Key, 86400000);
+                if (duration < 0 || duration > 86400000) throw new SecurityException();
+                values.Add(item.Key, duration);
+            }
+            var parts = new List<string>();
+            foreach (var item in values) parts.Add(item.Key + ":" + item.Value.ToString(CultureInfo.InvariantCulture));
+            return String.Join(",", parts.ToArray());
         }
     }
 }
