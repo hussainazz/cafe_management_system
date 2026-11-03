@@ -86,6 +86,51 @@ async function createOrderRequest(
 }
 
 describe("Staff order creation", () => {
+  it("records staff consumption without tender, permits discounts and restricts removal to managers", async () => {
+    const staff = await userSession(UserRole.STAFF, "consumption.staff");
+    const manager = await userSession(UserRole.MANAGER, "consumption.manager");
+    const { product } = await sellableProduct();
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const report = () => app.inject({ method: "GET", url: `/api/v1/admin/reports/daily?fromDate=${day}&toDate=${day}`, cookies: manager });
+    const before = (await report()).json().data;
+    const payload = { channel: "TAKEAWAY", staffName: "پریسا", items: [{ productId: product.id, quantity: 1, options: [] }] };
+    const create = () => app.inject({ method: "POST", url: "/api/v1/staff-consumption", cookies: staff, headers: { "idempotency-key": "staff-consumption-create-001" }, payload });
+    const response = await create();
+    expect(response.statusCode).toBe(201);
+    const id = response.json().data.id;
+    expect((await create()).json().data.id).toBe(id);
+    const stored = await app.prisma.order.findUniqueOrThrow({ where: { id }, include: { paymentSettlements: true } });
+    expect(stored).toMatchObject({ isStaffConsumption: true, staffConsumptionName: "پریسا", state: "CLOSED", paymentStatus: "PAID", paidAmount: 50_000, balanceAmount: 0, paymentSettlements: [] });
+    const after = (await report()).json().data;
+    expect(after).toMatchObject({ salesAmount: before.salesAmount, paidAmount: before.paidAmount, orderCount: before.orderCount, paymentMethodTotals: before.paymentMethodTotals });
+    const list = await app.inject({ method: "GET", url: "/api/v1/staff-consumption", cookies: staff });
+    expect(list.json().data).toEqual(expect.arrayContaining([expect.objectContaining({ id, staffName: "پریسا", totalAmount: 50_000 })]));
+    const discounted = await app.inject({ method: "POST", url: `/api/v1/staff-consumption/${id}/discount`, cookies: staff, payload: { expectedVersion: stored.version, discount: { kind: "FIXED", value: 10_000 } } });
+    expect(discounted.statusCode).toBe(200);
+    expect(discounted.json().data).toMatchObject({ totalAmount: 40_000, paidAmount: 40_000, balanceAmount: 0 });
+    const version = discounted.json().data.version;
+    expect((await app.inject({ method: "POST", url: `/api/v1/orders/${id}/delete`, cookies: staff, payload: { expectedVersion: version } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `/api/v1/orders/${id}/delete`, cookies: manager, payload: { expectedVersion: version } })).statusCode).toBe(200);
+  });
+  it("sets aside an unpaid table order atomically and leaves it available for settlement", async () => {
+    const cookies = await userSession(UserRole.STAFF, "defer-order.staff");
+    const { product } = await sellableProduct();
+    const table = await app.prisma.cafeTable.create({ data: { name: "Deferred order table", displayOrder: 193 } });
+    const created = await createOrderRequest(cookies, { channel: "TABLE", tableId: table.id, items: [{ productId: product.id, quantity: 1, options: [] }] }, "deferred-order-create-001");
+    expect(created.statusCode).toBe(201);
+    const order = created.json().data;
+    const deferred = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/defer`, cookies, payload: { expectedVersion: order.version, customerName: "مشتری" } });
+    expect(deferred.statusCode).toBe(200);
+    expect(deferred.json().data).toMatchObject({ state: "OPEN", balanceAmount: 50_000, tableId: null });
+    expect((await app.prisma.cafeTable.findUniqueOrThrow({ where: { id: table.id } })).occupancyState).toBe("AVAILABLE");
+    const list = await app.inject({ method: "GET", url: "/api/v1/orders?state=OPEN&deferred=true", cookies });
+    expect(list.json().data.orders).toEqual(expect.arrayContaining([expect.objectContaining({ id: order.id, deferredCustomerName: "مشتری" })]));
+    const stale = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/defer`, cookies, payload: { expectedVersion: order.version } });
+    expect(stale.statusCode).toBe(409);
+    const paid = await app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies, headers: { "idempotency-key": "deferred-order-payment-001" }, payload: { expectedVersion: deferred.json().data.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: 50_000 }] } });
+    expect(paid.statusCode).toBe(201);
+    expect(paid.json().data).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", balanceAmount: 0 });
+  });
   it("validates the request DTO and returns the documented structured error envelope", async () => {
     const cookies = await userSession(UserRole.STAFF, "invalid-dto.staff");
     const response = await createOrderRequest(cookies, { channel: "TABLE", items: [] }, "invalid-dto-create-0001");
