@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -37,6 +38,32 @@ namespace RunCafe.SepBridge.Payments
                 { "terminalId", result["terminalId"] }, { "sentAtUnix", PaymentProtocol.Now() }, { "timingsMs", timings } };
             string message = PaymentProtocol.TimingReportMessage(body);
             return Post("terminal-payments/timing", body, message, false);
+        }
+        public bool CanCheckTerminal()
+        {
+            try {
+                long now = PaymentProtocol.Now();
+                string bridge = ConfigurationManager.AppSettings["BridgeId"], terminal = ConfigurationManager.AppSettings["ExpectedTerminalId"];
+                var body = new Dictionary<string, object> { { "bridgeId", bridge }, { "terminalId", terminal }, { "sentAtUnix", now } };
+                var request = (HttpWebRequest)WebRequest.Create(new Uri(endpoint, "terminal-payments/monitor-idle"));
+                request.Method = "POST"; request.ContentType = "application/json";
+                request.Proxy = null; request.AllowAutoRedirect = false; request.Timeout = 8000; request.ReadWriteTimeout = 8000; request.KeepAlive = false;
+                request.Headers["x-sep-signature"] = PaymentProtocol.Sign(PaymentProtocol.Message("sep-monitor-v1", bridge, terminal, now), key);
+                byte[] bytes = Encoding.UTF8.GetBytes(PaymentProtocol.Json.Serialize(body)); request.ContentLength = bytes.Length;
+                using (var stream = request.GetRequestStream()) stream.Write(bytes, 0, bytes.Length);
+                using (var response = (HttpWebResponse)request.GetResponse())
+                using (var stream = response.GetResponseStream()) {
+                    if (response.StatusCode != HttpStatusCode.OK) return false;
+                    var buffer = new byte[4097]; int count = 0, read;
+                    while ((read = stream.Read(buffer, count, buffer.Length - count)) > 0) { count += read; if (count == buffer.Length) return false; }
+                    var envelope = PaymentProtocol.Parse(Encoding.UTF8.GetString(buffer, 0, count));
+                    object raw, idle;
+                    if (!envelope.TryGetValue("data", out raw)) return false;
+                    var data = raw as Dictionary<string, object>;
+                    return data != null && PaymentProtocol.Text(data, "bridgeId") == bridge && PaymentProtocol.Text(data, "terminalId") == terminal &&
+                        data.TryGetValue("idle", out idle) && idle is bool && (bool)idle;
+                }
+            } catch { return false; }
         }
         private bool Post(string path, Dictionary<string, object> body, string message, bool claim)
         {
