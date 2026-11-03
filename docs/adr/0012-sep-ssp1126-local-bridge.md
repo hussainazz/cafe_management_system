@@ -78,3 +78,20 @@ Installation/execution on the cashier, production deployment/activation, termina
 configuration changes, and real payments require separate explicit approval.
 
 This decision approves scope and implementation work, not those live actions.
+
+
+## Approved payment preparation and background monitoring — 2 November 2026
+
+The owner approved removing ConnectionTest from the per-payment path after
+inspection showed PcStarterPurchase establishes its own network connection.
+Payments retain intent validation, backend claim, DLL verification, SetLan,
+Initialization, expected terminal identity, serialization, and durable evidence.
+
+A separate connection-only worker may run once per minute while the bridge and
+backend report no active payment. It shares the global device mutex with payment
+workers. Pending payments take priority; an already-running check may finish
+before a payment starts. Background diagnostics never initiate or retry a charge.
+POS reads bridge health and shows the last connection result and age. Failure or
+staleness is informational and does not disable payment. SDK checks run on the
+bridge schedule, never as a side effect of a browser health GET. Keep logging off
+and isolate diagnostic deadlines and cleanup from payment execution.
