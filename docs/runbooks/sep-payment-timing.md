@@ -1,6 +1,6 @@
 # SEP payment timing records
 
-Timing schema 1, implementation `sep-timing-20261101-v1`, bridge 0.2.5.
+Timing schema 1, implementation `sep-timing-20261101-v1`, bridges 0.2.5 and 0.2.6.
 The purpose is to distinguish time in the POS/API/bridge from the external
 synchronous SDK/terminal interval. No terminal display or bank-internal event is
 inferred. The external interval can include cardholder interaction.
@@ -128,3 +128,17 @@ records, which must remain incomplete in the analysis.
 
 No new database migration is required. Receipt/bank verification remains the
 payment authority; timing records do not prove a charge or a safe retry.
+
+
+## Bridge 0.2.6 interpretation
+
+Per-payment connectionTestMs and purchaseReinitializationMs are absent in the
+new direct-purchase flow. Their absence means those steps were removed, not that
+the terminal connected in zero time. A separate connection-only worker runs
+every 60 seconds when no payment is active; its last status, elapsedMs and age
+are returned by passive GET /health in terminalConnection. These background
+durations are not payment preparation durations and must not be added to them.
+A purchase queued during an already-running background check may wait for it
+before its worker starts. Host workerProcessMs includes that wait; the worker
+prePurchaseMs and workerTotalMs begin after it. POS browser click-to-result
+and server creation-to-claim spans also include that scheduling wait.
