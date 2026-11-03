@@ -16,7 +16,8 @@ import { timingMessage, verifyTerminalMessage } from "./terminal-signatures.js";
 
 const strictBody = (schema: z.ZodType) => async (request: FastifyRequest) => { schema.parse(request.body); };
 const params = z.object({ attemptId: z.uuid() }).strict();
-const errors = Object.fromEntries([400, 401, 403, 404, 409, 422, 500, 503].map(code => [code, zodToJsonSchema(ErrorResponseSchema)]));
+const errorSchema = zodToJsonSchema(ErrorResponseSchema);
+const errors = { 400: errorSchema, 401: errorSchema, 403: errorSchema, 404: errorSchema, 409: errorSchema, 422: errorSchema, 500: errorSchema, 503: errorSchema };
 const proofHeaders = z.object({ "x-sep-signature": z.string().regex(/^[a-f0-9]{64}$/) }).passthrough();
 
 export const terminalPaymentRoutes: FastifyPluginAsync = async app => {
@@ -33,7 +34,7 @@ export const terminalPaymentRoutes: FastifyPluginAsync = async app => {
       statusCode: reply.statusCode, durationMs: Math.round(performance.now() - span.started) });
   });
   const monitorBody = z.object({ bridgeId: z.uuid(), terminalId: z.string().regex(/^[0-9]{8}$/), sentAtUnix: z.number().int() }).strict();
-  app.post("/terminal-payments/monitor-idle", { bodyLimit: 1024, preValidation: strictBody(monitorBody) }, async (request, reply) => {
+  app.post("/terminal-payments/monitor-idle", { bodyLimit: 1024, preValidation: strictBody(monitorBody), schema: { tags: ["Terminal payments"], summary: "Check whether the terminal is idle", headers: zodToJsonSchema(proofHeaders), body: zodToJsonSchema(monitorBody), response: { 200: zodToJsonSchema(z.object({ data: z.object({ bridgeId: z.uuid(), terminalId: z.string(), idle: z.boolean() }).strict() }).strict()), ...errors } } }, async (request, reply) => {
     const body = monitorBody.parse(request.body);
     const message = ["sep-monitor-v1", body.bridgeId, body.terminalId, body.sentAtUnix].join("\n");
     if (!env.SEP_BRIDGE_HMAC_KEY || body.bridgeId !== env.SEP_BRIDGE_ID || body.terminalId !== env.SEP_TERMINAL_ID ||
@@ -47,14 +48,14 @@ export const terminalPaymentRoutes: FastifyPluginAsync = async app => {
   });
 
   app.post("/terminal-payments/:attemptId/timing", { preHandler: requireStaff, bodyLimit: 2048,
-    preValidation: strictBody(PosTerminalTimingSchema) }, async (request, reply) => {
+    preValidation: strictBody(PosTerminalTimingSchema), schema: { tags: ["Terminal payments"], summary: "Record POS terminal timing", headers: zodToJsonSchema(AuthRequestHeadersSchema), params: zodToJsonSchema(params), body: zodToJsonSchema(PosTerminalTimingSchema), response: { 200: zodToJsonSchema(z.object({ data: z.object({ recorded: z.boolean() }).strict() }).strict()), ...errors } } }, async (request, reply) => {
     const { attemptId } = params.parse(request.params);
     const body = PosTerminalTimingSchema.parse(request.body);
     if (!await app.prisma.terminalPaymentAttempt.findUnique({ where: { id: attemptId }, select: { id: true } })) return reply.code(404).send();
     if (!await record(request, attemptId, { source: "POS", schemaVersion: 1, ...body }, body.reportId)) return reply.code(503).send();
     return { data: { recorded: true } };
   });
-  app.post("/terminal-payments/timing", { bodyLimit: 4096, preValidation: strictBody(TerminalTimingSchema) }, async (request, reply) => {
+  app.post("/terminal-payments/timing", { bodyLimit: 4096, preValidation: strictBody(TerminalTimingSchema), schema: { tags: ["Terminal payments"], summary: "Record signed terminal bridge timing", headers: zodToJsonSchema(proofHeaders), body: zodToJsonSchema(TerminalTimingSchema), response: { 200: zodToJsonSchema(z.object({ data: z.object({ id: z.uuid(), bridgeId: z.uuid() }).strict() }).strict()), ...errors } } }, async (request, reply) => {
     const body = TerminalTimingSchema.parse(request.body);
     if (!env.SEP_BRIDGE_HMAC_KEY || body.bridgeId !== env.SEP_BRIDGE_ID || Math.abs(Date.now() / 1000 - body.sentAtUnix) > 90 ||
         !verifyTerminalMessage(timingMessage(body), request.headers["x-sep-signature"], env.SEP_BRIDGE_HMAC_KEY)) return reply.code(401).send();
