@@ -5850,3 +5850,9 @@ svg {
   .product-editor__summary > div + div { border-inline-start: 0; padding-inline-start: 0; border-top: 1px solid var(--line); padding-top: var(--editor-space-tight); display: flex; align-items: baseline; justify-content: space-between; }
   .product-editor__tabs button { flex-direction: column; gap: 2px; padding: 6px 2px; }
 }
+
+.terminal-connection-status {
+  padding: 8px 16px;
+  min-height: 36px;
+  flex-wrap: wrap;
+}
