@@ -120,11 +120,14 @@ function reportFailure(error: ApiFailure) {
 
 async function requestOnce<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   const endActivity = beginRecoveryActivity();
+  const controller = path.includes("terminal-payment") ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 15000) : null;
   try {
     const headers = new Headers(init?.headers);
     if (!headers.has("accept")) headers.set("accept", "application/json");
     const response = await fetch(`${posBasePath}/api/v1${path}`, {
       ...init,
+      ...(controller ? { signal: controller.signal } : {}),
       headers,
       credentials: "same-origin",
       cache: "no-store",
@@ -155,7 +158,7 @@ async function requestOnce<T>(path: string, init?: RequestInit): Promise<ApiResu
   } catch {
     const error = { kind: "network" as const, message: "اتصال به سرویس برقرار نشد." };
     return { ok: false, error };
-  } finally { endActivity(); }
+  } finally { if (timer) clearTimeout(timer); endActivity(); }
 }
 
 function isAuthenticationFailure(error: ApiFailure): boolean {
@@ -669,8 +672,8 @@ export async function terminalConfig() {
   const result = parseResponse(await request<unknown>("/terminal-payments/config", undefined, false), TerminalConfigResponseSchema, "وضعیت اتصال کارت‌خوان مشخص نشد.");
   return result.ok ? { ...result, data: result.data.data } : result;
 }
-export async function terminalActive(orderId: string) {
-  const result = parseResponse(await request<unknown>(`/terminal-payments/active?orderId=${encodeURIComponent(orderId)}`, undefined, false), TerminalActiveResponseSchema, "وضعیت پرداخت کارت‌خوان مشخص نشد.");
+export async function terminalActive(orderId?: string) {
+  const result = parseResponse(await request<unknown>(`/terminal-payments/active${orderId ? `?orderId=${encodeURIComponent(orderId)}` : ""}`, undefined, false), TerminalActiveResponseSchema, "وضعیت پرداخت کارت‌خوان مشخص نشد.");
   return result.ok ? { ...result, data: result.data.data } : result;
 }
 export async function terminalRead(id: string) {
@@ -678,11 +681,11 @@ export async function terminalRead(id: string) {
   return result.ok ? { ...result, data: result.data.data } : result;
 }
 export async function terminalPrepare(orderId: string, input: RecordSettlementRequest, key: string) {
-  const result = parseResponse(await request<unknown>(`/orders/${encodeURIComponent(orderId)}/terminal-payment`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(input) }), TerminalAttemptResponseSchema, "پاسخ درخواست کارت‌خوان معتبر نیست.");
+  const result = parseResponse(await request<unknown>(`/orders/${encodeURIComponent(orderId)}/terminal-payment`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(input) }, false), TerminalAttemptResponseSchema, "پاسخ درخواست کارت‌خوان معتبر نیست.");
   return result.ok ? { ...result, data: result.data.data } : result;
 }
 export async function terminalReconcile(id: string, input: import("@cafe/contracts").TerminalReconcile) {
-  const result = parseResponse(await request<unknown>(`/terminal-payments/${encodeURIComponent(id)}/reconcile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }), TerminalAttemptResponseSchema, "نتیجه بررسی پرداخت مشخص نشد.");
+  const result = parseResponse(await request<unknown>(`/terminal-payments/${encodeURIComponent(id)}/reconcile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }, false), TerminalAttemptResponseSchema, "نتیجه بررسی پرداخت مشخص نشد.");
   return result.ok ? { ...result, data: result.data.data } : result;
 }
 
