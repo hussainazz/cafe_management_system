@@ -596,8 +596,8 @@ async function readOrderItemSnapshots(tx: Tx, orderId: string): Promise<Array<{ 
     return { itemId: item.id, productName: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams, components: saved.components ?? [], missingReasons: saved.missingReasons ?? ["missing-costing-snapshot"] };
   });
 }
-async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: string, actorId: string, at: Date) {
-  const existing = await tx.orderConsumption.findUnique({ where: { orderId_paymentSettlementId: { orderId: order.id, paymentSettlementId: settlementId } } });
+async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: string | null, actorId: string, at: Date) {
+  const existing = settlementId ? await tx.orderConsumption.findUnique({ where: { orderId_paymentSettlementId: { orderId: order.id, paymentSettlementId: settlementId } } }) : await tx.orderConsumption.findFirst({ where: { orderId: order.id, paymentSettlementId: null } });
   if (existing) return existing;
   const cycleNumber = (await tx.orderConsumption.aggregate({ where: { orderId: order.id }, _max: { cycleNumber: true } }))._max.cycleNumber ?? 0;
   const snapshots = await readOrderItemSnapshots(tx, order.id);
@@ -861,6 +861,12 @@ export async function recognizeOrderFullPayment(tx: Tx, orderId: string, settlem
   if (paid !== order.totalAmount) return null;
   await lock(tx, [`order:${orderId}`]);
   return recordFullPaymentConsumption(tx, order, settlementId, actorId, at);
+}
+
+export async function recognizeStaffConsumption(tx: Tx, orderId: string, actorId: string, at = new Date()) {
+  if (!await orderInventoryEligible(tx, orderId)) return null;
+  const order = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
+  return recordFullPaymentConsumption(tx, order, null, actorId, at);
 }
 
 async function restoreConsumption(tx: Tx, consumption: any, actorId: string, at: Date) {
