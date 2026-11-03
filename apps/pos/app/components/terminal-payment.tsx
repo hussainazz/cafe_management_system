@@ -9,6 +9,7 @@ export function useTerminalPayment(orderId: string, onSuccess: (order: PosOrderD
   const [enabled, setEnabled] = useState(false);
   const [attempt, setAttempt] = useState<TerminalAttempt | null>(null);
   const [loading, setLoading] = useState(!historical);
+  const [terminalOccupied, setTerminalOccupied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const actionGate = useRef(false);
@@ -23,9 +24,25 @@ export function useTerminalPayment(orderId: string, onSuccess: (order: PosOrderD
         const [config, active] = await Promise.all([terminalConfig(), terminalActive(orderId)]);
         if (!alive) return;
         if (config.ok) setEnabled(config.data.enabled);
-        if (active.ok) setAttempt(active.data);
-        else setError("وضعیت پرداخت قبلی مشخص نشد. پیش از پرداخت دوباره، وضعیت سفارش را بررسی کنید.");
-      } catch { /* Backend reservation still prevents a conflicting manual settlement. */ }
+        if (active.ok) {
+          setAttempt(active.data);
+          if (!active.data && config.ok && config.data.enabled) {
+            const global = await terminalActive();
+            if (!alive) return;
+            setTerminalOccupied(!global.ok || Boolean(global.data && global.data.orderId !== orderId));
+            if (!global.ok) setError("وضعیت کارت‌خوان دریافت نشد. پنجره را ببندید و دوباره باز کنید.");
+          }
+        }
+        else {
+          setTerminalOccupied(true);
+          setError("وضعیت کارت‌خوان دریافت نشد. پنجره را ببندید و دوباره باز کنید.");
+        }
+      } catch {
+        if (alive) {
+          setTerminalOccupied(true);
+          setError("وضعیت کارت‌خوان دریافت نشد. پنجره را ببندید و دوباره باز کنید.");
+        }
+      }
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
@@ -51,12 +68,17 @@ export function useTerminalPayment(orderId: string, onSuccess: (order: PosOrderD
     return () => { alive = false; clearTimeout(timer); };
   }, [attempt?.id, attempt?.status]);
   const start = async (checkout: RecordSettlementRequest, key: string) => {
-    if (actionGate.current || attempt) return;
+    if (actionGate.current || attempt || terminalOccupied) return;
     actionGate.current = true; setBusy(true); setError(null);
     try {
       timingStart.current = performance.now();
       const prepared = await terminalPrepare(orderId, checkout, key);
-      if (!prepared.ok) { setError("درخواست پرداخت تأیید نشد. وضعیت سفارش را دوباره بررسی کنید."); return; }
+      if (!prepared.ok) {
+        setError(prepared.error.status === 409
+          ? "کارت‌خوان در حال حاضر برای این پرداخت در دسترس نیست. صفحه باز می‌ماند؛ اطلاعات سفارش و وضعیت کارت‌خوان را بررسی کنید."
+          : "پاسخ سرور دریافت نشد. صفحه باز می‌ماند؛ وضعیت پرداخت را از همین سفارش بررسی کنید.");
+        return;
+      }
       const prepareMs = performance.now() - timingStart.current;
       setAttempt(prepared.data);
       // No dispatch when recovery returns an existing claimed/expired/final attempt.
@@ -69,6 +91,8 @@ export function useTerminalPayment(orderId: string, onSuccess: (order: PosOrderD
         recordTerminalTiming(prepared.data.id, "bridge_roundtrip", bridgeMs, accepted ? "ok" : bridgeOutcome);
         if (!accepted) setError("پاسخ برنامه کارت‌خوان دریافت نشد. نتیجه نامشخص است؛ پرداخت را تکرار نکنید و رسید یا حساب بانکی را بررسی کنید.");
       } else recordTerminalTiming(prepared.data.id, "prepare_roundtrip", prepareMs, "ok");
+    } catch {
+      setError("ارتباط پرداخت قطع شد. صفحه باز می‌ماند؛ وضعیت پرداخت را از همین سفارش بررسی کنید.");
     } finally { actionGate.current = false; setBusy(false); }
   };
   const reconcile = async (input: TerminalReconcile) => {
@@ -89,7 +113,7 @@ export function useTerminalPayment(orderId: string, onSuccess: (order: PosOrderD
       else setError("اطلاعات سفارش دریافت نشد. پرداخت را تکرار نکنید.");
     } finally { actionGate.current = false; setBusy(false); }
   };
-  return { enabled, attempt, loading, busy, error, start, reconcile, finish };
+  return { enabled, attempt, terminalOccupied, loading, busy, error, start, reconcile, finish };
 }
 export function TerminalPaymentStatus({ payment }: { payment: ReturnType<typeof useTerminalPayment> }) {
   const [basis, setBasis] = useState<"TERMINAL_RECEIPT" | "BANK_RECORD">("TERMINAL_RECEIPT");
@@ -97,6 +121,7 @@ export function TerminalPaymentStatus({ payment }: { payment: ReturnType<typeof 
   const [noChargeChecked, setNoChargeChecked] = useState(false);
   const [idleChecked, setIdleChecked] = useState(false);
   const attempt = payment.attempt;
+  if (!attempt && payment.terminalOccupied) return <p role="alert">{payment.error ?? "کارت‌خوان برای سفارش دیگری مشغول است. ارسال مبلغ تازه در حال حاضر ممکن نیست."}</p>;
   if (!attempt) return payment.error ? <p role="alert">{payment.error}</p> : null;
   const resolved = attempt.status === "SUCCEEDED" || attempt.status === "FAILED";
   return <section className="settlement-selection" aria-label="وضعیت پرداخت کارت‌خوان" aria-live="polite">
