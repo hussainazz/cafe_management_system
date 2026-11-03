@@ -39,23 +39,23 @@ internal static class PurchaseLifecycleTests
         var success = new FakeDevice(); var diagnostics = new List<string>();
         SepSdkResult result = Run(success, true, diagnostics);
         Check(result != null && result.ResponseCode == "00");
-        Check(String.Join(",", success.Calls.ToArray()) == "SetLan:192.168.1.101,Initialization,ConnectionTest,SetLan:192.168.1.101,Initialization,PcStarterPurchase,Dispose");
-        Check(diagnostics.Contains("PURCHASE_REINITIALIZATION:PASSED") && diagnostics.Contains("PURCHASE_CALL:RETURNED_RESULT"));
+        Check(String.Join(",", success.Calls.ToArray()) == "SetLan:192.168.1.101,Initialization,PcStarterPurchase,Dispose");
+        Check(!success.Calls.Contains("ConnectionTest") && diagnostics.Contains("PURCHASE_CALL:RETURNED_RESULT"));
 
-        var wrongTerminal = new FakeDevice { Connection = new SepSdkResult { ResponseCode = "00", TerminalId = "31187711" } };
+        var wrongTerminal = new FakeDevice { PurchaseResult = new SepSdkResult { ResponseCode = "00", TerminalId = "31187711" } };
         diagnostics.Clear(); Check(Run(wrongTerminal, true, diagnostics) == null);
-        Check(!wrongTerminal.Calls.Contains("PcStarterPurchase") && wrongTerminal.Calls[wrongTerminal.Calls.Count - 1] == "Dispose");
+        Check(wrongTerminal.Calls.Contains("PcStarterPurchase") && wrongTerminal.Calls[wrongTerminal.Calls.Count - 1] == "Dispose");
 
-        var offline = new FakeDevice { Connection = new SepSdkResult { ResponseCode = "03", TerminalId = "31187710" } };
-        diagnostics.Clear(); Check(Run(offline, true, diagnostics) == null);
-        Check(!offline.Calls.Contains("PcStarterPurchase") && diagnostics.Contains("CONNECTION_TEST:NON_SUCCESS"));
+        var offline = new FakeDevice { PurchaseResult = new SepSdkResult { ResponseCode = "03", TerminalId = "31187710" } };
+        diagnostics.Clear(); Check(Run(offline, true, diagnostics).ResponseCode == "03");
+        Check(!offline.Calls.Contains("ConnectionTest") && diagnostics.Contains("PURCHASE_CALL:RETURNED_RESULT"));
 
         var expired = new FakeDevice(); diagnostics.Clear(); Check(Run(expired, false, diagnostics) == null);
         Check(!expired.Calls.Contains("PcStarterPurchase") && diagnostics.Contains("INTENT_EXPIRY:EXPIRED_BEFORE_PURCHASE"));
 
-        var reconnectFailure = new FakeDevice { RejectSetLanCall = 2 }; diagnostics.Clear(); Check(Run(reconnectFailure, true, diagnostics) == null);
-        Check(!reconnectFailure.Calls.Contains("PcStarterPurchase") && diagnostics.Contains("PURCHASE_REINITIALIZATION:SET_LAN_REJECTED"));
-        Console.WriteLine("Purchase SDK lifecycle passed: connection test teardown recovery, terminal mismatch, offline response, expired intent, reconnect failure.");
+        var reconnectFailure = new FakeDevice { RejectSetLanCall = 1 }; diagnostics.Clear(); Check(Run(reconnectFailure, true, diagnostics) == null);
+        Check(!reconnectFailure.Calls.Contains("PcStarterPurchase") && diagnostics.Contains("SET_LAN:REJECTED"));
+        Console.WriteLine("Purchase SDK lifecycle passed: direct purchase without connection test, terminal mismatch, offline response, expired intent, setup failure.");
         return 0;
     }
 }
