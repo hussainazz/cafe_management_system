@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acknowledgeBarTicket, createInventoryPurchase, readStaffCatalog, readWaiterCalls } from "./api-client";
+import { terminalPrepare, terminalReconcile, posApiFailureEvent, acknowledgeBarTicket, createInventoryPurchase, readStaffCatalog, readWaiterCalls } from "./api-client";
 
 const authenticationError = {
   error: {
@@ -120,5 +120,36 @@ describe("bar ticket acknowledgment transport", () => {
     expect(options.method).toBe("POST");
     expect(options.headers.get("content-type")).toBe("application/json");
     expect(JSON.parse(options.body)).toEqual({ preparationId: "11111111-1111-4111-8111-111111111111" });
+  });
+});
+
+
+describe("terminal errors stay in the payment dialog", () => {
+  it("does not broadcast preparation or reconciliation conflicts to automatic page recovery", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    const fetch = vi.fn().mockImplementation(async () => jsonResponse({ error: {
+      code: "INVALID_STATE", message: "This terminal or order already has an unresolved attempt.",
+      requestId: "terminal-conflict", timestamp: "2026-11-02T12:24:30.000Z",
+    } }, 409));
+    vi.stubGlobal("fetch", fetch);
+    expect(await terminalPrepare("order", {} as Parameters<typeof terminalPrepare>[1], "checkout-key")).toMatchObject({ ok: false, error: { status: 409, code: "INVALID_STATE" } });
+    expect(await terminalReconcile("attempt", {} as Parameters<typeof terminalReconcile>[1])).toMatchObject({ ok: false, error: { status: 409 } });
+    expect(dispatchEvent.mock.calls.filter(([event]) => event.type === posApiFailureEvent)).toHaveLength(0);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("ends a stalled terminal request without broadcasting recovery or retrying the payment", async () => {
+    vi.useFakeTimers();
+    try {
+      const dispatchEvent = vi.fn(); vi.stubGlobal("window", { dispatchEvent });
+      const fetch = vi.fn((_url, init) => new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+      }));
+      vi.stubGlobal("fetch", fetch);
+      const pending = terminalPrepare("order", {} as Parameters<typeof terminalPrepare>[1], "checkout-key");
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(await pending).toMatchObject({ ok: false, error: { kind: "network" } });
+      expect(fetch).toHaveBeenCalledTimes(1); expect(dispatchEvent).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 });
