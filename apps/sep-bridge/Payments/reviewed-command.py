@@ -5,7 +5,7 @@ import gzip
 from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument('operation', choices=['install', 'pair', 'configure', 'stop', 'upgrade'])
-parser.add_argument('--stage', default=r'C:\Users\Cafe Run\Documents\sep-payments-0.2.5-stage')
+parser.add_argument('--stage', default=r'C:\Users\Cafe Run\Documents\sep-payments-0.2.6-stage')
 parser.add_argument('--bridge-id')
 parser.add_argument('--key-file', default=r'C:\Users\Cafe Run\AppData\Local\RunCafe\SepBridge.Payments\pairing.key')
 parser.add_argument('--enable', action='store_true')
