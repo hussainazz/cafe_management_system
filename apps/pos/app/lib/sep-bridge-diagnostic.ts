@@ -17,7 +17,7 @@ export async function probeBridge(port: number, kind: BridgeProbe["kind"], signa
     const body: unknown = await response.json();
     const health = body as Record<string, unknown> | null;
     const knownHealth = health && ((health.version === "0.1.0" && health.mode === "health-only" && health.paymentEnabled === false && health.terminalAccess === false) ||
-      (health.version === "0.2.0" && health.mode === "payments" && typeof health.paymentEnabled === "boolean" && health.manualVerificationRequired === true));
+      (/^0\.2\.[0-9]+$/.test(String(health.version)) && ["payments", "health-only"].includes(String(health.mode)) && typeof health.paymentEnabled === "boolean" && health.manualVerificationRequired === true));
     if (response.status !== 200 || !health || health.service !== "run-cafe-sep-bridge" || !knownHealth) {
       return { kind, ok: false, status: response.status, error: "unexpected-response" };
     }
