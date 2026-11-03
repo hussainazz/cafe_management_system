@@ -197,3 +197,19 @@ it("stores independently authenticated timings once and preserves legacy result 
   expect((await evidence(attempt)).statusCode).toBe(200);
   expect(await app.prisma.payment.count()).toBe(0);
 });
+
+
+it("authenticates idle-monitor requests and skips device checks for reserved terminals", async () => {
+  const send = (changes = {}, valid = true) => {
+    const payload = { bridgeId, terminalId: "31187710", sentAtUnix: Math.floor(Date.now() / 1000), ...changes };
+    const message = ["sep-monitor-v1", payload.bridgeId, payload.terminalId, payload.sentAtUnix].join("\n");
+    return app.inject({ method: "POST", url: "/api/v1/terminal-payments/monitor-idle", payload,
+      headers: { "x-sep-signature": valid ? signTerminalMessage(message, key) : "00".repeat(32) } });
+  };
+  expect((await send({}, false)).statusCode).toBe(401);
+  expect((await send({ sentAtUnix: Math.floor(Date.now() / 1000) - 100 })).statusCode).toBe(401);
+  expect((await send({ terminalId: "31187711" })).statusCode).toBe(401);
+  const initial = await send(); expect(initial.statusCode).toBe(200); expect(initial.json().data.idle).toBe(true);
+  const f = await fixture(); await prepare(f);
+  expect((await send()).json().data.idle).toBe(false);
+});
