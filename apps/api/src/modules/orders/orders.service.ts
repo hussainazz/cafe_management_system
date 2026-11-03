@@ -25,7 +25,7 @@ import { requireRole } from "../auth/permissions.js";
 import { preparationItems, type PreparationItem } from "./bar-ticket.js";
 import { assertNoTerminalReservation } from "./terminal-reservation.js";
 import { allocationAmountForQuantity, calculatedDiscount, catalogSaleDiscountAmount, discountedFinalAmount, paymentStatusForBalance } from "./order-calculations.js";
-import { cancelAndRestoreOrderInventory, recognizeOrderFullPayment, updateOrderCostingSnapshots } from "../inventory/inventory.service.js";
+import { cancelAndRestoreOrderInventory, recognizeOrderFullPayment, recognizeStaffConsumption, updateOrderCostingSnapshots } from "../inventory/inventory.service.js";
 
 const CREATE_ORDER_OPERATION = "CREATE_ORDER";
 const RECORD_SETTLEMENT_OPERATION = "RECORD_SETTLEMENT";
@@ -299,11 +299,14 @@ export async function createOrder(
   idempotencyKey: string,
   requestId: string,
   clientTableName?: string,
+  staffConsumption = false,
+  staffConsumptionName?: string,
 ): Promise<OrderCreationResult> {
   requireRole(actor, ["STAFF", "MANAGER"]);
 
-  const fingerprint = requestFingerprint(input);
-  const previous = await existingIdempotencyResult<CreatedOrder>(prisma, actor.id, idempotencyKey, fingerprint, CREATE_ORDER_OPERATION);
+  const fingerprint = staffConsumption ? requestFingerprint({ input, staffConsumptionName: staffConsumptionName?.trim() || null }) : requestFingerprint(input);
+  const operation = staffConsumption ? "CREATE_STAFF_CONSUMPTION" : CREATE_ORDER_OPERATION;
+  const previous = await existingIdempotencyResult<CreatedOrder>(prisma, actor.id, idempotencyKey, fingerprint, operation);
   if (previous) {
     const resolvedTable = previous.tableId
       ? await prisma.cafeTable.findUnique({ where: { id: previous.tableId }, select: { id: true, name: true } })
@@ -447,11 +450,16 @@ export async function createOrder(
       });
       await updateOrderCostingSnapshots(transaction, created.id);
       const result = toCreatedOrder(createdWithItems);
+      if (staffConsumption) {
+        if (input.channel !== "TAKEAWAY") throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Staff consumption must not occupy a table.");
+        await transaction.order.update({ where: { id: created.id }, data: { isStaffConsumption: true, staffConsumptionName: staffConsumptionName?.trim() || null, state: OrderState.CLOSED, paymentStatus: PaymentStatus.PAID, paidAmount: subtotalAmount, balanceAmount: 0 } });
+        await recognizeStaffConsumption(transaction, created.id, actor.id, createdAt);
+      }
       await transaction.auditLog.create({
         data: {
           actorId: actor.id,
           requestId,
-          operation: CREATE_ORDER_OPERATION,
+          operation,
           entityType: "ORDER",
           entityId: created.id,
           afterSnapshot: {
@@ -474,7 +482,7 @@ export async function createOrder(
       await transaction.idempotencyRecord.create({
         data: {
           actorId: actor.id,
-          operation: CREATE_ORDER_OPERATION,
+          operation,
           key: idempotencyKey,
           requestFingerprint: fingerprint,
           responseStatus: 201,
@@ -487,7 +495,7 @@ export async function createOrder(
     return { ...creation, replayed: false };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const replay = await existingIdempotencyResult<CreatedOrder>(prisma, actor.id, idempotencyKey, fingerprint, CREATE_ORDER_OPERATION);
+      const replay = await existingIdempotencyResult<CreatedOrder>(prisma, actor.id, idempotencyKey, fingerprint, operation);
       if (replay) {
         const resolvedTable = replay.tableId
           ? await prisma.cafeTable.findUnique({ where: { id: replay.tableId }, select: { id: true, name: true } })
@@ -607,6 +615,7 @@ export async function listOrders(prisma: PrismaClient, actor: AuthenticatedUser,
     ...(query.paymentStatus ? { paymentStatus: query.paymentStatus } : {}),
     ...(query.channel ? { channel: query.channel } : {}),
     ...(query.tableId ? { tableId: query.tableId } : {}),
+    ...(query.deferred ? { deferredAt: query.deferred === "true" ? { not: null } : null } : {}),
     ...(query.q ? { orderNumber: { contains: query.q, mode: "insensitive" } } : {}),
     ...(query.from || query.to
       ? { createdAt: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } }
@@ -640,6 +649,8 @@ export async function listOrders(prisma: PrismaClient, actor: AuthenticatedUser,
       totalAmount: order.totalAmount,
       balanceAmount: order.balanceAmount,
       createdAt: order.createdAt.toISOString(),
+      deferredAt: order.deferredAt?.toISOString() ?? null,
+      deferredCustomerName: order.deferredCustomerName,
     })),
     page: {
       limit: query.limit,
@@ -647,6 +658,49 @@ export async function listOrders(prisma: PrismaClient, actor: AuthenticatedUser,
       hasMore,
     },
   };
+}
+
+export async function deferOrder(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, input: { expectedVersion: number; customerName?: string }, requestId: string) {
+  requireRole(actor, ["STAFF", "MANAGER"]);
+  return prisma.$transaction(async (tx) => {
+    const initial = await tx.order.findUnique({ where: { id: orderId }, select: { tableId: true } });
+    await lockOperationalKeys(tx, [`order:${orderId}`, ...(initial?.tableId ? [`table:${initial.tableId}`] : [])]);
+    await assertNoTerminalReservation(tx, orderId);
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+    if (order.isStaffConsumption && actor.role !== "MANAGER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager may remove staff consumption.");
+    if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    if (order.state !== OrderState.OPEN || order.balanceAmount <= 0 || order.deferredAt) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only an open unpaid order can be set aside.");
+    const now = new Date();
+    const updated = await tx.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { channel: OrderChannel.TAKEAWAY, tableId: null, deferredAt: now, deferredCustomerName: input.customerName?.trim() || null, version: { increment: 1 } } });
+    if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    if (order.tableId) {
+      const other = await tx.order.count({ where: { tableId: order.tableId, state: OrderState.OPEN } });
+      if (!other) {
+        await tx.cafeTable.update({ where: { id: order.tableId }, data: { occupancyState: "AVAILABLE", occupiedAt: null, occupancyReminderAt: null, customerAuthBypassEnabled: false, tableContextInvalidBefore: now } });
+        await tx.waiterCall.updateMany({ where: { tableId: order.tableId, status: "PENDING" }, data: { status: "RESOLVED", acknowledgedAt: now, resolvedAt: now, version: { increment: 1 } } });
+      }
+    }
+    await tx.auditLog.create({ data: { actorId: actor.id, requestId, operation: "DEFER_ORDER", entityType: "ORDER", entityId: orderId, afterSnapshot: { version: input.expectedVersion + 1, tableId: order.tableId, deferredAt: now.toISOString() } } });
+    return orderDetailDto(await tx.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function discountStaffConsumption(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, expectedVersion: number, discount: DiscountInput, requestId: string) {
+  requireRole(actor, ["STAFF", "MANAGER"]);
+  if (!discount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A discount is required.");
+  return prisma.$transaction(async (tx) => {
+    await lockOperationalKeys(tx, [`order:${orderId}`]);
+    const order = await tx.order.findUnique({ where: { id: orderId } });
+    if (!order || !order.isStaffConsumption) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The staff consumption entry was not found.");
+    if (order.version !== expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    if (order.state !== OrderState.CLOSED) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The staff consumption entry is unavailable.");
+    const { discountAmount, finalAmount } = discountedFinalAmount(order.subtotalAmount, discount);
+    const updated = await tx.order.updateMany({ where: { id: orderId, version: expectedVersion, state: OrderState.CLOSED }, data: { discountKind: discount?.kind ?? null, discountValue: discount?.value ?? null, discountReason: null, discountAmount, totalAmount: finalAmount, paidAmount: finalAmount, balanceAmount: 0, version: { increment: 1 } } });
+    if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    await tx.auditLog.create({ data: { actorId: actor.id, requestId, operation: "DISCOUNT_STAFF_CONSUMPTION", entityType: "ORDER", entityId: orderId, afterSnapshot: { discountAmount, totalAmount: finalAmount, version: expectedVersion + 1 } } });
+    return orderDetailDto(await tx.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function updateOrder(
@@ -908,6 +962,7 @@ export async function deleteOrder(
     await assertNoTerminalReservation(transaction, orderId);
     const order = await transaction.order.findUnique({ where: { id: orderId } });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
+    if (order.isStaffConsumption && actor.role !== "MANAGER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager may remove staff consumption.");
     if (order.state !== OrderState.OPEN && order.state !== OrderState.CLOSED) {
       throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open or closed orders can be deleted.");
     }
