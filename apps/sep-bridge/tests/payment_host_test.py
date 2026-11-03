@@ -14,7 +14,7 @@ class PaymentHostTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(prefix='sep-payment-host-')
         cls.work = Path(cls.temp.name)
         cls.exe = cls.work / 'Payments.exe'
-        sources = ['PaymentProtocol.cs', 'PaymentEngine.cs', 'BackendClient.cs', 'ProcessPurchaseWorker.cs', 'PaymentHost.cs']
+        sources = ['PaymentProtocol.cs', 'PaymentEngine.cs', 'BackendClient.cs', 'ProcessPurchaseWorker.cs', 'TerminalMonitor.cs', 'PaymentHost.cs']
         subprocess.run(['mcs', '-sdk:4.8', '-langversion:5', '-warnaserror', '-platform:x86', '-target:winexe', '-r:System.Configuration', '-r:System.Security', '-r:System.Web.Extensions', f'-out:{cls.exe}', *[str(ROOT / 'Payments' / p) for p in sources]], check=True)
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0)); cls.port = probe.getsockname()[1]
@@ -46,7 +46,7 @@ class PaymentHostTests(unittest.TestCase):
         self.assertEqual(status, 200)
         health = json.loads(body)
         self.assertEqual(health['service'], 'run-cafe-sep-bridge')
-        self.assertEqual(health['version'], '0.2.4')
+        self.assertEqual(health['version'], '0.2.6')
         self.assertEqual(health['mode'], 'health-only')
         self.assertEqual(health['paymentEnabled'], False)
         self.assertEqual(health['terminalAccess'], False)
