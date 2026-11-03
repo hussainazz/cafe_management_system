@@ -8,6 +8,7 @@ const manager = vi.hoisted(() => vi.fn());
 vi.mock("../lib/api-client", () => api);
 vi.mock("../lib/waiter-call-sound", () => ({ unlockWaiterCallSound: vi.fn() }));
 vi.mock("./release-update-guard", () => ({ ReleaseUpdateGuard: () => null }));
+vi.mock("./terminal-connection-monitor", () => ({ TerminalConnectionMonitor: () => null }));
 vi.mock("./orders-workspace", () => ({ OrdersWorkspace: ({ onOpenMenu }: { onOpenMenu: () => void }) => <div>orders workspace<button onClick={onOpenMenu}>open menu</button></div> }));
 vi.mock("./manager-workspace", () => ({ ManagerWorkspace: ({ onOpenMenu, section, role }: { onOpenMenu: () => void; section: string; role: string }) => { manager({ section, role }); return <div>manager workspace<button onClick={onOpenMenu}>open menu</button></div>; } }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
