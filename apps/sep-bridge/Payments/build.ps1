@@ -8,11 +8,15 @@ foreach ($name in $expected.Keys) {
 }
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $shared = @('/nologo','/target:winexe','/platform:x86','/langversion:5','/warnaserror','/optimize+','/r:System.Configuration.dll','/r:System.Web.Extensions.dll','/r:System.Security.dll')
-$hostSources = @('PaymentProtocol.cs','PaymentEngine.cs','BackendClient.cs','ProcessPurchaseWorker.cs','PaymentHost.cs') | ForEach-Object { Join-Path $PSScriptRoot $_ }
+$hostSources = @('PaymentProtocol.cs','PaymentEngine.cs','BackendClient.cs','ProcessPurchaseWorker.cs','TerminalMonitor.cs','PaymentHost.cs') | ForEach-Object { Join-Path $PSScriptRoot $_ }
 & $csc @shared "/out:$(Join-Path $OutputDirectory 'RunCafe.SepBridge.Payments.exe')" @hostSources
 if ($LASTEXITCODE -ne 0) { throw 'Host build failed.' }
 & $csc @shared "/out:$(Join-Path $OutputDirectory 'RunCafe.SepBridge.PurchaseWorker.exe')" "/r:$(Join-Path $SdkDirectory 'SSP1126.PcPos.dll')" "/r:$(Join-Path $SdkDirectory 'Sep.Logger.dll')" (Join-Path $PSScriptRoot 'PaymentProtocol.cs') (Join-Path $PSScriptRoot 'SepAmount.cs') (Join-Path $PSScriptRoot 'BackendClient.cs') (Join-Path $PSScriptRoot 'PaymentEngine.cs') (Join-Path $PSScriptRoot 'PurchaseLifecycle.cs') (Join-Path $PSScriptRoot 'PurchaseWorker.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Worker build failed.' }
+$diagnostics = Join-Path $PSScriptRoot '../Diagnostics'
+& $csc @shared "/out:$(Join-Path $OutputDirectory 'RunCafe.SepBridge.ConnectionWorker.exe')" "/r:$(Join-Path $SdkDirectory 'SSP1126.PcPos.dll')" "/r:$(Join-Path $SdkDirectory 'Sep.Logger.dll')" (Join-Path $diagnostics 'ConnectionDiagnostics.cs') (Join-Path $diagnostics 'OfficialSepDiagnosticDevice.cs') (Join-Path $diagnostics 'DiagnosticWorker.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Connection worker build failed.' }
+Copy-Item (Join-Path $diagnostics 'App.config') (Join-Path $OutputDirectory 'RunCafe.SepBridge.ConnectionWorker.exe.config') -Force
 foreach ($name in @('RunCafe.SepBridge.Payments.exe','RunCafe.SepBridge.PurchaseWorker.exe')) { Copy-Item (Join-Path $PSScriptRoot 'App.config') (Join-Path $OutputDirectory "$name.config") -Force }
 foreach ($name in $expected.Keys) { Copy-Item (Join-Path $SdkDirectory $name) $OutputDirectory -Force }
 Write-Output 'Built disabled x86 .NET Framework 4.8 host and worker. No execution or COM registration performed.'
