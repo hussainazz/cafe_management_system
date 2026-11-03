@@ -12,8 +12,8 @@ it("shows the last successful check and age using only passive loopback health",
   render(<TerminalConnectionMonitor />);
   await screen.findByText(/آخرین بررسی ارتباط کارت‌خوان موفق بود/);
   expect(screen.getByText(/۵ ثانیه پیش/)).toBeTruthy();
-  expect(fetch.mock.calls[0][0]).toBe("http://127.0.0.1:18711/health");
-  expect(fetch.mock.calls[0][1]).toMatchObject({ credentials: "omit", mode: "cors" });
+  expect(fetch.mock.calls[0]![0]).toBe("http://127.0.0.1:18711/health");
+  expect(fetch.mock.calls[0]![1]).toMatchObject({ credentials: "omit", mode: "cors" });
   expect(screen.queryByRole("button")).toBeNull();
 });
 it("shows a persistent failure warning without payment actions", async () => {
