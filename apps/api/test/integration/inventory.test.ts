@@ -61,6 +61,21 @@ async function settleAmount(staff: Record<string, string>, order: any, amount: n
 }
 
 describe("inventory costing and settlement integration", () => {
+  it("consumes stock for staff benefits and restores it on manager removal", async () => {
+    const manager = await session(UserRole.MANAGER, "benefit-inventory.manager");
+    const staff = await session(UserRole.STAFF, "benefit-inventory.staff");
+    const product = await productFixture("Staff benefit coffee");
+    const stockItemId = await stockFixture(manager, "Benefit beans", "1000", 10_000);
+    await recipeFixture(manager, product.id, stockItemId);
+    const created = await app.inject({ method: "POST", url: "/api/v1/staff-consumption", cookies: staff, headers: { "idempotency-key": "staff-benefit-inventory-001" }, payload: { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] } });
+    expect(created.statusCode, created.body).toBe(201);
+    const id = created.json().data.id;
+    expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } })).quantityOnHand.toString()).toBe("920");
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: id } })).toMatchObject({ status: "POSTED", paymentSettlementId: null });
+    const removed = await app.inject({ method: "POST", url: `/api/v1/orders/${id}/delete`, cookies: manager, payload: { expectedVersion: 1 } });
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } })).quantityOnHand.toString()).toBe("1000");
+  });
   it("consumes only retained items when removing the final unpaid line closes an item-paid order", async () => {
     const manager = await session(UserRole.MANAGER, "unpaid-removal.manager");
     const staff = await session(UserRole.STAFF, "unpaid-removal.staff");
