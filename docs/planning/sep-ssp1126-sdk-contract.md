@@ -210,3 +210,15 @@ PurchaseID for identified purchases, and exposes automatic first-timeout retry
 and raw-frame logging options. Neither retry nor raw logging is adopted here.
 The official DLL, inspected IL, and actual cashier calibration remain the
 contract for this implementation. No Node runtime or unofficial SDK is shipped.
+
+
+## Direct purchase and idle monitor approval — 2 November 2026
+
+The owner approved replacing the per-purchase ConnectionTest with a scheduled
+connection-only worker. Inspection of the pinned DLL confirms PcStarterPurchase
+calls TransactionInitialization, which connects its configured channel when
+needed. Payment initialization therefore uses SetLan and Initialization once,
+then the purchase method with the expected terminal ID. It retains expiry and
+result identity validation. The host only schedules background diagnostics when
+the signed backend idle check succeeds, defers to queued purchases, and shares
+the global device mutex and process-start gate. Health reads remain passive.
