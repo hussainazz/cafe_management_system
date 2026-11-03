@@ -30,7 +30,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
     where: {
       recognizedAt: { gte: range.from, lt: range.to },
       status: { not: "CANCELLED" },
-      order: { createdAt: { gte: activatedAt }, state: { not: "DELETED" }, paymentStatus: "PAID" },
+      order: { createdAt: { gte: activatedAt }, state: { not: "DELETED" }, paymentStatus: "PAID", isStaffConsumption: false },
     },
     orderBy: [{ recognizedAt: "asc" }, { id: "asc" }],
     include: {
