@@ -10,8 +10,10 @@ import {
   type ApiFailure,
 } from "../lib/api-client";
 import { unlockWaiterCallSound } from "../lib/waiter-call-sound";
-import { AccountingIcon, CatalogIcon, CloseIcon, ExitIcon, InventoryIcon, OrdersIcon, SettingsIcon, SunIcon } from "./icons";
+import { AccountingIcon, CatalogIcon, ClockIcon, CloseIcon, CupIcon, ExitIcon, InventoryIcon, OrdersIcon, SettingsIcon, SunIcon } from "./icons";
 import { OrdersWorkspace } from "./orders-workspace";
+import { DeferredOrders } from "./deferred-orders";
+import { StaffConsumption } from "./staff-consumption";
 import { ManagerWorkspace, type ManagerSection } from "./manager-workspace";
 import { ReleaseUpdateGuard, type PosActivity } from "./release-update-guard";
 
@@ -19,11 +21,11 @@ import { TerminalConnectionMonitor } from "./terminal-connection-monitor";
 
 import { setRecoveryUser, readRecovery, writeRecovery } from "../lib/automatic-recovery";
 
-type Workspace = "orders" | ManagerSection;
+type Workspace = "orders" | "deferred" | "staff-consumption" | ManagerSection;
 
 function restoredWorkspace(role: AuthenticatedUser["role"]): Workspace {
   const saved = readRecovery<Workspace | "manager">("workspace");
-  if (role !== "MANAGER") return saved === "catalog" || saved === "payments" ? saved : "orders";
+  if (role !== "MANAGER") return saved === "catalog" || saved === "payments" || saved === "deferred" || saved === "staff-consumption" ? saved : "orders";
   return saved === "manager" ? "settings" : saved ?? "orders";
 }
 
@@ -76,8 +78,12 @@ export function PosSessionBoundary() {
   const [session, setSession] = useState<SessionState>({ kind: "loading" });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace>("orders");
+  const [openOrderId, setOpenOrderId] = useState<string | null>(null);
   const [ordersActivity, setOrdersActivity] = useState<PosActivity>({ isBusy: true, hasUnsavedChanges: false });
   const opener = useRef<HTMLButtonElement | null>(null);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const drawerCloseRef = useRef<HTMLButtonElement | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
   const { theme, toggle } = usePosTheme();
 
   useEffect(() => {
@@ -121,6 +127,33 @@ export function PosSessionBoundary() {
     void loadSession(true);
   }, [loadSession]);
 
+  useEffect(() => {
+    if (!drawerOpen) return;
+    drawerCloseRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDrawerOpen(false);
+        requestAnimationFrame(() => opener.current?.isConnected && opener.current.focus());
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = drawerRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) { event.preventDefault(); drawerRef.current?.focus(); return; }
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (event.shiftKey && (document.activeElement === first || !drawerRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !drawerRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [drawerOpen]);
+
   if (session.kind === "loading") return <SessionLoading />;
   if (session.kind !== "ready")
     return (
@@ -141,7 +174,7 @@ export function PosSessionBoundary() {
     setWorkspace(next);
     writeRecovery("workspace", next);
     setDrawerOpen(false);
-    opener.current?.focus();
+    requestAnimationFrame(() => mainRef.current?.focus());
   };
   return (
     <div className="pos-shell">
@@ -149,13 +182,20 @@ export function PosSessionBoundary() {
         className={`drawer-scrim ${drawerOpen ? "is-open" : ""}`}
         type="button"
         aria-label="بستن منو"
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={() => { setDrawerOpen(false); opener.current?.focus(); }}
+        aria-hidden="true"
+        tabIndex={-1}
+        onClick={() => { setDrawerOpen(false); requestAnimationFrame(() => opener.current?.isConnected && opener.current.focus()); }}
       />
       <aside
+        id="pos-navigation-drawer"
+        ref={drawerRef}
+        tabIndex={-1}
         className={`side-drawer ${drawerOpen ? "is-open" : ""}`}
         aria-label="منوی اصلی"
         aria-hidden={!drawerOpen}
+        aria-modal={drawerOpen || undefined}
+        role={drawerOpen ? "dialog" : undefined}
+        inert={!drawerOpen}
       >
         <header className="drawer-brandbar">
           <div className="drawer-brand" aria-label="سامانه فروش کافه ران">
@@ -166,9 +206,10 @@ export function PosSessionBoundary() {
             </span>
           </div>
           <button
+            ref={drawerCloseRef}
             className="drawer-close"
             type="button"
-            onClick={() => { setDrawerOpen(false); opener.current?.focus(); }}
+            onClick={() => { setDrawerOpen(false); requestAnimationFrame(() => opener.current?.isConnected && opener.current.focus()); }}
             aria-label="بستن منو"
           >
             <CloseIcon />
@@ -191,6 +232,8 @@ export function PosSessionBoundary() {
             <OrdersIcon />
             <span>سفارش‌گیری</span>
           </button>
+          <button className={`nav-item ${workspace === "deferred" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("deferred")}><ClockIcon /><span>سفارش‌های تسویه‌نشده</span></button>
+          <button className={`nav-item ${workspace === "staff-consumption" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("staff-consumption")}><CupIcon /><span>حساب پرسنل</span></button>
           {session.user.role === "STAFF" && <>
             <h2>مدیریت روزانه</h2>
             <button className={`nav-item ${workspace === "catalog" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("catalog")}><CatalogIcon /><span>منو و کالاها</span></button>
@@ -225,11 +268,11 @@ export function PosSessionBoundary() {
         </footer>
       </aside>
 
-      <main className="pos-main">
+      <main ref={mainRef} className="pos-main" inert={drawerOpen} tabIndex={-1}>
         <TerminalConnectionMonitor />
-        {workspace === "orders" ? <OrdersWorkspace refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace section={workspace} role={session.user.role} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
+        {workspace === "orders" ? <OrdersWorkspace openOrderId={openOrderId} onOpenedOrder={() => setOpenOrderId(null)} refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : workspace === "deferred" ? <DeferredOrders menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} onOpenOrder={(id) => { setOpenOrderId(id); selectWorkspace("orders"); }} /> : workspace === "staff-consumption" ? <StaffConsumption role={session.user.role} menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} /> : <ManagerWorkspace section={workspace} role={session.user.role} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
+        <ReleaseUpdateGuard activity={workspace === "orders" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
       </main>
-      <ReleaseUpdateGuard activity={workspace === "orders" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
     </div>
   );
 }
