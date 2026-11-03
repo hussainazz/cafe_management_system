@@ -247,6 +247,13 @@ export type CreateOrderRequest =
   | { channel: "TABLE"; tableId: string; items: z.infer<typeof CreateOrderBaseSchema>["items"] }
   | { channel: "TAKEAWAY"; items: z.infer<typeof CreateOrderBaseSchema>["items"] };
 
+export const StaffConsumptionCreateRequestSchema = z.object({
+  channel: z.literal("TAKEAWAY"),
+  items: z.array(CreateOrderItemSchema).min(1).max(100),
+  staffName: z.string().trim().min(1).max(120).optional(),
+}).strict();
+export type StaffConsumptionCreateRequest = z.infer<typeof StaffConsumptionCreateRequestSchema>;
+
 export const CreatedOrderItemOptionSchema = z.object({
   optionId: z.uuid(),
   optionNameSnapshot: z.string(),
@@ -359,6 +366,8 @@ export const OrderSummarySchema = z.object({
   totalAmount: z.number().int().nonnegative(),
   balanceAmount: z.number().int().nonnegative(),
   createdAt: z.iso.datetime(),
+  deferredAt: z.iso.datetime().nullable().optional(),
+  deferredCustomerName: z.string().nullable().optional(),
 });
 
 export const OrderListQuerySchema = z
@@ -372,6 +381,7 @@ export const OrderListQuerySchema = z
     from: z.iso.datetime().optional(),
     to: z.iso.datetime().optional(),
     q: z.string().trim().min(1).max(64).optional(),
+    deferred: z.enum(["true", "false"]).optional(),
   })
   .strict()
   .refine((query) => !query.from || !query.to || query.from <= query.to, {
@@ -441,6 +451,13 @@ export const DailyAccountingReportSchema = z.object({
   salesAmount: z.number().int().nonnegative(),
   paidAmount: z.number().int().nonnegative(),
   orderCount: z.number().int().nonnegative(),
+  priorDayPayments: z.array(z.object({
+    orderId: z.uuid(),
+    orderNumber: z.string(),
+    dailyOrderNumber: z.number().int(),
+    createdAt: z.iso.datetime(),
+    amount: z.number().int().nonnegative(),
+  })).default([]),
   paymentMethodTotals: z.object({
     cashAmount: z.number().int().nonnegative(),
     cardTerminalAmount: z.number().int().nonnegative(),
