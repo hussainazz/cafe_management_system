@@ -257,6 +257,7 @@ export function ManagerWorkspace({
             type="button"
             aria-label={menuOpen ? "بستن منو" : "باز کردن منو"}
             aria-expanded={menuOpen}
+            aria-controls="pos-navigation-drawer"
             onClick={onOpenMenu}
           >
             <MenuIcon />
@@ -673,7 +674,7 @@ function FinancePanel({
     if (!filters) throw new Error("Unable to resolve the current Tehran date.");
     return filters;
   });
-  const [report, setReport] = useState<any>(null);
+  const [report, setReport] = useState<import("../lib/api-client").DailyReport | null>(null);
   const [audit, setAudit] = useState<any>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PosOrderDetail | null>(null);
@@ -815,6 +816,10 @@ function FinancePanel({
               <dt>تخفیف</dt><dd>{formatToman(report.data.discounts.totalAmount)} تومان</dd>
               <dt>برگشت‌ها</dt><dd>{Number(report.data.reversals.count).toLocaleString("fa-IR-u-nu-latn")} مورد · {formatToman(report.data.reversals.amount)}</dd>
             </dl>
+            <h3>پرداخت سفارش‌های روزهای قبل</h3>
+            {!report.data.priorDayPayments?.length ? <p>پرداختی برای سفارش‌های روزهای قبل در این بازه ثبت نشده است.</p> : <ul>
+              {report.data.priorDayPayments.map((order) => <li key={order.orderId}>سفارش {formatOrderNumber(order.dailyOrderNumber)} · {new Date(order.createdAt).toLocaleDateString("fa-IR")} · {formatToman(order.amount)} تومان</li>)}
+            </ul>}
           </details>
         </> : <div className="finance-loading" role="status">در حال دریافت گزارش مالی…</div>}
       </ManagerCard>}
