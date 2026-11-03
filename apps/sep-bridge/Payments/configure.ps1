@@ -2,12 +2,12 @@ param([switch]$EnablePayments, [switch]$ConfirmedTomanToRialConversion)
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $env:LOCALAPPDATA 'RunCafe\SepBridge.Payments'
 $task = Get-ScheduledTask -TaskName 'RunCafe SEP Payments' -ErrorAction Stop
-if ($task.State -ne 'Disabled' -or @(Get-Process -Name 'RunCafe.SepBridge.Payments','RunCafe.SepBridge.PurchaseWorker' -ErrorAction SilentlyContinue).Count -gt 0) { throw 'Keep the payment task disabled and stop host/workers before configuration.' }
+if ($task.State -ne 'Disabled' -or @(Get-Process -Name 'RunCafe.SepBridge.Payments','RunCafe.SepBridge.PurchaseWorker','RunCafe.SepBridge.ConnectionWorker' -ErrorAction SilentlyContinue).Count -gt 0) { throw 'Keep the payment task disabled and stop host/workers before configuration.' }
 $hostPath = [IO.Path]::GetFullPath($task.Actions[0].Execute)
 $rootPath = [IO.Path]::GetFullPath($root).TrimEnd('\') + '\'
 if (!$hostPath.StartsWith($rootPath, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($hostPath) -ne 'RunCafe.SepBridge.Payments.exe') { throw 'Payment task does not point to the managed bridge installation.' }
 $versionDirectory = Split-Path -Parent $hostPath
-if ($EnablePayments -and !$ConfirmedTomanToRialConversion) { throw 'Explicit confirmation of the reviewed Toman-to-Rial conversion in bridge 0.2.5 is required.' }
+if ($EnablePayments -and !$ConfirmedTomanToRialConversion) { throw 'Explicit confirmation of the reviewed Toman-to-Rial conversion in bridge 0.2.6 is required.' }
 if ($EnablePayments -and !(Test-Path (Join-Path $root 'pairing.dpapi'))) { throw 'Pair first.' }
 $paths = @('RunCafe.SepBridge.Payments.exe','RunCafe.SepBridge.PurchaseWorker.exe') | ForEach-Object { Join-Path $versionDirectory "$_.config" }
 $configs = @()
@@ -24,4 +24,9 @@ for ($i=0; $i -lt $paths.Count; $i++) {
   ($configs[$i].configuration.appSettings.add | Where-Object {$_.key -eq 'PaymentsEnabled'}).value = $(if ($EnablePayments) {'true'} else {'false'})
   $configs[$i].Save($paths[$i])
 }
+$monitorPath = Join-Path $versionDirectory 'RunCafe.SepBridge.ConnectionWorker.exe.config'
+[xml]$monitorConfig = Get-Content -LiteralPath $monitorPath -Raw
+($monitorConfig.configuration.appSettings.add | Where-Object {$_.key -eq 'SepDiagnosticsEnabled'}).value = $(if ($EnablePayments) {'true'} else {'false'})
+($monitorConfig.configuration.appSettings.add | Where-Object {$_.key -eq 'LogPermission'}).value = '0'
+$monitorConfig.Save($monitorPath)
 Write-Output 'Configuration updated. Backend initiation flag is separate. Task was not started.'
