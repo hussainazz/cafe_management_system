@@ -76,7 +76,7 @@ namespace RunCafe.SepBridge.Payments
                 (exitCode.HasValue && (exitCode.Value < 0 || exitCode.Value > 255)) || (elapsedMs.HasValue && (elapsedMs.Value < 0 || elapsedMs.Value > 86400000))) throw new SecurityException();
             string fullIntentPath = Path.GetFullPath(intentPath);
             if (!fullIntentPath.EndsWith(".intent.json", StringComparison.Ordinal)) throw new SecurityException();
-            var record = new Dictionary<string, object> { { "schemaVersion", 1 }, { "bridgeVersion", "0.2.5" }, { "processId", System.Diagnostics.Process.GetCurrentProcess().Id }, { "timestampUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) }, { "phase", phase }, { "outcome", outcome } };
+            var record = new Dictionary<string, object> { { "schemaVersion", 1 }, { "bridgeVersion", "0.2.6" }, { "processId", System.Diagnostics.Process.GetCurrentProcess().Id }, { "timestampUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) }, { "phase", phase }, { "outcome", outcome } };
             if (exitCode.HasValue) record["exitCode"] = exitCode.Value;
             if (elapsedMs.HasValue) record["elapsedMs"] = elapsedMs.Value;
             string code = SafeCode(responseCode);
