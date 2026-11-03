@@ -64,7 +64,7 @@ Explicit non-goals for v1:
 
 - Customer self-ordering, customer carts submitted to the café, table-order authority, guest order tracking, loyalty, wallets, coupons, and marketing automation. The phone-backed customer identity exists only to authorize a table-scoped waiter call and is not order or payment authority; phone verification and marketing consent are deferred.
 - Operating-expense/net-profit accounting, supplier accounts, purchase orders,
-  dedicated waste or staff-consumption entry, historical sales imports, and
+  dedicated waste entry, historical sales imports, and
   automatic portion-yield conversion. Inventory costing and gross profit are
   approved as a bounded follow-on phase in
   [`inventory-costing.md`](inventory-costing.md).
@@ -75,6 +75,14 @@ Explicit non-goals for v1:
 - Native mobile apps, advanced forecasting, multi-printer routing beyond the locally selected Windows queue, and a CDN requirement.
 
 Scope rule: a future feature may influence a clean module boundary, but it must not add tables, abstractions, services, or infrastructure to v1 unless a current v1 use case needs it.
+
+Approved follow-on: staff consumption is recorded as a staff benefit or expense,
+without treating it as cash, card, or transfer receipts. Staff can record the
+initiator's name, view entries, and add discounts; only Managers can remove
+them. Orders explicitly set aside as unpaid release their tables while
+retaining their outstanding balances. Accounting details identify payments in
+the selected day for orders from earlier days. Delivery status and remaining
+acceptance gates are tracked in [`current-left.md`](../current-left.md).
 
 ## Actors, Permissions, And Workflows
 
