@@ -579,6 +579,7 @@ describe("Manager administration", () => {
         // The 15,000 receipt recorded today belongs here even though its order opened yesterday.
         paidAmount: 95_000,
         orderCount: 2,
+        priorDayPayments: [{ orderId: yesterdayOpenOrder.id, orderNumber: "RPT-006", amount: 15_000 }],
         paymentMethodTotals: { cashAmount: 30_000, cardTerminalAmount: 65_000, cardTransferAmount: 0 },
         discounts: { orderAmount: 10_000, itemAmount: 10_000, totalAmount: 20_000 },
         reversals: { count: 1, amount: 100_000 },
