@@ -151,7 +151,6 @@ namespace RunCafe.SepBridge.Payments
             private readonly PcPosFactory factory = new PcPosFactory();
             public bool SetLan(string ip) { return factory.SetLan(ip); }
             public void Initialize() { factory.Initialization(ResponseLanguage.English, 10, AsyncType.Sync); }
-            public SepSdkResult ConnectionTest() { return Convert(factory.ConnectionTest()); }
             public SepSdkResult Purchase(string amount, string terminalId)
             {
                 // Exact managed ten-argument signature; unused extensions stay at their verified defaults.
