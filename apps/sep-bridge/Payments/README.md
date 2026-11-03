@@ -1,13 +1,38 @@
-# SEP payment bridge — 0.2.4 deployment record and 0.2.5 timing candidate
+## Version 0.2.6: direct purchase and advisory background connection status
+
+The payment worker calls SetLan, Initialization and PcStarterPurchase directly.
+It no longer runs ConnectionTest or reinitializes after a connection test.
+A separate connection-only worker runs on the host schedule once per minute,
+only when a signed backend idle check succeeds and no payment is pending.
+The host serializes device-worker startup; both workers also use the existing
+Global terminal mutex. Payments take priority over unstarted checks. A check
+already running may delay a payment until its bounded worker finishes.
+
+GET /health remains passive and includes the last check status, elapsed time,
+age and whether a check is in progress. POS polls health every minute and shows
+advisory warnings. A failed or stale check never changes payment-button state.
+The bank SDK is only loaded in isolated workers; logging remains disabled.
+The dedicated connection worker cannot purchase. Package defaults remain disabled;
+the approved upgrade enables its diagnostic flag, with host scheduling active
+only while payment mode and signed backend idle checks allow it.
+
+# SEP payment bridge — 0.2.5 cashier installation record
 
 Windows 8.1 32-bit, .NET Framework 4.8, x86 WinExe. No Node.js runtime,
 HTTP.sys URL reservation, administrator account, or inbound firewall rule.
-Version 0.2.4 is installed under the existing cashier account and the scheduled
-task is Running. The current VPS flag and Windows payment switch are enabled;
-the bridge health endpoint reports payments mode, but requires manual result
-verification before posting. It listens only on `127.0.0.1:18711`. No purchase
-was initiated during this activation. Pairing and the durable attempt journal
-remain preserved. The earlier
+Version 0.2.5 is installed under the existing cashier account. At the user's
+request to restore the POS terminal option, both payment switches and the VPS
+`SEP_TERMINAL_ENABLED` flag were enabled, and the scheduled task is Running.
+Health reports `mode=payments`, `paymentEnabled=true`,
+`terminalAccess=true`, and `manualVerificationRequired=true`; the only listener
+is `127.0.0.1:18711`. No purchase worker was running during verification.
+Package and installed binary hashes were verified; the existing pairing and
+durable attempt journal remain preserved. No terminal SDK purchase or payment
+was initiated. The production database had no unresolved terminal attempts
+before re-enabling the feature. Production timing sample collection is pending
+the user's confirmation of the test count and Toman limit.
+
+The earlier
 350,000 Toman attempt `3ae7bd3a-07e5-4cbd-a107-c86f2f032a41` was reconciled as
 `FAILED` after the operator confirmed no receipt or debit; no settlement was
 posted. The order was then still open and unpaid at 350,000 Toman. Two later POS
@@ -150,18 +175,21 @@ under the same attempt ID. No schema migration is needed. For the field list,
 cashier journal location, VPS SQL query and service-journal command, see the
 [SEP payment timing runbook](../../../docs/runbooks/sep-payment-timing.md).
 
-The prepared 0.2.5 source package is built with:
+The 0.2.5 source package was built with:
 
 ```bash
 python3 apps/sep-bridge/Payments/package.py --sdk-directory '/home/hosein/Downloads/Telegram Desktop/SSP1126-DLLs'
 (cd apps/sep-bridge/dist/payments && sha256sum -c run-cafe-sep-payments-0.2.5-x86.zip.sha256)
 ```
 
-The 0.2.5 upgrade script expects the existing 0.2.4 files and pairing, requires
-the bridge task and backend initiation to be disabled, and leaves the new task
-disabled. The 0.2.4 package remains available for rollback. The 0.2.5 package
-has not been transferred or installed; its SHA-256 is recorded in
-`docs/current-left.md`.
+The package was transferred to the cashier over SFTP, verified there against
+SHA-256 `febce6c062913afa2864f44bb5f0a05ab8b1a6af80f79b68b48f78ee0a373602`,
+and upgraded under the existing account using `upgrade.ps1`. The upgrade
+preserved the DPAPI pairing and journal, installed the pinned SDK pair under a
+new 0.2.5 directory, updated the scheduled task action, and left the task
+disabled with both payment switches false. A disabled health-only launch
+returned the expected 0.2.5 state and was stopped cleanly. The 0.2.4 directory
+remains available for rollback.
 
 The worker converts authorized integer Toman to Rial before the SDK call;
 unused extensions are null, ReserveFlag and totalAmount are -1, and
@@ -230,7 +258,7 @@ activation snapshot is recorded below. Keep any attempt outcome subject to
 explicit receipt or bank verification and audited reconciliation; never retry
 an uncertain attempt.
 
-### Current activation snapshot — 30 October 2026
+### Previous activation snapshot — 30 October 2026
 
 Bridge 0.2.4 was transferred with SHA-256
 `6d7937b87e891f3287eda0e3a9e86ec515a0884ba18f544b5de32822256d879d`, upgraded
