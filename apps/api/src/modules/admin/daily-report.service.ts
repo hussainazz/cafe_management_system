@@ -41,16 +41,30 @@ export function tehranReportRange(query: DailyReportQuery) {
 export async function dailyAccountingReport(prisma: PrismaClient, query: DailyReportQuery) {
   const range = tehranReportRange(query);
   const withinRange = { gte: range.from, lt: range.to };
-  const activeOrdersInRange = { createdAt: withinRange, state: { not: "DELETED" as const } };
+  const activeOrdersInRange = { createdAt: withinRange, state: { not: "DELETED" as const }, isStaffConsumption: false };
   const settlementIds = await settlementIdsForPaymentWindow(prisma, query);
-  const [orders, itemDiscounts, settlements, paymentMethods, reversals, deletedOrders] = await Promise.all([
+  const [orders, itemDiscounts, settlements, paymentMethods, reversals, deletedOrders, priorPayments] = await Promise.all([
     prisma.order.aggregate({ where: activeOrdersInRange, _count: { _all: true }, _sum: { totalAmount: true, discountAmount: true } }),
     prisma.orderItem.aggregate({ where: { order: activeOrdersInRange }, _sum: { discountAmount: true } }),
     prisma.paymentSettlement.aggregate({ where: { id: { in: settlementIds }, reversal: null, order: { state: { not: "DELETED" } } }, _sum: { totalAmount: true } }),
     prisma.payment.groupBy({ by: ["method"], where: { settlement: { id: { in: settlementIds }, reversal: null, order: { state: { not: "DELETED" } } } }, _sum: { amount: true } }),
     prisma.settlementReversal.findMany({ where: { recordedAt: withinRange, settlement: { order: { state: { not: "DELETED" } } } }, select: { settlement: { select: { totalAmount: true } } } }),
-    prisma.order.aggregate({ where: { createdAt: withinRange, state: "DELETED" }, _count: { _all: true }, _sum: { totalAmount: true, paidAmount: true } }),
+    prisma.order.aggregate({ where: { createdAt: withinRange, state: "DELETED", isStaffConsumption: false }, _count: { _all: true }, _sum: { totalAmount: true, paidAmount: true } }),
+    prisma.paymentSettlement.findMany({
+      where: { id: { in: settlementIds }, reversal: null, order: { state: { not: "DELETED" } } },
+      select: { totalAmount: true, recordedAt: true, order: { select: { id: true, orderNumber: true, dailyOrderNumber: true, createdAt: true } } },
+    }),
   ]);
+  const priorDayPayments = new Map<string, { orderId: string; orderNumber: string; dailyOrderNumber: number; createdAt: string; amount: number }>();
+  for (const payment of priorPayments) {
+    const created = tehranDateParts(payment.order.createdAt);
+    const recorded = tehranDateParts(payment.recordedAt);
+    const dayKey = (p: typeof created) => p.year * 10000 + p.month * 100 + p.day;
+    if (dayKey(created) >= dayKey(recorded)) continue;
+    const existing = priorDayPayments.get(payment.order.id);
+    if (existing) existing.amount += payment.totalAmount;
+    else priorDayPayments.set(payment.order.id, { orderId: payment.order.id, orderNumber: payment.order.orderNumber, dailyOrderNumber: payment.order.dailyOrderNumber, createdAt: payment.order.createdAt.toISOString(), amount: payment.totalAmount });
+  }
   const paymentMethodTotals = { cashAmount: 0, cardTerminalAmount: 0, cardTransferAmount: 0 };
   for (const row of paymentMethods) {
     if (row.method === "CASH") paymentMethodTotals.cashAmount = row._sum.amount ?? 0;
@@ -62,6 +76,7 @@ export async function dailyAccountingReport(prisma: PrismaClient, query: DailyRe
       salesAmount: orders._sum.totalAmount ?? 0,
       paidAmount: settlements._sum.totalAmount ?? 0,
       orderCount: orders._count._all,
+      priorDayPayments: [...priorDayPayments.values()],
       paymentMethodTotals,
       discounts: { orderAmount: orders._sum.discountAmount ?? 0, itemAmount: itemDiscounts._sum.discountAmount ?? 0, totalAmount: (orders._sum.discountAmount ?? 0) + (itemDiscounts._sum.discountAmount ?? 0) },
       reversals: { count: reversals.length, amount: reversals.reduce((total, reversal) => total + reversal.settlement.totalAmount, 0) },
