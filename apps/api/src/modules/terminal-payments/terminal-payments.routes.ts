@@ -32,6 +32,20 @@ export const terminalPaymentRoutes: FastifyPluginAsync = async app => {
     if (span) record(request, span.attemptId, { source: "API", schemaVersion: 1, stage: span.stage,
       statusCode: reply.statusCode, durationMs: Math.round(performance.now() - span.started) });
   });
+  const monitorBody = z.object({ bridgeId: z.uuid(), terminalId: z.string().regex(/^[0-9]{8}$/), sentAtUnix: z.number().int() }).strict();
+  app.post("/terminal-payments/monitor-idle", { bodyLimit: 1024, preValidation: strictBody(monitorBody) }, async (request, reply) => {
+    const body = monitorBody.parse(request.body);
+    const message = ["sep-monitor-v1", body.bridgeId, body.terminalId, body.sentAtUnix].join("\n");
+    if (!env.SEP_BRIDGE_HMAC_KEY || body.bridgeId !== env.SEP_BRIDGE_ID || body.terminalId !== env.SEP_TERMINAL_ID ||
+        Math.abs(Date.now() / 1000 - body.sentAtUnix) > 90 ||
+        !verifyTerminalMessage(message, request.headers["x-sep-signature"], env.SEP_BRIDGE_HMAC_KEY)) return reply.code(401).send();
+    const active = await app.prisma.terminalPaymentAttempt.findFirst({
+      where: { bridgeId: body.bridgeId, status: { in: ["PENDING", "UNKNOWN"] } }, select: { id: true },
+    });
+    reply.header("Cache-Control", "no-store");
+    return { data: { bridgeId: body.bridgeId, terminalId: body.terminalId, idle: env.SEP_TERMINAL_ENABLED && !active } };
+  });
+
   app.post("/terminal-payments/:attemptId/timing", { preHandler: requireStaff, bodyLimit: 2048,
     preValidation: strictBody(PosTerminalTimingSchema) }, async (request, reply) => {
     const { attemptId } = params.parse(request.params);
@@ -46,7 +60,7 @@ export const terminalPaymentRoutes: FastifyPluginAsync = async app => {
         !verifyTerminalMessage(timingMessage(body), request.headers["x-sep-signature"], env.SEP_BRIDGE_HMAC_KEY)) return reply.code(401).send();
     const attempt = await app.prisma.terminalPaymentAttempt.findUnique({ where: { id: body.attemptId } });
     if (!attempt || attempt.bridgeId !== body.bridgeId || attempt.terminalId !== body.terminalId) return reply.code(409).send();
-    const persisted = await record(request, body.attemptId, { source: "BRIDGE", schemaVersion: 1, bridgeVersion: "0.2.5", terminalId: body.terminalId,
+    const persisted = await record(request, body.attemptId, { source: "BRIDGE", schemaVersion: 1, timingProtocol: "sep-timing-v1", terminalId: body.terminalId,
       timingsMs: body.timingsMs, completeness: body.timingsMs.workerTotalMs === undefined ? "interrupted" : "completed",
       dispatchGapMs: attempt.dispatchedAt ? attempt.dispatchedAt.getTime() - attempt.createdAt.getTime() : null }, body.attemptId);
     if (!persisted) return reply.code(503).send();
