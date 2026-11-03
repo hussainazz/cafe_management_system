@@ -12,7 +12,7 @@ $protected = [Security.Cryptography.ProtectedData]::Protect($keyBytes,$null,[Sec
 [IO.File]::WriteAllBytes((Join-Path $root 'pairing.dpapi'),$protected)
 [Array]::Clear($keyBytes,0,$keyBytes.Length)
 foreach ($name in @('RunCafe.SepBridge.Payments.exe','RunCafe.SepBridge.PurchaseWorker.exe')) {
-  $path = Join-Path $root "0.2.1\$name.config"
+  $path = Join-Path $root "0.2.6\$name.config"
   [xml]$config = Get-Content $path
   ($config.configuration.appSettings.add | Where-Object {$_.key -eq 'BridgeId'}).value = $BridgeId.ToString()
   $config.Save($path)
