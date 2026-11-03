@@ -1,0 +1,2 @@
+import "./internal.js";
+export {};

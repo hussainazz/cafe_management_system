@@ -1,0 +1,10 @@
+{
+	"runtime": "nodejs24.x",
+	"handler": "apps/menu-svelte/.svelte-kit/vercel-tmp/index.js",
+	"launcherType": "Nodejs",
+	"experimentalResponseStreaming": true,
+	"framework": {
+		"slug": "sveltekit",
+		"version": "3.1.1"
+	}
+}
