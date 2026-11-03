@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 
 
-def test_purchase_lifecycle_reinitializes_after_connection_test():
+def test_purchase_lifecycle_does_not_connection_test():
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="sep-purchase-lifecycle-") as folder:
         exe = Path(folder) / "PurchaseLifecycleTests.exe"
