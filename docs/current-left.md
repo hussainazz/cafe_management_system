@@ -1660,3 +1660,46 @@ or full Stage 10 exit gate.
   active with zero restarts; the 32 VPS uploads remain in place. Rollback
   archive: `/opt/cafe-menu-release-backups/menu-before-menu-20261031-lazy-images-affc9d6.tar.gz`
   (SHA-256 `c08acc6bbe9a37a034d095c7eaf248294410d5a52083c02f8d7584433debf7a7`).
+# Unpaid orders and staff consumption — 3 November 2026
+
+- [x] Style “حذف سفارش” as an outlined danger button and place it beside
+  “تسویه نشده” in one row.
+- [x] In the staff account, place the menu button at the left and its title at
+  the right; show staff orders beside the product form on wide screens and stack
+  them on narrow screens.
+
+- [x] Add an optional name for the person who initiated each staff order and
+  show it on the entry; keep the signed-in user as the audit actor.
+- [x] Allow staff discounts to use either a fixed Toman amount or a percentage.
+- [x] Record the requested scope: set-aside unpaid orders release their tables;
+  staff consumption is a benefit or expense, not a cash, card, or transfer receipt.
+- [x] Implement the staff-visible unpaid list, optional customer name, safe
+  table release, and later settlement. Focused API and POS component tests pass.
+- [x] Implement staff-consumption entries, staff discounts, Manager-only removal,
+  non-tender accounting, and inventory recognition and restoration. Focused
+  API, inventory, and POS component tests pass.
+- [x] Add accounting details for payments in the selected window against orders
+  created on earlier Tehran days. The focused accounting integration test passes.
+- [x] Complete the interface review follow-up: add a quantity-and-price review
+  for staff drafts; clarify the optional initiator name; replace customer-name,
+  discount, and staff-removal browser dialogs with in-page forms; add loading/
+  retry states; distinguish deferred/staff navigation icons; manage drawer
+  focus and keyboard dismissal; enlarge workspace menu touch targets; and
+  respect reduced-motion preferences.
+- [x] POS TypeScript check and optimized production build pass after the
+  interface follow-up; generated `next-env.d.ts` build-only changes were
+  discarded.
+- [ ] Finish the coordinated production build and local release artifact checks.
+  Full API tests pass against the isolated `cafe_management_test` database;
+  all 190 POS tests pass across 29 files; API/POS/web typechecks pass. Contracts
+  build and Prisma client generation pass. The three feature migrations are
+  applied to local development and isolated test databases, with all 45
+  checkout migrations current. Per the user's instruction, no live browser
+  review was performed. No production migration or release activation occurred.
+- [x] Restore local POS-to-API connectivity after the API dev watcher started
+  without `DATABASE_URL` and left port 3001 closed. Built contracts and
+  regenerated the Prisma client, then started the API against the validated
+  local development database. Readiness reports the database connected;
+  unauthenticated `/auth/me` returns 401 and empty login validation returns
+  400 through both the API and POS proxy, confirming the routes are reachable.
+  The local API remains running; no production service was touched.
