@@ -1,5 +1,166 @@
 # Current Stage Status
 
+## Direct purchase and idle terminal monitor — 2 November 2026
+
+- Owner approved direct SDK purchase after initialization, a one-minute idle-only
+  connection monitor, and advisory POS status with age. ADR 0012 updated first.
+- Implemented direct purchase and an isolated, once-per-minute connection worker,
+  authenticated backend idle guard, shared device serialization, and advisory
+  POS status with age and stale/error warnings. Health GET remains passive.
+- Verification: 32 focused POS tests and 18 API tests pass; fake bridge lifecycle,
+  payment safety, monitor priority/concurrency, host transport and worker guards
+  pass. API/POS typechecks and production builds pass.
+- Deployed `cafe-20261102-terminal-monitor-026` (API/contracts/POS), archive
+  SHA-256 `87264329fc5cac6c3a4b6aefe4bb55d542902588e04bb0792f984c3eb4b15c1c`.
+  No schema changes; all 42 deployed migrations were already current. Created
+  and validated a PostgreSQL 17 backup and coordinated runtime rollback first.
+- Installed bridge 0.2.6 on the cashier; package SHA-256
+  `4362f86a1818cf05c9acf7326d7aa215d9b8ac0348579b01fb50dbd7af3969d6`.
+  Preserved pairing, financial journals, old version and registered bank DLLs.
+  Task Running, initiation enabled, automatic connection check returned 00
+  in 2,299 ms. Installed executable/DLL hashes match the package manifest.
+- Public release identity, POS page, nine JS assets, readiness, public menu,
+  and invalid-signature rejection on the monitor endpoint passed. No purchase
+  was initiated during verification.
+- Live scheduled samples returned 00 at cashier timestamps 15:35:42.728,
+  15:36:42.421 and 15:39:42.289 UTC; observed durations 2,299 / 2,193 / 2,051 ms.
+  Listener is only 127.0.0.1:18711, no purchase worker is active, all four VPS
+  services are active and API/POS NRestarts are zero. API timing ingestion is
+  available again; seven bridge timing records have persisted. Current rollback
+  and PostgreSQL backup validated, superseded coordinated copies retired.
+- Left: measure the next user-initiated direct purchase on the physical terminal.
+  No live charge was initiated for release verification.
+
+
+## Production timing report — 2 November 2026
+
+- Collected six recent attempts and correlated local monotonic timings with
+  VPS order/attempt IDs. Four purchase calls returned 98, one connection test
+  returned 03, and one worker reached its 30-second deadline during purchase.
+- Report: [2 November timing report](performance/sep-payment-timing-2026-11-02.md).
+  Sanitized supporting records and CSV are in `artifacts/sep-timing-20261102/`.
+- The monitor release restored API timing ingestion; bridge records now persist.
+- Left: inspect worker deadline behavior and address late financial-evidence delivery. No production changes were
+  performed while collecting this report.
+
+
+## 90,000 Toman attempt diagnosis — 2 November 2026
+
+- Attempt `3b525473-8add-4148-aee7-72ebd6845b3b` reached the bridge,
+  passed intent validation/device mutex/backend claim/SDK validation/setup.
+- Its SDK CONNECTION_TEST returned NON_SUCCESS with response code 68 after
+  10,028 ms. No PURCHASE_REINITIALIZATION or PURCHASE_CALL occurred. Worker
+  cleanup completed and evidence delivery was acknowledged. The price was
+  therefore not submitted through the purchase call.
+- Current cashier-to-terminal ping and TCP connection to 192.168.1.101:1197
+  succeed. This proves present network reachability, not a successful SDK
+  handshake at the time of the attempt. Bitvise being off blocked SSH log
+  inspection; the payment bridge itself ran during the attempt.
+- On the user-authorized diagnostic retry, the installed connection-only worker
+  returned Connected / 00 for terminal 31187710 in 2,245 ms, with cleanup
+  successful and paymentEnabled=false. Diagnostic configuration was restored.
+- Left: observe the next user-initiated POS payment. The earlier connection-test
+  failure was not reproduced; its transient underlying cause remains unknown.
+  No purchase was initiated by the diagnostic retry.
+
+
+## Explicitly authorized test-attempt removal — 2 November 2026
+
+- At the owner's explicit request, manually removed only the 60,000 Toman
+  test attempt `ef22d105-0408-4726-ba74-1ac2f1946dd8` from active storage.
+  Preserved its full row in `audit_logs` as `MANUAL_REMOVE_TERMINAL_ATTEMPT`,
+  with the administrative reason and no asserted financial outcome.
+- Confirmed the worker was stopped and the expired attempt had no linked
+  settlement before removal. The transaction committed; zero PENDING/UNKNOWN
+  attempts remain, releasing the terminal for new POS requests.
+- This was a one-off operator-authorized removal; automatic reservation policy
+  was not changed. Reopening the payment dialog refreshes its availability.
+
+
+## POS terminal refresh fix — 2 November 2026
+
+- Terminal preparation and result-confirmation errors stay inside the payment
+  dialog instead of triggering global automatic recovery and a hard reload.
+- Terminal API requests have a 15-second deadline. Transport exceptions release
+  the dialog's busy state and show an inline error.
+- The dialog checks the terminal's active reservation across orders before
+  offering dispatch, without showing another order's payment actions.
+- Verification: all 28 focused transport, terminal, and settlement tests pass,
+  including conflict handling, stalled requests, and cross-order reservation.
+  POS TypeScript and production build checks also pass.
+- Deployed POS-only release `pos-20261102-terminal-refresh-36162d7` to the VPS.
+  Archive SHA-256: `daf61fc0f33a75b5cc8863810240216d5eecb0e3d29d0685a930ca6456ea05c2`.
+  The source manifest identifies base commit `ea49d8d` and the authorized local
+  patch hash; no commit or push was performed.
+- Verified the rollback archive and existing PostgreSQL backup TOC before
+  activation. Replaced only `apps/pos/.next` and restarted only POS.
+  Public `/pos/release` reports the new ID with `no-store`, `/pos` and all nine
+  referenced JavaScript assets return 200, and proxied API readiness reports
+  database connected. API/POS/web/Nginx are active; POS NRestarts is zero.
+- Left: observe the corrected flow on the cashier browser. No live payment was
+  initiated during deployment verification.
+
+
+## Read-only POS terminal failure audit — 2 November 2026
+
+- The latest recorded payment preparation at 12:24:30 UTC returned HTTP 409;
+  retries at 12:12:38, 12:12:57, 12:13:10, 12:17:22, and 12:17:26 also
+  returned 409. No new terminal attempt was created after the 60,000 Toman
+  attempt `ef22d105-0408-4726-ba74-1ac2f1946dd8`, which remains UNKNOWN.
+- The unresolved-attempt unique index reserves the bridge across orders.
+  The POS checks active attempts only for the current order, so another
+  order can offer dispatch while the terminal is reserved elsewhere.
+- In deployed commit `27755da`, terminal preparation reports failures to
+  the global API recovery handler. That handler schedules an automatic hard
+  reload, including for HTTP 409 business conflicts; subsequent failures
+  within the recovery episode show the error instead of reloading again.
+- VPS access/API journals show timing POSTs returning 404. The active staged
+  API release does not include the timing endpoint; bridge 0.2.5 has local
+  timings but central timing collection is not operational. Earlier activation
+  notes claiming deployed timing support were incorrect.
+- At 12:28 UTC, ordinary tables/orders requests also returned 504 and terminal
+  config/active requests returned 500. The wider service slowdown is observed;
+  its underlying cause is not established by this audit.
+- Terminal conflict handling and cross-order reservation display were fixed
+  and deployed in the POS release above.
+- Left: deploy compatible timing support through an authorized release;
+  investigate the wider service
+  slowdown. No payment, reconciliation, service restart, or deployment was
+  performed during this audit.
+
+## VPS activation and bridge upgrade — 2 November 2026
+
+- Activated the release already staged on the VPS: `cafe-20261101-27755da`,
+  commit `27755daeb9e9cee9a50c23e6f4183a9936d15cd9`. The newer candidate
+  artifact `cafe-20261102-36162d7` was not transferred.
+- Before activation, created PostgreSQL 17 backup
+  `/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261101-27755da.dump`
+  (SHA-256 `086d31b104a5893a29af298f39d8f7fc1420fcb865999f63d989040396f716a2`;
+  `pg_restore --list` passed) and runtime rollback archive
+  `/opt/cafe-menu-release-backups/rollback-before-cafe-20261101-27755da.tar.gz`
+  (SHA-256 `3bb9f6205d4c731f7938f0c51b58110cc34e0d6182d02e0144b8dc1f6252b15b`;
+  `tar -tzf` passed). Retained the active web rollback archive and removed
+  superseded database and application rollback archives after validation.
+- The post-activation migration check found additive migration
+  `20261017120000_settlement_allocation_mode` pending. After the validated
+  backup above, applied it; Prisma now reports all 42 migrations current. API
+  readiness, public-menu API and
+  proxy, `/menu`, `/pos`, and local/public `/pos/release` checks passed. The
+  release endpoint returns `Cache-Control: no-store`; API, POS, web, and Nginx
+  are active with zero API/POS restarts. All 32 VPS product-image uploads
+  remain present.
+- Transferred and installed SEP bridge 0.2.5 on the cashier PC. The package and
+  installed binaries match SHA-256
+  `febce6c062913afa2864f44bb5f0a05ab8b1a6af80f79b68b48f78ee0a373602`. The
+  health check reports 0.2.5, `paymentEnabled=true`, `terminalAccess=true`,
+  and `manualVerificationRequired=true`. Pairing and attempt journal remain
+  present. The VPS flag and cashier switches are enabled; the scheduled task is
+  Running and listens only at `127.0.0.1:18711`. No purchase worker or charge
+  was active during verification.
+- Left: prepare the requested production timing samples after the user confirms
+  the total Toman limit and payment count. The public-menu throttled-browser
+  visual review also remains outstanding.
+
 ## Local release candidate — 2 November 2026
 
 - Published all requested source changes to `main`; `main` and `origin/main`
@@ -13,12 +174,10 @@
   uploads and build caches. POS build ID is `cafe-20261102-36162d7`.
 - Kept the separate disabled SEP bridge 0.2.5 package alongside the release
   (SHA-256 `febce6c062913afa2864f44bb5f0a05ab8b1a6af80f79b68b48f78ee0a373602`).
-- The prior candidate `cafe-20261101-27755da` remains staged on the VPS per the
-  previous record. This new candidate is local only; no VPS transfer, activation,
-  migration, or service operation was performed.
-- Left: production activation and supervised bridge installation remain pending
-  separate authorization. The public-menu throttled-browser visual review also
-  remains outstanding.
+- The prior candidate `cafe-20261101-27755da` has been activated from its
+  existing VPS staging directory. The built artifact for
+  `cafe-20261102-36162d7` remains local; no transfer or activation was performed.
+- Left: the public-menu throttled-browser visual review remains outstanding.
 
 
 ## Public-menu product image loading — 1 November 2026
