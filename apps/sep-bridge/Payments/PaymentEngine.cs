@@ -22,6 +22,7 @@ namespace RunCafe.SepBridge.Payments
         private readonly IPaymentBackend backend;
         private readonly IPurchaseWorker worker;
         private bool running;
+        public bool IsBusy { get { lock (gate) return running; } }
         public PaymentEngine(string directory, string bridgeId, string terminalId, byte[] key, IPaymentBackend backend, IPurchaseWorker worker)
         {
             this.directory = directory; this.bridgeId = bridgeId; this.terminalId = terminalId; this.key = key;
