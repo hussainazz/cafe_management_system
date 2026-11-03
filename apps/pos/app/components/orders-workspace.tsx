@@ -1830,7 +1830,7 @@ export function SettlementSheet({
     setTenders((current) => current.map((tender) => (tender.id === id ? { ...tender, ...patch } : tender)));
   };
   const settle = async () => {
-    if (busy || terminalLocked || !isReconciled) return;
+    if (busy || terminalLocked || (useTerminal && terminal.terminalOccupied) || !isReconciled) return;
     if (useTerminal) {
       await terminal.start({ expectedVersion: order.version, ...(byAmount ? { allocationMode: "AMOUNT" as const, amount: selectedAmount } : { allocationMode: "ITEM_QUANTITY" as const, allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })) }), payments: tenders.map(tender => tender.method === "CARD_TRANSFER" && tender.reference.trim() ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() } : { method: tender.method, amount: positiveIntegerAmount(tender.amount) }) }, attemptKey);
       return;
@@ -1974,7 +1974,7 @@ export function SettlementSheet({
           </button>
           <button
             className="button button--primary"
-            disabled={busy || (terminalLocked ? !terminalResolved : !isReconciled || (useTerminal && cardTenders.length !== 1))}
+            disabled={busy || (terminalLocked ? !terminalResolved : !isReconciled || (useTerminal && (cardTenders.length !== 1 || terminal.terminalOccupied)))}
             onClick={() => void (terminalResolved ? terminal.finish() : settle())}
           >
             {busy ? "در حال بررسی…" : terminalResolved ? "بازگشت به سفارش" : terminalLocked ? "در انتظار بررسی پرداخت" : historicalSettlement ? "ثبت اصلاح پرداخت" : useTerminal ? "شروع پرداخت با کارت‌خوان" : "ثبت پرداخت"}
