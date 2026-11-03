@@ -266,13 +266,32 @@ export async function readPosTables(): Promise<ApiResult<{ tableSeatingLimitMinu
 
 export async function readOpenOrders() {
   const parsed = parseResponse(
-    await request<unknown>("/orders?state=OPEN&limit=100", undefined, false),
+    await request<unknown>("/orders?state=OPEN&deferred=false&limit=100", undefined, false),
     OrderListResponseSchema,
     "فهرست سفارش‌های باز معتبر نیست.",
   );
   return parsed.ok
     ? { ok: true as const, data: parsed.data.data.orders, replayed: parsed.replayed }
     : parsed;
+}
+
+export async function deferOpenOrder(orderId: string, expectedVersion: number, customerName: string) {
+  const parsed = parseResponse(await request<unknown>(`/orders/${encodeURIComponent(orderId)}/defer`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedVersion, customerName }),
+  }), OrderDetailResponseSchema, "پاسخ ثبت سفارش تسویه‌نشده معتبر نیست.");
+  return parsed.ok ? { ok: true as const, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+
+export type StaffConsumptionEntry = { id: string; version: number; dailyOrderNumber: number; createdAt: string; username: string; staffName: string | null; totalAmount: number; discountAmount: number; items: Array<{ productNameSnapshot: string; quantity: number }> };
+export async function readStaffConsumption(cursor?: string) {
+  const result = await request<{ data: StaffConsumptionEntry[]; meta: { nextCursor: string | null } }>(`/staff-consumption${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, undefined, false);
+  return result.ok ? { ok: true as const, data: result.data, replayed: result.replayed } : result;
+}
+export async function createStaffConsumption(input: CreateOrderRequest, key: string, staffName?: string) {
+  return request<{ data: { id: string } }>("/staff-consumption", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify({ ...input, ...(staffName ? { staffName } : {}) }) });
+}
+export async function discountStaffConsumption(orderId: string, expectedVersion: number, discount: { kind: "FIXED" | "PERCENTAGE"; value: number }) {
+  return request(`/staff-consumption/${encodeURIComponent(orderId)}/discount`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedVersion, discount }) });
 }
 
 export async function readOrderList(filters: OrderListQuery) {
