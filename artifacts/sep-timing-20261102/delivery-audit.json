@@ -1,0 +1,14 @@
+[
+  {
+    "entityId": "041c697e-53d0-42c6-b52f-e540cb523cbe",
+    "operation": "CONFLICTING_TERMINAL_EVIDENCE",
+    "firstAt": "2026-11-02T13:58:01.782",
+    "count": 31
+  },
+  {
+    "entityId": "041c697e-53d0-42c6-b52f-e540cb523cbe",
+    "operation": "RECONCILE_TERMINAL_ATTEMPT",
+    "firstAt": "2026-11-02T13:57:58.878",
+    "count": 1
+  }
+]

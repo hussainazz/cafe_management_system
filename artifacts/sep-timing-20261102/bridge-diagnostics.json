@@ -1,0 +1,2806 @@
+[
+  {
+    "attemptId": "041c697e-53d0-42c6-b52f-e540cb523cbe",
+    "timingsMs": {
+      "intentValidationMs": 36,
+      "deviceMutexMs": 0,
+      "backendClaimMs": 411,
+      "sdkVerificationMs": 21,
+      "sdkFactoryMs": 4,
+      "setLanMs": 8,
+      "sdkInitializationMs": 72,
+      "connectionTestMs": 2001,
+      "purchaseReinitializationMs": 0,
+      "prePurchaseMs": 2761,
+      "purchaseCallMs": 7937,
+      "sdkCleanupMs": 1,
+      "diagnosticWriteMs": 35,
+      "workerTotalMs": 10702,
+      "bridgeAcceptMs": 103,
+      "dispatchQueueMs": 0,
+      "workerProcessMs": 10789
+    },
+    "events": [
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:57:23.7637945Z",
+        "phase": "BRIDGE_ACCEPT",
+        "outcome": "TIMED",
+        "elapsedMs": 103
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:57:23.7647949Z",
+        "phase": "DISPATCH_QUEUE",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:57:23.7657964Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_STARTING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:23.8679425Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "STARTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:23.9320366Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "TIMED",
+        "elapsedMs": 36
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:23.9330380Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.0341955Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "WAITING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.0351965Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.0351965Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "ACQUIRED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.0361979Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "REQUESTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.4498190Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "TIMED",
+        "elapsedMs": 411
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.4508210Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "ACCEPTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.4628389Z",
+        "phase": "SDK_HASHES",
+        "outcome": "CHECKING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.4848704Z",
+        "phase": "SDK_HASHES",
+        "outcome": "TIMED",
+        "elapsedMs": 21
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.4858718Z",
+        "phase": "SDK_HASHES",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.4868733Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "CREATING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.4918800Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "TIMED",
+        "elapsedMs": 4
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.5018940Z",
+        "phase": "SET_LAN",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.5139120Z",
+        "phase": "SET_LAN",
+        "outcome": "TIMED",
+        "elapsedMs": 8
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.5139120Z",
+        "phase": "SET_LAN",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.5149150Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.5880205Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 72
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.5880205Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:24.5890251Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:26.5924508Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "TIMED",
+        "elapsedMs": 2001
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:26.5924508Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "PASSED",
+        "responseCode": "00"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:26.5934517Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:26.5954567Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:26.5954567Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:26.5964561Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "ENTERING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:34.5341459Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "TIMED",
+        "elapsedMs": 7937
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:34.5351463Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "RETURNED_RESULT",
+        "responseCode": "98"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:34.5351463Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:34.5371528Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "TIMED",
+        "elapsedMs": 1
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:34.5381552Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:34.5381552Z",
+        "phase": "WORKER_TOTAL",
+        "outcome": "TIMED",
+        "elapsedMs": 10702
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2228,
+        "timestampUtc": "2026-11-02T13:57:34.5401566Z",
+        "phase": "WORKER_RESULT",
+        "outcome": "EMITTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:57:34.5551753Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "EXITED",
+        "exitCode": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:57:34.5571793Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "TIMED",
+        "elapsedMs": 10789
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:57:34.5591817Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_RESULT_RECEIVED"
+      }
+    ],
+    "delivery": [
+      {
+        "phaseOutcome": "EVIDENCE_DELIVERY, RETRY_REQUIRED",
+        "count": 25
+      },
+      {
+        "phaseOutcome": "TIMING_DELIVERY, RETRY_REQUIRED",
+        "count": 25
+      }
+    ]
+  },
+  {
+    "attemptId": "074a64e9-4137-4d48-933a-03b5fc6c206c",
+    "timingsMs": {
+      "bridgeAcceptMs": 102,
+      "dispatchQueueMs": 0,
+      "intentValidationMs": 58,
+      "deviceMutexMs": 0,
+      "backendClaimMs": 416,
+      "sdkVerificationMs": 22,
+      "sdkFactoryMs": 3,
+      "setLanMs": 7,
+      "sdkInitializationMs": 68,
+      "connectionTestMs": 1895,
+      "purchaseReinitializationMs": 0,
+      "workerProcessMs": 30016
+    },
+    "events": [
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:58:37.9695245Z",
+        "phase": "BRIDGE_ACCEPT",
+        "outcome": "TIMED",
+        "elapsedMs": 102
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:58:37.9705264Z",
+        "phase": "DISPATCH_QUEUE",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:58:37.9715274Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_STARTING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.0866970Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "STARTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.1888432Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "TIMED",
+        "elapsedMs": 58
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.1898436Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.2929933Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "WAITING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.2939958Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.2939958Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "ACQUIRED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.2949962Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "REQUESTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7136256Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "TIMED",
+        "elapsedMs": 416
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7146275Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "ACCEPTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7256420Z",
+        "phase": "SDK_HASHES",
+        "outcome": "CHECKING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7486749Z",
+        "phase": "SDK_HASHES",
+        "outcome": "TIMED",
+        "elapsedMs": 22
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7496769Z",
+        "phase": "SDK_HASHES",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7506793Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "CREATING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7546841Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "TIMED",
+        "elapsedMs": 3
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7657006Z",
+        "phase": "SET_LAN",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7767171Z",
+        "phase": "SET_LAN",
+        "outcome": "TIMED",
+        "elapsedMs": 7
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7777176Z",
+        "phase": "SET_LAN",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.7777176Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.8478182Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 68
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.8478182Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:38.8478182Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:40.7457074Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "TIMED",
+        "elapsedMs": 1895
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:40.7457074Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "PASSED",
+        "responseCode": "00"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:40.7467109Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:40.7487138Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:40.7487138Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4596,
+        "timestampUtc": "2026-11-02T13:58:40.7497168Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "ENTERING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:59:07.9878537Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "TIMEOUT"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:59:07.9898571Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "TIMED",
+        "elapsedMs": 30016
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:59:07.9898571Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "NO_WORKER_RESULT"
+      }
+    ],
+    "delivery": [
+      {
+        "phaseOutcome": "EVIDENCE_DELIVERY, ACKNOWLEDGED",
+        "count": 1
+      },
+      {
+        "phaseOutcome": "TIMING_DELIVERY, RETRY_REQUIRED",
+        "count": 17
+      }
+    ]
+  },
+  {
+    "attemptId": "0e0d1f6f-d21e-4ae5-a782-fc7b03f73219",
+    "timingsMs": {
+      "intentValidationMs": 41,
+      "deviceMutexMs": 0,
+      "backendClaimMs": 443,
+      "sdkVerificationMs": 17,
+      "sdkFactoryMs": 2,
+      "setLanMs": 5,
+      "sdkInitializationMs": 41,
+      "connectionTestMs": 2069,
+      "purchaseReinitializationMs": 0,
+      "prePurchaseMs": 2829,
+      "purchaseCallMs": 1646,
+      "sdkCleanupMs": 1,
+      "diagnosticWriteMs": 45,
+      "workerTotalMs": 4479,
+      "bridgeAcceptMs": 101,
+      "dispatchQueueMs": 0,
+      "workerProcessMs": 4576
+    },
+    "events": [
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:01:17.2198324Z",
+        "phase": "BRIDGE_ACCEPT",
+        "outcome": "TIMED",
+        "elapsedMs": 101
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:01:17.2208359Z",
+        "phase": "DISPATCH_QUEUE",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:01:17.2208359Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_STARTING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.3360020Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "STARTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.4141194Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "TIMED",
+        "elapsedMs": 41
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.4141194Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.5162789Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "WAITING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.5172809Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.5172809Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "ACQUIRED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.5182818Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "REQUESTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.9639397Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "TIMED",
+        "elapsedMs": 443
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.9639397Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "ACCEPTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.9759571Z",
+        "phase": "SDK_HASHES",
+        "outcome": "CHECKING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.9939827Z",
+        "phase": "SDK_HASHES",
+        "outcome": "TIMED",
+        "elapsedMs": 17
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.9939827Z",
+        "phase": "SDK_HASHES",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.9949842Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "CREATING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:17.9979886Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "TIMED",
+        "elapsedMs": 2
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:18.0059997Z",
+        "phase": "SET_LAN",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:18.0140128Z",
+        "phase": "SET_LAN",
+        "outcome": "TIMED",
+        "elapsedMs": 5
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:18.0140128Z",
+        "phase": "SET_LAN",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:18.0140128Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:18.0570768Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 41
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:18.0570768Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:18.0570768Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:20.1282507Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "TIMED",
+        "elapsedMs": 2069
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:20.1292531Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "PASSED",
+        "responseCode": "00"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:20.1302556Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:20.1312555Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:20.1312555Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:20.1312555Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "ENTERING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:21.7784789Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "TIMED",
+        "elapsedMs": 1646
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:21.7784789Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "RETURNED_RESULT",
+        "responseCode": "98"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:21.7794824Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:21.7814868Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "TIMED",
+        "elapsedMs": 1
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:21.7814868Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:21.7824857Z",
+        "phase": "WORKER_TOTAL",
+        "outcome": "TIMED",
+        "elapsedMs": 4479
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4612,
+        "timestampUtc": "2026-11-02T14:01:21.7834892Z",
+        "phase": "WORKER_RESULT",
+        "outcome": "EMITTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:01:21.7975070Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "EXITED",
+        "exitCode": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:01:21.7995104Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "TIMED",
+        "elapsedMs": 4576
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:01:21.7995104Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_RESULT_RECEIVED"
+      }
+    ],
+    "delivery": [
+      {
+        "phaseOutcome": "EVIDENCE_DELIVERY, ACKNOWLEDGED",
+        "count": 1
+      },
+      {
+        "phaseOutcome": "TIMING_DELIVERY, RETRY_REQUIRED",
+        "count": 7
+      }
+    ]
+  },
+  {
+    "attemptId": "3b525473-8add-4148-aee7-72ebd6845b3b",
+    "timingsMs": {
+      "intentValidationMs": 506,
+      "deviceMutexMs": 0,
+      "backendClaimMs": 784,
+      "sdkVerificationMs": 113,
+      "sdkFactoryMs": 101,
+      "setLanMs": 105,
+      "sdkInitializationMs": 275,
+      "connectionTestMs": 10028,
+      "sdkCleanupMs": 0,
+      "diagnosticWriteMs": 1237,
+      "workerTotalMs": 14625,
+      "bridgeAcceptMs": 306,
+      "dispatchQueueMs": 58,
+      "workerProcessMs": 16363
+    },
+    "events": [
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:44:59.2074316Z",
+        "phase": "BRIDGE_ACCEPT",
+        "outcome": "TIMED",
+        "elapsedMs": 306
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:44:59.2665209Z",
+        "phase": "DISPATCH_QUEUE",
+        "outcome": "TIMED",
+        "elapsedMs": 58
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:44:59.2675203Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_STARTING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:01.9005016Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "STARTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:03.6712447Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "TIMED",
+        "elapsedMs": 506
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:03.6722461Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:03.8274688Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "WAITING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:03.8284687Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:03.8294701Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "ACQUIRED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:03.8294701Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "REQUESTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:04.6157055Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "TIMED",
+        "elapsedMs": 784
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:04.6167054Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "ACCEPTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:04.6767916Z",
+        "phase": "SDK_HASHES",
+        "outcome": "CHECKING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:04.7909674Z",
+        "phase": "SDK_HASHES",
+        "outcome": "TIMED",
+        "elapsedMs": 113
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:04.7919684Z",
+        "phase": "SDK_HASHES",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:04.7939708Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "CREATING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:04.8961349Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "TIMED",
+        "elapsedMs": 101
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:04.9542196Z",
+        "phase": "SET_LAN",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:05.0633949Z",
+        "phase": "SET_LAN",
+        "outcome": "TIMED",
+        "elapsedMs": 105
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:05.0633949Z",
+        "phase": "SET_LAN",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:05.0643979Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:05.3398318Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 275
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:05.3408327Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:05.3408327Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:15.3746210Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "TIMED",
+        "elapsedMs": 10028
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:15.3756240Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "NON_SUCCESS",
+        "exitCode": 1,
+        "responseCode": "68"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:15.3756240Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:15.3776244Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:15.3776244Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:15.3776244Z",
+        "phase": "WORKER_TOTAL",
+        "outcome": "TIMED",
+        "elapsedMs": 14625
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6100,
+        "timestampUtc": "2026-11-02T13:45:15.3786268Z",
+        "phase": "WORKER_RESULT",
+        "outcome": "EMITTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:45:15.5468832Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "EXITED",
+        "exitCode": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:45:15.6370109Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "TIMED",
+        "elapsedMs": 16363
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:45:15.6370109Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_RESULT_RECEIVED"
+      }
+    ],
+    "delivery": [
+      {
+        "phaseOutcome": "EVIDENCE_DELIVERY, ACKNOWLEDGED",
+        "count": 1
+      },
+      {
+        "phaseOutcome": "TIMING_DELIVERY, RETRY_REQUIRED",
+        "count": 77
+      }
+    ]
+  },
+  {
+    "attemptId": "6d3f0b8f-884d-4aea-b855-7d40c35bc48d",
+    "timingsMs": {
+      "intentValidationMs": 36,
+      "deviceMutexMs": 0,
+      "backendClaimMs": 390,
+      "sdkVerificationMs": 21,
+      "sdkFactoryMs": 4,
+      "setLanMs": 7,
+      "sdkInitializationMs": 75,
+      "connectionTestMs": 2098,
+      "sdkCleanupMs": 1044,
+      "diagnosticWriteMs": 38,
+      "workerTotalMs": 3886,
+      "bridgeAcceptMs": 101,
+      "dispatchQueueMs": 0,
+      "workerProcessMs": 3976
+    },
+    "events": [
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:00:57.5477924Z",
+        "phase": "BRIDGE_ACCEPT",
+        "outcome": "TIMED",
+        "elapsedMs": 101
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:00:57.5487918Z",
+        "phase": "DISPATCH_QUEUE",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:00:57.5497948Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_STARTING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:57.6559463Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "STARTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:57.7210417Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "TIMED",
+        "elapsedMs": 36
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:57.7220422Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:57.8248268Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "WAITING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:57.8258288Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:57.8258288Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "ACQUIRED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:57.8268307Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "REQUESTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2194008Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "TIMED",
+        "elapsedMs": 390
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2204028Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "ACCEPTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2324197Z",
+        "phase": "SDK_HASHES",
+        "outcome": "CHECKING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2554521Z",
+        "phase": "SDK_HASHES",
+        "outcome": "TIMED",
+        "elapsedMs": 21
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2554521Z",
+        "phase": "SDK_HASHES",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2564530Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "CREATING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2614629Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "TIMED",
+        "elapsedMs": 4
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2724773Z",
+        "phase": "SET_LAN",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2834933Z",
+        "phase": "SET_LAN",
+        "outcome": "TIMED",
+        "elapsedMs": 7
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2844958Z",
+        "phase": "SET_LAN",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.2844958Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.3606067Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 75
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.3616087Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:00:58.3616087Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:01:00.4622204Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "TIMED",
+        "elapsedMs": 2098
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:01:00.4622204Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "NON_SUCCESS",
+        "exitCode": 1,
+        "responseCode": "03"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:01:00.4632208Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:01:01.5084746Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "TIMED",
+        "elapsedMs": 1044
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:01:01.5094751Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:01:01.5104760Z",
+        "phase": "WORKER_TOTAL",
+        "outcome": "TIMED",
+        "elapsedMs": 3886
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 4680,
+        "timestampUtc": "2026-11-02T14:01:01.5114775Z",
+        "phase": "WORKER_RESULT",
+        "outcome": "EMITTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:01:01.5254968Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "EXITED",
+        "exitCode": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:01:01.5285027Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "TIMED",
+        "elapsedMs": 3976
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T14:01:01.5285027Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_RESULT_RECEIVED"
+      }
+    ],
+    "delivery": [
+      {
+        "phaseOutcome": "EVIDENCE_DELIVERY, ACKNOWLEDGED",
+        "count": 1
+      },
+      {
+        "phaseOutcome": "TIMING_DELIVERY, RETRY_REQUIRED",
+        "count": 9
+      }
+    ]
+  },
+  {
+    "attemptId": "706ee88e-6cf6-4d94-bf3d-a3599ddc61c1",
+    "timingsMs": {
+      "intentValidationMs": 44,
+      "deviceMutexMs": 0,
+      "backendClaimMs": 372,
+      "sdkVerificationMs": 20,
+      "sdkFactoryMs": 3,
+      "setLanMs": 6,
+      "sdkInitializationMs": 43,
+      "connectionTestMs": 1897,
+      "purchaseReinitializationMs": 0,
+      "prePurchaseMs": 2647,
+      "purchaseCallMs": 2130,
+      "sdkCleanupMs": 1,
+      "diagnosticWriteMs": 87,
+      "workerTotalMs": 4782,
+      "bridgeAcceptMs": 101,
+      "dispatchQueueMs": 0,
+      "workerProcessMs": 4924
+    },
+    "events": [
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:57:59.9051146Z",
+        "phase": "BRIDGE_ACCEPT",
+        "outcome": "TIMED",
+        "elapsedMs": 101
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:57:59.9061160Z",
+        "phase": "DISPATCH_QUEUE",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:57:59.9061160Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_STARTING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.0262894Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "STARTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.1034018Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "TIMED",
+        "elapsedMs": 44
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.1034018Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.2055751Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "WAITING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.2065765Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.2065765Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "ACQUIRED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.2075780Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "REQUESTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.5822059Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "TIMED",
+        "elapsedMs": 372
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.5832063Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "ACCEPTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.5952248Z",
+        "phase": "SDK_HASHES",
+        "outcome": "CHECKING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.6162542Z",
+        "phase": "SDK_HASHES",
+        "outcome": "TIMED",
+        "elapsedMs": 20
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.6172542Z",
+        "phase": "SDK_HASHES",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.6182587Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "CREATING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.6222630Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "TIMED",
+        "elapsedMs": 3
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.6302766Z",
+        "phase": "SET_LAN",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.6402881Z",
+        "phase": "SET_LAN",
+        "outcome": "TIMED",
+        "elapsedMs": 6
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.6402881Z",
+        "phase": "SET_LAN",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.6412895Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.6843520Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 43
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.7314347Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:00.7314347Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:02.6306192Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "TIMED",
+        "elapsedMs": 1897
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:02.6316186Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "PASSED",
+        "responseCode": "00"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:02.6326210Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:02.6336220Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:02.6346250Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:02.6356254Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "ENTERING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:04.7662674Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "TIMED",
+        "elapsedMs": 2130
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:04.7662674Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "RETURNED_RESULT",
+        "responseCode": "98"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:04.7672689Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:04.7682698Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "TIMED",
+        "elapsedMs": 1
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:04.7702742Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:04.7712747Z",
+        "phase": "WORKER_TOTAL",
+        "outcome": "TIMED",
+        "elapsedMs": 4782
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5744,
+        "timestampUtc": "2026-11-02T13:58:04.7722771Z",
+        "phase": "WORKER_RESULT",
+        "outcome": "EMITTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:58:04.8313634Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "EXITED",
+        "exitCode": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:58:04.8343662Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "TIMED",
+        "elapsedMs": 4924
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:58:04.8353677Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_RESULT_RECEIVED"
+      }
+    ],
+    "delivery": [
+      {
+        "phaseOutcome": "EVIDENCE_DELIVERY, ACKNOWLEDGED",
+        "count": 1
+      },
+      {
+        "phaseOutcome": "TIMING_DELIVERY, RETRY_REQUIRED",
+        "count": 22
+      }
+    ]
+  },
+  {
+    "attemptId": "a991fe25-8c89-4b48-a96a-8e27067fc658",
+    "timingsMs": {
+      "intentValidationMs": 251,
+      "deviceMutexMs": 0,
+      "backendClaimMs": 693,
+      "sdkVerificationMs": 112,
+      "sdkFactoryMs": 4,
+      "setLanMs": 8,
+      "sdkInitializationMs": 70,
+      "connectionTestMs": 2090,
+      "purchaseReinitializationMs": 0,
+      "prePurchaseMs": 3545,
+      "purchaseCallMs": 2460,
+      "sdkCleanupMs": 1,
+      "diagnosticWriteMs": 40,
+      "workerTotalMs": 6010,
+      "bridgeAcceptMs": 161,
+      "dispatchQueueMs": 0,
+      "workerProcessMs": 6087
+    },
+    "events": [
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:55:28.3821011Z",
+        "phase": "BRIDGE_ACCEPT",
+        "outcome": "TIMED",
+        "elapsedMs": 161
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:55:28.3831046Z",
+        "phase": "DISPATCH_QUEUE",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:55:28.3851055Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_STARTING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:28.5293147Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "STARTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:28.8137248Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "TIMED",
+        "elapsedMs": 251
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:28.8137248Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:28.9639438Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "WAITING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:28.9649453Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:28.9659457Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "ACQUIRED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:28.9659457Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "REQUESTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.6619545Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "TIMED",
+        "elapsedMs": 693
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.6629570Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "ACCEPTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.7250481Z",
+        "phase": "SDK_HASHES",
+        "outcome": "CHECKING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.8372119Z",
+        "phase": "SDK_HASHES",
+        "outcome": "TIMED",
+        "elapsedMs": 112
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.8382143Z",
+        "phase": "SDK_HASHES",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.8402239Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "CREATING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.8452255Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "TIMED",
+        "elapsedMs": 4
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.8582429Z",
+        "phase": "SET_LAN",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.8702593Z",
+        "phase": "SET_LAN",
+        "outcome": "TIMED",
+        "elapsedMs": 8
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.8712628Z",
+        "phase": "SET_LAN",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.8722607Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.9433679Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 70
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.9433679Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:29.9443684Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:32.0354120Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "TIMED",
+        "elapsedMs": 2090
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:32.0364135Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "PASSED",
+        "responseCode": "00"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:32.0374159Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:32.0384169Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:32.0394194Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:32.0394194Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "ENTERING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:34.4997186Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "TIMED",
+        "elapsedMs": 2460
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:34.5007216Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "RETURNED_RESULT",
+        "responseCode": "98"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:34.5017220Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:34.5027255Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "TIMED",
+        "elapsedMs": 1
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:34.5037260Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:34.5047264Z",
+        "phase": "WORKER_TOTAL",
+        "outcome": "TIMED",
+        "elapsedMs": 6010
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 5108,
+        "timestampUtc": "2026-11-02T13:55:34.5067298Z",
+        "phase": "WORKER_RESULT",
+        "outcome": "EMITTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:55:34.5207486Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "EXITED",
+        "exitCode": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:55:34.5227536Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "TIMED",
+        "elapsedMs": 6087
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 2352,
+        "timestampUtc": "2026-11-02T13:55:34.5227536Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_RESULT_RECEIVED"
+      }
+    ],
+    "delivery": [
+      {
+        "phaseOutcome": "EVIDENCE_DELIVERY, ACKNOWLEDGED",
+        "count": 1
+      },
+      {
+        "phaseOutcome": "TIMING_DELIVERY, RETRY_REQUIRED",
+        "count": 34
+      }
+    ]
+  },
+  {
+    "attemptId": "ef22d105-0408-4726-ba74-1ac2f1946dd8",
+    "timingsMs": {
+      "intentValidationMs": 49,
+      "deviceMutexMs": 0,
+      "backendClaimMs": 446,
+      "sdkVerificationMs": 14,
+      "sdkFactoryMs": 4,
+      "setLanMs": 6,
+      "sdkInitializationMs": 60,
+      "connectionTestMs": 1897,
+      "purchaseReinitializationMs": 0,
+      "prePurchaseMs": 2715,
+      "purchaseCallMs": 2158,
+      "sdkCleanupMs": 1,
+      "diagnosticWriteMs": 56,
+      "workerTotalMs": 4876,
+      "bridgeAcceptMs": 114,
+      "dispatchQueueMs": 10,
+      "workerProcessMs": 5115
+    },
+    "events": [
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6520,
+        "timestampUtc": "2026-11-02T12:12:00.7439190Z",
+        "phase": "BRIDGE_ACCEPT",
+        "outcome": "TIMED",
+        "elapsedMs": 114
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6520,
+        "timestampUtc": "2026-11-02T12:12:00.7559347Z",
+        "phase": "DISPATCH_QUEUE",
+        "outcome": "TIMED",
+        "elapsedMs": 10
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6520,
+        "timestampUtc": "2026-11-02T12:12:00.7599431Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_STARTING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:00.9452149Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "STARTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.0343441Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "TIMED",
+        "elapsedMs": 49
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.0343441Z",
+        "phase": "INTENT_VALIDATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.1364965Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "WAITING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.1364965Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.1374959Z",
+        "phase": "DEVICE_MUTEX",
+        "outcome": "ACQUIRED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.1374959Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "REQUESTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.5861566Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "TIMED",
+        "elapsedMs": 446
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.5861566Z",
+        "phase": "BACKEND_CLAIM",
+        "outcome": "ACCEPTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.5971718Z",
+        "phase": "SDK_HASHES",
+        "outcome": "CHECKING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.6121944Z",
+        "phase": "SDK_HASHES",
+        "outcome": "TIMED",
+        "elapsedMs": 14
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.6131994Z",
+        "phase": "SDK_HASHES",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.6152029Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "CREATING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.6202057Z",
+        "phase": "SDK_FACTORY",
+        "outcome": "TIMED",
+        "elapsedMs": 4
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.6292215Z",
+        "phase": "SET_LAN",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.6382337Z",
+        "phase": "SET_LAN",
+        "outcome": "TIMED",
+        "elapsedMs": 6
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.6392347Z",
+        "phase": "SET_LAN",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.6402362Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.7033291Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 60
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.7033291Z",
+        "phase": "SDK_INITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:01.7043290Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:03.6021264Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "TIMED",
+        "elapsedMs": 1897
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:03.6021264Z",
+        "phase": "CONNECTION_TEST",
+        "outcome": "PASSED",
+        "responseCode": "00"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:03.6031273Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:03.6041309Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "TIMED",
+        "elapsedMs": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:03.6041309Z",
+        "phase": "PURCHASE_REINITIALIZATION",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:03.6051298Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "ENTERING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:05.7633105Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "TIMED",
+        "elapsedMs": 2158
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:05.7643130Z",
+        "phase": "PURCHASE_CALL",
+        "outcome": "RETURNED_RESULT",
+        "responseCode": "98"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:05.7643130Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "CALLING"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:05.7663139Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "TIMED",
+        "elapsedMs": 1
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:05.7663139Z",
+        "phase": "SDK_CLEANUP",
+        "outcome": "PASSED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:05.7673144Z",
+        "phase": "WORKER_TOTAL",
+        "outcome": "TIMED",
+        "elapsedMs": 4876
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 8072,
+        "timestampUtc": "2026-11-02T12:12:05.7683174Z",
+        "phase": "WORKER_RESULT",
+        "outcome": "EMITTED"
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6520,
+        "timestampUtc": "2026-11-02T12:12:05.8764756Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "EXITED",
+        "exitCode": 0
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6520,
+        "timestampUtc": "2026-11-02T12:12:05.8814866Z",
+        "phase": "WORKER_PROCESS",
+        "outcome": "TIMED",
+        "elapsedMs": 5115
+      },
+      {
+        "schemaVersion": 1,
+        "bridgeVersion": "0.2.5",
+        "processId": 6520,
+        "timestampUtc": "2026-11-02T12:12:05.8824911Z",
+        "phase": "HOST_EXECUTION",
+        "outcome": "WORKER_RESULT_RECEIVED"
+      }
+    ],
+    "delivery": [
+      {
+        "phaseOutcome": "EVIDENCE_DELIVERY, ACKNOWLEDGED",
+        "count": 1
+      },
+      {
+        "phaseOutcome": "TIMING_DELIVERY, RETRY_REQUIRED",
+        "count": 432
+      }
+    ]
+  }
+]

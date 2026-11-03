@@ -1,0 +1,7 @@
+timeIran,orderNumber,amountToman,attemptId,outcome,intentValidationMs,deviceMutexMs,backendClaimMs,sdkVerificationMs,sdkFactoryMs,setLanMs,sdkInitializationMs,connectionTestMs,purchaseReinitializationMs,prePurchaseMs,purchaseCallMs,sdkCleanupMs,diagnosticWriteMs,workerTotalMs,bridgeAcceptMs,dispatchQueueMs,workerProcessMs
+17:25:55,68,30000,a991fe25-8c89-4b48-a96a-8e27067fc658,Purchase returned 98,251,0,693,112,4,8,70,2090,0,3545,2460,1,40,6010,161,0,6087
+17:27:50,69,60000,041c697e-53d0-42c6-b52f-e540cb523cbe,Purchase returned 98,36,0,411,21,4,8,72,2001,0,2761,7937,1,35,10702,103,0,10789
+17:28:26,70,90000,706ee88e-6cf6-4d94-bf3d-a3599ddc61c1,Purchase returned 98,44,0,372,20,3,6,43,1897,0,2647,2130,1,87,4782,101,0,4924
+17:29:04,59,510000,074a64e9-4137-4d48-933a-03b5fc6c206c,Worker deadline during purchase,58,0,416,22,3,7,68,1895,0,,,,,,102,0,30016
+17:31:24,70,90000,6d3f0b8f-884d-4aea-b855-7d40c35bc48d,Connection failed 03,36,0,390,21,4,7,75,2098,,,,1044,38,3886,101,0,3976
+17:31:44,70,90000,0e0d1f6f-d21e-4ae5-a782-fc7b03f73219,Purchase returned 98,41,0,443,17,2,5,41,2069,0,2829,1646,1,45,4479,101,0,4576
