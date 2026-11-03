@@ -476,6 +476,10 @@ model Order {
   totalAmount      Int
   paidAmount       Int           @default(0)
   balanceAmount    Int
+  deferredAt       DateTime?
+  deferredCustomerName String?
+  isStaffConsumption Boolean @default(false)
+  staffConsumptionName String?
   deletedById      String?
   deletedAt        DateTime?
   deletionReason   String?
@@ -497,6 +501,8 @@ model Order {
   @@index([state, paymentStatus])
   @@index([createdAt])
   @@index([dailyOrderNumber])
+  @@index([deferredAt])
+  @@index([isStaffConsumption, createdAt])
   @@map("orders")
 }
 
@@ -1075,7 +1081,7 @@ model OrderConsumption {
   id                    String                 @id @default(uuid())
   orderId               String
   cycleNumber           Int
-  paymentSettlementId   String
+  paymentSettlementId   String?
   status                OrderConsumptionStatus @default(PENDING)
   recognizedById        String
   recognizedAt          DateTime
@@ -1088,7 +1094,7 @@ model OrderConsumption {
   updatedAt             DateTime               @updatedAt
 
   order             Order                        @relation(fields: [orderId], references: [id])
-  paymentSettlement PaymentSettlement            @relation(fields: [paymentSettlementId], references: [id])
+  paymentSettlement PaymentSettlement?           @relation(fields: [paymentSettlementId], references: [id])
   recognizedBy      User                         @relation("OrderConsumptionRecognizedBy", fields: [recognizedById], references: [id])
   items             OrderConsumptionItem[]
   movements         InventoryMovement[]
