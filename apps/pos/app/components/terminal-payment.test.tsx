@@ -80,3 +80,22 @@ describe("Terminal-assisted settlement", () => {
     expect(api.terminalReconcile.mock.calls[0]![1]).toMatchObject({ noChargeConfirmed: true, bridgeStoppedConfirmed: true, terminalIdleConfirmed: true });
   });
 });
+
+
+it("keeps preparation conflicts visible and releases the busy button", async () => {
+  api.terminalPrepare.mockResolvedValue({ ok: false, error: { status: 409, code: "INVALID_STATE" } });
+  await mount(); await start();
+  await screen.findByText(/کارت‌خوان در حال حاضر برای این پرداخت در دسترس نیست/);
+  expect((screen.getByRole("button", { name: "شروع پرداخت با کارت‌خوان" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(bridge.sendTerminalPurchase).not.toHaveBeenCalled();
+});
+
+it("detects a terminal held by another order without exposing that order's payment actions", async () => {
+  api.terminalActive.mockImplementation(async (orderId?: string) => ok(orderId ? null : attempt({ orderId: "another-order" })));
+  await mount();
+  await screen.findByText(/کارت‌خوان برای سفارش دیگری مشغول است/);
+  fireEvent.click(screen.getByLabelText("ارسال مبلغ به کارت‌خوان"));
+  expect((screen.getByRole("button", { name: "شروع پرداخت با کارت‌خوان" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole("button", { name: "تأیید برداشت و ثبت پرداخت" })).toBeNull();
+  expect(api.terminalPrepare).not.toHaveBeenCalled(); expect(bridge.sendTerminalPurchase).not.toHaveBeenCalled();
+});
