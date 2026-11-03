@@ -10,7 +10,7 @@ using System.Text;
 using System.Threading;
 
 [assembly: TargetFramework(".NETFramework,Version=v4.8")]
-[assembly: System.Reflection.AssemblyVersion("0.2.5.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.6.0")]
 
 namespace RunCafe.SepBridge.Payments
 {
@@ -19,7 +19,13 @@ namespace RunCafe.SepBridge.Payments
     {
         private static PaymentEngine engine;
         private static bool paymentEnabled;
-        private static string Health { get { return "{\"service\":\"run-cafe-sep-bridge\",\"version\":\"0.2.5\",\"mode\":\"" + (paymentEnabled ? "payments" : "health-only") + "\",\"paymentEnabled\":" + (paymentEnabled ? "true" : "false") + ",\"terminalAccess\":" + (paymentEnabled ? "true" : "false") + ",\"manualVerificationRequired\":true}"; } }
+        private static TerminalMonitor monitor;
+        private static string Health { get { return PaymentProtocol.Json.Serialize(new Dictionary<string, object> {
+            { "service", "run-cafe-sep-bridge" }, { "version", "0.2.6" }, { "mode", paymentEnabled ? "payments" : "health-only" },
+            { "paymentEnabled", paymentEnabled }, { "terminalAccess", paymentEnabled }, { "manualVerificationRequired", true },
+            { "paymentRunning", engine != null && engine.IsBusy },
+            { "terminalConnection", monitor == null ? null : monitor.Snapshot() }
+        }); } }
         private static readonly object LogLock = new object();
         private static readonly Semaphore Slots = new Semaphore(8, 8);
         private static string dataDirectory;
@@ -51,10 +57,13 @@ namespace RunCafe.SepBridge.Payments
                 {
                     if (Environment.OSVersion.Platform != PlatformID.Win32NT || Environment.Is64BitProcess || ConfigurationManager.AppSettings["LogPermission"] != "0") return 2;
                     byte[] key = PaymentProtocol.LoadKey(dataDirectory);
+                    var backend = new BackendClient(ConfigurationManager.AppSettings["BackendUrl"], key);
+                    var workers = new DeviceWorkers(new ProcessPurchaseWorker(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "RunCafe.SepBridge.PurchaseWorker.exe")),
+                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "RunCafe.SepBridge.ConnectionWorker.exe"));
                     engine = new PaymentEngine(Path.Combine(dataDirectory, "attempts"), ConfigurationManager.AppSettings["BridgeId"],
-                        ConfigurationManager.AppSettings["ExpectedTerminalId"], key,
-                        new BackendClient(ConfigurationManager.AppSettings["BackendUrl"], key),
-                        new ProcessPurchaseWorker(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "RunCafe.SepBridge.PurchaseWorker.exe")));
+                        ConfigurationManager.AppSettings["ExpectedTerminalId"], key, backend, workers);
+                    monitor = new TerminalMonitor(delegate { return engine.IsBusy; }, backend.CanCheckTerminal,
+                        delegate { return workers.Check(delegate { return engine.IsBusy; }); });
                 }
                 using (var instance = new Mutex(false, "Global\\RunCafe.SepBridge.Payments.Host"))
                 {
@@ -86,6 +95,7 @@ namespace RunCafe.SepBridge.Payments
                 }, null, 500, 500))
                 {
                     Log("started", 0);
+                    using (var monitoring = new Timer(delegate { if (monitor != null) monitor.Tick(); }, null, 1000, 60000))
                     using (var delivery = new Timer(delegate { if (engine != null) engine.DeliverEvidence(); }, null, 1000, 15000))
                     {
                     while (!stopping)
