@@ -15,6 +15,8 @@ import { OrdersWorkspace } from "./orders-workspace";
 import { ManagerWorkspace, type ManagerSection } from "./manager-workspace";
 import { ReleaseUpdateGuard, type PosActivity } from "./release-update-guard";
 
+import { TerminalConnectionMonitor } from "./terminal-connection-monitor";
+
 import { setRecoveryUser, readRecovery, writeRecovery } from "../lib/automatic-recovery";
 
 type Workspace = "orders" | ManagerSection;
@@ -224,6 +226,7 @@ export function PosSessionBoundary() {
       </aside>
 
       <main className="pos-main">
+        <TerminalConnectionMonitor />
         {workspace === "orders" ? <OrdersWorkspace refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : <ManagerWorkspace section={workspace} role={session.user.role} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
       </main>
       <ReleaseUpdateGuard activity={workspace === "orders" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
