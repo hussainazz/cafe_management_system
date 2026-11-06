@@ -1,0 +1,1 @@
+{"version":3,"file":"private.js","names":["env"],"sources":["../../../generated/build/env/private/server.js"],"sourcesContent":["import { dynamic_private_env as env } from '../config.js';\n\nexport const API_BASE_URL = env.API_BASE_URL;\nexport const MENU_UPSTREAM = env.MENU_UPSTREAM;\n"],"mappings":";;AAEA,IAAa,eAAeA,oBAAI;AAChC,IAAa,gBAAgBA,oBAAI"}

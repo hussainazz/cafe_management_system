@@ -1,5 +1,14 @@
 # Current Stage Status
 
+## Coordinated candidate upload — 6 November 2026
+
+- Uploaded `cafe-20261102-36162d7` to VPS `/tmp` and verified SHA-256
+  `1f8ddf42dce64624a1d72e5bd2cf5f165c01ae6a1c0f8c7872947589020b34bb`.
+- Activation is blocked: its API lacks the `monitor-idle` endpoint present in
+  the active terminal-monitor release and used by the installed 0.2.6 bridge.
+  The active runtime remains unchanged. Left: decide how to preserve the live
+  terminal integration before preparing and validating a compatible release.
+
 ## Direct purchase and idle terminal monitor — 2 November 2026
 
 - Owner approved direct SDK purchase after initialization, a one-minute idle-only
