@@ -42,12 +42,16 @@ describe("ManagerWorkspace", () => {
     api.readProductCosting.mockResolvedValue({ ok: true, data: { data: null, meta: { requestId: "test" } } });
   });
 
-  it("shows inactive inventory without fetching inventory data", async () => {
+  it("opens purchases, recipes and profit before turnover activation", async () => {
     api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "settings", tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false, inventoryActivatedAt: null, updatedAt: new Date().toISOString() } });
     render(<ManagerWorkspace section="inventory" menuOpen={false} onOpenMenu={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "انبار غیرفعال است" })).toBeTruthy();
-    expect(api.readInventoryStockItems).not.toHaveBeenCalled();
-    expect(api.readPendingInventoryConsumption).not.toHaveBeenCalled();
+    expect(await screen.findByRole("heading", { name: "پیش‌نویس خرید" })).toBeTruthy();
+    expect(screen.getByText(/تا فعال‌سازی گردش موجودی/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "دستور تهیه و هزینه" }));
+    expect(api.readInventoryRecipes).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "سود ناخالص" }));
+    expect(await screen.findByRole("heading", { name: "گزارش سود ناخالص" })).toBeTruthy();
+    await waitFor(() => expect(api.readGrossProfitReport).toHaveBeenCalled());
   });
 
   it("lets Staff open the catalog and payment history without loading Manager settings or accounting summaries", async () => {
@@ -80,15 +84,15 @@ describe("ManagerWorkspace", () => {
     api.readManagerSettings.mockResolvedValueOnce({ ok: true, data: inactive }).mockResolvedValue({ ok: true, data: { ...inactive, inventoryActivatedAt: "2026-10-15T00:00:00.000Z" } });
     api.activateInventory.mockResolvedValue({ ok: true });
     render(<ManagerWorkspace section="settings" menuOpen={false} onOpenMenu={vi.fn()} />);
-    const toggle = await screen.findByRole("checkbox", { name: "فعال‌سازی انبار" });
+    const toggle = await screen.findByRole("checkbox", { name: "فعال‌سازی گردش موجودی و کسر مواد سفارش‌ها" });
     expect((toggle as HTMLInputElement).checked).toBe(false);
     fireEvent.click(toggle);
     expect(await screen.findByRole("dialog")).toBeTruthy();
     expect(api.activateInventory).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "تأیید" }));
     await waitFor(() => expect(api.activateInventory).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect((screen.getByRole("checkbox", { name: "فعال‌سازی انبار" }) as HTMLInputElement).disabled).toBe(true));
-    expect((screen.getByRole("checkbox", { name: "فعال‌سازی انبار" }) as HTMLInputElement).checked).toBe(true);
+    await waitFor(() => expect((screen.getByRole("checkbox", { name: "فعال‌سازی گردش موجودی و کسر مواد سفارش‌ها" }) as HTMLInputElement).disabled).toBe(true));
+    expect((screen.getByRole("checkbox", { name: "فعال‌سازی گردش موجودی و کسر مواد سفارش‌ها" }) as HTMLInputElement).checked).toBe(true);
   });
 
   it("opens the Manager inventory workspace and loads its inventory data", async () => {
