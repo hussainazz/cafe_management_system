@@ -296,16 +296,20 @@ clients must refetch affected API resources after reconnecting.
   change that implements it. Remove or replace a planned route only through a
   planning update that preserves the approved scope.
 
-## Permanent inventory activation
+## Permanent stock-turnover enablement
 
-- `GET /admin/settings` includes nullable `inventoryActivatedAt`. Null means all
-  inventory management, costing, and report routes return `409 INVALID_STATE`
-  after normal Manager authentication. Order/payment APIs remain operational
-  and create no inventory snapshots, consumption records, or movements.
+- `GET /admin/settings` includes nullable `inventoryActivatedAt`. Null means
+  automatic order-driven stock turnover is disabled. Manager inventory routes
+  for purchases, recipes, product costing, and gross-profit reports remain
+  available after normal Manager authentication.
 - Manager-only `POST /admin/settings/inventory/activate` accepts `{}` and returns
-  `AdminSettingsResponseSchema`. It atomically records the first activation time
-  and an `ACTIVATE_INVENTORY` audit entry. Retries preserve the same time.
-- Settings updates cannot alter or clear activation. Database protection also
-  rejects changing the timestamp or deleting activated settings.
-- Only orders created at or after activation are eligible for snapshots,
-  recognition, pending consumption, retries, reports, and restorations.
+  `AdminSettingsResponseSchema`. It atomically records the first turnover
+  enablement time and an `ACTIVATE_INVENTORY` audit entry. Retries preserve the
+  same time.
+- While turnover is disabled, full-payment costing recognition and gross-profit
+  reporting still work. Their records are marked untracked and cause no stock
+  movement or pending retry. After enablement, order-created-at eligibility
+  controls stock deductions, pending consumption, retries, and restorations;
+  earlier orders are not backfilled.
+- Settings updates cannot alter or clear enablement. Database protection also
+  rejects changing the timestamp or deleting settings after enablement.
