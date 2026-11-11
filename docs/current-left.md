@@ -1,5 +1,31 @@
 # Current Stage Status
 
+## Active delivery — Separate inventory costing from stock turnover
+
+- [x] Update the approved behavior: purchase, recipe, product-costing, and
+  gross-profit features remain available before turnover activation.
+- [x] Keep full-payment COGS recognition active before turnover while marking
+  those records untracked and avoiding stock deductions or pending retries.
+- [x] Limit automatic order stock deductions to orders created after the
+  permanent Manager turnover activation timestamp.
+- [x] Update Manager UI and report messaging for pre-turnover costing.
+
+Implementation is complete. Added the `UNTRACKED` consumption status and its
+additive migration, then regenerated the Prisma client.
+
+- Verification: 112 API integration tests pass across inventory activation (9),
+  inventory accounting (22), orders (60), and Manager settings (21). The complete
+  POS suite passes 192 tests across 29 files. API/POS typechecks and diff
+  whitespace checks pass using Node 24.21.0.
+- Expanded coverage includes pre-turnover purchase/BOM/report access, full versus
+  partial payment, shortages without deductions or pending work, activation
+  cutoff, receipt replay without backfill, reversal/repayment/deletion, missing
+  costs, staff consumption, saved recipes, and missing legacy snapshots.
+- Reset only the authorized isolated test database and successfully applied the
+  additive migration there. No development or production database was changed.
+- Left: build and upload the committed API/POS release. Production activation
+  remains a separate scope from artifact upload.
+
 ## Coordinated candidate upload — 6 November 2026
 
 - Uploaded `cafe-20261102-36162d7` to VPS `/tmp` and verified SHA-256
