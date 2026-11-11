@@ -120,6 +120,7 @@ enum OrderConsumptionStatus {
   POSTED
   RECONCILED
   CANCELLED
+  UNTRACKED
 }
 
 model User {
