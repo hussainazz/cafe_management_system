@@ -1,4 +1,4 @@
-import { requireInventoryActive } from "./inventory-activation.js";
+import { inventoryActivation } from "./inventory-activation.js";
 import type { GrossProfitReportQuery } from "@cafe/contracts";
 import type { PrismaClient } from "../../../generated/prisma/client.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
@@ -18,7 +18,7 @@ function percentage(grossProfit: number | null, netSales: number) {
 }
 
 export async function grossProfitReport(prisma: PrismaClient, query: GrossProfitReportQuery) {
-  const activatedAt = await requireInventoryActive(prisma);
+  const activatedAt = await inventoryActivation(prisma);
   const now = new Date();
   const today = todayInTehran.format(now);
   if (query.toDate > today) {
@@ -30,7 +30,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
     where: {
       recognizedAt: { gte: range.from, lt: range.to },
       status: { not: "CANCELLED" },
-      order: { createdAt: { gte: activatedAt }, state: { not: "DELETED" }, paymentStatus: "PAID", isStaffConsumption: false },
+      order: { state: { not: "DELETED" }, paymentStatus: "PAID", isStaffConsumption: false },
     },
     orderBy: [{ recognizedAt: "asc" }, { id: "asc" }],
     include: {
@@ -62,8 +62,10 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
     incompleteOrderItemCount: number;
   }>();
   let pendingConsumptionCount = 0;
+  let untrackedConsumptionCount = 0;
   for (const consumption of consumptions) {
     if (consumption.status === "PENDING") pendingConsumptionCount += 1;
+    if (consumption.status === "UNTRACKED") untrackedConsumptionCount += 1;
     for (const item of consumption.items) {
       const productId = item.orderItem.productId;
       const product = byProduct.get(productId) ?? {
@@ -146,7 +148,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
       .reduce((sum, movement) => sum - movement.valueDeltaAmount, 0);
     inventoryConsumptionAmount += openingValue + openingStock + receipts - purchaseReturns - closingValue;
   }
-  const inventoryConsumptionAvailable = calculableStockItems.length > 0;
+  const inventoryConsumptionAvailable = !!activatedAt && range.from >= activatedAt && untrackedConsumptionCount === 0 && pendingConsumptionCount === 0 && calculableStockItems.length > 0;
   const inventoryConsumption = inventoryConsumptionAvailable ? inventoryConsumptionAmount : null;
 
   return {
