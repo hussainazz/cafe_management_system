@@ -67,7 +67,7 @@ const normalizeInventoryQuantity = (value: string) => {
   return `${whole}.${fraction.padEnd(6, "0")}`;
 };
 
-export function InventoryWorkspace({ catalog }: { catalog: ManagerCatalog }) {
+export function InventoryWorkspace({ catalog, turnoverEnabled = false }: { catalog: ManagerCatalog; turnoverEnabled?: boolean }) {
   const [view, setView] = useRecoveryState<View>("inventory-view", "purchases");
   const [stockItems, setStockItems] = useState<InventoryStockItem[]>([]);
   const [recipes, setRecipes] = useState<InventoryRecipe[]>([]);
@@ -157,6 +157,7 @@ export function InventoryWorkspace({ catalog }: { catalog: ManagerCatalog }) {
 
   return (
     <section className="inventory-workspace" aria-busy={loading || busy}>
+      {!turnoverEnabled && <p className="inventory-note" role="status">ثبت خرید، تنظیم دستور تهیه، مشاهده‌ی بهای تمام‌شده‌ی محصول و گزارش سود ناخالص در دسترس است. تا فعال‌سازی گردش موجودی، مواد سفارش‌ها پس از تسویه‌ی کامل از موجودی کسر نمی‌شود.</p>}
       <nav className="inventory-tabs manager-tabs" aria-label="بخش‌های انبار">
         {([
           ["purchases", "خریدها"], ["stock", "اقلام موجودی"], ["recipes", "دستور تهیه و هزینه"],
@@ -221,10 +222,10 @@ function ProfitPanel() {
           <dt>سود ناخالص</dt><dd>{report.data.totals.grossProfitAmount === null ? "محاسبه نشده" : formatToman(report.data.totals.grossProfitAmount)}</dd>
           <dt>حاشیه‌ی سود</dt><dd>{report.data.totals.grossMarginPercent === null ? "محاسبه نشده" : `${report.data.totals.grossMarginPercent}٪`}</dd>
           <dt>کامل‌بودن محاسبه‌ی هزینه</dt><dd>{report.data.costCoverage.completeOrderItemCount} قلم کامل، {report.data.costCoverage.incompleteOrderItemCount} قلم ناقص</dd>
-          <dt>ارزش مصرف موجودی (برآوردی)</dt><dd>{report.data.inventoryConsumption.amount === null ? "اطلاعات ارزش‌گذاری کافی نیست" : formatToman(report.data.inventoryConsumption.amount)}</dd>
+          <dt>ارزش مصرف موجودی (برآوردی)</dt><dd>{report.data.inventoryConsumption.amount === null ? "برای این بازه در دسترس نیست" : formatToman(report.data.inventoryConsumption.amount)}</dd>
           <dt>سفارش‌های در انتظار کسر موجودی</dt><dd>{report.data.pendingConsumptionCount}</dd>
         </dl>
-        {(report.data.inventoryConsumption.isEstimate || report.data.inventoryConsumption.missingValuationCount > 0) && <p className="inventory-note">ارزش مصرف موجودی برآوردی است. {report.data.inventoryConsumption.missingValuationCount > 0 ? `${report.data.inventoryConsumption.missingValuationCount} کالا ارزش‌گذاری کامل ندارد.` : "اختلاف این دو عدد به‌تنهایی علت اختلاف را مشخص نمی‌کند."}</p>}
+        {(report.data.inventoryConsumption.isEstimate || report.data.inventoryConsumption.missingValuationCount > 0) && <p className="inventory-note">این عدد وقتی در دسترس است که گردش موجودی در کل بازه فعال بوده، همه‌ی سفارش‌های دوره از موجودی کسر شده باشند و ارزش‌گذاری اقلام کامل باشد. {report.data.inventoryConsumption.amount !== null && report.data.inventoryConsumption.missingValuationCount === 0 ? "اختلاف این دو عدد به‌تنهایی علت اختلاف را مشخص نمی‌کند." : report.data.inventoryConsumption.missingValuationCount > 0 ? `${report.data.inventoryConsumption.missingValuationCount} کالا ارزش‌گذاری کامل ندارد.` : ""}</p>}
         {report.data.costCoverage.incompleteOrderItemCount > 0 && <p className="inventory-note">برای بعضی از اقلام، دستور تهیه یا ارزش‌گذاری کامل نیست؛ بنابراین حاشیه‌ی سود کل محاسبه نشده است.</p>}
       </ManagerCard></div>
       <div className="inventory-report-products"><ManagerCard title="سود هر کالا" hint="حاشیه‌ی سود هر کالا از فروش خالص و هزینه‌ی همان کالا به دست می‌آید.">
