@@ -1,4 +1,4 @@
-import { inventoryActivation, orderInventoryEligible, requireInventoryActive } from "./inventory-activation.js";
+import { inventoryActivation, orderTurnoverEligible } from "./inventory-activation.js";
 import { createHash } from "node:crypto";
 import {
   InventoryCountKind,
@@ -582,11 +582,14 @@ export async function updateCount(prisma: PrismaClient, actor: AuthenticatedUser
   });
 }
 
-async function trackOrderItemSnapshots(tx: Tx, orderId: string) {
-  const items = await tx.orderItem.findMany({ where: { orderId }, include: { options: true } });
+async function trackOrderItemSnapshots(tx: Tx, orderId: string, onlyMissing = false) {
+  const items = await tx.orderItem.findMany({ where: { orderId }, include: { options: true, costingSnapshot: true } });
   for (const item of items) {
+    if (onlyMissing && item.costingSnapshot) continue;
     const snapshot = await resolveCosting(tx, item.productId, item.options.map((option) => option.optionId), item.quantity, item.weightGrams, false);
-    await tx.orderItemCostingSnapshot.upsert({ where: { orderItemId: item.id }, create: { orderItemId: item.id, configurationVersion: snapshot.configurationVersion, snapshot: snapshot as unknown as Prisma.InputJsonValue, isComplete: snapshot.missingReasons.length === 0, missingReasons: snapshot.missingReasons as unknown as Prisma.InputJsonValue }, update: { configurationVersion: snapshot.configurationVersion, snapshot: snapshot as unknown as Prisma.InputJsonValue, isComplete: snapshot.missingReasons.length === 0, missingReasons: snapshot.missingReasons as unknown as Prisma.InputJsonValue } });
+    const data = { configurationVersion: snapshot.configurationVersion, snapshot: snapshot as unknown as Prisma.InputJsonValue, isComplete: snapshot.missingReasons.length === 0, missingReasons: snapshot.missingReasons as unknown as Prisma.InputJsonValue };
+    if (onlyMissing) await tx.orderItemCostingSnapshot.create({ data: { orderItemId: item.id, ...data } });
+    else await tx.orderItemCostingSnapshot.upsert({ where: { orderItemId: item.id }, create: { orderItemId: item.id, ...data }, update: data });
   }
 }
 async function readOrderItemSnapshots(tx: Tx, orderId: string): Promise<Array<{ itemId: string; productName: string; quantity: number; weightGrams: number | null; components: CostSnapshot["components"]; missingReasons: string[] }>> {
@@ -600,6 +603,7 @@ async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: st
   const existing = settlementId ? await tx.orderConsumption.findUnique({ where: { orderId_paymentSettlementId: { orderId: order.id, paymentSettlementId: settlementId } } }) : await tx.orderConsumption.findFirst({ where: { orderId: order.id, paymentSettlementId: null } });
   if (existing) return existing;
   const cycleNumber = (await tx.orderConsumption.aggregate({ where: { orderId: order.id }, _max: { cycleNumber: true } }))._max.cycleNumber ?? 0;
+  const turnoverEligible = await orderTurnoverEligible(tx, order.id);
   const snapshots = await readOrderItemSnapshots(tx, order.id);
   const missing = new Set<string>();
   const itemAmounts: Array<{ snapshot: typeof snapshots[number]; amount: number; known: number; complete: boolean; components: Array<any> }> = [];
@@ -624,7 +628,7 @@ async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: st
   await lock(tx, movementRows.map((need) => `inventory:${need.stockItemId}`));
   const stockRows = movementRows.length ? await tx.inventoryBalance.findMany({ where: { stockItemId: { in: movementRows.map((row) => row.stockItemId) } } }) : [];
   const balanceById = new Map(stockRows.map((row) => [row.stockItemId, row]));
-  let canFulfill = movementRows.length > 0 && !snapshots.some((snapshot) => snapshot.missingReasons.length > 0);
+  let canFulfill = turnoverEligible && movementRows.length > 0 && !snapshots.some((snapshot) => snapshot.missingReasons.length > 0);
   for (const { stockItemId, quantity } of movementRows) {
     const balance = balanceById.get(stockItemId);
     if (!balance?.trackingStartedAt || balance.quantityOnHand.lt(quantity)) canFulfill = false;
@@ -632,8 +636,8 @@ async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: st
   const knownCogsAmount = itemAmounts.reduce((sum, item) => sum + item.known, 0);
   const isCostComplete = itemAmounts.every((item) => item.complete) && snapshots.length > 0;
   const theoreticalCogsAmount = isCostComplete ? knownCogsAmount : null;
-  const consumption = await tx.orderConsumption.create({ data: { orderId: order.id, cycleNumber: cycleNumber + 1, paymentSettlementId: settlementId, status: canFulfill ? OrderConsumptionStatus.POSTED : OrderConsumptionStatus.PENDING, recognizedById: actorId, recognizedAt: at, resolvedAt: canFulfill ? at : null, theoreticalCogsAmount, knownCogsAmount, isCostComplete, costSnapshot: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, components: item.components })) as unknown as Prisma.InputJsonValue, items: { create: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, costSnapshot: { components: item.components, missingReasons: item.snapshot.missingReasons } })) } } });
-  if (canFulfill && !await consumeStockForOrder(tx, consumption.id, movementRows, actorId, at)) await tx.orderConsumption.update({ where: { id: consumption.id }, data: { status: OrderConsumptionStatus.PENDING, resolvedAt: null } });
+  const consumption = await tx.orderConsumption.create({ data: { orderId: order.id, cycleNumber: cycleNumber + 1, paymentSettlementId: settlementId, status: !turnoverEligible ? OrderConsumptionStatus.UNTRACKED : canFulfill ? OrderConsumptionStatus.POSTED : OrderConsumptionStatus.PENDING, recognizedById: actorId, recognizedAt: at, resolvedAt: !turnoverEligible || canFulfill ? at : null, theoreticalCogsAmount, knownCogsAmount, isCostComplete, costSnapshot: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, components: item.components })) as unknown as Prisma.InputJsonValue, items: { create: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, costSnapshot: { components: item.components, missingReasons: item.snapshot.missingReasons } })) } } });
+  if (turnoverEligible && canFulfill && !await consumeStockForOrder(tx, consumption.id, movementRows, actorId, at)) await tx.orderConsumption.update({ where: { id: consumption.id }, data: { status: OrderConsumptionStatus.PENDING, resolvedAt: null } });
   return consumption;
 }
 async function consumeStockForOrder(tx: Tx, consumptionId: string, needs: Array<{ stockItemId: string; quantity: Prisma.Decimal }>, actorId: string, at: Date) {
@@ -739,9 +743,8 @@ export async function listInventoryMovements(prisma: PrismaClient, query: Moveme
   return { movements: page.map(movementDto), page: { limit: query.limit, nextCursor: hasMore ? encodePageCursor(page[page.length - 1]!) : null, hasMore } };
 }
 export async function listPendingConsumptions(prisma: PrismaClient, query: PendingQuery) {
-  const activatedAt = await requireInventoryActive(prisma);
   const cursor = decodePageCursor(query.cursor);
-  const rows = await prisma.orderConsumption.findMany({ where: { status: OrderConsumptionStatus.PENDING, order: { createdAt: { gte: activatedAt }, state: { not: "DELETED" } }, ...(cursor ? { OR: [{ recognizedAt: { lt: cursor.at } }, { recognizedAt: cursor.at, id: { lt: cursor.id } }] } : {}) }, orderBy: [{ recognizedAt: "desc" }, { id: "desc" }], take: query.limit + 1, include: { order: { select: { id: true, orderNumber: true } }, items: true } });
+  const rows = await prisma.orderConsumption.findMany({ where: { status: OrderConsumptionStatus.PENDING, order: { state: { not: "DELETED" } }, ...(cursor ? { OR: [{ recognizedAt: { lt: cursor.at } }, { recognizedAt: cursor.at, id: { lt: cursor.id } }] } : {}) }, orderBy: [{ recognizedAt: "desc" }, { id: "desc" }], take: query.limit + 1, include: { order: { select: { id: true, orderNumber: true } }, items: true } });
   const hasMore = rows.length > query.limit; const page = rows.slice(0, query.limit);
   const consumptions = [];
   for (const row of page) {
@@ -790,7 +793,7 @@ export async function returnPurchaseStock(prisma: PrismaClient, actor: Authentic
 }
 
 export async function postInventoryCount(prisma: PrismaClient, actor: AuthenticatedUser, id: string, input: { expectedVersion: number; absorbedOrderConsumptionIds: string[] }, key: string, requestId: string) {
-  const activatedAt = await requireInventoryActive(prisma);
+  const activatedAt = await inventoryActivation(prisma);
   const fingerprint = sha({ id, ...input });
   const previous = await prisma.idempotencyRecord.findUnique({ where: { actorId_operation_key: { actorId: actor.id, operation: POST_COUNT, key } } });
   if (previous) { if (previous.requestFingerprint !== fingerprint) fail(409, ErrorCodes.IDEMPOTENCY_CONFLICT, "This idempotency key was already used for a different request."); return previous.resultSnapshot as any; }
@@ -802,7 +805,7 @@ export async function postInventoryCount(prisma: PrismaClient, actor: Authentica
       if (count.status !== InventoryCountStatus.DRAFT) fail(409, ErrorCodes.INVALID_STATE, "The inventory count is already posted.");
       if (count.version !== input.expectedVersion) stale("The inventory count has changed.", count.version);
       await lock(tx, count.lines.map((line) => `inventory:${line.stockItemId}`));
-      const pending = input.absorbedOrderConsumptionIds.length ? await tx.orderConsumption.findMany({ where: { id: { in: input.absorbedOrderConsumptionIds }, status: OrderConsumptionStatus.PENDING, order: { createdAt: { gte: activatedAt }, state: { not: "DELETED" }, paymentStatus: "PAID" } }, include: { items: true } }) : [];
+      const pending = input.absorbedOrderConsumptionIds.length && activatedAt ? await tx.orderConsumption.findMany({ where: { id: { in: input.absorbedOrderConsumptionIds }, status: OrderConsumptionStatus.PENDING, order: { createdAt: { gte: activatedAt }, state: { not: "DELETED" }, paymentStatus: "PAID" } }, include: { items: true } }) : [];
       if (pending.length !== input.absorbedOrderConsumptionIds.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Every reconciled order must be an eligible pending consumption.");
       const countStockIds = new Set(count.lines.map((line) => line.stockItemId));
       for (const consumption of pending) for (const need of await needsFromConsumption(tx, consumption.id)) if (!countStockIds.has(need.stockItemId)) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The count must include every stock item for a pending order selected as already absorbed.");
@@ -850,21 +853,19 @@ export async function postInventoryCount(prisma: PrismaClient, actor: Authentica
 }
 
 export async function updateOrderCostingSnapshots(tx: Tx, orderId: string) {
-  if (!await orderInventoryEligible(tx, orderId)) return;
   await trackOrderItemSnapshots(tx, orderId);
 }
 export async function recognizeOrderFullPayment(tx: Tx, orderId: string, settlementId: string, actorId: string, at = new Date()) {
-  if (!await orderInventoryEligible(tx, orderId)) return null;
   const order = await tx.order.findUnique({ where: { id: orderId }, include: { paymentSettlements: { where: { reversal: null }, select: { totalAmount: true } } } });
   if (!order || order.state === "DELETED" || order.paymentStatus !== "PAID") return null;
   const paid = order.paymentSettlements.reduce((sum, entry) => sum + entry.totalAmount, 0);
   if (paid !== order.totalAmount) return null;
   await lock(tx, [`order:${orderId}`]);
+  await trackOrderItemSnapshots(tx, orderId, true);
   return recordFullPaymentConsumption(tx, order, settlementId, actorId, at);
 }
 
 export async function recognizeStaffConsumption(tx: Tx, orderId: string, actorId: string, at = new Date()) {
-  if (!await orderInventoryEligible(tx, orderId)) return null;
   const order = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
   return recordFullPaymentConsumption(tx, order, null, actorId, at);
 }
@@ -898,7 +899,6 @@ async function restoreConsumption(tx: Tx, consumption: any, actorId: string, at:
   await tx.orderConsumption.update({ where: { id: consumption.id }, data: { status: OrderConsumptionStatus.CANCELLED, resolvedAt: at } });
 }
 export async function cancelAndRestoreOrderInventory(tx: Tx, orderId: string, actorId: string, at = new Date()) {
-  if (!await orderInventoryEligible(tx, orderId)) return;
   await lock(tx, [`order:${orderId}`]);
   const consumptions = await tx.orderConsumption.findMany({ where: { orderId }, orderBy: [{ cycleNumber: "asc" }] });
   for (const consumption of consumptions) await restoreConsumption(tx, consumption, actorId, at);
