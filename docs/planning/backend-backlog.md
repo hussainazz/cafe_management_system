@@ -746,8 +746,11 @@ Left:
 
 ### Inventory production activation gate
 
-Inventory ships inactive. Manager-only Café Settings activation records one
-permanent timestamp and audit entry. All inventory routes and background order
-hooks remain inactive until then. Only orders created after activation qualify;
-previous orders are never backfilled, including orders still open at activation.
-Database constraints prevent clearing or changing activation.
+Purchase, recipe, product-costing, and gross-profit features are available to
+Managers before stock turnover is enabled. Manager-only Café Settings activation
+records one permanent timestamp and audit entry. Before enablement, fully paid
+orders still record theoretical COGS for gross-profit reports, with no stock
+deduction or pending-consumption work. Only orders created at or after
+enablement qualify for stock turnover; previous orders are never backfilled,
+including orders still open at enablement. Database constraints prevent clearing
+or changing the timestamp.
