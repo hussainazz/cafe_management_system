@@ -304,11 +304,7 @@ export function ManagerWorkspace({
         />
       )}
       {!loading && panel === "tables" && catalog && <TablesPanel catalog={catalog} mutate={mutate} reload={reloadCatalog} requestConfirm={setConfirm} />}
-      {!loading && panel === "inventory" && catalog && (settings?.inventoryActivatedAt
-        ? <InventoryWorkspace catalog={catalog} />
-        : <ManagerCard title="انبار غیرفعال است" hint="برای شروع، انبار را از تنظیمات کافه فعال کنید. تا آن زمان، هیچ سفارشی در انبار ثبت نمی‌شود.">
-            <p>از منوی اصلی، تنظیمات را باز کنید.</p>
-          </ManagerCard>)}
+      {!loading && panel === "inventory" && catalog && <InventoryWorkspace catalog={catalog} turnoverEnabled={settings?.inventoryActivatedAt !== null && settings?.inventoryActivatedAt !== undefined} />}
       {!loading && (panel === "finance" || panel === "payments" || panel === "audit") && (
         <FinancePanel panel={panel} role={role} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
       )}
@@ -1271,16 +1267,16 @@ function SettingsPanel({
         <button type="submit">ذخیره تنظیمات</button>
       </form>
     </ManagerCard>
-    <ManagerCard title="فعال‌سازی انبار" hint="پس از فعال‌سازی، فقط سفارش‌های جدید وارد محاسبات و گردش موجودی می‌شوند. سفارش‌های قبلی شامل نمی‌شوند. این تغییر دائمی است و امکان غیرفعال‌کردن انبار وجود ندارد.">
+    <ManagerCard title="فعال‌سازی گردش موجودی" hint="ثبت خرید، دستور تهیه، بهای تمام‌شده‌ی محصول و گزارش سود ناخالص پیش از فعال‌سازی هم در دسترس است. پس از فعال‌سازی، مواد سفارش‌های جدید پس از تسویه‌ی کامل و در صورت موجودی کافی از موجودی کسر می‌شود. سفارش‌های قبلی کسر نمی‌شوند. این تغییر دائمی است.">
       <label>
         <input type="checkbox" checked={settings.inventoryActivatedAt !== null} disabled={settings.inventoryActivatedAt !== null}
           onChange={() => requestConfirm({
-            title: "انبار فعال شود؟",
-            detail: "از این لحظه، انبار برای سفارش‌های جدید فعال می‌شود. سفارش‌های قبلی وارد انبار نمی‌شوند. پس از تأیید، امکان غیرفعال‌کردن انبار وجود ندارد.",
+            title: "گردش موجودی فعال شود؟",
+            detail: "از این لحظه، مواد سفارش‌های جدید پس از تسویه‌ی کامل و در صورت موجودی کافی از موجودی کسر می‌شود. ثبت خرید، دستور تهیه، بهای تمام‌شده‌ی محصول و گزارش سود ناخالص پیش از این هم در دسترس است. سفارش‌های قبلی کسر نمی‌شوند و این تغییر قابل برگشت نیست.",
             run: () => mutate(activateInventory, reload),
-          })} /> فعال‌سازی انبار
+          })} /> فعال‌سازی گردش موجودی و کسر مواد سفارش‌ها
       </label>
-      {settings.inventoryActivatedAt && <p role="status">انبار فعال است و امکان غیرفعال‌کردن آن وجود ندارد.</p>}
+      {settings.inventoryActivatedAt && <p role="status">گردش موجودی برای سفارش‌های جدید فعال است؛ امکان غیرفعال‌کردن آن وجود ندارد.</p>}
     </ManagerCard>
     {staff ? <StaffPanel staff={staff} mutate={mutate} reload={reloadStaff} requestConfirm={requestConfirm} /> : (
       <ManagerCard title="پرسنل" hint="فهرست پرسنل بارگذاری نشد.">
