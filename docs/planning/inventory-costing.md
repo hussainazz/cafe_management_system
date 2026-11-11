@@ -94,22 +94,28 @@ The product remains one café, one branch, and one authoritative API/database.
 
 ## Order Snapshots And Stock Consumption
 
-- Inventory ships inactive. A Manager activates it once from Café Settings;
-  persist the activation timestamp and audit the action. Activation is permanent
-  and cannot be cleared or moved through the API or ORM.
-- While inactive, block all inventory management, costing, and gross-profit API
-  operations and show the installed inventory workspace as inactive. Skip all
-  order costing snapshots, recognition, pending consumption, stock movements,
-  retries, and restorations. Normal orders and payments continue unchanged.
-- Track only orders created at or after activation. Orders created earlier
-  stay excluded even when edited, paid, deleted, or reversed after activation.
-  Never backfill pre-activation orders or queue them for later consumption.
+- Inventory costing is available to Managers before stock turnover is enabled.
+  Purchase receipts update stock valuation, and Managers can configure recipes,
+  preview product cost, and view gross-profit reports.
+- A Manager can permanently enable stock turnover from Café Settings. Persist
+  the enablement timestamp and audit the action. Enablement cannot be cleared
+  or moved through the API or ORM.
+- Before turnover is enabled, save order-item costing snapshots and recognize
+  theoretical COGS when an order is fully paid. Record the recognition as
+  untracked: do not deduct stock, create pending-consumption work, retry it, or
+  restore stock for it later. Normal orders and payments continue unchanged.
+- After turnover is enabled, apply stock deduction, shortage handling, pending
+  retries, and restorations only to orders created at or after the enablement
+  timestamp. Earlier orders remain available to gross-profit reporting when
+  they have a cost recognition record, but are never backfilled into stock
+  turnover, including when they remain open at enablement.
 - Save a resolved costing snapshot for each order item. Unsettled content edits
   update their corresponding snapshots; catalog edits never rewrite saved
   historical recipes.
 - Recognize theoretical item costs only when the whole order first becomes
   fully paid. Capture the cost snapshot using current moving averages. Partial
-  payments have no consumption or gross-profit recognition.
+  payments have no consumption or gross-profit recognition. This cost
+  recognition applies whether or not stock turnover is enabled.
 - Deduct stock for the whole order in one transaction only if every required
   quantity is available. If any stock item is short, deduct nothing and create
   one pending-consumption record for the entire order. Checkout remains
