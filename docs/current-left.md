@@ -23,8 +23,11 @@ additive migration, then regenerated the Prisma client.
   costs, staff consumption, saved recipes, and missing legacy snapshots.
 - Reset only the authorized isolated test database and successfully applied the
   additive migration there. No development or production database was changed.
-- Left: build and upload the committed API/POS release. Production activation
-  remains a separate scope from artifact upload.
+- The inventory source, migration, tests, and planning changes were committed
+  separately and pushed through `e8fca9d` under the earlier publish request.
+- The owner subsequently changed the instruction to local commits only. Release
+  preparation stopped. The VPS inspection was read-only; no artifact upload,
+  migration, runtime replacement, restart, or activation occurred.
 
 ## Coordinated candidate upload — 6 November 2026
 
