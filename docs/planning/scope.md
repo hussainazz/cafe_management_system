@@ -35,10 +35,14 @@ v1 success criteria:
 
 ## Product Boundaries
 
-Inventory is installed but inactive until a Manager permanently activates it
-from Café Settings. Its APIs and all background order tracking remain inactive
-before activation. Only orders created after activation are eligible; earlier
-orders are never backfilled. Details are in `inventory-costing.md`.
+Inventory costing is available to Managers before stock turnover is enabled:
+they can record purchases, configure recipes, calculate product costs, and view
+gross-profit reports. A Manager can permanently enable stock turnover from Café
+Settings. Before that point, paid orders still receive theoretical cost
+snapshots for gross-profit reporting, but they do not create stock deductions or
+pending-consumption work. Only orders created after turnover is enabled are
+eligible for stock deductions; earlier orders are never backfilled. Details are
+in `inventory-costing.md`.
 
 | Area           | Baseline decision                                                                                                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
