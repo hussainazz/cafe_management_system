@@ -218,3 +218,27 @@ describe("InventoryWorkspace", () => {
     await waitFor(() => expect(api.createInventoryCount).toHaveBeenCalledWith({ lines: [{ stockItemId: stock.id, observedQuantity: "99.5", observedValueAmount: 19900 }], reason: "اصلاح شمارش", kind: "PHYSICAL" }));
   });
 });
+
+it("shows gross profit before turnover activation even when stock consumption is unavailable", async () => {
+  vi.mocked(api.readGrossProfitReport).mockResolvedValue(ok({
+    data: {
+      totals: { netSalesAmount: 10000, knownCogsAmount: 200, theoreticalCogsAmount: 200, grossProfitAmount: 9800, grossMarginPercent: "98.00" },
+      products: [{ productId: "product-1", productName: "اسپرسو", netSalesAmount: 10000, knownCogsAmount: 200, theoreticalCogsAmount: 200, grossProfitAmount: 9800, grossMarginPercent: "98.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }],
+      costCoverage: { completeOrderItemCount: 1, incompleteOrderItemCount: 0 }, pendingConsumptionCount: 0,
+      inventoryConsumption: { amount: null, isEstimate: true, varianceAmount: null, missingValuationCount: 0 },
+    },
+    meta: { range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } },
+  }) as never);
+  render(<InventoryWorkspace catalog={catalog} turnoverEnabled={false} />);
+  fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
+  await screen.findByText("برای این بازه در دسترس نیست");
+  expect(screen.getAllByText("9,800").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("98.00٪").length).toBeGreaterThan(0);
+  expect(screen.getByText(/تا فعال‌سازی گردش موجودی/)).toBeTruthy();
+});
+
+it("omits the disabled turnover notice after activation while keeping purchase entry available", async () => {
+  render(<InventoryWorkspace catalog={catalog} turnoverEnabled />);
+  await screen.findByRole("heading", { name: "پیش‌نویس خرید" });
+  expect(screen.queryByText(/تا فعال‌سازی گردش موجودی/)).toBeNull();
+});
