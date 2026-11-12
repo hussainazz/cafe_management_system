@@ -209,26 +209,47 @@ acceptance items below remain open.
 
 # Current Stage Status
 
-## Active delivery — Current menu prices in inventory profit report (12 November 2026)
+## Completed delivery — Current menu prices in inventory profit report (12 November 2026)
 
-- [x] Show each product's current final menu price separately from historical
-  net sales in the gross-profit product table.
+- [x] Show the current final menu price beside each product's historical net
+  sales in the Manager gross-profit table.
 - [x] Match public-menu visibility and discount rounding; label weighted prices
-  per kilogram and option fees as separate from the product base price.
-- [x] Cover percentage and fixed discounts, live catalog price changes,
-  historical sales preservation, unavailable/archived menu products and the
-  expanded table empty state.
-- [x] Run the focused dashboard tests, complete POS suite, POS typecheck and
-  whitespace check.
+  per kilogram and keep option fees distinct from the discounted base price.
+- [x] Cover percentage/fixed discounts, live catalog price changes, historical
+  sales preservation, unavailable/archived products and the expanded empty state.
+- [x] Commit and push the test file (`6906676`) and feature file (`c9dadaf`)
+  separately. The release also includes the remembered cost-coverage work from
+  `a3ceae8`.
+- [x] Build and activate the compatible API/contracts/POS release
+  `cafe-20261112-c9dadaf`; no schema migration was required.
 
-Verification: the focused dashboard file passes 14 tests. The complete POS
-suite passes 235 tests across 32 files. POS typecheck and `git diff --check`
-pass. The new menu price follows the current Manager catalog; historical net
-sales remain the report's recorded amount. Browser/device verification is not
-claimed.
+The table derives current menu base prices from the Manager catalog using the
+public menu's fixed/percentage discount and rounding rules. Unavailable products
+remain priced when they are still listed in the menu; private, archived and
+removed products show that they are not in the current menu. Weighted prices
+show a per-kilogram unit and products with options disclose that option fees are
+separate. Historical net sales and costs remain unchanged.
 
-Left: commit and push the implementation, then prepare, validate and activate a
-compatible VPS release. Production currently reports `cafe-20261112-12705d6`.
+Verification: the focused dashboard file passes 14 tests and the complete POS
+suite passes 235 tests across 32 files. Contracts pass 18 tests; API/contracts
+production builds, POS production build, POS typecheck and `git diff --check`
+pass. POS release endpoint and public `/pos` return HTTP 200; release identity
+is no-store. API readiness, public-menu API/proxy/page and Prisma migration
+status pass; all 50 migrations remain current. API, POS and web services are
+active. Browser/device acceptance is not claimed.
+
+Artifact SHA-256:
+`da348731d8d33ccd834aa1f06642e594528c62bb458cd1032da8342f4bbaa171`.
+PostgreSQL 17 pre-release backup:
+`/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261112-c9dadaf.dump`
+(SHA-256 `72ad700c173191732856bf2e9648b90ee1dbb45b760c66ddfa1d41186e54d3ce`).
+Runtime rollback archive:
+`/opt/cafe-menu-release-backups/rollback-before-cafe-20261112-c9dadaf.tar.gz`
+(SHA-256 `bd85d7cb811a4d3e29fd471870bf7753c9b9e8832897ac5444289b748803ad2b`).
+No product images or environment files were transferred. VPS image storage
+remains 32 files / 5,759,237 bytes.
+
+Left: none for this delivery. Browser/device acceptance remains unverified.
 
 ## Completed delivery — Inventory visual refresh (11 November 2026)
 
