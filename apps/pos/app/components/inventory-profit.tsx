@@ -14,7 +14,7 @@ const money = (amount: number | null) =>
   amount === null ? "محاسبه نشده" : inventoryNumber(formatToman(amount));
 type Sort = "profit" | "sales" | "margin";
 
-export function InventoryProfitPanel({ catalog }: { catalog?: ManagerCatalog } = {}) {
+export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: ManagerCatalog; onInspectProduct?: (productId: string) => void } = {}) {
   const initial = currentPersianDateInput();
   const start = currentPersianDateInput(new Date(Date.now() - 29 * 86400000));
   const [from, setFrom] = useState(start);
@@ -24,6 +24,7 @@ export function InventoryProfitPanel({ catalog }: { catalog?: ManagerCatalog } =
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<Sort>("profit");
+  const [priorityLimit, setPriorityLimit] = useState(8);
   const request = useRef(0);
   const load = async (start: typeof from, end: typeof to) => {
     const fromDate = persianDateToGregorianDate(start.year, start.value);
@@ -85,6 +86,13 @@ export function InventoryProfitPanel({ catalog }: { catalog?: ManagerCatalog } =
       .filter((product) => product.grossProfitAmount !== null)
       .sort((a, b) => b.grossProfitAmount! - a.grossProfitAmount!)
       .slice(0, 5) ?? [];
+  const priorityProducts = report?.data.products
+    .filter((product) => product.incompleteCostRevenueAmount > 0)
+    .sort((a, b) => b.incompleteCostRevenueAmount - a.incompleteCostRevenueAmount || a.productName.localeCompare(b.productName, "fa") || (a.channel ?? "").localeCompare(b.channel ?? "")) ?? [];
+  const currentCostingProductIds = new Set(
+    catalog?.products.filter((product) => product.isActive && !product.archivedAt).map((product) => product.id) ?? [],
+  );
+  const coverage = report?.data.costCoverage;
   const maxProfit = Math.max(1, ...ranked.map((product) => Math.abs(product.grossProfitAmount!)));
   const totals = report?.data.totals;
   return (
@@ -230,6 +238,88 @@ export function InventoryProfitPanel({ catalog }: { catalog?: ManagerCatalog } =
               detail="سهم سود ناخالص از فروش خالص"
             />
           </dl>
+          <section className="manager-card inventory-cost-coverage" aria-labelledby="inventory-cost-coverage-title">
+            <header>
+              <h2 id="inventory-cost-coverage-title">پوشش بهای تمام‌شده فروش</h2>
+              <p>
+                {coverage!.coveragePercent === null
+                  ? "در این بازه فروش واجد شرایطی برای محاسبه‌ی پوشش وجود ندارد."
+                  : `${inventoryNumber(coverage!.coveragePercent)}٪ از مبلغ فروش این بازه، بهای تمام‌شده‌ی کامل دارد.`}
+              </p>
+            </header>
+            <div className="inventory-cost-coverage-primary">
+              <strong>{coverage!.coveragePercent === null ? "محاسبه نشده" : `${inventoryNumber(coverage!.coveragePercent)}٪`}</strong>
+              <div
+                className="inventory-cost-coverage-track"
+                role="progressbar"
+                aria-label="درصد پوشش بهای تمام‌شده فروش"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={coverage!.coveragePercent === null ? 0 : Number(coverage!.coveragePercent)}
+              >
+                <span className="is-covered" style={{ width: `${coverage!.coveragePercent === null ? 0 : Math.min(100, Math.max(0, Number(coverage!.coveragePercent)))}%` }} />
+                <span className="is-incomplete" style={{ width: `${coverage!.coveragePercent === null ? 0 : 100 - Math.min(100, Math.max(0, Number(coverage!.coveragePercent)))}%` }} />
+              </div>
+            </div>
+            <div className="inventory-cost-coverage-legend">
+              <div><span className="is-covered" /><span>فروش با هزینه‌ی کامل</span><strong><bdi>{money(coverage!.completeCostRevenueAmount)}</bdi> تومان</strong></div>
+              <div><span className="is-incomplete" /><span>فروش با هزینه‌ی ناقص</span><strong><bdi>{money(coverage!.incompleteCostRevenueAmount)}</bdi> تومان</strong></div>
+            </div>
+            <p className="inventory-note">
+              {inventoryNumber(coverage!.completeOrderItemCount)} قلم با هزینه‌ی کامل، {inventoryNumber(coverage!.incompleteOrderItemCount)} قلم با هزینه‌ی ناقص از {inventoryNumber(coverage!.totalEligibleNetSalesAmount)} تومان فروش خالص.
+            </p>
+            <p className="inventory-note">فروش ردیف «بسته‌بندی» در مخرج باقی می‌ماند؛ هزینه‌ی مواد بسته‌بندی از دستورها و نگاشت مواد بسته‌بندی محاسبه می‌شود. نبود هزینه برای ردیف خدمت به‌معنای هزینه‌ی صفر نیست.</p>
+          </section>
+          <section className="manager-card inventory-coverage-priority" aria-labelledby="inventory-coverage-priority-title">
+            <header>
+              <h2 id="inventory-coverage-priority-title">اولویت تکمیل بهای تمام‌شده</h2>
+              <p>بیشترین فروش تاریخی با هزینه‌ی ناقص در ابتدای فهرست است. تغییر دستور تهیه، هزینه‌ی فروش‌های تاریخی را اصلاح نمی‌کند؛ برای بررسی تنظیم فعلی از بخش «دستور تهیه و هزینه» استفاده کنید.</p>
+            </header>
+            {priorityProducts.length ? (
+              <>
+                <div className="inventory-table-wrap" role="region" aria-label="محصولات با اولویت تکمیل هزینه" tabIndex={0}>
+                  <table className="inventory-table">
+                    <thead><tr><th scope="col">محصول</th><th scope="col">نوع فروش</th><th scope="col">فروش کل</th><th scope="col">فروش با هزینه‌ی ناقص</th><th scope="col">پوشش هزینه</th><th scope="col">سهم از فروش ناقص</th></tr></thead>
+                    <tbody>{priorityProducts.slice(0, priorityLimit).map((product) => (
+                      <tr key={`${product.productId}:${product.channel ?? "TABLE"}`}>
+                        <th scope="row">{product.productName}{onInspectProduct && (currentCostingProductIds.has(product.productId)
+                          ? <button className="text-button" type="button" onClick={() => onInspectProduct(product.productId)}>بررسی هزینه‌ی فعلی</button>
+                          : <small className="inventory-cell-note">تنظیم فعلی این محصول در دسترس نیست</small>)}</th>
+                        <td>{product.channel === "TAKEAWAY" ? "بیرون‌بر" : "داخل کافه"}</td>
+                        <td><bdi>{money(product.netSalesAmount)}</bdi></td>
+                        <td><bdi>{money(product.incompleteCostRevenueAmount)}</bdi></td>
+                        <td>{product.coveragePercent === null ? "محاسبه نشده" : `${inventoryNumber(product.coveragePercent)}٪`}</td>
+                        <td>{product.incompleteCostRevenueSharePercent === null ? "محاسبه نشده" : `${inventoryNumber(product.incompleteCostRevenueSharePercent)}٪`}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+                {priorityProducts.length > 8 && (
+                  <button className="secondary-button" type="button" onClick={() => setPriorityLimit((limit) => limit >= priorityProducts.length ? 8 : Math.min(priorityProducts.length, limit + 8))}>
+                    {priorityLimit >= priorityProducts.length ? "نمایش موارد کمتر" : `نمایش ${inventoryNumber(Math.min(8, priorityProducts.length - priorityLimit))} مورد دیگر`}
+                  </button>
+                )}
+              </>
+            ) : <p className="inventory-empty">در این بازه فروش تاریخی با هزینه‌ی ناقص ثبت نشده است.</p>}
+          </section>
+          <section className="manager-card inventory-channel-coverage" aria-labelledby="inventory-channel-coverage-title">
+            <header><h2 id="inventory-channel-coverage-title">پوشش هزینه بر اساس نوع فروش</h2><p>کانال از snapshot هزینه‌ی هر ردیف پیروی می‌کند و هزینه‌ی مواد بسته‌بندی بیرون‌بر را در همان کانال نگه می‌دارد. گزارش آمار فروش، سفارش میزی دارای ردیف سیستمی «بسته‌بندی» را بیرون‌بر طبقه‌بندی می‌کند؛ این دو تعریف با هم ترکیب نشده‌اند.</p></header>
+            <div className="inventory-channel-coverage-grid">
+              {coverage!.channels.map((channel) => {
+                const percent = channel.coveragePercent === null ? 0 : Math.min(100, Math.max(0, Number(channel.coveragePercent)));
+                return <article key={channel.channel} aria-label={channel.channel === "TABLE" ? "داخل کافه" : "بیرون‌بر"}>
+                  <h3>{channel.channel === "TABLE" ? "داخل کافه" : "بیرون‌بر"}</h3>
+                  <strong>{channel.coveragePercent === null ? "فروشی ثبت نشده" : `${inventoryNumber(channel.coveragePercent)}٪`}</strong>
+                  <div className="inventory-cost-coverage-track" role="progressbar" aria-label={`پوشش بهای تمام‌شده ${channel.channel === "TABLE" ? "داخل کافه" : "بیرون‌بر"}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+                    <span className="is-covered" style={{ width: `${percent}%` }} /><span className="is-incomplete" style={{ width: `${channel.coveragePercent === null ? 0 : 100 - percent}%` }} />
+                  </div>
+                  <p>فروش: <bdi>{money(channel.netSalesAmount)}</bdi> تومان</p>
+                  <p>هزینه‌ی کامل: <bdi>{money(channel.completeCostRevenueAmount)}</bdi> تومان</p>
+                  <p>هزینه‌ی ناقص: <bdi>{money(channel.incompleteCostRevenueAmount)}</bdi> تومان</p>
+                </article>;
+              })}
+            </div>
+          </section>
           <div className="inventory-profit-charts"><section className="manager-card"><header><h2>روند فروش، بهای تمام‌شده و سود ناخالص</h2><p>بر اساس روز تسویه‌ی کامل در تهران؛ مبالغ به تومان.</p></header><InventoryTrend daily={report.data.daily ?? []} /></section><section className="manager-card"><header><h2>سود و حاشیه‌ی سود ناخالص روزانه</h2><p>روز را انتخاب کنید تا حاشیه‌ی سود همان روز نمایش داده شود.</p></header><InventoryDailyMargin daily={report.data.daily ?? []} /></section></div>
           <div className="inventory-profit-bottom"><InventoryProfitBreakdown report={report} {...(catalog ? {catalog} : {})} />
             <section className="manager-card">
