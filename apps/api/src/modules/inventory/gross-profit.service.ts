@@ -17,6 +17,19 @@ function percentage(grossProfit: number | null, netSales: number) {
   return ((grossProfit / netSales) * 100).toFixed(2);
 }
 
+function revenuePercentage(revenue: bigint, total: bigint) {
+  if (total === 0n) return null;
+  const hundredths = (revenue * 10_000n + total / 2n) / total;
+  return `${hundredths / 100n}.${String(hundredths % 100n).padStart(2, "0")}`;
+}
+
+function amountNumber(amount: bigint) {
+  if (amount < 0n || amount > 2_147_483_647n) {
+    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reported revenue amount exceeds the supported Toman range.");
+  }
+  return Number(amount);
+}
+
 export async function grossProfitReport(prisma: PrismaClient, query: GrossProfitReportQuery) {
   const activatedAt = await inventoryActivation(prisma);
   const now = new Date();
@@ -57,18 +70,28 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
     productId: string;
     channel: "TABLE" | "TAKEAWAY";
     productName: string;
-    netSalesAmount: number;
+    netSalesAmount: bigint;
+    completeCostRevenueAmount: bigint;
+    incompleteCostRevenueAmount: bigint;
     knownCogsAmount: number;
     theoreticalCogsAmount: number;
     completeOrderItemCount: number;
     incompleteOrderItemCount: number;
   }>();
-  const daily = new Map<string, { date: string; netSalesAmount: number; knownCogsAmount: number; incompleteOrderItemCount: number }>();
+  const daily = new Map<string, { date: string; netSalesAmount: bigint; knownCogsAmount: number; incompleteOrderItemCount: number }>();
   // Include quiet days without implying a margin where there were no sales.
   for (let day = Date.parse(`${query.fromDate}T00:00:00Z`); day <= Date.parse(`${query.toDate}T00:00:00Z`); day += 86_400_000) {
     const date = new Date(day).toISOString().slice(0, 10);
-    daily.set(date, { date, netSalesAmount: 0, knownCogsAmount: 0, incompleteOrderItemCount: 0 });
+    daily.set(date, { date, netSalesAmount: 0n, knownCogsAmount: 0, incompleteOrderItemCount: 0 });
   }
+  const byChannel = new Map(["TABLE", "TAKEAWAY"].map((channel) => [channel as "TABLE" | "TAKEAWAY", {
+    channel: channel as "TABLE" | "TAKEAWAY",
+    netSalesAmount: 0n,
+    completeCostRevenueAmount: 0n,
+    incompleteCostRevenueAmount: 0n,
+    completeOrderItemCount: 0,
+    incompleteOrderItemCount: 0,
+  }]));
   let pendingConsumptionCount = 0;
   let untrackedConsumptionCount = 0;
   for (const consumption of consumptions) {
@@ -83,7 +106,9 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
         channel,
         productId,
         productName: item.productNameSnapshot,
-        netSalesAmount: 0,
+        netSalesAmount: 0n,
+        completeCostRevenueAmount: 0n,
+        incompleteCostRevenueAmount: 0n,
         knownCogsAmount: 0,
         theoreticalCogsAmount: 0,
         completeOrderItemCount: 0,
@@ -91,16 +116,24 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
       };
       const itemRevenue = item.orderItem.settlementAllocations
         .filter((allocation) => allocation.settlement.reversal === null)
-        .reduce((sum, allocation) => sum + allocation.amount, 0);
+        .reduce((sum, allocation) => sum + BigInt(allocation.amount), 0n);
+      const channelTotals = byChannel.get(channel)!;
       product.netSalesAmount += itemRevenue;
       day.netSalesAmount += itemRevenue;
+      channelTotals.netSalesAmount += itemRevenue;
       day.knownCogsAmount += item.theoreticalCogsAmount ?? 0;
-      if (!item.isCostComplete || item.theoreticalCogsAmount === null) day.incompleteOrderItemCount += 1;
       product.knownCogsAmount += item.knownCogsAmount;
       if (item.isCostComplete && item.theoreticalCogsAmount !== null) {
+        product.completeCostRevenueAmount += itemRevenue;
+        channelTotals.completeCostRevenueAmount += itemRevenue;
+        channelTotals.completeOrderItemCount += 1;
         product.theoreticalCogsAmount += item.theoreticalCogsAmount;
         product.completeOrderItemCount += 1;
       } else {
+        product.incompleteCostRevenueAmount += itemRevenue;
+        channelTotals.incompleteCostRevenueAmount += itemRevenue;
+        channelTotals.incompleteOrderItemCount += 1;
+        day.incompleteOrderItemCount += 1;
         product.incompleteOrderItemCount += 1;
       }
       byProduct.set(key, product);
@@ -108,7 +141,10 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
   }
 
   const products = [...byProduct.values()].sort((left, right) => left.productName.localeCompare(right.productName, "fa"));
-  const netSalesAmount = products.reduce((sum, product) => sum + product.netSalesAmount, 0);
+  const netSalesRevenue = products.reduce((sum, product) => sum + product.netSalesAmount, 0n);
+  const completeCostRevenueAmount = products.reduce((sum, product) => sum + product.completeCostRevenueAmount, 0n);
+  const incompleteCostRevenueAmount = products.reduce((sum, product) => sum + product.incompleteCostRevenueAmount, 0n);
+  const netSalesAmount = amountNumber(netSalesRevenue);
   const knownCogsAmount = products.reduce((sum, product) => sum + product.knownCogsAmount, 0);
   const incompleteOrderItemCount = products.reduce((sum, product) => sum + product.incompleteOrderItemCount, 0);
   const completeOrderItemCount = products.reduce((sum, product) => sum + product.completeOrderItemCount, 0);
@@ -178,29 +214,51 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
       },
       daily: [...daily.values()].map((day) => {
         const cogs = day.incompleteOrderItemCount ? null : day.knownCogsAmount;
-        const gross = cogs === null ? null : day.netSalesAmount - cogs;
-        return { date: day.date, netSalesAmount: day.netSalesAmount, theoreticalCogsAmount: cogs,
-          grossProfitAmount: gross, grossMarginPercent: percentage(gross, day.netSalesAmount),
+        const dayNetSalesAmount = amountNumber(day.netSalesAmount);
+        const gross = cogs === null ? null : dayNetSalesAmount - cogs;
+        return { date: day.date, netSalesAmount: dayNetSalesAmount, theoreticalCogsAmount: cogs,
+          grossProfitAmount: gross, grossMarginPercent: percentage(gross, dayNetSalesAmount),
           incompleteOrderItemCount: day.incompleteOrderItemCount };
       }),
       products: products.map((product) => {
         const complete = product.incompleteOrderItemCount === 0;
         const theoretical = complete ? product.theoreticalCogsAmount : null;
-        const gross = theoretical === null ? null : product.netSalesAmount - theoretical;
+        const productNetSalesAmount = amountNumber(product.netSalesAmount);
+        const gross = theoretical === null ? null : productNetSalesAmount - theoretical;
         return {
           channel: product.channel,
           productId: product.productId,
           productName: product.productName,
-          netSalesAmount: product.netSalesAmount,
+          netSalesAmount: productNetSalesAmount,
+          completeCostRevenueAmount: amountNumber(product.completeCostRevenueAmount),
+          incompleteCostRevenueAmount: amountNumber(product.incompleteCostRevenueAmount),
+          coveragePercent: revenuePercentage(product.completeCostRevenueAmount, product.netSalesAmount),
+          incompleteCostRevenueOfTotalSalesPercent: revenuePercentage(product.incompleteCostRevenueAmount, netSalesRevenue),
+          incompleteCostRevenueSharePercent: revenuePercentage(product.incompleteCostRevenueAmount, incompleteCostRevenueAmount),
           theoreticalCogsAmount: theoretical,
           knownCogsAmount: product.knownCogsAmount,
           grossProfitAmount: gross,
-          grossMarginPercent: percentage(gross, product.netSalesAmount),
+          grossMarginPercent: percentage(gross, productNetSalesAmount),
           completeOrderItemCount: product.completeOrderItemCount,
           incompleteOrderItemCount: product.incompleteOrderItemCount,
         };
       }),
-      costCoverage: { completeOrderItemCount, incompleteOrderItemCount },
+      costCoverage: {
+        totalEligibleNetSalesAmount: amountNumber(netSalesRevenue),
+        completeCostRevenueAmount: amountNumber(completeCostRevenueAmount),
+        incompleteCostRevenueAmount: amountNumber(incompleteCostRevenueAmount),
+        coveragePercent: revenuePercentage(completeCostRevenueAmount, netSalesRevenue),
+        incompleteCoveragePercent: revenuePercentage(incompleteCostRevenueAmount, netSalesRevenue),
+        completeOrderItemCount,
+        incompleteOrderItemCount,
+        channels: [...byChannel.values()].map((channel) => ({
+          ...channel,
+          netSalesAmount: amountNumber(channel.netSalesAmount),
+          completeCostRevenueAmount: amountNumber(channel.completeCostRevenueAmount),
+          incompleteCostRevenueAmount: amountNumber(channel.incompleteCostRevenueAmount),
+          coveragePercent: revenuePercentage(channel.completeCostRevenueAmount, channel.netSalesAmount),
+        })),
+      },
       pendingConsumptionCount,
       inventoryConsumption: {
         amount: inventoryConsumption,
