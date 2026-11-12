@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { roundDiscountedAmount } from "@cafe/contracts";
 import { readGrossProfitReport, type GrossProfitReport, type ManagerCatalog } from "../lib/api-client";
 import { inventoryErrorMessage } from "../lib/inventory-errors";
 import { currentPersianDateInput, persianDateToGregorianDate } from "../lib/tehran-date";
@@ -13,6 +14,14 @@ import { InventoryMetric, inventoryNumber } from "./inventory-dashboard";
 const money = (amount: number | null) =>
   amount === null ? "محاسبه نشده" : inventoryNumber(formatToman(amount));
 type Sort = "profit" | "sales" | "margin";
+
+function currentMenuPrice(product: ManagerCatalog["products"][number]) {
+  if (!product.saleDiscountKind || !product.saleDiscountValue) return product.priceAmount;
+  const discount = product.saleDiscountKind === "FIXED"
+    ? product.saleDiscountValue
+    : Math.floor((product.priceAmount * product.saleDiscountValue) / 100);
+  return roundDiscountedAmount(Math.max(0, product.priceAmount - discount));
+}
 
 export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: ManagerCatalog; onInspectProduct?: (productId: string) => void } = {}) {
   const initial = currentPersianDateInput();
@@ -92,6 +101,27 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
   const currentCostingProductIds = new Set(
     catalog?.products.filter((product) => product.isActive && !product.archivedAt).map((product) => product.id) ?? [],
   );
+  const currentMenuCategoryIds = new Set(
+    catalog?.categories.filter((category) => !category.archivedAt).map((category) => category.id) ?? [],
+  );
+  const currentMenuProducts = new Map(
+    catalog?.products
+      .filter((product) => product.isPublic && product.isActive && !product.archivedAt && currentMenuCategoryIds.has(product.categoryId))
+      .map((product) => [product.id, product] as const) ?? [],
+  );
+  const renderCurrentMenuPrice = (productId: string) => {
+    const menuProduct = currentMenuProducts.get(productId);
+    if (!menuProduct) return <span>{catalog ? "در منوی فعلی نیست" : "منوی فعلی بارگذاری نشده"}</span>;
+    return <>
+      <bdi>{money(currentMenuPrice(menuProduct))}</bdi>
+      <small className="inventory-cell-note">
+        {menuProduct.pricingMode === "WEIGHTED_PER_KG" ? "تومان برای هر کیلوگرم" : "تومان"}
+      </small>
+      {menuProduct.optionGroups.length > 0 && (
+        <small className="inventory-cell-note">قیمت پایه؛ هزینه‌ی گزینه‌ها جداست</small>
+      )}
+    </>;
+  };
   const coverage = report?.data.costCoverage;
   const maxProfit = Math.max(1, ...ranked.map((product) => Math.abs(product.grossProfitAmount!)));
   const totals = report?.data.totals;
@@ -101,7 +131,7 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
         <header className="inventory-section-heading">
           <div>
             <h2>بررسی سود ناخالص</h2>
-            <p>فروش تسویه‌شده و هزینه‌ی ثبت‌شده‌ی سفارش‌ها.</p>
+            <p>فروش خالص و هزینه از سفارش‌های تاریخی است؛ قیمت نهایی منو از قیمت فعلی محصول می‌آید.</p>
           </div>
         </header>
         <form className="inventory-profit-filter" onSubmit={submit}>
@@ -443,6 +473,7 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
                 <thead>
                   <tr>
                     <th scope="col">کالا</th>
+                    <th scope="col">قیمت نهایی منو</th>
                     <th scope="col">فروش خالص</th>
                     <th scope="col">هزینه‌ی مشخص‌شده</th>
                     <th scope="col">سود ناخالص</th>
@@ -454,6 +485,7 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
                   {products.map((product) => (
                     <tr key={`${product.productId}:${product.channel ?? "TABLE"}`}>
                       <th scope="row">{product.productName}<small className="inventory-cell-note">{product.channel === "TAKEAWAY" ? "بیرون‌بر" : product.channel === "TABLE" ? "داخل کافه" : ""}</small></th>
+                      <td>{renderCurrentMenuPrice(product.productId)}</td>
                       <td>
                         <bdi>{money(product.netSalesAmount)}</bdi>
                       </td>
@@ -486,7 +518,7 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
                   ))}
                   {products.length === 0 && (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={7}>
                         {report.data.products.length
                           ? "محصولی با این نام پیدا نشد."
                           : "در این بازه سفارشی تسویه‌ی کامل نشده است."}
