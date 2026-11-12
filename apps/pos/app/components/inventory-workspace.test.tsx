@@ -306,8 +306,8 @@ it("shows gross profit before turnover activation even when stock consumption is
   vi.mocked(api.readGrossProfitReport).mockResolvedValue(ok({
     data: {
       totals: { netSalesAmount: 10000, knownCogsAmount: 200, theoreticalCogsAmount: 200, grossProfitAmount: 9800, grossMarginPercent: "98.00" },
-      products: [{ productId: "product-1", productName: "اسپرسو", netSalesAmount: 10000, knownCogsAmount: 200, theoreticalCogsAmount: 200, grossProfitAmount: 9800, grossMarginPercent: "98.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }],
-      costCoverage: { completeOrderItemCount: 1, incompleteOrderItemCount: 0 }, pendingConsumptionCount: 0,
+      products: [{ productId: "product-1", productName: "اسپرسو", netSalesAmount: 10000, completeCostRevenueAmount: 10000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: null, knownCogsAmount: 200, theoreticalCogsAmount: 200, grossProfitAmount: 9800, grossMarginPercent: "98.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }],
+      costCoverage: { totalEligibleNetSalesAmount: 10000, completeCostRevenueAmount: 10000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCoveragePercent: "0.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0, channels: [{ channel: "TABLE", netSalesAmount: 0, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 0, coveragePercent: null, completeOrderItemCount: 0, incompleteOrderItemCount: 0 }, { channel: "TAKEAWAY", netSalesAmount: 10000, completeCostRevenueAmount: 10000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }] }, pendingConsumptionCount: 0,
       inventoryConsumption: { amount: null, isEstimate: true, varianceAmount: null, missingValuationCount: 0 },
     },
     meta: { range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } },
@@ -318,6 +318,58 @@ it("shows gross profit before turnover activation even when stock consumption is
   expect(screen.getAllByText("۹,۸۰۰").length).toBeGreaterThan(0);
   expect(screen.getAllByText("۹۸.۰۰٪").length).toBeGreaterThan(0);
   expect(screen.getByText(/تا فعال‌سازی گردش موجودی/)).toBeTruthy();
+});
+
+it("opens the current costing setup for a product from its historical priority row", async () => {
+  vi.mocked(api.readGrossProfitReport).mockResolvedValue(ok({
+    data: {
+      totals: { netSalesAmount: 10000, theoreticalCogsAmount: null, knownCogsAmount: 0, grossProfitAmount: null, grossMarginPercent: null },
+      products: [{ productId: "product-1", productName: "اسپرسو", channel: "TABLE", netSalesAmount: 10000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 10000, coveragePercent: "0.00", incompleteCostRevenueOfTotalSalesPercent: "100.00", incompleteCostRevenueSharePercent: "100.00", theoreticalCogsAmount: null, knownCogsAmount: 0, grossProfitAmount: null, grossMarginPercent: null, completeOrderItemCount: 0, incompleteOrderItemCount: 1 }],
+      costCoverage: { totalEligibleNetSalesAmount: 10000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 10000, coveragePercent: "0.00", incompleteCoveragePercent: "100.00", completeOrderItemCount: 0, incompleteOrderItemCount: 1, channels: [{ channel: "TABLE", netSalesAmount: 10000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 10000, coveragePercent: "0.00", completeOrderItemCount: 0, incompleteOrderItemCount: 1 }, { channel: "TAKEAWAY", netSalesAmount: 0, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 0, coveragePercent: null, completeOrderItemCount: 0, incompleteOrderItemCount: 0 }] },
+      pendingConsumptionCount: 0,
+      inventoryConsumption: { amount: null, isEstimate: true, varianceAmount: null, missingValuationCount: 0 },
+    },
+    meta: { requestId: "test", range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } },
+  }) as never);
+  render(<InventoryWorkspace catalog={packagingCatalog} />);
+  fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
+  fireEvent.click(await screen.findByRole("button", { name: "بررسی هزینه‌ی فعلی" }));
+  await waitFor(() => expect(api.readProductCosting).toHaveBeenLastCalledWith("product-1"));
+  expect(screen.getByRole("button", { name: "دستور تهیه و هزینه" }).getAttribute("aria-pressed")).toBe("true");
+});
+
+it("does not offer current-cost inspection for an archived historical product", async () => {
+  const archivedProduct = { id: "archived-product", name: "محصول بایگانی‌شده", pricingMode: "FIXED", isActive: false, archivedAt: "2026-11-01T00:00:00.000Z", optionGroups: [] };
+  const activeProduct = { id: "active-product", name: "محصول فعال", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [] };
+  const historicalCatalog = { categories: [], products: [archivedProduct, activeProduct], optionGroups: [], options: [] } as never;
+  vi.mocked(api.readGrossProfitReport).mockResolvedValue(ok({
+    data: {
+      totals: { netSalesAmount: 15000, theoreticalCogsAmount: null, knownCogsAmount: 0, grossProfitAmount: null, grossMarginPercent: null },
+      products: [
+        { productId: archivedProduct.id, productName: archivedProduct.name, channel: "TABLE", netSalesAmount: 10000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 10000, coveragePercent: "0.00", incompleteCostRevenueOfTotalSalesPercent: "66.67", incompleteCostRevenueSharePercent: "66.67", theoreticalCogsAmount: null, knownCogsAmount: 0, grossProfitAmount: null, grossMarginPercent: null, completeOrderItemCount: 0, incompleteOrderItemCount: 1 },
+        { productId: activeProduct.id, productName: activeProduct.name, channel: "TAKEAWAY", netSalesAmount: 5000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 5000, coveragePercent: "0.00", incompleteCostRevenueOfTotalSalesPercent: "33.33", incompleteCostRevenueSharePercent: "33.33", theoreticalCogsAmount: null, knownCogsAmount: 0, grossProfitAmount: null, grossMarginPercent: null, completeOrderItemCount: 0, incompleteOrderItemCount: 1 },
+      ],
+      costCoverage: { totalEligibleNetSalesAmount: 15000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 15000, coveragePercent: "0.00", incompleteCoveragePercent: "100.00", completeOrderItemCount: 0, incompleteOrderItemCount: 2, channels: [
+        { channel: "TABLE", netSalesAmount: 10000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 10000, coveragePercent: "0.00", completeOrderItemCount: 0, incompleteOrderItemCount: 1 },
+        { channel: "TAKEAWAY", netSalesAmount: 5000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 5000, coveragePercent: "0.00", completeOrderItemCount: 0, incompleteOrderItemCount: 1 },
+      ] },
+      pendingConsumptionCount: 0,
+      inventoryConsumption: { amount: null, isEstimate: true, varianceAmount: null, missingValuationCount: 0 },
+    },
+    meta: { requestId: "test", range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } },
+  }) as never);
+
+  render(<InventoryWorkspace catalog={historicalCatalog} />);
+  fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
+  const priorityRegion = await screen.findByRole("region", { name: "محصولات با اولویت تکمیل هزینه" });
+  const archivedRow = within(priorityRegion).getByRole("rowheader", { name: /محصول بایگانی‌شده/ });
+  expect(archivedRow.textContent).toContain("تنظیم فعلی این محصول در دسترس نیست");
+  expect(within(archivedRow).queryByRole("button", { name: "بررسی هزینه‌ی فعلی" })).toBeNull();
+  expect(within(priorityRegion).getAllByRole("button", { name: "بررسی هزینه‌ی فعلی" })).toHaveLength(1);
+
+  fireEvent.click(within(priorityRegion).getByRole("button", { name: "بررسی هزینه‌ی فعلی" }));
+  await waitFor(() => expect(api.readProductCosting).toHaveBeenLastCalledWith(activeProduct.id));
+  expect(api.readProductCosting).not.toHaveBeenCalledWith(archivedProduct.id);
 });
 
 it("omits the disabled turnover notice after activation while keeping purchase entry available", async () => {
@@ -392,8 +444,8 @@ it("blocks duplicate packaging rows without saving recipes or configuration", as
   expect(api.saveProductCosting).not.toHaveBeenCalled();
 });
 it("shows dine-in and takeaway margins for the same product as distinct rows", async () => {
-  const row = { productId: "product-1", productName: "اسپرسو", netSalesAmount: 10000, knownCogsAmount: 2000, theoreticalCogsAmount: 2000, grossProfitAmount: 8000, grossMarginPercent: "80.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 };
-  vi.mocked(api.readGrossProfitReport).mockResolvedValue(ok({ data: { totals: { netSalesAmount: 20000, theoreticalCogsAmount: 4500, knownCogsAmount: 4500, grossProfitAmount: 15500, grossMarginPercent: "77.50" }, products: [{ ...row, channel: "TABLE" }, { ...row, channel: "TAKEAWAY", knownCogsAmount: 2500, theoreticalCogsAmount: 2500, grossProfitAmount: 7500, grossMarginPercent: "75.00" }], costCoverage: { completeOrderItemCount: 2, incompleteOrderItemCount: 0 }, pendingConsumptionCount: 0, inventoryConsumption: { amount: null, isEstimate: true, varianceAmount: null, missingValuationCount: 0 } }, meta: { range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } } }) as never);
+  const row = { productId: "product-1", productName: "اسپرسو", netSalesAmount: 10000, completeCostRevenueAmount: 10000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: null, knownCogsAmount: 2000, theoreticalCogsAmount: 2000, grossProfitAmount: 8000, grossMarginPercent: "80.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 };
+  vi.mocked(api.readGrossProfitReport).mockResolvedValue(ok({ data: { totals: { netSalesAmount: 20000, theoreticalCogsAmount: 4500, knownCogsAmount: 4500, grossProfitAmount: 15500, grossMarginPercent: "77.50" }, products: [{ ...row, channel: "TABLE" }, { ...row, channel: "TAKEAWAY", knownCogsAmount: 2500, theoreticalCogsAmount: 2500, grossProfitAmount: 7500, grossMarginPercent: "75.00" }], costCoverage: { totalEligibleNetSalesAmount: 20000, completeCostRevenueAmount: 20000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCoveragePercent: "0.00", completeOrderItemCount: 2, incompleteOrderItemCount: 0, channels: [{ channel: "TABLE", netSalesAmount: 10000, completeCostRevenueAmount: 10000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }, { channel: "TAKEAWAY", netSalesAmount: 10000, completeCostRevenueAmount: 10000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }] }, pendingConsumptionCount: 0, inventoryConsumption: { amount: null, isEstimate: true, varianceAmount: null, missingValuationCount: 0 } }, meta: { range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } } }) as never);
   render(<InventoryWorkspace catalog={packagingCatalog} />);
   fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
   const table = await screen.findByRole("region", { name: "جدول سود محصولات" });
