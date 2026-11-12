@@ -223,6 +223,100 @@ describe("inventory overview", () => {
 });
 
 describe("profit dashboard", () => {
+  it("shows the current discounted menu price while preserving historical net sales and updating with catalog changes", async () => {
+    const catalogForPrice = (priceAmount: number) => ({
+      categories: [{ id: "coffee-category", archivedAt: null }],
+      products: [{
+        id: "unknown",
+        categoryId: "coffee-category",
+        priceAmount,
+        pricingMode: "FIXED",
+        saleDiscountKind: "PERCENTAGE",
+        saleDiscountValue: 7,
+        isPublic: true,
+        isActive: true,
+        archivedAt: null,
+        optionGroups: [],
+      }],
+      optionGroups: [],
+      tables: [],
+    }) as never;
+    const { rerender } = render(<InventoryProfitPanel catalog={catalogForPrice(190_000)} />);
+    const table = within(await screen.findByRole("region", { name: "جدول سود محصولات" })).getByRole("table");
+    const row = within(table).getByRole("rowheader", { name: /هزینه‌ی نامشخص/ }).closest("tr")!;
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[0]!.textContent).toContain("۱۷۷,۰۰۰");
+    expect(cells[1]!.textContent).toContain("۹۰۰");
+
+    rerender(<InventoryProfitPanel catalog={catalogForPrice(250_000)} />);
+    const updatedRow = within(table).getByRole("rowheader", { name: /هزینه‌ی نامشخص/ }).closest("tr")!;
+    const updatedCells = within(updatedRow).getAllByRole("cell");
+    expect(updatedCells[0]!.textContent).toContain("۲۳۳,۰۰۰");
+    expect(updatedCells[1]!.textContent).toContain("۹۰۰");
+    expect(api.readGrossProfitReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the fixed menu discount for weighted products, notes option fees, and excludes products outside the current menu", async () => {
+    const catalog = {
+      categories: [
+        { id: "current-category", archivedAt: null },
+        { id: "archived-category", archivedAt: "2026-11-01T00:00:00.000Z" },
+      ],
+      products: [
+        {
+          id: "unknown",
+          categoryId: "current-category",
+          priceAmount: 205_000,
+          pricingMode: "WEIGHTED_PER_KG",
+          saleDiscountKind: "FIXED",
+          saleDiscountValue: 10_400,
+          isPublic: true,
+          isActive: true,
+          isAvailable: false,
+          archivedAt: null,
+          optionGroups: [{ optionGroupId: "size" }],
+        },
+        {
+          id: "loss",
+          categoryId: "current-category",
+          priceAmount: 100_000,
+          pricingMode: "FIXED",
+          saleDiscountKind: null,
+          saleDiscountValue: null,
+          isPublic: false,
+          isActive: true,
+          archivedAt: null,
+          optionGroups: [],
+        },
+        {
+          id: "profit",
+          categoryId: "archived-category",
+          priceAmount: 500_000,
+          pricingMode: "FIXED",
+          saleDiscountKind: null,
+          saleDiscountValue: null,
+          isPublic: true,
+          isActive: true,
+          archivedAt: null,
+          optionGroups: [],
+        },
+      ],
+      optionGroups: [],
+      tables: [],
+    } as never;
+    render(<InventoryProfitPanel catalog={catalog} />);
+    const table = within(await screen.findByRole("region", { name: "جدول سود محصولات" })).getByRole("table");
+    const weightedRow = within(table).getByRole("rowheader", { name: /هزینه‌ی نامشخص/ }).closest("tr")!;
+    const weightedCell = within(weightedRow).getAllByRole("cell")[0]!;
+    expect(weightedCell.textContent).toContain("۱۹۵,۰۰۰");
+    expect(weightedCell.textContent).toContain("تومان برای هر کیلوگرم");
+    expect(weightedCell.textContent).toContain("قیمت پایه؛ هزینه‌ی گزینه‌ها جداست");
+    for (const productName of ["محصول زیان‌ده", "محصول سودآور"]) {
+      const row = within(table).getByRole("rowheader", { name: new RegExp(productName) }).closest("tr")!;
+      expect(within(row).getAllByRole("cell")[0]!.textContent).toContain("در منوی فعلی نیست");
+    }
+  });
+
   it("keeps incomplete total cost and margin unavailable and ranks null profit after losses", async () => {
     render(<InventoryProfitPanel />);
     const table = within(await screen.findByRole("region", { name: "جدول سود محصولات" })).getByRole("table");
@@ -377,7 +471,8 @@ describe("profit dashboard", () => {
       },
     } as never);
     render(<InventoryProfitPanel />);
-    await screen.findByRole("region", { name: "جدول سود محصولات" });
+    const table = within(await screen.findByRole("region", { name: "جدول سود محصولات" })).getByRole("table");
+    expect(within(table).getByText("در این بازه سفارشی تسویه‌ی کامل نشده است.").closest("td")?.getAttribute("colspan")).toBe("7");
     expect(screen.getByText("حاشیه‌ی سود ناخالص").closest("div")!.textContent).toContain(
       "محاسبه نشده",
     );
