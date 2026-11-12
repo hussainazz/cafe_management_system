@@ -465,6 +465,7 @@ model Order {
   dailyOrderNumber Int           @default(0)
   tableId          String?
   createdById      String
+  inventorySaleChannel OrderChannel?
   channel          OrderChannel
   state            OrderState    @default(OPEN)
   paymentStatus    PaymentStatus @default(UNPAID)
@@ -727,6 +728,7 @@ model BarTicketPreparation {
 }
 
 model StockItem {
+  lowStockThreshold Decimal? @db.Decimal(20, 6)
   id           String        @id @default(uuid())
   name         String        @unique
   archivedName String?
@@ -840,6 +842,7 @@ model Recipe {
   nestedIn         RecipeComponent[]               @relation("NestedRecipeComponents")
   productCostings  ProductCostingConfiguration[]   @relation("ProductRecipe")
   optionCostings   ProductOptionRecipeCosting[]
+  takeawayCostings ProductCostingConfiguration[]   @relation("TakeawayProductRecipe")
   extrasCostings   ProductCostingConfiguration[]   @relation("ProductExtrasRecipe")
   optionRules      ProductOptionCostingRule[]      @relation("OptionRuleRecipe")
   combinationRules ProductCombinationCostingRule[] @relation("CombinationRuleRecipe")
@@ -877,6 +880,10 @@ model ProductCostingConfiguration {
   recipeQuantity       Decimal?           @db.Decimal(20, 6)
   purchasedStockItemId String?
   purchasedQuantity    Decimal?           @db.Decimal(20, 6)
+  takeawayRecipeId     String?
+  takeawayOptionRecipes Json              @default("[]")
+  takeawayRecipe       Recipe?            @relation("TakeawayProductRecipe", fields: [takeawayRecipeId], references: [id], onDelete: Restrict)
+  takeawayPackaging    Json               @default("[]")
   extrasRecipeId       String?
   version              Int                @default(1)
   updatedById          String

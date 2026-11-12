@@ -1,4 +1,191 @@
+## Active delivery — Takeaway vs. dine-in sales analytics test coverage (12 November 2026)
+
+- [x] Add Manager report integration coverage for channel/origin classification,
+  structured packaging identity, final payment timing, Tehran boundaries,
+  discounts, empty groups, exclusions, removed packaging, same-table orders,
+  deferred orders, reversals followed by repayment, and both legacy-origin paths.
+- [x] Add POS coverage for report rendering, Persian custom dates, date presets,
+  empty/error states, historical-origin disclosure and inventory navigation.
+- [x] Run the API regressions, full POS suite, contracts suite, typechecks and
+  whitespace check.
+- [x] Complete the final independent Sol 6.1 review; no material coverage gaps
+  remain for the supported order model.
+
+Verification: the four-file API regression batch passed 111 checks; after two
+additional API scenarios were added, the final sales-channel file passed all 10
+tests. The complete POS suite passes 229 checks across 32 files; the focused POS
+report/navigation files pass 36 checks. Contracts pass 18 tests. API, POS, and
+contracts typechecks and `git diff --check` pass. The report tests cover active
+replacement payments and ordinary historical channel fallback. Preset tests
+exercise a UTC/Tehran date boundary, distinct reconciled reports, progress values
+and AOV bar widths.
+
+Scope boundary: the current order model supports whole-settlement reversals, but
+not partial refunds, cancelled-order records, or an explicit test-order flag.
+Coverage verifies full reversal and deletion exclusions. Partial-refund revenue
+and test-order exclusions cannot be asserted until those records exist. Deferred
+legacy orders without a saved original channel are surfaced separately and
+excluded from the classified totals.
+
+Left: none for this test-coverage delivery. Partial refunds, cancelled-order
+records and explicit test-order flags remain outside the current order model.
+
+## Local implementation complete — Conditional packaging and nested takeaway recipes (12 November 2026)
+
+- [x] Inspect existing multiple-packaging and nested-recipe capabilities and record approved scope.
+- [x] Add quantity conditions, grouped order allocation and takeaway recipe overrides.
+- [x] Add reusable preparation editor and normal/takeaway ingredient editing.
+- [x] Verify exact latte/cookie example, split rows, edits, snapshots and lifecycle regressions.
+
+Delivered per-unit, complete-group and once-per-product packaging, optional
+inclusive quantity bands, and deterministic allocation across split rows/options
+of the same product. Added a Manager reusable preparation editor and complete
+normal/takeaway ingredient recipes, including nested cookie/wrapper recipes.
+Absent overrides inherit normal recipes. Existing packaging defaults and omitted
+configuration fields remain compatible. Partial recipe-save retries retain the
+latest saved recipe versions. Inactive stock nested inside preparations is
+reported as incomplete rather than costed as an active ingredient.
+
+Verification on Node 24.21.0:
+- 133 API integration checks pass: packaging 19, inventory 24, activation 9,
+  orders 60, admin/Manager 21. The eight new packaging scenarios verify quantities
+  1 through 5, cups/caps/cookies/wrappers/whole holders, split rows, quantity edits,
+  preserved snapshots, per-order quantity bands, option overrides/inheritance,
+  grouped shortages/receipt retries/restoration, separate product groups,
+  inactive nested stock, invalid conditions/references and cycle/role checks.
+- Complete POS suite: 223 checks pass across 31 files. Six new UI scenarios cover
+  reusable nested preparation creation without a menu product, separate takeaway
+  ingredient selection/save/load/clear, group/range rules, invalid ranges before
+  writes, and version-correct retry after a partially saved recipe sequence.
+- Contracts: 18 checks pass. API/POS typechecks and builds pass. Whitespace
+  diff check passes. The first broad API run had a startup timeout under parallel
+  build load; the complete affected regression files passed on a quieter rerun.
+- Fresh isolated test reset applied all 50 migrations. The additive takeaway
+  recipe override migration is also applied to local development, whose schema
+  is current. Local API readiness and POS page return HTTP 200.
+- Manager setup instructions and the quantity table are in
+  `planning/inventory-costing.md`, under the latte/cookie example.
+
+Left: live browser workflow/visual verification is blocked by `The browser access
+host is unavailable`; automated UI acceptance is complete but live browser
+acceptance is not claimed. Work remains local and uncommitted; no production
+release or activation occurred.
+
+## Local implementation complete — Takeaway packaging (12 November 2026)
+
+- [x] Record approved stock packaging mapping and channel-specific costing/report scope.
+- [x] Implement contracts, additive migration, packaging mapping and snapshots.
+- [x] Add Manager packaging editor, channel previews and profit comparison.
+- [x] Verify costing, turnover, lifecycle, authorization, validation and UI regressions.
+
+Delivered product-level `takeawayPackaging` stock mappings, channel-specific
+previews and gross-profit rows, immutable resolved order requirements, and an
+original inventory sale channel so setting a dine-in order aside does not add
+packaging, including when new items are added later. Existing turnover cutoff,
+full-payment recognition, pending retries and restoration rules cover packaging.
+Empty mappings clear packaging; omitted mappings preserve it for older clients.
+
+Verification on Node 24.21.0:
+- 125 relevant API integration tests pass: packaging 11, inventory 24,
+  activation 9, orders 60, Manager/admin 21. New scenarios cover recipe and
+  purchased items, multiple fractional packaging quantities, weighted items,
+  option recipes, Manager permissions, invalid/duplicate/inactive references,
+  stale edits, save/clear behavior, historical snapshots, partial/full payments,
+  split channel margins and aggregate totals, missing valuation, disabled
+  turnover and shortages, receipt retries, reversals, repayment, deletion and
+  deferred dine-in item additions.
+- Full POS suite: 217 tests pass across 31 files. Four new UI checks exercise
+  packaging load/edit/save/remove, channel preview invalidation, duplicate-row
+  rejection, and separate gross-margin rows for the same product.
+- Contracts: 18 tests pass. API/POS typechecks and builds pass; diff whitespace
+  checks pass. Generated Prisma client matches the additive schema.
+- Fresh isolated test DB reset applied all 49 migrations. The two new additive
+  migrations were also applied to local development; schema status is current.
+  Local API readiness and POS page return HTTP 200.
+
+Left: live browser workflow/visual verification could not run because the CUA
+provider returned `The browser access host is unavailable`. Automated UI checks
+are complete; browser acceptance is not claimed. Changes remain local and
+uncommitted; no production deployment occurred.
+
+## Completed delivery — Screenshot-led inventory implementation (11 November 2026)
+
+- [x] Owner selected Image 4 overview, Image 1 stock inspector, Image 2 profit
+  report. Implement the scoped charcoal/amber inventory world with Estedad/RTL.
+- [x] Add a searchable, paginated overview table and stock detail/movement pane;
+  preserve purchase-first navigation and existing writes/confirmations.
+- [x] Owner approved optional manually configured per-item base-unit warning
+  thresholds. Add the nullable exact-decimal schema field, Manager API/editor,
+  optimistic versioning, audit snapshots and exact alert comparison. No forecasts
+  or automatic purchasing. The additive migration is applied locally only.
+- [x] Add daily paid-order revenue/COGS/profit to the existing Manager report;
+  use Tehran recognition days, retain null costs/margins and signed losses.
+  Show current-menu category contribution with explicit attribution.
+- [x] Remove product images from every inventory-related panel as requested.
+- [x] Verify 24 inventory + 9 activation API integration checks, migration
+  fresh/upgrade/restore checks through all 47 migrations, and API/POS typechecks.
+  The final full POS suite passes 213 tests with two workers; production build passes.
+- [x] Capture desktop and phone overview/stock/profit plus mobile purchase,
+  recipe/count and navigation open/closed states. Page-measured viewports are
+  1713×918 and 390×844; actual provider JPEG sizes are separately recorded in
+  `.impeccable/review/inventory-20261111/capture-manifest.json`. Native key/scroll
+  no-op captures were discarded; final evidence uses locator-driven scrolling.
+
+The one static design scan returned zero findings. Review corrections preserve
+null costs, show isolated daily-margin observations, improve button contrast and
+mobile axes, and expose a full stock row plus meaningful alert status in the
+first desktop viewport.
+
+The independent final review cleared all six scored corrections with a ship
+verdict; this is a bounded correction review, not a claim of a whole-surface
+score. The recorded verdict is
+`.impeccable/review/inventory-20261111/verdict-pass-final.md`.
+
+- [x] Record the implemented inventory system in `../apps/pos/DESIGN.md` and
+  `../apps/pos/.impeccable/design.json`, scoped to inventory; preserve the
+  surrounding POS visual system.
+
+Left: none for this authorized local delivery. The changes are uncommitted; no
+production deployment was performed. All unrelated backend and physical
+café-device acceptance items below remain open.
+
 # Current Stage Status
+
+## Completed delivery — Inventory visual refresh (11 November 2026)
+
+- [x] Inspect the supplied brief and all four image references; document the
+  existing data, selected visual scope, and unsupported metrics in
+  `planning/inventory-visual-refresh.md`.
+- [x] Add an overview using actual active stock, zero balances, valuation
+  completeness, pending consumption and six recent movements.
+- [x] Refresh stock/purchase tables, searchable recipe product selection,
+  saved-cost preview wording, profit KPIs and product comparisons; preserve
+  purchase-first navigation, POS themes, versions, idempotency and confirmations.
+- [x] Add focused coverage for unknown/zero stock, safe aggregate display,
+  incomplete/negative/zero-sales profit, sorting, table-only search and report retry.
+- [x] Complete independent Impeccable critique and apply its actionable findings.
+- [x] Finish final POS suite, typecheck/build and browser verification status.
+
+The independent critique and detector pass are complete. Applied draft guards,
+stock-read retry on purchases, stock-editor focus, preview request safeguards,
+viewport-specific recipe selection, movement labels/units, explicit loss labels,
+keyboard-scroll regions and table-scroll cues. Pending-order pagination is
+labelled as a lower bound when more results exist.
+
+Browser inventory returned `browser access host is unavailable`. The owner
+explicitly replied “Finish without the browser check”; desktop/mobile rendered
+acceptance is waived for this task and is not claimed. No database, production
+service, release, commit or push was performed.
+
+Verification: the complete POS suite passes 207 tests across 30 files. POS
+production build and standalone typecheck pass on Node 24.21.0; diff whitespace
+checks pass. Extracted Persian interface copy passes the writing lint with zero
+issues. Three independent CLI detector scans returned zero findings. No visual
+score after corrections or browser/device acceptance is claimed. The critique
+snapshot is `.impeccable/critique/2026-11-11T10-20-43Z__apps-pos-app-components-inventory-workspace-tsx.md`.
+
+Left: none for this authorized local visual refresh. Browser verification was
+explicitly waived. Existing backend and SEP Left items below remain unchanged.
 
 ## Active delivery — Separate inventory costing from stock turnover
 

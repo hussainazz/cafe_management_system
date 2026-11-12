@@ -1,0 +1,1 @@
+import{B as e,C as t,S as n,g as r,u as i,x as a}from"../chunks/8eai5R5A.js";var o=t(`<meta name="theme-color" content="#0d0c0a"/>`);function s(t,s){var c=n();i(`12qhfyh`,e=>{var t=o();a(e,t)});var l=e(c);r(l,()=>s.children),a(t,c)}export{s as component};

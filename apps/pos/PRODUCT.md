@@ -104,3 +104,14 @@ excessive rounding, tiny type, and distracting animation.
 Support deliberate Persian RTL operation; legible type; high-contrast state and
 status communication; large touch targets; keyboard-practical workflows; and
 non-color-only indicators for critical table, payment, and connection states.
+
+## Inventory visual exception — approved 11 November 2026
+
+The Manager inventory workspace follows the owner's supplied dark charcoal and
+amber references independently of the surrounding POS theme. Image 4 owns the
+overview, Image 1 the item inspector, and Image 2 the profit report. Product images are intentionally omitted from all inventory-related panels.
+Keep Estedad, RTL, large controls, accounting truth and all stock-write safeguards. A Manager
+may manually configure an optional warning threshold per stock item; there is
+no automatic forecast or purchasing. Daily charts use the paid-order snapshots
+and Tehran recognition day. Category contributions use the current menu
+classification and say so explicitly.

@@ -48,6 +48,7 @@ import {
   InventoryMovementsResponseSchema,
   PendingConsumptionsResponseSchema,
   GrossProfitReportResponseSchema,
+  SalesChannelReportResponseSchema,
   type ProductSaleDiscountRequest,
   type RecordSettlementRequest,
   type UpdateOrderRequest,
@@ -96,6 +97,7 @@ export type PendingInventoryConsumption = z.infer<typeof PendingConsumptionsResp
 export type ProductCostingConfiguration = z.infer<typeof ProductCostingConfigurationResponseSchema>["data"];
 export type ProductCostingPreview = z.infer<typeof ProductCostingPreviewResponseSchema>["data"];
 export type GrossProfitReport = z.infer<typeof GrossProfitReportResponseSchema>;
+export type SalesChannelReport = z.infer<typeof SalesChannelReportResponseSchema>;
 
 export type ApiFailure = {
   kind: "network" | "response" | "invalid-response";
@@ -682,6 +684,10 @@ export const readPendingInventoryConsumption = () => managerResponse("/admin/inv
 export const readGrossProfitReport = (fromDate: string, toDate: string) => {
   const query = new URLSearchParams({ fromDate, toDate });
   return managerResponse(`/admin/reports/gross-profit?${query}`, GrossProfitReportResponseSchema, "گزارش سود ناخالص دریافت نشد.");
+};
+export const readSalesChannelReport = (fromDate: string, toDate: string) => {
+  const query = new URLSearchParams({ fromDate, toDate });
+  return managerResponse(`/admin/reports/sales-channels?${query}`, SalesChannelReportResponseSchema, "گزارش فروش دریافت نشد.");
 };
 
 export const activateInventory = () => managerMutation("/admin/settings/inventory/activate", "POST", {}, AdminSettingsResponseSchema, "پاسخ فعال‌سازی انبار معتبر نیست.");

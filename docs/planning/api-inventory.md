@@ -224,7 +224,7 @@ implementation change.
 
 | Method | Path | Access | Stage | Purpose |
 | ------ | ---- | ------ | ----- | ------- |
-| `GET` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | List stock items, base units, pack conversions, tracking state, and current valuation. |
+| `GET` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | List stock items, base units, pack conversions, tracking state, optional Manager-configured low-stock threshold in base units, and current valuation. |
 | `POST` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | Create a stock item with explicit base unit, opening quantity/value, and item-specific pack conversions; initialize the balance and opening ledger entry. |
 | `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager | 12 | Version-check editable configuration and allow one-time opening quantity/value initialization only while the item is untracked. |
 | `POST` | `/api/v1/admin/inventory/stock-items/:stockItemId/archive` | Manager | 12 | Archive an unused or referenced item without deleting ledger history. |
@@ -246,7 +246,7 @@ implementation change.
 | `POST` | `/api/v1/admin/inventory/counts/:countId/post` | Manager | 12 | Post a count once, explicitly reconcile selected pending orders, and establish counted balances. |
 | `GET` | `/api/v1/admin/inventory/movements` | Manager | 12 | Cursor-page inventory history with date-range, stock-item, movement-type, or POS order-number filters; include the visible order number on order-related movements. |
 | `GET` | `/api/v1/admin/inventory/pending-consumption` | Manager | 12 | Read whole orders awaiting stock or count reconciliation. |
-| `GET` | `/api/v1/admin/reports/gross-profit` | Manager | 13 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, and compatible inventory consumption estimates. |
+| `GET` | `/api/v1/admin/reports/gross-profit` | Manager | 13 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, compatible inventory consumption estimates, and daily Tehran-date revenue/COGS/profit with null margins for no sales. |
 
 Inventory routes declare `400`, `401`, `403`, `404`, `409`, `422`, `429`,
 `500`, and `503` error envelopes in their runtime response schemas. Validation
@@ -313,3 +313,39 @@ clients must refetch affected API resources after reconnecting.
   earlier orders are not backfilled.
 - Settings updates cannot alter or clear enablement. Database protection also
   rejects changing the timestamp or deleting settings after enablement.
+
+## Takeaway packaging
+
+Product costing input and output include `takeawayPackaging`, an array of
+`{ stockItemId, quantity }`. Each stock item appears once, is active at save time,
+and has a positive exact quantity in its base unit. Limit 100 rows. Quantities
+are per sold unit even for weighted products. New configurations default to
+empty; omitted mappings on updates retain existing mappings. Explicit `[]`
+clears them. Existing Manager authorization and version checks apply.
+
+Cost preview accepts optional `channel: TABLE | TAKEAWAY`, default TABLE.
+TAKEAWAY adds packaging to resolved ingredient/option requirements. Costing
+snapshots preserve the resolved quantities and original sale channel.
+Gross-profit product rows include `channel`; group by product ID and channel.
+Totals and daily figures sum each sale once. Old snapshots retain old costs
+without backfilling packaging. Cost and margin remain Manager-only.
+
+### Quantity rules and complete takeaway recipes
+
+`takeawayPackaging` rows optionally include `mode` (`PER_UNIT`, default;
+`PER_GROUP`; `PER_ORDER`), `groupSize` (integer 2..10000, required only for
+PER_GROUP), and optional inclusive `minQuantity`/`maxQuantity` (positive integers
+up to 1000000, minimum <= maximum). Conditions count the sum of this product's
+quantities across order rows/options. Complete groups use floor(total/groupSize),
+allocated by cumulative row counts. PER_ORDER posts once for that product, not
+once for every order row. Preview treats its quantity as the full product count.
+
+Product costing also accepts nullable `takeawayRecipeId` and
+`takeawayOptionRecipes: [{ optionId, recipeId, recipeQuantity }]`. These are
+complete ingredient recipes for TAKEAWAY only, with inherited normal recipes
+when absent. Option overrides take precedence over the base override. New
+configurations default to null/[]; omitted fields preserve saved overrides on
+update, and explicit null/[] clears them. IDs must reference active recipes,
+option IDs must belong to the product and be unique, and output units must match
+the product's selling unit. Existing nested recipe routes also support the new
+Manager reusable preparation editor without creating catalog products.

@@ -69,6 +69,7 @@ function dtoStock(row: any) {
     id: row.id, name: row.archivedName ?? row.name, category: row.category, baseUnit: row.baseUnit,
     isActive: row.isActive, archivedAt: row.archivedAt?.toISOString() ?? null, version: row.version,
     conversions: row.conversions.map((conversion: any) => ({ id: conversion.id, label: conversion.label, baseQuantityPerPack: dstr(conversion.baseQuantityPerPack), isActive: conversion.isActive })),
+    lowStockThreshold: row.lowStockThreshold == null ? null : row.lowStockThreshold.toFixed(6),
     balance: { quantityOnHand: balance?.trackingStartedAt ? dstr(balance.quantityOnHand) : null, carryingValueAmount: balance?.trackingStartedAt ? balance.carryingValueAmount : null, movingAverageCostPerBaseUnit: unitCost?.toFixed(6) ?? null, trackingStartedAt: balance?.trackingStartedAt?.toISOString() ?? null },
     createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
   };
@@ -85,11 +86,11 @@ export async function createStockItem(prisma: PrismaClient, actor: Authenticated
     if (duplicate) fail(409, ErrorCodes.CONFLICT, "An active stock item with this name already exists.");
     const occurredAt = new Date();
     const openingQuantity = decimal(input.openingQuantity);
-    const row = await tx.stockItem.create({ data: { name: input.name, category: input.category, baseUnit: input.baseUnit, createdById: actor.id, conversions: { create: input.conversions.map((conversion) => ({ label: conversion.label, baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), isActive: conversion.isActive })) }, balance: { create: { quantityOnHand: openingQuantity, carryingValueAmount: input.openingValueAmount, trackingStartedAt: occurredAt } } }, include: { conversions: true, balance: true } });
+    const row = await tx.stockItem.create({ data: { name: input.name, category: input.category, baseUnit: input.baseUnit, lowStockThreshold: input.lowStockThreshold == null ? null : decimal(input.lowStockThreshold), createdById: actor.id, conversions: { create: input.conversions.map((conversion) => ({ label: conversion.label, baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), isActive: conversion.isActive })) }, balance: { create: { quantityOnHand: openingQuantity, carryingValueAmount: input.openingValueAmount, trackingStartedAt: occurredAt } } }, include: { conversions: true, balance: true } });
     const openingCount = await tx.inventoryCount.create({ data: { kind: InventoryCountKind.OPENING, status: InventoryCountStatus.POSTED, createdById: actor.id, createdAt: occurredAt, postedAt: occurredAt, lines: { create: { stockItemId: row.id, observedQuantity: openingQuantity, observedValueAmount: input.openingValueAmount } } }, include: { lines: true } });
     const openingLine = openingCount.lines[0]!;
     if (!openingQuantity.isZero() || input.openingValueAmount !== 0) await tx.inventoryMovement.create({ data: { stockItemId: row.id, kind: InventoryMovementKind.OPENING_COUNT, quantityDelta: openingQuantity, valueDeltaAmount: input.openingValueAmount, inventoryCountLineId: openingLine.id, createdById: actor.id, occurredAt } });
-    await audit(tx, actor.id, requestId, "CREATE_STOCK_ITEM", "STOCK_ITEM", row.id, undefined, { name: row.name, baseUnit: row.baseUnit, openingQuantity: dstr(openingQuantity), openingValueAmount: input.openingValueAmount, openingCountId: openingCount.id });
+    await audit(tx, actor.id, requestId, "CREATE_STOCK_ITEM", "STOCK_ITEM", row.id, undefined, { name: row.name, baseUnit: row.baseUnit, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, openingQuantity: dstr(openingQuantity), openingValueAmount: input.openingValueAmount, openingCountId: openingCount.id });
     return dtoStock(row);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -118,7 +119,7 @@ export async function updateStockItem(prisma: PrismaClient, actor: Authenticated
     }
     const conversions = input.conversions;
     if (conversions && new Set(conversions.map((conversion) => conversion.label.toLocaleLowerCase())).size !== conversions.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Conversion labels must be unique for a stock item.");
-    const updated = await tx.stockItem.updateMany({ where: { id, version: input.expectedVersion }, data: { ...(input.name === undefined ? {} : { name: input.name }), ...(input.category === undefined ? {} : { category: input.category }), ...(input.baseUnit === undefined ? {} : { baseUnit: input.baseUnit }), version: { increment: 1 } } });
+    const updated = await tx.stockItem.updateMany({ where: { id, version: input.expectedVersion }, data: { ...(input.lowStockThreshold === undefined ? {} : { lowStockThreshold: input.lowStockThreshold === null ? null : decimal(input.lowStockThreshold) }), ...(input.name === undefined ? {} : { name: input.name }), ...(input.category === undefined ? {} : { category: input.category }), ...(input.baseUnit === undefined ? {} : { baseUnit: input.baseUnit }), version: { increment: 1 } } });
     if (updated.count !== 1) fail(409, ErrorCodes.STALE_VERSION, "The stock item has changed.");
     if (conversions) {
       const retained = new Set(conversions.flatMap((conversion) => conversion.id ? [conversion.id] : []));
@@ -132,7 +133,7 @@ export async function updateStockItem(prisma: PrismaClient, actor: Authenticated
       }
     }
     const row = await tx.stockItem.findUniqueOrThrow({ where: { id }, include: { conversions: true, balance: true } });
-    await audit(tx, actor.id, requestId, "UPDATE_STOCK_ITEM", "STOCK_ITEM", id, { version: current.version }, { version: row.version, ...(input.openingQuantity === undefined ? {} : { openingQuantity: input.openingQuantity, openingValueAmount: input.openingValueAmount }) });
+    await audit(tx, actor.id, requestId, "UPDATE_STOCK_ITEM", "STOCK_ITEM", id, { version: current.version, lowStockThreshold: current.lowStockThreshold?.toFixed(6) ?? null }, { version: row.version, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, ...(input.openingQuantity === undefined ? {} : { openingQuantity: input.openingQuantity, openingValueAmount: input.openingValueAmount }) });
     return dtoStock(row);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -230,8 +231,9 @@ async function flattenRecipe(tx: Tx, recipeId: string, amount: Prisma.Decimal, k
   for (const component of recipe.components) {
     const path = keyPrefix ? `${keyPrefix}/${component.componentKey}` : component.componentKey;
     const quantity = component.quantity.mul(ratio);
-    if (component.sourceKind === "STOCK_ITEM" && component.stockItem) result.push({ stockItemId: component.stockItem.id, stockItemName: component.stockItem.name, baseUnit: component.stockItem.baseUnit, quantity, sourceKey: path });
+    if (component.sourceKind === "STOCK_ITEM" && component.stockItem?.isActive && !component.stockItem.archivedAt) result.push({ stockItemId: component.stockItem.id, stockItemName: component.stockItem.name, baseUnit: component.stockItem.baseUnit, quantity, sourceKey: path });
     else if (component.nestedRecipeId) result.push(...await flattenRecipe(tx, component.nestedRecipeId, quantity, path, nextSeen, missingReasons));
+    else missingReasons.push(`missing-stock:${component.stockItemId}`);
   }
   return result;
 }
@@ -251,13 +253,18 @@ function applyCostingRule(components: Array<{ componentKey: string; label: strin
   if (rule.action === "CHANGE_QUANTITY") components[index]!.quantity = decimal(rule.quantity);
   else components[index] = { ...components[index]!, label: rule.label ?? components[index]!.label, sourceKind: rule.sourceKind, sourceId: rule.sourceId, quantity: decimal(rule.quantity) };
 }
-async function resolveCosting(tx: Tx, productId: string, optionIds: string[], quantity: number, weightGrams: number | null, includeCosts: boolean): Promise<CostSnapshot> {
+async function resolveCosting(tx: Tx, productId: string, optionIds: string[], quantity: number, weightGrams: number | null, includeCosts: boolean, channel: "TABLE" | "TAKEAWAY" = "TABLE", orderQuantity = quantity, previousQuantity = 0): Promise<CostSnapshot> {
   const product = await tx.product.findUnique({ where: { id: productId }, select: { id: true, name: true, pricingMode: true } });
   if (!product) return { components: [], isComplete: false, missingReasons: ["product-not-found"], configurationVersion: null };
   const config: any = await tx.productCostingConfiguration.findUnique({ where: { productId }, include: { product: { select: { optionRecipeCostings: { include: { recipe: { include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }] } } } } }, optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true } }, costingCombinations: { where: { isActive: true }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true } } } } } } } });
   if (!config) return { components: [], isComplete: false, missingReasons: [`missing-costing:${product.name}`], configurationVersion: null };
+  const overrides = channel === "TAKEAWAY" ? config.takeawayOptionRecipes ?? [] : [];
+  const overriddenIds = new Set(overrides.map((entry: any) => entry.optionId));
+  const optionCostings = [...config.product.optionRecipeCostings.filter((entry: any) => !overriddenIds.has(entry.optionId))];
+  for (const entry of overrides) optionCostings.push({ ...entry, recipe: await tx.recipe.findUnique({ where: { id: entry.recipeId }, include: { components: true } }) });
+  const baseRecipeId = channel === "TAKEAWAY" && config.takeawayRecipeId ? config.takeawayRecipeId : config.recipeId;
   const sortedOptionIds = [...new Set(optionIds)].sort();
-  const selectedOptionRecipes = config.product.optionRecipeCostings.filter((entry: any) => sortedOptionIds.includes(entry.optionId));
+  const selectedOptionRecipes = optionCostings.filter((entry: any) => sortedOptionIds.includes(entry.optionId));
   if (selectedOptionRecipes.length > 1) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Select at most one menu option with a complete recipe.");
   const applicable = selectedOptionRecipes.length ? [] : config.product.costingCombinations.filter((combo: any) => {
     const ids = combo.options.map((entry: any) => entry.optionId).sort();
@@ -274,10 +281,10 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
     const recipe = selected.recipe;
     if (recipe && recipe.isActive && !recipe.archivedAt) for (const component of recipe.components) root.push({ componentKey: component.componentKey, label: component.label, sourceKind: component.sourceKind, sourceId: component.stockItemId ?? component.nestedRecipeId!, quantity: component.quantity.mul(decimal(selected.recipeQuantity).mul(unitMultiplier)).div(recipe.yieldQuantity) });
     else missingReasons.push(`missing-recipe:${selected.recipeId}`);
-  } else if (config.mode === "RECIPE") {
-    const recipe = await tx.recipe.findUnique({ where: { id: config.recipeId }, include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }] } } });
-    if (recipe && recipe.isActive && !recipe.archivedAt) for (const component of recipe.components) root.push({ componentKey: component.componentKey, label: component.label, sourceKind: component.sourceKind, sourceId: component.stockItemId ?? component.nestedRecipeId!, quantity: component.quantity.mul(decimal(config.recipeQuantity).mul(unitMultiplier)).div(recipe.yieldQuantity) });
-    else missingReasons.push(`missing-recipe:${config.recipeId}`);
+  } else if (config.mode === "RECIPE" || channel === "TAKEAWAY" && config.takeawayRecipeId) {
+    const recipe = await tx.recipe.findUnique({ where: { id: baseRecipeId }, include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }] } } });
+    if (recipe && recipe.isActive && !recipe.archivedAt) for (const component of recipe.components) root.push({ componentKey: component.componentKey, label: component.label, sourceKind: component.sourceKind, sourceId: component.stockItemId ?? component.nestedRecipeId!, quantity: component.quantity.mul(decimal(config.recipeQuantity ?? (product.pricingMode === "WEIGHTED_PER_KG" ? "1000" : "1")).mul(unitMultiplier)).div(recipe.yieldQuantity) });
+    else missingReasons.push(`missing-recipe:${baseRecipeId}`);
   } else {
     const stock = await tx.stockItem.findFirst({ where: { id: config.purchasedStockItemId, isActive: true, archivedAt: null } });
     const units = product.pricingMode === "WEIGHTED_PER_KG" ? decimal((weightGrams ?? 0) * quantity) : decimal(config.purchasedQuantity ?? 1).mul(quantity);
@@ -315,6 +322,17 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
     } else flattened.push(...await flattenRecipe(tx, component.sourceId, component.quantity, component.componentKey, new Set(), missingReasons));
   }
   if (config.extrasRecipeId && selectedOptionRecipes.length === 0) flattened.push(...await flattenRecipe(tx, config.extrasRecipeId, unitMultiplier, "", new Set(), missingReasons));
+  if (channel === "TAKEAWAY") for (const packing of (config.takeawayPackaging ?? []) as NonNullable<CostingInput["takeawayPackaging"]>) {
+    if (orderQuantity < (packing.minQuantity ?? 1) || orderQuantity > (packing.maxQuantity ?? Infinity)) continue;
+    const multiplier = packing.mode === "PER_GROUP"
+      ? Math.floor((previousQuantity + quantity) / packing.groupSize!) - Math.floor(previousQuantity / packing.groupSize!)
+      : packing.mode === "PER_ORDER" ? (previousQuantity === 0 ? 1 : 0) : quantity;
+    if (!multiplier) continue;
+    const stock = await tx.stockItem.findFirst({ where: { id: packing.stockItemId, isActive: true, archivedAt: null } });
+    if (!stock) { missingReasons.push(`missing-stock:${packing.stockItemId}`); continue; }
+    flattened.push({ stockItemId: stock.id, stockItemName: stock.name, baseUnit: stock.baseUnit,
+      quantity: decimal(packing.quantity).mul(multiplier), sourceKey: `$packaging:${stock.id}` });
+  }
   const merged = new Map<string, FlatComponent>();
   for (const component of flattened) {
     const key = `${component.stockItemId}:${component.baseUnit}`;
@@ -339,10 +357,14 @@ function ruleFields(rule: any) {
   return { action: rule.action, componentKey: rule.componentKey, label: rule.label ?? null, quantity: rule.quantity ? decimal(rule.quantity) : null, replacementStockItemId: component?.sourceKind === "STOCK_ITEM" ? component.stockItemId : null, replacementRecipeId: component?.sourceKind === "RECIPE" ? component.recipeId : null };
 }
 async function validateCostingInput(tx: Tx, productId: string, input: CostingInput) {
+  for (const packing of input.takeawayPackaging ?? []) {
+    if (!await tx.stockItem.findFirst({ where: { id: packing.stockItemId, isActive: true, archivedAt: null } })) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active packaging stock item is required.");
+  }
   const product = await tx.product.findUnique({ where: { id: productId }, select: { id: true, pricingMode: true, productOptionGroups: { select: { allowedOptions: { select: { optionId: true } } } } } });
   if (!product) fail(404, ErrorCodes.NOT_FOUND, "The product was not found.");
   const allowed = new Set(product.productOptionGroups.flatMap((group: any) => group.allowedOptions.map((option: any) => option.optionId)));
   const allOptions = [
+    ...(input.takeawayOptionRecipes ?? []).map((entry) => entry.optionId),
     ...input.optionRules.map((entry) => entry.optionId),
     ...(input.mode === "RECIPE" ? (input.optionRecipes ?? []).map((entry) => entry.optionId) : []),
     ...input.combinations.flatMap((entry) => entry.optionIds),
@@ -369,6 +391,12 @@ async function validateCostingInput(tx: Tx, productId: string, input: CostingInp
     if (!stock) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active purchased stock item is required.");
     if (product.pricingMode === "WEIGHTED_PER_KG" && stock.baseUnit !== "GRAM") fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Weighted products require purchased stock measured in grams.");
   }
+  if (new Set((input.takeawayOptionRecipes ?? []).map((entry) => entry.optionId)).size !== (input.takeawayOptionRecipes ?? []).length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Each takeaway option can have only one recipe.");
+  for (const recipeId of [input.takeawayRecipeId, ...(input.takeawayOptionRecipes ?? []).map((entry) => entry.recipeId)].filter((id): id is string => !!id)) {
+    const recipe = await tx.recipe.findFirst({ where: { id: recipeId, isActive: true, archivedAt: null } });
+    if (!recipe) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active takeaway recipe is required.");
+    if (recipe.outputUnit !== (product.pricingMode === "WEIGHTED_PER_KG" ? "GRAM" : "PIECE")) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Takeaway recipe units must match the product's selling unit.");
+  }
   const ruleInputs = [...input.optionRules.flatMap((entry) => entry.rules), ...input.combinations.flatMap((entry) => entry.rules)];
   for (const rule of ruleInputs) {
     if (rule.action !== "ADD_COMPONENT" && input.mode === "RECIPE") {
@@ -384,16 +412,16 @@ async function validateCostingInput(tx: Tx, productId: string, input: CostingInp
 }
 function configurationDto(row: any) {
   if (!row) return null;
-  const common = { productId: row.productId, extrasRecipeId: row.extrasRecipeId, optionRecipes: row.product.optionRecipeCostings.map((entry: any) => ({ optionId: entry.optionId, recipeId: entry.recipeId, recipeQuantity: dstr(entry.recipeQuantity) })), optionRules: row.product.optionCostingRules.reduce((result: any[], rule: any) => { let item = result.find((entry) => entry.optionId === rule.optionId); if (!item) { item = { optionId: rule.optionId, rules: [] }; result.push(item); } item.rules.push(ruleDto(rule)); return result; }, []), combinations: row.product.costingCombinations.map((combo: any) => ({ id: combo.id, name: combo.name, optionIds: combo.options.map((option: any) => option.optionId), rules: serializeRules(combo.rules), version: combo.version, isActive: combo.isActive })), version: row.version, updatedAt: row.updatedAt.toISOString() };
+  const common = { takeawayRecipeId: row.takeawayRecipeId ?? null, takeawayOptionRecipes: row.takeawayOptionRecipes ?? [], takeawayPackaging: row.takeawayPackaging ?? [], productId: row.productId, extrasRecipeId: row.extrasRecipeId, optionRecipes: row.product.optionRecipeCostings.map((entry: any) => ({ optionId: entry.optionId, recipeId: entry.recipeId, recipeQuantity: dstr(entry.recipeQuantity) })), optionRules: row.product.optionCostingRules.reduce((result: any[], rule: any) => { let item = result.find((entry) => entry.optionId === rule.optionId); if (!item) { item = { optionId: rule.optionId, rules: [] }; result.push(item); } item.rules.push(ruleDto(rule)); return result; }, []), combinations: row.product.costingCombinations.map((combo: any) => ({ id: combo.id, name: combo.name, optionIds: combo.options.map((option: any) => option.optionId), rules: serializeRules(combo.rules), version: combo.version, isActive: combo.isActive })), version: row.version, updatedAt: row.updatedAt.toISOString() };
   return row.mode === "RECIPE" ? { ...common, mode: row.mode, recipeId: row.recipeId, recipeQuantity: dstr(row.recipeQuantity) } : { ...common, mode: row.mode, purchasedStockItemId: row.purchasedStockItemId, purchasedQuantity: row.purchasedQuantity ? dstr(row.purchasedQuantity) : null };
 }
 const configInclude = { product: { select: { optionRecipeCostings: { orderBy: { optionId: "asc" as const } }, optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true }, orderBy: { componentKey: "asc" as const } }, costingCombinations: { orderBy: { name: "asc" as const }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true }, orderBy: { componentKey: "asc" as const } } } } } } };
 async function replaceConfiguration(tx: Tx, actor: AuthenticatedUser, productId: string, input: CostingInput, requestId: string, existingVersion: number | null) {
   await validateCostingInput(tx, productId, input);
   if (existingVersion === null) {
-    await tx.productCostingConfiguration.create({ data: { productId, mode: input.mode, recipeId: input.mode === "RECIPE" ? input.recipeId : null, recipeQuantity: input.mode === "RECIPE" ? decimal(input.recipeQuantity) : null, purchasedStockItemId: input.mode === "PURCHASED_ITEM" ? input.purchasedStockItemId : null, purchasedQuantity: input.mode === "PURCHASED_ITEM" ? decimal(input.purchasedQuantity ?? "1") : null, extrasRecipeId: input.extrasRecipeId ?? null, updatedById: actor.id } });
+    await tx.productCostingConfiguration.create({ data: { productId, mode: input.mode, recipeId: input.mode === "RECIPE" ? input.recipeId : null, recipeQuantity: input.mode === "RECIPE" ? decimal(input.recipeQuantity) : null, purchasedStockItemId: input.mode === "PURCHASED_ITEM" ? input.purchasedStockItemId : null, purchasedQuantity: input.mode === "PURCHASED_ITEM" ? decimal(input.purchasedQuantity ?? "1") : null, extrasRecipeId: input.extrasRecipeId ?? null, ...(input.takeawayRecipeId !== undefined ? { takeawayRecipeId: input.takeawayRecipeId } : {}), ...(input.takeawayOptionRecipes !== undefined ? { takeawayOptionRecipes: input.takeawayOptionRecipes } : {}), ...(input.takeawayPackaging !== undefined ? { takeawayPackaging: input.takeawayPackaging } : {}), updatedById: actor.id } });
   } else {
-    const changed = await tx.productCostingConfiguration.updateMany({ where: { productId, version: existingVersion }, data: { mode: input.mode, recipeId: input.mode === "RECIPE" ? input.recipeId : null, recipeQuantity: input.mode === "RECIPE" ? decimal(input.recipeQuantity) : null, purchasedStockItemId: input.mode === "PURCHASED_ITEM" ? input.purchasedStockItemId : null, purchasedQuantity: input.mode === "PURCHASED_ITEM" ? decimal(input.purchasedQuantity ?? "1") : null, extrasRecipeId: input.extrasRecipeId ?? null, updatedById: actor.id, version: { increment: 1 } } });
+    const changed = await tx.productCostingConfiguration.updateMany({ where: { productId, version: existingVersion }, data: { mode: input.mode, recipeId: input.mode === "RECIPE" ? input.recipeId : null, recipeQuantity: input.mode === "RECIPE" ? decimal(input.recipeQuantity) : null, purchasedStockItemId: input.mode === "PURCHASED_ITEM" ? input.purchasedStockItemId : null, purchasedQuantity: input.mode === "PURCHASED_ITEM" ? decimal(input.purchasedQuantity ?? "1") : null, extrasRecipeId: input.extrasRecipeId ?? null, ...(input.takeawayRecipeId !== undefined ? { takeawayRecipeId: input.takeawayRecipeId } : {}), ...(input.takeawayOptionRecipes !== undefined ? { takeawayOptionRecipes: input.takeawayOptionRecipes } : {}), ...(input.takeawayPackaging !== undefined ? { takeawayPackaging: input.takeawayPackaging } : {}), updatedById: actor.id, version: { increment: 1 } } });
     if (changed.count !== 1) fail(409, ErrorCodes.STALE_VERSION, "The costing configuration has changed.");
     await tx.productOptionCostingRule.deleteMany({ where: { productId } });
     await tx.productOptionRecipeCosting.deleteMany({ where: { productId } });
@@ -406,7 +434,7 @@ async function replaceConfiguration(tx: Tx, actor: AuthenticatedUser, productId:
   await tx.productOptionCostingRule.createMany({ data: input.optionRules.flatMap((entry) => entry.rules.map((rule) => ({ productId, optionId: entry.optionId, ...ruleFields(rule) }))) });
   if (input.mode === "RECIPE" && input.optionRecipes?.length) await tx.productOptionRecipeCosting.createMany({ data: input.optionRecipes.map((entry) => ({ productId, optionId: entry.optionId, recipeId: entry.recipeId, recipeQuantity: decimal(entry.recipeQuantity) })) });
   const completeRow = await tx.productCostingConfiguration.findUniqueOrThrow({ where: { productId }, include: configInclude });
-  await audit(tx, actor.id, requestId, existingVersion === null ? "CREATE_PRODUCT_COSTING" : "UPDATE_PRODUCT_COSTING", "PRODUCT_COSTING", productId, { version: existingVersion }, { version: completeRow.version });
+  await audit(tx, actor.id, requestId, existingVersion === null ? "CREATE_PRODUCT_COSTING" : "UPDATE_PRODUCT_COSTING", "PRODUCT_COSTING", productId, { version: existingVersion }, { version: completeRow.version, takeawayPackaging: completeRow.takeawayPackaging, takeawayRecipeId: completeRow.takeawayRecipeId, takeawayOptionRecipes: completeRow.takeawayOptionRecipes });
   return completeRow;
 }
 export async function getProductCosting(prisma: PrismaClient, productId: string) { return configurationDto(await prisma.productCostingConfiguration.findUnique({ where: { productId }, include: configInclude })); }
@@ -424,7 +452,7 @@ export async function createProductCosting(prisma: PrismaClient, actor: Authenti
     return configurationDto(await replaceConfiguration(tx, actor, productId, input, requestId, null));
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
-export async function previewProductCosting(prisma: PrismaClient, productId: string, optionIds: string[], quantity: number, weightGrams: number | null) {
+export async function previewProductCosting(prisma: PrismaClient, productId: string, optionIds: string[], quantity: number, weightGrams: number | null, channel: "TABLE" | "TAKEAWAY" = "TABLE") {
   const product = await prisma.product.findUnique({
     where: { id: productId },
     select: {
@@ -446,7 +474,7 @@ export async function previewProductCosting(prisma: PrismaClient, productId: str
     const selected = optionIds.filter((id) => allowed.get(id) === group.optionGroup.id).length;
     if (selected < group.minSelections || selected > group.maxSelections) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Selected options do not satisfy the product option groups.");
   }
-  const snapshot = await resolveCosting(prisma as unknown as Tx, productId, optionIds, quantity, weightGrams, true);
+  const snapshot = await resolveCosting(prisma as unknown as Tx, productId, optionIds, quantity, weightGrams, true, channel);
   return { isComplete: snapshot.isComplete, knownCostAmount: snapshot.components.reduce((sum, component) => sum + (component.knownCostAmount ?? 0), 0), components: snapshot.components, missingReasons: snapshot.missingReasons };
 }
 
@@ -583,20 +611,27 @@ export async function updateCount(prisma: PrismaClient, actor: AuthenticatedUser
 }
 
 async function trackOrderItemSnapshots(tx: Tx, orderId: string, onlyMissing = false) {
-  const items = await tx.orderItem.findMany({ where: { orderId }, include: { options: true, costingSnapshot: true } });
+  const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { channel: true, inventorySaleChannel: true } });
+  const items = await tx.orderItem.findMany({ where: { orderId }, orderBy: [{ displayOrder: "asc" }, { id: "asc" }], include: { options: true, costingSnapshot: true } });
+  const quantities = new Map<string, number>();
+  const previousQuantities = new Map<string, number>();
+  for (const item of items) quantities.set(item.productId, (quantities.get(item.productId) ?? 0) + item.quantity);
   for (const item of items) {
+    const previousQuantity = previousQuantities.get(item.productId) ?? 0;
+    previousQuantities.set(item.productId, previousQuantity + item.quantity);
     if (onlyMissing && item.costingSnapshot) continue;
-    const snapshot = await resolveCosting(tx, item.productId, item.options.map((option) => option.optionId), item.quantity, item.weightGrams, false);
+    const orderChannel = order.inventorySaleChannel ?? order.channel;
+    const snapshot = { ...await resolveCosting(tx, item.productId, item.options.map((option) => option.optionId), item.quantity, item.weightGrams, false, orderChannel, quantities.get(item.productId)!, previousQuantity), orderChannel };
     const data = { configurationVersion: snapshot.configurationVersion, snapshot: snapshot as unknown as Prisma.InputJsonValue, isComplete: snapshot.missingReasons.length === 0, missingReasons: snapshot.missingReasons as unknown as Prisma.InputJsonValue };
     if (onlyMissing) await tx.orderItemCostingSnapshot.create({ data: { orderItemId: item.id, ...data } });
     else await tx.orderItemCostingSnapshot.upsert({ where: { orderItemId: item.id }, create: { orderItemId: item.id, ...data }, update: data });
   }
 }
-async function readOrderItemSnapshots(tx: Tx, orderId: string): Promise<Array<{ itemId: string; productName: string; quantity: number; weightGrams: number | null; components: CostSnapshot["components"]; missingReasons: string[] }>> {
+async function readOrderItemSnapshots(tx: Tx, orderId: string): Promise<Array<{ itemId: string; productName: string; quantity: number; weightGrams: number | null; orderChannel: "TABLE" | "TAKEAWAY" | undefined; components: CostSnapshot["components"]; missingReasons: string[] }>> {
   const items = await tx.orderItem.findMany({ where: { orderId }, include: { costingSnapshot: true } });
   return items.map((item) => {
-    const saved = (item.costingSnapshot?.snapshot ?? {}) as unknown as CostSnapshot;
-    return { itemId: item.id, productName: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams, components: saved.components ?? [], missingReasons: saved.missingReasons ?? ["missing-costing-snapshot"] };
+    const saved = (item.costingSnapshot?.snapshot ?? {}) as unknown as CostSnapshot & { orderChannel?: "TABLE" | "TAKEAWAY" };
+    return { orderChannel: saved.orderChannel, itemId: item.id, productName: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams, components: saved.components ?? [], missingReasons: saved.missingReasons ?? ["missing-costing-snapshot"] };
   });
 }
 async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: string | null, actorId: string, at: Date) {
@@ -636,7 +671,7 @@ async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: st
   const knownCogsAmount = itemAmounts.reduce((sum, item) => sum + item.known, 0);
   const isCostComplete = itemAmounts.every((item) => item.complete) && snapshots.length > 0;
   const theoreticalCogsAmount = isCostComplete ? knownCogsAmount : null;
-  const consumption = await tx.orderConsumption.create({ data: { orderId: order.id, cycleNumber: cycleNumber + 1, paymentSettlementId: settlementId, status: !turnoverEligible ? OrderConsumptionStatus.UNTRACKED : canFulfill ? OrderConsumptionStatus.POSTED : OrderConsumptionStatus.PENDING, recognizedById: actorId, recognizedAt: at, resolvedAt: !turnoverEligible || canFulfill ? at : null, theoreticalCogsAmount, knownCogsAmount, isCostComplete, costSnapshot: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, components: item.components })) as unknown as Prisma.InputJsonValue, items: { create: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, costSnapshot: { components: item.components, missingReasons: item.snapshot.missingReasons } })) } } });
+  const consumption = await tx.orderConsumption.create({ data: { orderId: order.id, cycleNumber: cycleNumber + 1, paymentSettlementId: settlementId, status: !turnoverEligible ? OrderConsumptionStatus.UNTRACKED : canFulfill ? OrderConsumptionStatus.POSTED : OrderConsumptionStatus.PENDING, recognizedById: actorId, recognizedAt: at, resolvedAt: !turnoverEligible || canFulfill ? at : null, theoreticalCogsAmount, knownCogsAmount, isCostComplete, costSnapshot: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, components: item.components })) as unknown as Prisma.InputJsonValue, items: { create: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, costSnapshot: { orderChannel: item.snapshot.orderChannel ?? order.channel, components: item.components, missingReasons: item.snapshot.missingReasons } })) } } });
   if (turnoverEligible && canFulfill && !await consumeStockForOrder(tx, consumption.id, movementRows, actorId, at)) await tx.orderConsumption.update({ where: { id: consumption.id }, data: { status: OrderConsumptionStatus.PENDING, resolvedAt: null } });
   return consumption;
 }

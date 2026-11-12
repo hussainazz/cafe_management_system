@@ -419,6 +419,7 @@ export async function createOrder(
           orderNumber: `${dailySequence.businessDate}-${dailySequence.number}`,
           dailyOrderNumber: dailySequence.number,
           createdById: actor.id,
+          inventorySaleChannel: input.channel,
           channel: input.channel,
           tableId: table?.id ?? null,
           subtotalAmount,
@@ -672,7 +673,7 @@ export async function deferOrder(prisma: PrismaClient, actor: AuthenticatedUser,
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     if (order.state !== OrderState.OPEN || order.balanceAmount <= 0 || order.deferredAt) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only an open unpaid order can be set aside.");
     const now = new Date();
-    const updated = await tx.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { channel: OrderChannel.TAKEAWAY, tableId: null, deferredAt: now, deferredCustomerName: input.customerName?.trim() || null, version: { increment: 1 } } });
+    const updated = await tx.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { inventorySaleChannel: order.inventorySaleChannel ?? order.channel, channel: OrderChannel.TAKEAWAY, tableId: null, deferredAt: now, deferredCustomerName: input.customerName?.trim() || null, version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     if (order.tableId) {
       const other = await tx.order.count({ where: { tableId: order.tableId, state: OrderState.OPEN } });

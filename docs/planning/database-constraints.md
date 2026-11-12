@@ -747,3 +747,34 @@ tableSeatingLimitSnapshotMinutes + estimatedPreparationMinutes`.
   profit effect.
 - Cost and margin data are Manager-only. Staff, public-menu, and receipt DTOs
   never include costing snapshots, stock valuation, COGS, or margin fields.
+
+### Optional Manager stock warning threshold — 11 November 2026
+
+`stock_items.lowStockThreshold` is nullable `DECIMAL(20,6)` with a database
+check requiring nonnegative values. API input rejects more than fourteen integer
+or six fractional digits. Null disables configured low-stock alerts. This field
+has no balance, valuation or ledger effects; normal stock-item version checks
+and audit snapshots cover edits. Migration: `20261111120000_optional_stock_threshold`.
+
+### Takeaway packaging configuration
+
+`20261112120000_takeaway_packaging` adds non-null JSONB
+`product_costing_configurations.takeawayPackaging` with default `[]` and an
+array-type CHECK. Manager contracts validate row structure, UUIDs, unique stock
+IDs, positive exact decimal quantities and the 100-row bound; the service checks
+active stock references transactionally. Configurations use optimistic versions.
+Resolved components and original order channel are saved in costing/consumption
+JSON snapshots, retaining historical costs and the existing restoration ledger.
+
+`20261112121000_inventory_sale_channel` adds nullable
+`orders.inventorySaleChannel`. New orders save their original channel. Deferring
+a legacy order also preserves its channel before removing its table assignment.
+This keeps newly added items on a deferred dine-in order free of takeaway
+packaging. Existing historical costs are unchanged.
+
+`20261112130000_takeaway_recipe_overrides` adds nullable `takeawayRecipeId`
+with a restrictive recipe FK and non-null JSONB `takeawayOptionRecipes` default
+`[]` with an array-type CHECK. The service validates active option recipe IDs,
+product option ownership, duplicate options and output units. Conditional
+packaging fields live in the existing validated JSON array; no old mappings
+are rewritten. Order snapshots persist the resolved whole-group requirements.

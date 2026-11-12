@@ -624,6 +624,9 @@ Acceptance criteria:
 - The shared POS Manager workspace supports stock items, received purchases,
   recipes/product costing, recipe preview, physical counts and reconciliation,
   inventory history, pending consumption, and gross-profit reports.
+- Stock items support an optional, manually configured Manager warning threshold
+  in base units, with exact decimal comparison, versioned edits and audit history.
+  Null disables threshold alerts; no forecasting or automatic purchase follows.
 - Stock setup omits editable category input while retaining the stored category;
   piece-based stock shows one optional count-per-package field instead of the
   named pack-conversion editor.
@@ -754,3 +757,23 @@ deduction or pending-consumption work. Only orders created at or after
 enablement qualify for stock turnover; previous orders are never backfilled,
 including orders still open at enablement. Database constraints prevent clearing
 or changing the timestamp.
+
+### Takeaway packaging — approved 12 November 2026
+
+Map active stock items and exact positive base-unit quantities per sold unit
+to product takeaway packaging. Add them after recipe/option resolution, save
+quantities and sale channel in order snapshots, and apply existing full-payment
+recognition, turnover cutoff, shortage, retry and restoration rules. Preserve
+dine-in costing when setting a table order aside. Compare both channels in
+product gross-profit rows, with combined cafe totals. Delivery progress and
+verification evidence are tracked in `../current-left.md`.
+
+### Conditional packaging and reusable takeaway preparations
+
+Approved 12 November 2026: package per unit, complete group or once per product
+in an order, with optional min/max quantity conditions. Aggregate split rows of
+the same product; allocate groups deterministically without fractional holders.
+Provide Manager create/edit for standalone nested recipes and complete takeaway
+base/option recipe overrides. Use normal recipes when overrides are absent;
+validate active references, compatible output units, cycles and optimistic
+versions. Preserve full-payment snapshots and existing inventory lifecycle.

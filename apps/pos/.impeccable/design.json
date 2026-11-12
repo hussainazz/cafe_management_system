@@ -1,0 +1,455 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T16:14:16.420542+00:00",
+  "title": "Design System: Run Cafe POS inventory",
+  "extensions": {
+    "colorMeta": {
+      "inventory-canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "tonalRamp": [
+          "oklch(0.150 0.00492 173.93)",
+          "oklch(0.264 0.00492 173.93)",
+          "oklch(0.379 0.00492 173.93)",
+          "oklch(0.493 0.00492 173.93)",
+          "oklch(0.607 0.00492 173.93)",
+          "oklch(0.721 0.00492 173.93)",
+          "oklch(0.836 0.00492 173.93)",
+          "oklch(0.950 0.00492 173.93)"
+        ]
+      },
+      "inventory-surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "oklch(0.150 0.00474 174.05)",
+          "oklch(0.264 0.00474 174.05)",
+          "oklch(0.379 0.00474 174.05)",
+          "oklch(0.493 0.00474 174.05)",
+          "oklch(0.607 0.00474 174.05)",
+          "oklch(0.721 0.00474 174.05)",
+          "oklch(0.836 0.00474 174.05)",
+          "oklch(0.950 0.00474 174.05)"
+        ]
+      },
+      "inventory-raised": {
+        "role": "neutral",
+        "displayName": "Raised",
+        "tonalRamp": [
+          "oklch(0.150 0.00455 145.46)",
+          "oklch(0.264 0.00455 145.46)",
+          "oklch(0.379 0.00455 145.46)",
+          "oklch(0.493 0.00455 145.46)",
+          "oklch(0.607 0.00455 145.46)",
+          "oklch(0.721 0.00455 145.46)",
+          "oklch(0.836 0.00455 145.46)",
+          "oklch(0.950 0.00455 145.46)"
+        ]
+      },
+      "inventory-inset": {
+        "role": "neutral",
+        "displayName": "Inset",
+        "tonalRamp": [
+          "oklch(0.150 0.00492 173.93)",
+          "oklch(0.264 0.00492 173.93)",
+          "oklch(0.379 0.00492 173.93)",
+          "oklch(0.493 0.00492 173.93)",
+          "oklch(0.607 0.00492 173.93)",
+          "oklch(0.721 0.00492 173.93)",
+          "oklch(0.836 0.00492 173.93)",
+          "oklch(0.950 0.00492 173.93)"
+        ]
+      },
+      "inventory-hover": {
+        "role": "neutral",
+        "displayName": "Hover",
+        "tonalRamp": [
+          "oklch(0.150 0.00752 128.73)",
+          "oklch(0.264 0.00752 128.73)",
+          "oklch(0.379 0.00752 128.73)",
+          "oklch(0.493 0.00752 128.73)",
+          "oklch(0.607 0.00752 128.73)",
+          "oklch(0.721 0.00752 128.73)",
+          "oklch(0.836 0.00752 128.73)",
+          "oklch(0.950 0.00752 128.73)"
+        ]
+      },
+      "inventory-ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(0.150 0.00986 87.47)",
+          "oklch(0.264 0.00986 87.47)",
+          "oklch(0.379 0.00986 87.47)",
+          "oklch(0.493 0.00986 87.47)",
+          "oklch(0.607 0.00986 87.47)",
+          "oklch(0.721 0.00986 87.47)",
+          "oklch(0.836 0.00986 87.47)",
+          "oklch(0.950 0.00986 87.47)"
+        ]
+      },
+      "inventory-muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(0.150 0.01141 95.20)",
+          "oklch(0.264 0.01141 95.20)",
+          "oklch(0.379 0.01141 95.20)",
+          "oklch(0.493 0.01141 95.20)",
+          "oklch(0.607 0.01141 95.20)",
+          "oklch(0.721 0.01141 95.20)",
+          "oklch(0.836 0.01141 95.20)",
+          "oklch(0.950 0.01141 95.20)"
+        ]
+      },
+      "inventory-line": {
+        "role": "neutral",
+        "displayName": "Line",
+        "tonalRamp": [
+          "oklch(0.150 0.00998 114.54)",
+          "oklch(0.264 0.00998 114.54)",
+          "oklch(0.379 0.00998 114.54)",
+          "oklch(0.493 0.00998 114.54)",
+          "oklch(0.607 0.00998 114.54)",
+          "oklch(0.721 0.00998 114.54)",
+          "oklch(0.836 0.00998 114.54)",
+          "oklch(0.950 0.00998 114.54)"
+        ]
+      },
+      "inventory-control-border": {
+        "role": "neutral",
+        "displayName": "Control border",
+        "tonalRamp": [
+          "oklch(0.150 0.01244 106.85)",
+          "oklch(0.264 0.01244 106.85)",
+          "oklch(0.379 0.01244 106.85)",
+          "oklch(0.493 0.01244 106.85)",
+          "oklch(0.607 0.01244 106.85)",
+          "oklch(0.721 0.01244 106.85)",
+          "oklch(0.836 0.01244 106.85)",
+          "oklch(0.950 0.01244 106.85)"
+        ]
+      },
+      "inventory-amber": {
+        "role": "primary",
+        "displayName": "Amber",
+        "tonalRamp": [
+          "oklch(0.150 0.11566 73.02)",
+          "oklch(0.264 0.11566 73.02)",
+          "oklch(0.379 0.11566 73.02)",
+          "oklch(0.493 0.11566 73.02)",
+          "oklch(0.607 0.11566 73.02)",
+          "oklch(0.721 0.11566 73.02)",
+          "oklch(0.836 0.11566 73.02)",
+          "oklch(0.950 0.11566 73.02)"
+        ]
+      },
+      "inventory-amber-hover": {
+        "role": "primary",
+        "displayName": "Amber hover",
+        "tonalRamp": [
+          "oklch(0.150 0.09793 73.84)",
+          "oklch(0.264 0.09793 73.84)",
+          "oklch(0.379 0.09793 73.84)",
+          "oklch(0.493 0.09793 73.84)",
+          "oklch(0.607 0.09793 73.84)",
+          "oklch(0.721 0.09793 73.84)",
+          "oklch(0.836 0.09793 73.84)",
+          "oklch(0.950 0.09793 73.84)"
+        ]
+      },
+      "inventory-amber-soft": {
+        "role": "primary",
+        "displayName": "Amber soft",
+        "tonalRamp": [
+          "oklch(0.150 0.04376 69.79)",
+          "oklch(0.264 0.04376 69.79)",
+          "oklch(0.379 0.04376 69.79)",
+          "oklch(0.493 0.04376 69.79)",
+          "oklch(0.607 0.04376 69.79)",
+          "oklch(0.721 0.04376 69.79)",
+          "oklch(0.836 0.04376 69.79)",
+          "oklch(0.950 0.04376 69.79)"
+        ]
+      },
+      "inventory-profit": {
+        "role": "secondary",
+        "displayName": "Profit",
+        "tonalRamp": [
+          "oklch(0.150 0.10209 162.82)",
+          "oklch(0.264 0.10209 162.82)",
+          "oklch(0.379 0.10209 162.82)",
+          "oklch(0.493 0.10209 162.82)",
+          "oklch(0.607 0.10209 162.82)",
+          "oklch(0.721 0.10209 162.82)",
+          "oklch(0.836 0.10209 162.82)",
+          "oklch(0.950 0.10209 162.82)"
+        ]
+      },
+      "inventory-success-soft": {
+        "role": "secondary",
+        "displayName": "Success soft",
+        "tonalRamp": [
+          "oklch(0.150 0.04257 161.06)",
+          "oklch(0.264 0.04257 161.06)",
+          "oklch(0.379 0.04257 161.06)",
+          "oklch(0.493 0.04257 161.06)",
+          "oklch(0.607 0.04257 161.06)",
+          "oklch(0.721 0.04257 161.06)",
+          "oklch(0.836 0.04257 161.06)",
+          "oklch(0.950 0.04257 161.06)"
+        ]
+      },
+      "inventory-warning": {
+        "role": "secondary",
+        "displayName": "Warning",
+        "tonalRamp": [
+          "oklch(0.150 0.12440 74.25)",
+          "oklch(0.264 0.12440 74.25)",
+          "oklch(0.379 0.12440 74.25)",
+          "oklch(0.493 0.12440 74.25)",
+          "oklch(0.607 0.12440 74.25)",
+          "oklch(0.721 0.12440 74.25)",
+          "oklch(0.836 0.12440 74.25)",
+          "oklch(0.950 0.12440 74.25)"
+        ]
+      },
+      "inventory-warning-soft": {
+        "role": "secondary",
+        "displayName": "Warning soft",
+        "tonalRamp": [
+          "oklch(0.150 0.04495 70.82)",
+          "oklch(0.264 0.04495 70.82)",
+          "oklch(0.379 0.04495 70.82)",
+          "oklch(0.493 0.04495 70.82)",
+          "oklch(0.607 0.04495 70.82)",
+          "oklch(0.721 0.04495 70.82)",
+          "oklch(0.836 0.04495 70.82)",
+          "oklch(0.950 0.04495 70.82)"
+        ]
+      },
+      "inventory-danger": {
+        "role": "secondary",
+        "displayName": "Danger",
+        "tonalRamp": [
+          "oklch(0.150 0.11231 26.02)",
+          "oklch(0.264 0.11231 26.02)",
+          "oklch(0.379 0.11231 26.02)",
+          "oklch(0.493 0.11231 26.02)",
+          "oklch(0.607 0.11231 26.02)",
+          "oklch(0.721 0.11231 26.02)",
+          "oklch(0.836 0.11231 26.02)",
+          "oklch(0.950 0.11231 26.02)"
+        ]
+      },
+      "inventory-danger-soft": {
+        "role": "secondary",
+        "displayName": "Danger soft",
+        "tonalRamp": [
+          "oklch(0.150 0.04860 25.86)",
+          "oklch(0.264 0.04860 25.86)",
+          "oklch(0.379 0.04860 25.86)",
+          "oklch(0.493 0.04860 25.86)",
+          "oklch(0.607 0.04860 25.86)",
+          "oklch(0.721 0.04860 25.86)",
+          "oklch(0.836 0.04860 25.86)",
+          "oklch(0.950 0.04860 25.86)"
+        ]
+      },
+      "inventory-focus": {
+        "role": "primary",
+        "displayName": "Focus",
+        "tonalRamp": [
+          "oklch(0.150 0.10467 74.89)",
+          "oklch(0.264 0.10467 74.89)",
+          "oklch(0.379 0.10467 74.89)",
+          "oklch(0.493 0.10467 74.89)",
+          "oklch(0.607 0.10467 74.89)",
+          "oklch(0.721 0.10467 74.89)",
+          "oklch(0.836 0.10467 74.89)",
+          "oklch(0.950 0.10467 74.89)"
+        ]
+      },
+      "inventory-cost-series": {
+        "role": "secondary",
+        "displayName": "Cost series",
+        "tonalRamp": [
+          "oklch(0.150 0.08631 291.77)",
+          "oklch(0.264 0.08631 291.77)",
+          "oklch(0.379 0.08631 291.77)",
+          "oklch(0.493 0.08631 291.77)",
+          "oklch(0.607 0.08631 291.77)",
+          "oklch(0.721 0.08631 291.77)",
+          "oklch(0.836 0.08631 291.77)",
+          "oklch(0.950 0.08631 291.77)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Financial metric",
+        "purpose": "Inventory financial values, not hero text."
+      },
+      "title": {
+        "displayName": "Panel heading",
+        "purpose": "Recurring stock and report panel headings."
+      },
+      "body": {
+        "displayName": "Supporting body",
+        "purpose": "Activity, empty states and explanations."
+      },
+      "label": {
+        "displayName": "Operational label",
+        "purpose": "Metrics and filters."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "reduced-motion",
+        "value": "animation: none !important; transition: none !important",
+        "purpose": "Applied to inventory descendants and their pseudo-elements when prefers-reduced-motion is reduce."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "inventory-metrics-single-and-chart-labels",
+        "value": "420px"
+      },
+      {
+        "name": "inventory-chart-stack",
+        "value": "640px"
+      },
+      {
+        "name": "inventory-panels-stack",
+        "value": "740px"
+      },
+      {
+        "name": "inventory-two-metrics-and-inspector-stack",
+        "value": "1050px"
+      },
+      {
+        "name": "inventory-overview-readout-overlay-min",
+        "value": "1060px"
+      },
+      {
+        "name": "inventory-profit-bottom-two-columns",
+        "value": "1100px"
+      },
+      {
+        "name": "viewport-workspace-compact",
+        "value": "600px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary inventory action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Warm bordered action used for purchases and edits.",
+      "html": "<button class=\"ds-primary\">Record purchase</button>",
+      "css": ".ds-primary{font-family:\"Manrope Digits\",\"Estedad\",Tahoma,Arial,sans-serif;min-height:44px;padding:10px 16px;border:1px solid #b99158;border-radius:8px;background:linear-gradient(110deg,#845b2e,#61431f);color:#fff9ef;font-weight:600;cursor:pointer}.ds-primary:hover:not(:disabled),.ds-secondary:hover:not(:disabled),.ds-nav button:hover:not(:disabled){filter:brightness(1.12)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-nav button:focus-visible{outline:2px solid #f4c27c;outline-offset:3px;}.ds-primary:disabled,.ds-secondary:disabled{opacity:.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Secondary inventory action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Neutral management and pagination action.",
+      "html": "<button class=\"ds-secondary\">Manage items</button>",
+      "css": ".ds-secondary{font-family:\"Manrope Digits\",\"Estedad\",Tahoma,Arial,sans-serif;min-height:44px;padding:8px 13px;border:1px solid #53554e;border-radius:8px;background:#282b28;color:#e7e3db;font-weight:700;cursor:pointer}.ds-primary:hover:not(:disabled),.ds-secondary:hover:not(:disabled),.ds-nav button:hover:not(:disabled){filter:brightness(1.12)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-nav button:focus-visible{outline:2px solid #f4c27c;outline-offset:3px;}.ds-primary:disabled,.ds-secondary:disabled{opacity:.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Inventory search",
+      "kind": "input",
+      "refersTo": "search-field",
+      "description": "Inset search control with a stronger field border.",
+      "html": "<input class=\"ds-search\" type=\"search\" aria-label=\"Search stock\" placeholder=\"Search stock items\">",
+      "css": ".ds-search{font-family:\"Manrope Digits\",\"Estedad\",Tahoma,Arial,sans-serif;min-height:44px;padding:10px 12px;border:1px solid #62625a;border-radius:8px;background:#191c1b;color:#f2efe8;caret-color:#e6ad60}.ds-search::placeholder{color:#b7b5ad}.ds-search:focus-visible{outline:2px solid #f4c27c;outline-offset:3px;}"
+    },
+    {
+      "name": "Inventory tabs",
+      "kind": "nav",
+      "description": "Scrollable navigation with a warm active tab.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Inventory\"><button aria-current=\"page\">Overview</button><button>Stock items</button><button>Purchases</button></nav>",
+      "css": ".ds-nav{display:flex;gap:8px;overflow-x:auto;border-bottom:1px solid #454640}.ds-nav button{font-family:\"Manrope Digits\",\"Estedad\",Tahoma,Arial,sans-serif;white-space:nowrap;min-height:44px;padding:8px 16px;font-size:.85rem;font-weight:700;border:1px solid #454640;border-radius:8px 8px 0 0;background:#232725;color:#c9c7c0;cursor:pointer}.ds-nav button[aria-current=\"page\"]{background:linear-gradient(110deg,#77542d,#493921);color:#fff6e8;border-color:#a47942}.ds-primary:hover:not(:disabled),.ds-secondary:hover:not(:disabled),.ds-nav button:hover:not(:disabled){filter:brightness(1.12)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-nav button:focus-visible{outline:2px solid #f4c27c;outline-offset:3px;}.ds-primary:disabled,.ds-secondary:disabled{opacity:.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Inventory shortage badge",
+      "kind": "chip",
+      "refersTo": "status-warning",
+      "description": "A Manager threshold warning with explicit status text.",
+      "html": "<span class=\"ds-status\">Low stock</span>",
+      "css": ".ds-status{font-family:\"Manrope Digits\",\"Estedad\",Tahoma,Arial,sans-serif;display:inline-flex;width:fit-content;padding:5px 9px;border-radius:8px;background:#4a3720;color:#f4c27c;font-size:.75rem;line-height:1.7}"
+    },
+    {
+      "name": "Inventory available badge",
+      "kind": "chip",
+      "refersTo": "status-success",
+      "description": "Textual availability status on a soft green fill.",
+      "html": "<span class=\"ds-available\">Available</span>",
+      "css": ".ds-available{font-family:\"Manrope Digits\",\"Estedad\",Tahoma,Arial,sans-serif;display:inline-flex;width:fit-content;padding:5px 9px;border-radius:8px;background:#203c2e;color:#8ee0b6;font-size:.75rem;line-height:1.7}"
+    },
+    {
+      "name": "Inventory panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Shadowless tonal panel with a warm thin divider.",
+      "html": "<article class=\"ds-panel\"><h2>Stock movements</h2><p>No movements have been recorded.</p></article>",
+      "css": ".ds-panel{font-family:\"Manrope Digits\",\"Estedad\",Tahoma,Arial,sans-serif;padding:20px;border:1px solid #454640;border-radius:12px;background:linear-gradient(115deg,#252826,#202321);color:#f2efe8;box-shadow:none}.ds-panel h2{margin:0 0 16px;font-size:1.02rem;line-height:1.7;letter-spacing:0}.ds-panel p{color:#b7b5ad;font-size:.85rem;line-height:1.8}"
+    },
+    {
+      "name": "Inventory metric",
+      "kind": "custom",
+      "description": "Compact value card with a dark amber tonal fill.",
+      "html": "<dl class=\"ds-metric\"><dt>Inventory value</dt><dd>12,450,000</dd><small>Toman</small></dl>",
+      "css": ".ds-metric{font-family:\"Manrope Digits\",\"Estedad\",Tahoma,Arial,sans-serif;padding:10px;border:1px solid #555044;border-radius:12px;background:linear-gradient(120deg,#322b22,#252724);color:#f2efe8}.ds-metric dt{font-size:.8rem;line-height:1.8;color:#e1ddd4}.ds-metric dd{margin:8px 0 4px;font-size:clamp(1.15rem,1.7cqi,1.4rem);font-weight:700;line-height:1.6;font-variant-numeric:tabular-nums}.ds-metric small{display:block;color:#bbb6ab;font-size:.73rem;line-height:1.9}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Charcoal panels, amber actions",
+    "overview": "This document records the approved inventory exception inside Run Cafe POS. Its tokens apply only within the inventory workspace. The surrounding POS retains its incumbent light and dark themes, cream or espresso surfaces, and existing controls. Do not apply these inventory tokens to the global theme or unrelated screens.\n\nThe owner's supplied screenshots establish the visual authority: Image 4 for the overview, Image 1 for the stock inspector, and Image 2 for the profit report. The implemented world uses charcoal panels, amber actions, green profit, thin warm borders, Estedad and Persian RTL. Text and operational SVG icons identify inventory items. Product images are excluded throughout inventory. There is no generated concept, concept-roll seed, shipping raster asset, or raster provenance to record.",
+    "keyCharacteristics": [
+      "Inventory remains dark in both surrounding POS themes.",
+      "Amber marks actions and selection; green and red support explicit operational values and status text.",
+      "Persian RTL, Persian numbers, Toman labels and visible unknown values preserve accounting clarity.",
+      "Bordered panels, tables and charts keep stock work accessible on desktop and phone."
+    ],
+    "rules": [
+      {
+        "name": "The Scoped Inventory Rule",
+        "body": "Keep this dark palette inside inventory, independent of the surrounding POS theme.",
+        "section": "colors"
+      },
+      {
+        "name": "The Accounting State Rule",
+        "body": "Keep an unknown amount visibly unknown. Use text alongside color for stock status, missing costs and negative values; never draw an unknown cost as zero.",
+        "section": "colors"
+      },
+      {
+        "name": "The Numeric Clarity Rule",
+        "body": "Keep quantities and money paired with their units and Toman labels. Preserve bidirectional isolation where used and tabular numerals on numeric details and activity totals.",
+        "section": "typography"
+      },
+      {
+        "name": "The Border and Tone Rule",
+        "body": "Use the panel border and charcoal tonal change to separate inventory regions. Keep recurring panels shadowless.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** keep inventory dark and scoped while preserving the surrounding light/dark POS identity.",
+      "**Do** use Estedad, Persian RTL, explicit units, Toman labels and legible numeric alignment.",
+      "**Do** preserve visible unknown-cost states and gaps in charts when costs are incomplete.",
+      "**Do** retain focus outlines, keyboard-accessible scroll regions, day selectors and reduced-motion behavior.",
+      "**Do** keep stock information, alerts and actions visible within the compact working layout."
+    ],
+    "donts": [
+      "**Don't** add product images anywhere in inventory.",
+      "**Don't** spread the inventory palette or screenshot compositions into unrelated POS screens.",
+      "**Don't** replace operational status text with color alone or silently render unknown amounts as zero.",
+      "**Don't** add glassmorphism, marketing heroes, decorative shadows or distracting animation to inventory.",
+      "**Don't** infer forecasts, automatic purchasing, a generated concept seed or shipping raster assets from this build."
+    ]
+  }
+}

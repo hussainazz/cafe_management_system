@@ -43,6 +43,11 @@ snapshots for gross-profit reporting, but they do not create stock deductions or
 pending-consumption work. Only orders created after turnover is enabled are
 eligible for stock deductions; earlier orders are never backfilled. Details are
 in `inventory-costing.md`.
+Packaging stock can be mapped per product to takeaway sales. Cost previews and
+gross-profit reports distinguish dine-in and takeaway, including packaging only
+for takeaway. Packaging can depend on the product quantity in an order; separate
+takeaway ingredient recipes can include named reusable preparations such as a
+wrapped cookie.
 
 | Area           | Baseline decision                                                                                                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

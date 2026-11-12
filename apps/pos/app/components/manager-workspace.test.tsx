@@ -45,12 +45,12 @@ describe("ManagerWorkspace", () => {
   it("opens purchases, recipes and profit before turnover activation", async () => {
     api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "settings", tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false, inventoryActivatedAt: null, updatedAt: new Date().toISOString() } });
     render(<ManagerWorkspace section="inventory" menuOpen={false} onOpenMenu={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "پیش‌نویس خرید" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "پیش‌نویس خرید" }, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText(/تا فعال‌سازی گردش موجودی/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "دستور تهیه و هزینه" }));
     expect(api.readInventoryRecipes).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "سود ناخالص" }));
-    expect(await screen.findByRole("heading", { name: "گزارش سود ناخالص" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "بررسی سود ناخالص" })).toBeTruthy();
     await waitFor(() => expect(api.readGrossProfitReport).toHaveBeenCalled());
   });
 
@@ -97,11 +97,11 @@ describe("ManagerWorkspace", () => {
 
   it("opens the Manager inventory workspace and loads its inventory data", async () => {
     render(<ManagerWorkspace section="inventory" menuOpen={false} onOpenMenu={() => undefined} />);
-    expect(await screen.findByRole("heading", { name: "پیش‌نویس خرید" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "پیش‌نویس خرید" }, { timeout: 5000 })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "شمارش انبار" }));
     await waitFor(() => expect(api.readInventoryCounts).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "سود ناخالص" }));
-    expect(await screen.findByRole("heading", { name: "گزارش سود ناخالص" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "بررسی سود ناخالص" })).toBeTruthy();
     await waitFor(() => expect(api.readInventoryStockItems).toHaveBeenCalledTimes(1));
     expect(api.readInventoryPurchases).toHaveBeenCalledTimes(1);
     expect(api.readInventoryRecipes).toHaveBeenCalledTimes(1);
@@ -142,13 +142,13 @@ describe("ManagerWorkspace", () => {
     const recovery = vi.spyOn(automaticRecovery, "requestAutomaticRecovery");
     render(<ManagerWorkspace section="inventory" menuOpen={false} onOpenMenu={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
-    expect(await screen.findByRole("heading", { name: "گزارش سود ناخالص" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "بررسی سود ناخالص" })).toBeTruthy();
 
     window.dispatchEvent(new CustomEvent("run-cafe:api-failure", {
       detail: { kind: "response", status: 422, code: "BUSINESS_RULE_VIOLATION", message: "Invalid return quantity" },
     }));
 
-    expect(screen.getByRole("heading", { name: "گزارش سود ناخالص" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "بررسی سود ناخالص" })).toBeTruthy();
     expect(screen.getByRole("status", { name: "اتصال برقرار است" })).toBeTruthy();
     expect(recovery).not.toHaveBeenCalled();
   });

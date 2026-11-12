@@ -1,0 +1,382 @@
+{
+  "round": "second fix batch confirmation",
+  "note": "CSS viewport and returned provider JPEG dimensions are separate. Only listed files are final evidence; native key/scroll no-op captures are excluded.",
+  "layoutMeasurement": {
+    "overviewTableTop": 682.359375,
+    "tableFirstRowTop": 849.390625,
+    "tableFirstRowBottom": 899.515625,
+    "alertMessageTop": 777.296875,
+    "alertMessageBottom": 845.515625,
+    "desktopViewportHeight": 918
+  },
+  "buttonContrastAtGradientStops": [
+    5.7,
+    8.6
+  ],
+  "captures": [
+    {
+      "file": "overview-desktop-lower.jpg",
+      "images": 0,
+      "scrollY": 716,
+      "selectedView": "نمای کلی",
+      "viewport": {
+        "clientHeight": 918,
+        "clientWidth": 1698,
+        "height": 918,
+        "width": 1713
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        " آخرین تغییرهای موجودی"
+      ],
+      "returnedImagePixels": {
+        "width": 1698,
+        "height": 910
+      }
+    },
+    {
+      "file": "stock-desktop-final.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "اقلام موجودی",
+      "viewport": {
+        "clientHeight": 918,
+        "clientWidth": 1698,
+        "height": 918,
+        "width": 1713
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        "انبار",
+        " انبار و موجودی",
+        "دانه قهوه 50/50",
+        "بسته‌بندی‌های خرید",
+        "اقلام موجودی"
+      ],
+      "returnedImagePixels": {
+        "width": 1698,
+        "height": 910
+      }
+    },
+    {
+      "file": "overview-desktop-final.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "نمای کلی",
+      "viewport": {
+        "clientHeight": 918,
+        "clientWidth": 1698,
+        "height": 918,
+        "width": 1713
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        "انبار",
+        " انبار و موجودی",
+        "فروش خالص و هزینه‌ی مواد",
+        "پوشش هزینه‌ی فروش",
+        "سود ناخالص",
+        " موجودی محصولات و مواد اولیه",
+        " هشدارهای موجودی"
+      ],
+      "returnedImagePixels": {
+        "width": 1698,
+        "height": 910
+      }
+    },
+    {
+      "file": "profit-desktop-final.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "سود ناخالص",
+      "viewport": {
+        "clientHeight": 918,
+        "clientWidth": 1698,
+        "height": 918,
+        "width": 1713
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        "انبار",
+        " انبار و موجودی",
+        "بررسی سود ناخالص",
+        "جمع کل کافه",
+        "روند فروش، بهای تمام‌شده و سود ناخالص",
+        "سود و حاشیه‌ی سود ناخالص روزانه"
+      ],
+      "returnedImagePixels": {
+        "width": 1698,
+        "height": 910
+      }
+    },
+    {
+      "file": "profit-desktop-charts.jpg",
+      "images": 0,
+      "scrollY": 392,
+      "selectedView": "سود ناخالص",
+      "viewport": {
+        "clientHeight": 918,
+        "clientWidth": 1698,
+        "height": 918,
+        "width": 1713
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        "جمع کل کافه",
+        "روند فروش، بهای تمام‌شده و سود ناخالص",
+        "سود و حاشیه‌ی سود ناخالص روزانه",
+        "سهم دسته‌بندی‌ها از سود ناخالص",
+        "مقایسه‌ی سود محصولات",
+        "پوشش محاسبه‌ی هزینه"
+      ],
+      "returnedImagePixels": {
+        "width": 1698,
+        "height": 910
+      }
+    },
+    {
+      "file": "profit-desktop-lower.jpg",
+      "images": 0,
+      "scrollY": 1241,
+      "selectedView": "سود ناخالص",
+      "viewport": {
+        "clientHeight": 918,
+        "clientWidth": 1698,
+        "height": 918,
+        "width": 1713
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        "سود هر کالا"
+      ],
+      "returnedImagePixels": {
+        "width": 1698,
+        "height": 910
+      }
+    },
+    {
+      "file": "overview-desktop-bottom.jpg",
+      "images": 0,
+      "scrollY": 776,
+      "selectedView": "نمای کلی",
+      "viewport": {
+        "clientHeight": 918,
+        "clientWidth": 1698,
+        "height": 918,
+        "width": 1713
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        " آخرین تغییرهای موجودی"
+      ],
+      "returnedImagePixels": {
+        "width": 1698,
+        "height": 910
+      }
+    },
+    {
+      "file": "overview-mobile-final.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "نمای کلی",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        "انبار",
+        " انبار و موجودی",
+        "فروش خالص و هزینه‌ی مواد"
+      ],
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "overview-mobile-table.jpg",
+      "images": 0,
+      "scrollY": 1114,
+      "selectedView": "نمای کلی",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "stock-mobile-final.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "اقلام موجودی",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "profit-mobile-final.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "سود ناخالص",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "clientWidth": 375,
+        "clientHeight": 844
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        "انبار",
+        " انبار و موجودی",
+        "بررسی سود ناخالص",
+        "جمع کل کافه"
+      ],
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "profit-mobile-chart.jpg",
+      "images": 0,
+      "scrollY": 892,
+      "selectedView": "سود ناخالص",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "visibleHeadings": [
+        "عملیات روزانه",
+        "مدیریت",
+        "روند فروش، بهای تمام‌شده و سود ناخالص",
+        "سود و حاشیه‌ی سود ناخالص روزانه"
+      ],
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "purchase-mobile.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "خریدها",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "recipe-mobile.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "دستور تهیه و هزینه",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "count-mobile.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "شمارش انبار",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "navigation-mobile-open.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "شمارش انبار",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "navigation-mobile-closed.jpg",
+      "images": 0,
+      "scrollY": 0,
+      "selectedView": "شمارش انبار",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    },
+    {
+      "file": "overview-mobile-chart.jpg",
+      "images": 0,
+      "scrollY": 429,
+      "selectedView": "نمای کلی",
+      "viewport": {
+        "clientHeight": 844,
+        "clientWidth": 375,
+        "height": 844,
+        "width": 390
+      },
+      "returnedImagePixels": {
+        "width": 375,
+        "height": 812
+      }
+    }
+  ]
+}

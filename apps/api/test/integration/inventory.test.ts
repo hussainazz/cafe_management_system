@@ -61,6 +61,54 @@ async function settleAmount(staff: Record<string, string>, order: any, amount: n
 }
 
 describe("inventory costing and settlement integration", () => {
+  it("keeps stock thresholds optional, exact, versioned, audited and Manager-only", async () => {
+    const manager = await session(UserRole.MANAGER, "threshold.manager");
+    const staff = await session(UserRole.STAFF, "threshold.staff");
+    const id = await stockFixture(manager, "Threshold beans", "12.125001", 500);
+    const url = `/api/v1/admin/inventory/stock-items/${id}`;
+    const read = async () => (await app.inject({ method: "GET", url: "/api/v1/admin/inventory/stock-items", cookies: manager })).json().data.stockItems.find((item: any) => item.id === id);
+    expect((await read()).lowStockThreshold).toBeNull();
+    const payload = { expectedVersion: 1, lowStockThreshold: "12.125001" };
+    expect((await app.inject({ method: "PATCH", url, cookies: staff, payload })).statusCode).toBe(403);
+    const saved = await app.inject({ method: "PATCH", url, cookies: manager, payload });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().data).toMatchObject({ lowStockThreshold: "12.125001", version: 2, balance: { quantityOnHand: "12.125001", carryingValueAmount: 500 } });
+    expect((await app.inject({ method: "PATCH", url, cookies: manager, payload })).statusCode).toBe(409);
+    for (const invalid of ["-1", "0.0000001", "100000000000000"]) {
+      expect((await app.inject({ method: "PATCH", url, cookies: manager, payload: { expectedVersion: 2, lowStockThreshold: invalid } })).statusCode).toBe(400);
+    }
+    const cleared = await app.inject({ method: "PATCH", url, cookies: manager, payload: { expectedVersion: 2, lowStockThreshold: null } });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    expect(cleared.json().data.lowStockThreshold).toBeNull();
+    expect(await app.prisma.inventoryMovement.count({ where: { stockItemId: id } })).toBe(1);
+    const audit = await app.prisma.auditLog.findFirstOrThrow({ where: { operation: "UPDATE_STOCK_ITEM", entityId: id }, orderBy: { occurredAt: "asc" } });
+    expect(audit.afterSnapshot).toMatchObject({ lowStockThreshold: "12.125001" });
+  });
+
+  it("groups daily profit by Tehran recognition date with quiet days and exact aggregate reconciliation", async () => {
+    const manager = await session(UserRole.MANAGER, "daily-profit.manager");
+    const staff = await session(UserRole.STAFF, "daily-profit.staff");
+    const product = await productFixture("Daily profit coffee");
+    const stockId = await stockFixture(manager, "Daily beans", "1000", 10000);
+    await recipeFixture(manager, product.id, stockId, "20");
+    for (const [index, recognizedAt] of ["2026-01-02T20:29:59.999Z", "2026-01-02T20:30:00.000Z"].entries()) {
+      const order = await orderFixture(staff, product.id, 1, `daily-profit-order-${index}`);
+      const settled = await settleAmount(staff, order, order.totalAmount, `daily-profit-settle-${index}`);
+      expect(settled.statusCode, settled.body).toBe(201);
+      await app.prisma.orderConsumption.updateMany({ where: { orderId: order.id }, data: { recognizedAt: new Date(recognizedAt) } });
+    }
+    const response = await app.inject({ method: "GET", url: "/api/v1/admin/reports/gross-profit?fromDate=2026-01-01&toDate=2026-01-03", cookies: manager });
+    expect(response.statusCode, response.body).toBe(200);
+    const data = response.json().data;
+    expect(data.daily).toEqual([
+      { date: "2026-01-01", netSalesAmount: 0, theoreticalCogsAmount: 0, grossProfitAmount: 0, grossMarginPercent: null, incompleteOrderItemCount: 0 },
+      { date: "2026-01-02", netSalesAmount: 1000, theoreticalCogsAmount: 200, grossProfitAmount: 800, grossMarginPercent: "80.00", incompleteOrderItemCount: 0 },
+      { date: "2026-01-03", netSalesAmount: 1000, theoreticalCogsAmount: 200, grossProfitAmount: 800, grossMarginPercent: "80.00", incompleteOrderItemCount: 0 },
+    ]);
+    expect(data.daily.reduce((sum: number, day: any) => sum + day.netSalesAmount, 0)).toBe(data.totals.netSalesAmount);
+    expect(data.daily.reduce((sum: number, day: any) => sum + day.grossProfitAmount, 0)).toBe(data.totals.grossProfitAmount);
+  });
+
   it("consumes stock for staff benefits and restores it on manager removal", async () => {
     const manager = await session(UserRole.MANAGER, "benefit-inventory.manager");
     const staff = await session(UserRole.STAFF, "benefit-inventory.staff");
@@ -365,8 +413,8 @@ describe("inventory costing and settlement integration", () => {
     expect(report.json().data).toMatchObject({ totals: { netSalesAmount: 162_000, theoreticalCogsAmount: 16_000, grossProfitAmount: 146_000, grossMarginPercent: "90.12" }, costCoverage: { completeOrderItemCount: 2, incompleteOrderItemCount: 0 }, pendingConsumptionCount: 1 });
     expect(report.json().data.inventoryConsumption.varianceAmount).toBeNull();
     expect(report.json().data.products).toEqual(expect.arrayContaining([
-      { productId: catalogDiscountProduct.id, productName: catalogDiscountProduct.name, netSalesAmount: 81_000, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
-      { productId: itemDiscountProduct.id, productName: itemDiscountProduct.name, netSalesAmount: 81_000, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
+      { channel: "TAKEAWAY", productId: catalogDiscountProduct.id, productName: catalogDiscountProduct.name, netSalesAmount: 81_000, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
+      { channel: "TAKEAWAY", productId: itemDiscountProduct.id, productName: itemDiscountProduct.name, netSalesAmount: 81_000, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
     ]));
 
     const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlement!.id}/reverse`, cookies: manager, payload: { expectedVersion: settled.json().data.version, reason: "Incorrect full payment" } });
@@ -517,6 +565,7 @@ describe("inventory costing and settlement integration", () => {
       pendingConsumptionCount: 1,
       inventoryConsumption: { varianceAmount: null, missingValuationCount: 1 },
     });
+    expect(report.json().data.daily).toMatchObject([{ date: reportDate, theoreticalCogsAmount: null, grossProfitAmount: null, grossMarginPercent: null, incompleteOrderItemCount: 1 }]);
     expect(report.json().data.products).toMatchObject([{ productId: product.id, knownCogsAmount: 0, theoreticalCogsAmount: null, grossProfitAmount: null, grossMarginPercent: null, incompleteOrderItemCount: 1 }]);
   });
 

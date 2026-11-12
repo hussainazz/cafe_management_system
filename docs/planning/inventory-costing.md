@@ -184,3 +184,87 @@ The product remains one café, one branch, and one authoritative API/database.
    reconciliation.
 3. Manager stock/costing panels and gross-profit reports.
 4. Integration, browser, migration/restore, and performance verification.
+
+## Optional stock warning threshold — approved 11 November 2026
+
+A Manager may set or clear `lowStockThreshold` per stock item in its base unit.
+It is a nonnegative exact decimal with at most six fractional digits, null by
+default. A tracked balance at or below a configured threshold needs attention;
+an unset threshold does not create a low-stock alert. Untracked balances remain
+unknown. Zero balances remain explicitly visible regardless of configuration.
+Edits use existing Manager authorization, optimistic versioning and audit logs.
+Thresholds are advisory only: no automatic purchase, stock write, forecast or
+change to recipe costing/settlement recognition follows from an alert.
+
+## Takeaway packaging — approved 12 November 2026
+
+Managers enter packaging as normal stock items with purchase conversions and
+valuation, then map stock items and positive base-unit quantities to each
+product's takeaway packaging. Quantities are per sold unit, including weighted
+products, and apply in addition to base/option recipes. Dine-in orders exclude
+these components. Empty mappings mean no additional packaging cost.
+
+Preview both channels. Save the selected packaging quantities and sale channel
+in order cost snapshots; subsequent mapping changes affect future snapshots.
+Full-payment costing, disabled-turnover behavior, all-or-nothing deductions,
+shortages, retries, reversals and deletions include packaging through the same
+ledger lifecycle. Setting an unpaid table order aside preserves its original
+sale channel for costing. Reports group each product by dine-in/takeaway and
+retain combined cafe totals without double counting. Historical records retain
+existing costs; no packaging is backfilled. Manager authorization, decimal
+validation, active-stock validation and optimistic version checks apply.
+
+Manager workflow: add cups, containers and holders in `اقلام موجودی`, recording
+base units, opening value or posted purchase costs. In `دستور تهیه و هزینه`,
+select a product, add its `بسته‌بندی بیرون‌بر` rows and save the recipe/costing
+configuration. Each row's quantity applies to one sold unit; a shared four-cup
+holder can use 0.25 per cup. Preview `داخل کافه` and `بیرون‌بر` with the order-type
+selector. In `سود ناخالص`, fully paid sales appear as separate channel rows for
+the same product. Gross profit before turnover still includes packaging costs
+without deducting packaging or ingredients.
+
+## Conditional packaging and reusable channel recipes — approved 12 November 2026
+
+Packaging rows can apply per unit, per complete group of N units, or once per
+product in an order, with optional minimum and maximum product quantity. Count
+the total quantity of that product across all order rows and options. Allocate
+group packaging deterministically across rows using cumulative counts, without
+fractional holders or duplicate charges. A two-unit group gives 0, 1, 1, 2
+holders for quantities 1, 2, 3, 4. Different products do not share this count.
+
+Managers can create and edit reusable named recipes without creating menu
+products. A normal cookie recipe can contain cookie stock; a takeaway cookie
+recipe can contain the normal cookie recipe plus its wrapper. Product costing
+can override the complete base recipe and individual option recipes for takeaway.
+Absent overrides inherit normal recipes. The Manager editor supports both recipe
+versions and selection of either reusable nested recipe by name. Existing cycle,
+active-reference, unit/yield, version, snapshot and turnover protections apply.
+Recipe overrides are complete ingredient recipes; product-level packaging is
+added afterward. Never put the same wrapper in both locations unless intended.
+
+### Manager setup example: latte and cookie
+
+1. In `اقلام موجودی`, create cookie, cookie wrapper, cup, cap and two-cup holder
+   stock in PIECE units with their values or posted purchase costs.
+2. In `دستورهای مشترک`, create `کوکی داخل کافه`, output one piece, containing
+   one cookie stock item. Create `کوکی بیرون‌بر`, output one piece, containing
+   one `کوکی داخل کافه` nested recipe and one cookie wrapper stock item.
+3. In the latte's `دستور تهیه و هزینه`, include one `کوکی داخل کافه` as a nested
+   recipe in its normal ingredients. Enable `دستور مواد بیرون‌بر جداگانه`, then
+   replace that nested source with `کوکی بیرون‌بر` in the takeaway ingredients.
+4. Add cup and cap packaging rows with quantity 1 and `برای هر واحد محصول`.
+   Add the holder with quantity 1, `برای هر گروه کامل`, and group size 2.
+   The cookie wrapper is already in the nested recipe; do not add it again.
+5. Save, preview both channels with quantity 1 and 2, then inspect paid sales
+   in `سود ناخالص`. Stock turnover can remain disabled throughout costing.
+
+| Takeaway lattes in the order | Cups | Caps | Cookies | Wrappers | Two-cup holders |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 1 | 1 | 1 | 0 |
+| 2 | 2 | 2 | 2 | 2 | 1 |
+| 3 | 3 | 3 | 3 | 3 | 1 |
+| 4 | 4 | 4 | 4 | 4 | 2 |
+
+Counts include split rows/options of this product. A different drink does not
+contribute to this product's holder groups. For a one-time package on quantities
+2 through 3, use `یک بار برای محصول در سفارش` with minimum 2 and maximum 3.

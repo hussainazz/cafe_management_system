@@ -34,6 +34,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
     },
     orderBy: [{ recognizedAt: "asc" }, { id: "asc" }],
     include: {
+      order: { select: { channel: true } },
       items: {
         include: {
           orderItem: {
@@ -54,6 +55,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
 
   const byProduct = new Map<string, {
     productId: string;
+    channel: "TABLE" | "TAKEAWAY";
     productName: string;
     netSalesAmount: number;
     knownCogsAmount: number;
@@ -61,14 +63,24 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
     completeOrderItemCount: number;
     incompleteOrderItemCount: number;
   }>();
+  const daily = new Map<string, { date: string; netSalesAmount: number; knownCogsAmount: number; incompleteOrderItemCount: number }>();
+  // Include quiet days without implying a margin where there were no sales.
+  for (let day = Date.parse(`${query.fromDate}T00:00:00Z`); day <= Date.parse(`${query.toDate}T00:00:00Z`); day += 86_400_000) {
+    const date = new Date(day).toISOString().slice(0, 10);
+    daily.set(date, { date, netSalesAmount: 0, knownCogsAmount: 0, incompleteOrderItemCount: 0 });
+  }
   let pendingConsumptionCount = 0;
   let untrackedConsumptionCount = 0;
   for (const consumption of consumptions) {
     if (consumption.status === "PENDING") pendingConsumptionCount += 1;
     if (consumption.status === "UNTRACKED") untrackedConsumptionCount += 1;
+    const day = daily.get(todayInTehran.format(consumption.recognizedAt))!;
     for (const item of consumption.items) {
       const productId = item.orderItem.productId;
-      const product = byProduct.get(productId) ?? {
+      const channel = (item.costSnapshot as { orderChannel?: "TABLE" | "TAKEAWAY" })?.orderChannel ?? consumption.order.channel;
+      const key = `${productId}:${channel}`;
+      const product = byProduct.get(key) ?? {
+        channel,
         productId,
         productName: item.productNameSnapshot,
         netSalesAmount: 0,
@@ -77,9 +89,13 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
         completeOrderItemCount: 0,
         incompleteOrderItemCount: 0,
       };
-      product.netSalesAmount += item.orderItem.settlementAllocations
+      const itemRevenue = item.orderItem.settlementAllocations
         .filter((allocation) => allocation.settlement.reversal === null)
         .reduce((sum, allocation) => sum + allocation.amount, 0);
+      product.netSalesAmount += itemRevenue;
+      day.netSalesAmount += itemRevenue;
+      day.knownCogsAmount += item.theoreticalCogsAmount ?? 0;
+      if (!item.isCostComplete || item.theoreticalCogsAmount === null) day.incompleteOrderItemCount += 1;
       product.knownCogsAmount += item.knownCogsAmount;
       if (item.isCostComplete && item.theoreticalCogsAmount !== null) {
         product.theoreticalCogsAmount += item.theoreticalCogsAmount;
@@ -87,7 +103,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
       } else {
         product.incompleteOrderItemCount += 1;
       }
-      byProduct.set(productId, product);
+      byProduct.set(key, product);
     }
   }
 
@@ -160,11 +176,19 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
         grossProfitAmount,
         grossMarginPercent: percentage(grossProfitAmount, netSalesAmount),
       },
+      daily: [...daily.values()].map((day) => {
+        const cogs = day.incompleteOrderItemCount ? null : day.knownCogsAmount;
+        const gross = cogs === null ? null : day.netSalesAmount - cogs;
+        return { date: day.date, netSalesAmount: day.netSalesAmount, theoreticalCogsAmount: cogs,
+          grossProfitAmount: gross, grossMarginPercent: percentage(gross, day.netSalesAmount),
+          incompleteOrderItemCount: day.incompleteOrderItemCount };
+      }),
       products: products.map((product) => {
         const complete = product.incompleteOrderItemCount === 0;
         const theoretical = complete ? product.theoreticalCogsAmount : null;
         const gross = theoretical === null ? null : product.netSalesAmount - theoretical;
         return {
+          channel: product.channel,
           productId: product.productId,
           productName: product.productName,
           netSalesAmount: product.netSalesAmount,

@@ -896,6 +896,7 @@ export const StockUnitConversionInputSchema = z.object({
 }).strict();
 
 export const CreateStockItemRequestSchema = z.object({
+  lowStockThreshold: InventoryNonNegativeDecimalSchema.refine(value => value.split(".")[0]!.length <= 14, "The stock threshold exceeds the supported quantity range.").nullable().optional(),
   name: z.string().trim().min(1).max(160),
   category: z.string().trim().min(1).max(120),
   baseUnit: InventoryUnitSchema,
@@ -922,6 +923,7 @@ export const InventoryBalanceSchema = z.object({
 });
 
 export const StockItemSchema = z.object({
+  lowStockThreshold: InventoryNonNegativeDecimalSchema.refine(value => value.split(".")[0]!.length <= 14, "The stock threshold exceeds the supported quantity range.").nullable().optional(),
   id: z.uuid(),
   name: z.string(),
   category: z.string(),
@@ -1098,11 +1100,29 @@ const ProductCostingCombinationInputSchema = z.object({
 
 const ProductOptionCostingInputSchema = z.array(z.object({ optionId: z.uuid(), rules: z.array(CostingRuleInputSchema).min(1).max(100) }).strict()).max(100);
 const ProductOptionRecipeCostingInputSchema = z.array(z.object({ optionId: z.uuid(), recipeId: z.uuid(), recipeQuantity: InventoryDecimalSchema }).strict()).max(100);
+export const TakeawayPackagingSchema = z.array(z.object({
+  stockItemId: z.uuid(),
+  quantity: InventoryDecimalSchema,
+  mode: z.enum(["PER_UNIT", "PER_GROUP", "PER_ORDER"]).optional(),
+  groupSize: z.number().int().min(2).max(10000).optional(),
+  minQuantity: z.number().int().positive().max(1000000).optional(),
+  maxQuantity: z.number().int().positive().max(1000000).optional(),
+}).strict().superRefine((entry, context) => {
+  if ((entry.mode === "PER_GROUP") !== (entry.groupSize !== undefined)) context.addIssue({ code: "custom", message: "Grouped packaging requires a group size; other modes cannot set one." });
+  if (entry.minQuantity !== undefined && entry.maxQuantity !== undefined && entry.minQuantity > entry.maxQuantity) context.addIssue({ code: "custom", message: "Minimum quantity cannot exceed maximum quantity." });
+})).max(100).superRefine((entries, context) => {
+  if (new Set(entries.map((entry) => entry.stockItemId)).size !== entries.length) {
+    context.addIssue({ code: "custom", message: "Each packaging stock item must appear only once." });
+  }
+});
 const RecipeCostingConfigurationInputSchema = z.object({
   mode: z.literal("RECIPE"),
   recipeId: z.uuid(),
   recipeQuantity: InventoryDecimalSchema,
   extrasRecipeId: z.uuid().nullable().optional(),
+  takeawayPackaging: TakeawayPackagingSchema.optional(),
+  takeawayRecipeId: z.uuid().nullable().optional(),
+  takeawayOptionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
   optionRules: ProductOptionCostingInputSchema,
   optionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
   combinations: z.array(ProductCostingCombinationInputSchema).max(200),
@@ -1112,6 +1132,9 @@ const PurchasedCostingConfigurationInputSchema = z.object({
   purchasedStockItemId: z.uuid(),
   purchasedQuantity: InventoryDecimalSchema.optional(),
   extrasRecipeId: z.uuid().nullable().optional(),
+  takeawayPackaging: TakeawayPackagingSchema.optional(),
+  takeawayRecipeId: z.uuid().nullable().optional(),
+  takeawayOptionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
   optionRules: ProductOptionCostingInputSchema,
   combinations: z.array(ProductCostingCombinationInputSchema).max(200),
 }).strict();
@@ -1128,6 +1151,9 @@ export const ProductCostingConfigurationResponseDataSchema = z.discriminatedUnio
     recipeId: z.uuid(),
     recipeQuantity: InventoryNonNegativeDecimalSchema,
     extrasRecipeId: z.uuid().nullable(),
+    takeawayPackaging: TakeawayPackagingSchema.optional(),
+    takeawayRecipeId: z.uuid().nullable().optional(),
+    takeawayOptionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
     optionRules: z.array(z.object({ optionId: z.uuid(), rules: z.array(CostingRuleInputSchema) })),
     optionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
     combinations: z.array(ProductCostingCombinationInputSchema.extend({ id: z.uuid(), version: InventoryVersionSchema, isActive: z.boolean() })),
@@ -1140,6 +1166,9 @@ export const ProductCostingConfigurationResponseDataSchema = z.discriminatedUnio
     purchasedStockItemId: z.uuid(),
     purchasedQuantity: InventoryNonNegativeDecimalSchema.nullable(),
     extrasRecipeId: z.uuid().nullable(),
+    takeawayPackaging: TakeawayPackagingSchema.optional(),
+    takeawayRecipeId: z.uuid().nullable().optional(),
+    takeawayOptionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
     optionRules: z.array(z.object({ optionId: z.uuid(), rules: z.array(CostingRuleInputSchema) })),
     optionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
     combinations: z.array(ProductCostingCombinationInputSchema.extend({ id: z.uuid(), version: InventoryVersionSchema, isActive: z.boolean() })),
@@ -1160,6 +1189,7 @@ export const UpdateProductCostingRequestSchema = z.discriminatedUnion("mode", [
   PurchasedCostingConfigurationInputSchema.extend({ expectedVersion: InventoryVersionSchema }).strict(),
 ]);
 export const ProductCostingPreviewRequestSchema = z.object({
+  channel: OrderChannelSchema.optional(),
   optionIds: z.array(z.uuid()).max(50),
   quantity: z.number().int().positive(),
   weightGrams: z.number().int().positive().optional(),
@@ -1312,7 +1342,49 @@ export const GrossProfitReportQuerySchema = z.object({
 });
 export type GrossProfitReportQuery = z.infer<typeof GrossProfitReportQuerySchema>;
 
+export const SalesChannelReportQuerySchema = GrossProfitReportQuerySchema;
+export type SalesChannelReportQuery = z.infer<typeof SalesChannelReportQuerySchema>;
+
+const SalesChannelPercentSchema = z.string().regex(/^\d+(?:\.\d{2})?$/);
+export const SalesChannelReportResponseSchema = z.object({
+  data: z.object({
+    orderDistribution: z.object({
+      totalCount: z.number().int().nonnegative(),
+      takeawayCount: z.number().int().nonnegative(),
+      dineInCount: z.number().int().nonnegative(),
+      takeawayPercent: SalesChannelPercentSchema.nullable(),
+      dineInPercent: SalesChannelPercentSchema.nullable(),
+    }),
+    averageOrderValue: z.object({
+      takeawayAmount: InventoryMoneySchema.nullable(),
+      dineInAmount: InventoryMoneySchema.nullable(),
+      absoluteDifferenceAmount: InventoryMoneySchema.nullable(),
+      differencePercent: SalesChannelPercentSchema.nullable(),
+    }),
+    revenue: z.object({
+      totalAmount: InventoryMoneySchema,
+      takeawayAmount: InventoryMoneySchema,
+      dineInAmount: InventoryMoneySchema,
+      takeawayPercent: SalesChannelPercentSchema.nullable(),
+      dineInPercent: SalesChannelPercentSchema.nullable(),
+    }),
+    takeawayOrigin: z.object({
+      directTakeawayCount: z.number().int().nonnegative(),
+      tableOriginatedTakeawayCount: z.number().int().nonnegative(),
+      directTakeawayRevenueAmount: InventoryMoneySchema,
+      tableOriginatedTakeawayRevenueAmount: InventoryMoneySchema,
+    }),
+    unclassifiedHistoricalOrigin: z.object({
+      count: z.number().int().nonnegative(),
+      revenueAmount: InventoryMoneySchema,
+    }),
+  }),
+  meta: z.object({ requestId: z.string(), range: z.object({ from: z.iso.datetime(), to: z.iso.datetime() }) }),
+});
+export type SalesChannelReport = z.infer<typeof SalesChannelReportResponseSchema>;
+
 export const GrossProfitProductSchema = z.object({
+  channel: OrderChannelSchema.optional(),
   productId: z.uuid(),
   productName: z.string(),
   netSalesAmount: InventoryMoneySchema,
@@ -1333,6 +1405,14 @@ export const GrossProfitReportResponseSchema = z.object({
       grossProfitAmount: z.number().int().nullable(),
       grossMarginPercent: z.string().nullable(),
     }),
+    daily: z.array(z.object({
+      date: z.iso.date(),
+      netSalesAmount: InventoryMoneySchema,
+      theoreticalCogsAmount: InventoryMoneySchema.nullable(),
+      grossProfitAmount: z.number().int().nullable(),
+      grossMarginPercent: z.string().nullable(),
+      incompleteOrderItemCount: z.number().int().nonnegative(),
+    })).optional(),
     products: z.array(GrossProfitProductSchema),
     costCoverage: z.object({ completeOrderItemCount: z.number().int().nonnegative(), incompleteOrderItemCount: z.number().int().nonnegative() }),
     pendingConsumptionCount: z.number().int().nonnegative(),
