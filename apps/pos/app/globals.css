@@ -6165,6 +6165,25 @@ svg {
 .inventory-profit-bar { height: 7px; background: var(--surface-2); margin-block-start: 10px; border-radius: 3px; overflow: hidden; }
 .inventory-profit-bar span { display: block; height: 100%; background: var(--success-foreground); border-radius: inherit; }
 .inventory-profit-bar.is-negative span { background: var(--danger); }
+.inventory-cost-coverage-primary { display: grid; grid-template-columns: minmax(130px, .35fr) minmax(0, 1fr); gap: 20px; align-items: center; margin-block: 18px; }
+.inventory-cost-coverage-primary > strong { font-size: clamp(1.6rem, 4vw, 2.5rem); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.inventory-cost-coverage-track { display: flex; direction: ltr; width: 100%; min-height: 14px; overflow: hidden; border-radius: 999px; background: var(--surface-2); }
+.inventory-cost-coverage-track .is-covered { background: linear-gradient(90deg, #98733e, #efbd6d); }
+.inventory-cost-coverage-track .is-incomplete { background: #875249; }
+.inventory-cost-coverage-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.inventory-cost-coverage-legend > div { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; font-size: .78rem; }
+.inventory-cost-coverage-legend > div > span:first-child { width: 10px; height: 10px; border-radius: 50%; }
+.inventory-cost-coverage-legend .is-covered { background: #efbd6d; }
+.inventory-cost-coverage-legend .is-incomplete { background: #c37a6e; }
+.inventory-cost-coverage-legend strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inventory-coverage-priority .inventory-table { min-width: 760px; }
+.inventory-coverage-priority > button { margin-block-start: 12px; }
+.inventory-channel-coverage-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.inventory-channel-coverage-grid article { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 9px; }
+.inventory-channel-coverage-grid h3 { margin: 0 0 10px; font-size: .9rem; }
+.inventory-channel-coverage-grid article > strong { display: block; margin-block-end: 12px; font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+.inventory-channel-coverage-grid article p { display: flex; justify-content: space-between; gap: 12px; margin-block: 10px 0; font-size: .76rem; }
+.inventory-channel-coverage-grid article p bdi { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .inventory-coverage { display: grid; margin: 0; }
 .inventory-coverage > div { display: flex; justify-content: space-between; gap: 16px; padding-block: 12px; border-block-end: 1px solid var(--border-subtle); font-size: .82rem; line-height: 1.8; }
 .inventory-coverage dt { color: var(--muted); }
@@ -6342,7 +6361,14 @@ svg {
 }
 @container inventory (max-width: 740px) {
  .inventory-profit-charts, .inventory-profit-bottom { grid-template-columns: minmax(0,1fr); }
+ .inventory-channel-coverage-grid { grid-template-columns: minmax(0,1fr); }
  .inventory-chart-legend { font-size: .7rem; gap: 10px; }
+}
+@container inventory (max-width: 520px) {
+ .inventory-cost-coverage-primary { grid-template-columns: minmax(0,1fr); gap: 12px; }
+ .inventory-cost-coverage-legend { grid-template-columns: minmax(0,1fr); }
+ .inventory-cost-coverage-legend > div { grid-template-columns: 10px minmax(0,1fr); }
+ .inventory-cost-coverage-legend strong { grid-column: 2; }
 }
 .inventory-overview-bottom { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.8fr); grid-template-areas: "aside stock"; gap: 18px; align-items: start; }
 .inventory-overview-stock { grid-area: stock; }
