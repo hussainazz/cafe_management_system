@@ -74,6 +74,7 @@ const normalizeInventoryQuantity = (value: string) => {
 export function InventoryWorkspace({ catalog, turnoverEnabled = false }: { catalog: ManagerCatalog; turnoverEnabled?: boolean }) {
   const [view, setView] = useRecoveryState<View>("inventory-view", "purchases");
   const [stockSelection, setStockSelection] = useState<string | null>(null);
+  const [costingProductSelection, setCostingProductSelection] = useState<string | undefined>(undefined);
   const [stockItems, setStockItems] = useState<InventoryStockItem[]>([]);
   const [recipes, setRecipes] = useState<InventoryRecipe[]>([]);
   const [pending, setPending] = useState<PendingInventoryConsumption[]>([]);
@@ -191,12 +192,12 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false }: { catal
       {readErrors[view] && !error && !confirm && <p className="form-error" role="alert">{readErrors[view]} <button type="button" disabled={loading || busy} onClick={() => void reload()}>بارگذاری دوباره</button></p>}
       {loading ? <div className="inventory-loading" role="status"><span>در حال بارگذاری اطلاعات موجودی…</span><div aria-hidden="true" /></div> : <div id="inventory-active-panel" role="region" aria-labelledby={`inventory-view-${view}`}>
         {view === "overview" && !readErrors.overview && <InventoryOverview items={stockItems} pending={pending} pendingHasMore={pendingHasMore} onNavigate={navigate} onOpenStock={id => { setStockSelection(id || null); navigate("stock"); }} />}
-        {view === "profit" && <InventoryProfitPanel catalog={catalog} />}
+        {view === "profit" && <InventoryProfitPanel catalog={catalog} onInspectProduct={(productId) => { setCostingProductSelection(productId); navigate("recipes"); }} />}
         {view === "sales" && <InventorySalesChannelsPanel />}
         {view === "stock" && <StockPanel initialSelectedId={stockSelection} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} />}
         {view === "purchases" && !readErrors.purchases && <PurchasePanel onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
         {view === "preparations" && !readErrors.preparations && <InventoryPreparations items={stockItems} recipes={recipes} mutate={mutate} onDirtyChange={markDirty} />}
-        {view === "recipes" && <ProductOptionRecipePanel onDirtyChange={markDirty} catalog={catalog} items={stockItems} recipes={recipes} mutate={mutate} />}
+        {view === "recipes" && <ProductOptionRecipePanel {...(costingProductSelection ? { initialProductId: costingProductSelection } : {})} onDirtyChange={markDirty} catalog={catalog} items={stockItems} recipes={recipes} mutate={mutate} />}
         {view === "counts" && <CountPanel onDirtyChange={markDirty} items={stockItems} pending={pending} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
         {view === "history" && <HistoryPanel pending={pending} items={stockItems} refreshVersion={historyRefreshVersion} />}
       </div>}
@@ -415,13 +416,15 @@ function PurchasePanel({ onDirtyChange, items, mutate, confirm, keyFor, clearKey
 type OptionIngredientDraft = { componentKey: string; sourceKind: "STOCK_ITEM" | "RECIPE"; sourceId: string; quantity: string };
 type MenuOptionRecipeDraft = { channel?: "TABLE" | "TAKEAWAY"; optionId: string; optionName: string; groupName: string; recipeId: string; components: OptionIngredientDraft[] };
 
-function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, mutate }: { catalog: ManagerCatalog; items: InventoryStockItem[]; recipes: InventoryRecipe[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean> } & DraftGuardProps) {
+function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, mutate, initialProductId }: { catalog: ManagerCatalog; items: InventoryStockItem[]; recipes: InventoryRecipe[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; initialProductId?: string } & DraftGuardProps) {
   const activeProducts = catalog.products.filter((product) => product.isActive && !product.archivedAt);
   const [productSearch, setProductSearch] = useState("");
   const [dirty, setDirty] = useInventoryDraftGuard(onDirtyChange);
   const [saved, setSaved] = useState(false);
   const selectProduct = (id: string) => { if (id === productId) return; if (dirty && !window.confirm("تغییرات دستور تهیه ذخیره نشده است. بدون ذخیره به محصول دیگری می‌روید؟")) return; setProductId(id); setDirty(false); setSaved(false); };
-  const [productId, setProductId] = useState(activeProducts[0]?.id ?? "");
+  const [productId, setProductId] = useState(() => initialProductId
+    ? activeProducts.some((item) => item.id === initialProductId) ? initialProductId : ""
+    : activeProducts[0]?.id ?? "");
   const [configuration, setConfiguration] = useState<ProductCostingConfiguration>(null);
   const [entries, setEntries] = useState<MenuOptionRecipeDraft[]>([]);
   const [packaging, setPackaging] = useState<NonNullable<NonNullable<ProductCostingConfiguration>["takeawayPackaging"]>>([]);
@@ -543,7 +546,7 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
   };
 
   return <div className="inventory-recipe-layout"><aside className="manager-card inventory-product-picker" aria-label="انتخاب محصول برای دستور تهیه"><header><h2>محصولات منو</h2><p>محصول را انتخاب کنید و مواد هر گزینه را تنظیم کنید.</p></header><label><span>جست‌وجوی محصول منو</span><input type="search" value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="نام محصول" /></label><div className="inventory-product-list">{activeProducts.filter((item) => item.name.includes(productSearch.trim())).map((item) => <button className="secondary-button" type="button" key={item.id} aria-pressed={item.id === productId} onClick={() => selectProduct(item.id)}>{item.name}<small>{item.pricingMode === "WEIGHTED_PER_KG" ? "وزنی" : "واحدی"}</small></button>)}{activeProducts.length > 0 && !activeProducts.some((item) => item.name.includes(productSearch.trim())) && <p className="inventory-empty">محصولی با این نام پیدا نشد.</p>}</div></aside><ManagerCard title="دستور تهیه و هزینه" hint="محصول منو را انتخاب کنید و مواد لازم برای هر گزینه‌ی منو را ثبت کنید.">
-    {activeProducts.length === 0 ? <p className="inventory-note">برای شروع، ابتدا یک محصول فعال در منو بسازید.</p> : <>
+    {activeProducts.length === 0 ? <p className="inventory-note">برای شروع، ابتدا یک محصول فعال در منو بسازید.</p> : !product && initialProductId ? <p className="inventory-note" role="status">محصول تاریخی انتخاب‌شده دیگر فعال نیست؛ برای دیدن هزینه‌ی فعلی، محصول فعالی را از فهرست انتخاب کنید.</p> : <>
       <div className="manager-fields inventory-compact-product-picker"><label><span>محصول منو</span><select value={productId} onChange={(event) => selectProduct(event.target.value)}>{activeProducts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
       {dirty && <p className="inventory-note" role="status">تغییرات ذخیره نشده است. پس از تکمیل مواد، دستور تهیه را ذخیره کنید.</p>}{saved && <p className="inventory-success" role="status">دستور تهیه ذخیره شد.</p>}
       {loadingConfig ? <p className="manager-empty">در حال بارگذاری گزینه‌های منو…</p> : <>
