@@ -1,3 +1,32 @@
+## Completed delivery — Sales-weighted cost coverage dashboard (12 November 2026)
+
+- [x] Extend the gross-profit report and contracts with revenue-weighted complete
+  and incomplete cost amounts, café/channel/product coverage, and exact
+  two-decimal percentage rounding.
+- [x] Add Manager dashboard coverage indicators, channel summaries, a ranked
+  incomplete-revenue list, and a safe link to current costing for active products.
+- [x] Cover historical cost snapshots, mixed product/channel buckets, order and
+  item discounts, two-part settlements, discount-allocation remainders, zero
+  costs, empty periods/channels, PACKING rows, reversals, deletions and staff
+  consumption.
+- [x] Complete the Sol 6.1 high review and close its implementation and test
+  findings.
+
+Verification: the final API inventory integration file passes 29 tests. The
+complete POS suite passes 233 tests across 32 files; the focused dashboard and
+workspace suites pass 45 tests. The full API suite passes from a fresh isolated
+test reset with all 50 migrations applied. Contracts build and tests pass (18
+tests). API and POS typechecks and `git diff --check` pass. No browser viewport
+check was run; the UI behavior is covered by component tests.
+
+The weighted bucket fixture reconciles 240,000 Toman total sales into 190,000
+with complete cost and 50,000 incomplete. It verifies the same product's TABLE
+bucket at 50% coverage, its separate complete TAKEAWAY bucket, and exact
+multi-settlement revenue. Historical sales remain tied to their saved cost
+snapshots; current recipe edits do not backfill them.
+
+Left: none for this delivery. Browser viewport acceptance remains unverified.
+
 ## Active delivery — Takeaway vs. dine-in sales analytics test coverage (12 November 2026)
 
 - [x] Add Manager report integration coverage for channel/origin classification,
