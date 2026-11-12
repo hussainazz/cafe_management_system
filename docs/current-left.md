@@ -209,6 +209,27 @@ acceptance items below remain open.
 
 # Current Stage Status
 
+## Active delivery — Current menu prices in inventory profit report (12 November 2026)
+
+- [x] Show each product's current final menu price separately from historical
+  net sales in the gross-profit product table.
+- [x] Match public-menu visibility and discount rounding; label weighted prices
+  per kilogram and option fees as separate from the product base price.
+- [x] Cover percentage and fixed discounts, live catalog price changes,
+  historical sales preservation, unavailable/archived menu products and the
+  expanded table empty state.
+- [x] Run the focused dashboard tests, complete POS suite, POS typecheck and
+  whitespace check.
+
+Verification: the focused dashboard file passes 14 tests. The complete POS
+suite passes 235 tests across 32 files. POS typecheck and `git diff --check`
+pass. The new menu price follows the current Manager catalog; historical net
+sales remain the report's recorded amount. Browser/device verification is not
+claimed.
+
+Left: commit and push the implementation, then prepare, validate and activate a
+compatible VPS release. Production currently reports `cafe-20261112-12705d6`.
+
 ## Completed delivery — Inventory visual refresh (11 November 2026)
 
 - [x] Inspect the supplied brief and all four image references; document the
