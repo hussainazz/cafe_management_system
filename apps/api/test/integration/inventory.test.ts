@@ -34,9 +34,9 @@ async function session(role: UserRole, username: string) {
   expect(response.statusCode).toBe(200);
   return cookieJar(response);
 }
-async function productFixture(name: string) {
+async function productFixture(name: string, systemKey: string | null = null, priceAmount = 1_000) {
   const category = await app.prisma.category.create({ data: { name: `${name} category`, displayOrder: 1 } });
-  return app.prisma.product.create({ data: { categoryId: category.id, name, priceAmount: 1_000, preparationDeadlineMinutes: 5, displayOrder: 1 } });
+  return app.prisma.product.create({ data: { categoryId: category.id, name, priceAmount, systemKey, preparationDeadlineMinutes: 5, displayOrder: 1 } });
 }
 async function stockFixture(manager: Record<string, string>, name: string, quantity: string, value: number) {
   const created = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name, category: "Ingredients", baseUnit: "GRAM", openingQuantity: quantity, openingValueAmount: value, conversions: [{ label: "kg", baseQuantityPerPack: "1000", isActive: true }] } });
@@ -51,8 +51,11 @@ async function recipeFixture(manager: Record<string, string>, productId: string,
   expect(configured.statusCode, configured.body).toBe(200);
   return recipe;
 }
-async function orderFixture(staff: Record<string, string>, productId: string, quantity: number, key: string) {
-  const response = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": key }, payload: { channel: "TAKEAWAY", items: [{ productId, quantity, options: [] }] } });
+async function orderFixture(staff: Record<string, string>, productId: string, quantity: number, key: string, channel: "TABLE" | "TAKEAWAY" = "TAKEAWAY") {
+  const tableId = channel === "TABLE"
+    ? (await app.prisma.cafeTable.create({ data: { name: `${key} table`, displayOrder: 1 } })).id
+    : undefined;
+  const response = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": key }, payload: { channel, ...(tableId ? { tableId } : {}), items: [{ productId, quantity, options: [] }] } });
   expect(response.statusCode, response.body).toBe(201);
   return response.json().data;
 }
@@ -61,6 +64,202 @@ async function settleAmount(staff: Record<string, string>, order: any, amount: n
 }
 
 describe("inventory costing and settlement integration", () => {
+  it("reports revenue-weighted coverage for discounted multi-settlement sales, mixed historical snapshots, and both channels", async () => {
+    const manager = await session(UserRole.MANAGER, "coverage-weighted.manager");
+    const staff = await session(UserRole.STAFF, "coverage-weighted.staff");
+    const mixed = await productFixture("Coverage mixed history");
+    const takeaway = await productFixture("Coverage takeaway complete");
+    await app.prisma.product.update({ where: { id: mixed.id }, data: { priceAmount: 50_000 } });
+    await app.prisma.product.update({ where: { id: takeaway.id }, data: { priceAmount: 100_000 } });
+    const stock = await stockFixture(manager, "Coverage weighted beans", "100", 10_000);
+
+    // The first sale is recognized before recipe setup. Its saved historical
+    // snapshot must remain incomplete after current costing becomes complete.
+    const oldMixedOrder = await orderFixture(staff, mixed.id, 1, "coverage-mixed-old-order", "TABLE");
+    const oldMixedPayment = await settleAmount(staff, oldMixedOrder, 50_000, "coverage-mixed-old-payment");
+    expect(oldMixedPayment.statusCode, oldMixedPayment.body).toBe(201);
+    const oldConsumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: oldMixedOrder.id }, include: { items: true } });
+    expect(oldConsumption.items[0]).toMatchObject({ isCostComplete: false, theoreticalCogsAmount: null });
+    await recipeFixture(manager, mixed.id, stock, "10");
+
+    const discountedOrder = await orderFixture(staff, mixed.id, 1, "coverage-mixed-new-order", "TAKEAWAY");
+    const discount = await app.inject({ method: "PATCH", url: `/api/v1/orders/${discountedOrder.id}`, cookies: staff, payload: { expectedVersion: discountedOrder.version, orderDiscount: { kind: "FIXED", value: 10_000 } } });
+    expect(discount.statusCode, discount.body).toBe(200);
+    const firstPart = await settleAmount(staff, discount.json().data, 20_000, "coverage-mixed-new-first-payment");
+    expect(firstPart.statusCode, firstPart.body).toBe(201);
+    const secondPart = await settleAmount(staff, firstPart.json().data, 20_000, "coverage-mixed-new-second-payment");
+    expect(secondPart.statusCode, secondPart.body).toBe(201);
+    const newConsumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: discountedOrder.id }, include: { items: true } });
+    expect(newConsumption.items[0]).toMatchObject({ isCostComplete: true, theoreticalCogsAmount: 1_000 });
+
+    await recipeFixture(manager, takeaway.id, stock, "20");
+    const mixedTableOrder = await orderFixture(staff, mixed.id, 1, "coverage-mixed-table-complete-order", "TABLE");
+    const mixedTablePaid = await settleAmount(staff, mixedTableOrder, 50_000, "coverage-mixed-table-complete-payment");
+    expect(mixedTablePaid.statusCode, mixedTablePaid.body).toBe(201);
+    const takeawayOrder = await orderFixture(staff, takeaway.id, 1, "coverage-takeaway-order", "TAKEAWAY");
+    const takeawayPaid = await settleAmount(staff, takeawayOrder, 100_000, "coverage-takeaway-payment");
+    expect(takeawayPaid.statusCode, takeawayPaid.body).toBe(201);
+
+    const reportDate = "2026-11-10";
+    await app.prisma.orderConsumption.updateMany({ where: { orderId: { in: [oldMixedOrder.id, discountedOrder.id, mixedTableOrder.id, takeawayOrder.id] } }, data: { recognizedAt: new Date("2026-11-11T08:00:00.000Z") } });
+    const report = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${reportDate}&toDate=2026-11-11`, cookies: manager });
+    expect(report.statusCode, report.body).toBe(200);
+    const data = report.json().data;
+    expect(data.totals.netSalesAmount).toBe(240_000);
+    expect(data.costCoverage).toMatchObject({
+      totalEligibleNetSalesAmount: 240_000,
+      completeCostRevenueAmount: 190_000,
+      incompleteCostRevenueAmount: 50_000,
+      coveragePercent: "79.17",
+      incompleteCoveragePercent: "20.83",
+      completeOrderItemCount: 3,
+      incompleteOrderItemCount: 1,
+      channels: expect.arrayContaining([
+        expect.objectContaining({ channel: "TABLE", netSalesAmount: 100_000, completeCostRevenueAmount: 50_000, incompleteCostRevenueAmount: 50_000, coveragePercent: "50.00" }),
+        expect.objectContaining({ channel: "TAKEAWAY", netSalesAmount: 140_000, completeCostRevenueAmount: 140_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00" }),
+      ]),
+    });
+    expect(data.products).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: mixed.id, channel: "TABLE", netSalesAmount: 100_000, completeCostRevenueAmount: 50_000, incompleteCostRevenueAmount: 50_000, coveragePercent: "50.00", incompleteCostRevenueOfTotalSalesPercent: "20.83", incompleteCostRevenueSharePercent: "100.00", completeOrderItemCount: 1, incompleteOrderItemCount: 1 }),
+      expect.objectContaining({ productId: mixed.id, channel: "TAKEAWAY", netSalesAmount: 40_000, completeCostRevenueAmount: 40_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: "0.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }),
+      expect.objectContaining({ productId: takeaway.id, channel: "TAKEAWAY", netSalesAmount: 100_000, completeCostRevenueAmount: 100_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: "0.00" }),
+    ]));
+    expect(data.products.reduce((sum: number, product: any) => sum + product.netSalesAmount, 0)).toBe(data.totals.netSalesAmount);
+    expect(data.products.reduce((sum: number, product: any) => sum + product.incompleteCostRevenueAmount, 0)).toBe(data.costCoverage.incompleteCostRevenueAmount);
+    expect(GrossProfitReportResponseSchema.safeParse(report.json()).success).toBe(true);
+  });
+
+  it("keeps zero-cost items complete, returns null percentages for zero revenue, and excludes reversed, deleted, and staff-consumption sales", async () => {
+    const manager = await session(UserRole.MANAGER, "coverage-edge.manager");
+    const staff = await session(UserRole.STAFF, "coverage-edge.staff");
+    const free = await productFixture("Coverage real zero cost");
+    const zeroStock = await stockFixture(manager, "Coverage zero-cost stock", "10", 0);
+    await recipeFixture(manager, free.id, zeroStock, "1");
+    const freeOrder = await orderFixture(staff, free.id, 1, "coverage-zero-cost-order");
+    const freePaid = await settleAmount(staff, freeOrder, freeOrder.totalAmount, "coverage-zero-cost-payment");
+    expect(freePaid.statusCode, freePaid.body).toBe(201);
+    const freeConsumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: freeOrder.id }, include: { items: true } });
+    expect(freeConsumption.items[0]).toMatchObject({ isCostComplete: true, theoreticalCogsAmount: 0 });
+
+    const reversedProduct = await productFixture("Coverage reversed sale");
+    const reversedOrder = await orderFixture(staff, reversedProduct.id, 1, "coverage-reversed-order");
+    const reversedPayment = await settleAmount(staff, reversedOrder, reversedOrder.totalAmount, "coverage-reversed-payment");
+    expect(reversedPayment.statusCode, reversedPayment.body).toBe(201);
+    const reversal = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${reversedPayment.json().data.settlements[0].id}/reverse`, cookies: manager, payload: { expectedVersion: reversedPayment.json().data.version } });
+    expect(reversal.statusCode, reversal.body).toBe(200);
+
+    const deletedProduct = await productFixture("Coverage deleted sale");
+    const deletedOrder = await orderFixture(staff, deletedProduct.id, 1, "coverage-deleted-order");
+    const deletedPayment = await settleAmount(staff, deletedOrder, deletedOrder.totalAmount, "coverage-deleted-payment");
+    expect(deletedPayment.statusCode, deletedPayment.body).toBe(201);
+    const deleted = await app.inject({ method: "POST", url: `/api/v1/orders/${deletedOrder.id}/delete`, cookies: staff, payload: { expectedVersion: deletedPayment.json().data.version } });
+    expect(deleted.statusCode, deleted.body).toBe(200);
+
+    const staffProduct = await productFixture("Coverage staff consumption");
+    const staffBenefit = await app.inject({ method: "POST", url: "/api/v1/staff-consumption", cookies: staff, headers: { "idempotency-key": "coverage-staff-consumption" }, payload: { channel: "TAKEAWAY", items: [{ productId: staffProduct.id, quantity: 1, options: [] }] } });
+    expect(staffBenefit.statusCode, staffBenefit.body).toBe(201);
+
+    const quietDate = "2026-11-01";
+    const zeroSales = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${quietDate}&toDate=${quietDate}`, cookies: manager });
+    expect(zeroSales.statusCode, zeroSales.body).toBe(200);
+    expect(zeroSales.json().data.costCoverage).toMatchObject({ totalEligibleNetSalesAmount: 0, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 0, coveragePercent: null, incompleteCoveragePercent: null, completeOrderItemCount: 0, incompleteOrderItemCount: 0, channels: [{ channel: "TABLE", netSalesAmount: 0, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 0, coveragePercent: null, completeOrderItemCount: 0, incompleteOrderItemCount: 0 }, { channel: "TAKEAWAY", netSalesAmount: 0, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 0, coveragePercent: null, completeOrderItemCount: 0, incompleteOrderItemCount: 0 }] });
+
+    const reportDate = "2026-11-12";
+    // Keep every candidate exclusion in-range so this still exercises the
+    // exclusion predicates after the fixtures' real creation date has passed.
+    await app.prisma.orderConsumption.updateMany({ where: { orderId: { in: [freeOrder.id, reversedOrder.id, deletedOrder.id, staffBenefit.json().data.id] } }, data: { recognizedAt: new Date("2026-11-12T08:00:00.000Z") } });
+    const report = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${reportDate}&toDate=${reportDate}`, cookies: manager });
+    expect(report.statusCode, report.body).toBe(200);
+    expect(report.json().data.costCoverage).toMatchObject({ totalEligibleNetSalesAmount: freeOrder.totalAmount, completeCostRevenueAmount: freeOrder.totalAmount, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCoveragePercent: "0.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 });
+    expect(report.json().data.products).toEqual([expect.objectContaining({ productId: free.id, theoreticalCogsAmount: 0, completeCostRevenueAmount: freeOrder.totalAmount, incompleteCostRevenueAmount: 0, coveragePercent: "100.00" })]);
+  });
+
+  it("allocates a one-Toman discount remainder across a mixed-cost order and reconciles two settlements exactly", async () => {
+    const manager = await session(UserRole.MANAGER, "coverage-allocation.manager");
+    const staff = await session(UserRole.STAFF, "coverage-allocation.staff");
+    const incomplete = await productFixture("Coverage allocation incomplete", null, 33_000);
+    const complete = await productFixture("Coverage allocation complete", null, 68_000);
+    const stock = await stockFixture(manager, "Coverage allocation beans", "10", 0);
+    await recipeFixture(manager, complete.id, stock, "1");
+
+    const created = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": "coverage-allocation-order" }, payload: { channel: "TAKEAWAY", items: [{ productId: incomplete.id, quantity: 1, options: [] }, { productId: complete.id, quantity: 1, options: [] }] } });
+    expect(created.statusCode, created.body).toBe(201);
+    const discounted = await app.inject({ method: "PATCH", url: `/api/v1/orders/${created.json().data.id}`, cookies: staff, payload: { expectedVersion: created.json().data.version, orderDiscount: { kind: "FIXED", value: 1_000 } } });
+    expect(discounted.statusCode, discounted.body).toBe(200);
+    expect(discounted.json().data.totalAmount).toBe(100_000);
+
+    // The first line's exact order-discount share is 326.732... Toman. The
+    // cumulative-floor allocation assigns 326, leaving 674 for the next line.
+    const first = await settleAmount(staff, discounted.json().data, 40_000, "coverage-allocation-first-payment");
+    expect(first.statusCode, first.body).toBe(201);
+    expect(first.json().data.settlements.at(-1).allocations.map((row: { amount: number }) => row.amount)).toEqual([32_674, 7_326]);
+    const second = await settleAmount(staff, first.json().data, 60_000, "coverage-allocation-second-payment");
+    expect(second.statusCode, second.body).toBe(201);
+    expect(second.json().data.settlements.at(-1).allocations.map((row: { amount: number }) => row.amount)).toEqual([60_000]);
+    await app.prisma.orderConsumption.updateMany({ where: { orderId: created.json().data.id }, data: { recognizedAt: new Date("2026-11-11T08:00:00.000Z") } });
+
+    const report = await app.inject({ method: "GET", url: "/api/v1/admin/reports/gross-profit?fromDate=2026-11-11&toDate=2026-11-11", cookies: manager });
+    expect(report.statusCode, report.body).toBe(200);
+    expect(report.json().data).toMatchObject({
+      totals: { netSalesAmount: 100_000 },
+      costCoverage: { totalEligibleNetSalesAmount: 100_000, completeCostRevenueAmount: 67_326, incompleteCostRevenueAmount: 32_674, coveragePercent: "67.33", completeOrderItemCount: 1, incompleteOrderItemCount: 1,
+        channels: [expect.objectContaining({ channel: "TABLE", netSalesAmount: 0, coveragePercent: null }), expect.objectContaining({ channel: "TAKEAWAY", netSalesAmount: 100_000, completeCostRevenueAmount: 67_326, incompleteCostRevenueAmount: 32_674, coveragePercent: "67.33" })] },
+    });
+    expect(report.json().data.products).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: incomplete.id, channel: "TAKEAWAY", netSalesAmount: 32_674, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 32_674 }),
+      expect.objectContaining({ productId: complete.id, channel: "TAKEAWAY", netSalesAmount: 67_326, completeCostRevenueAmount: 67_326, incompleteCostRevenueAmount: 0 }),
+    ]));
+  });
+
+  it("rounds an exact half-hundredth of weighted coverage upward and leaves empty channels undefined", async () => {
+    const manager = await session(UserRole.MANAGER, "coverage-rounding.manager");
+    const staff = await session(UserRole.STAFF, "coverage-rounding.staff");
+    const incomplete = await productFixture("Coverage rounding incomplete", null, 19_999);
+    const complete = await productFixture("Coverage rounding complete", null, 1);
+    const freeStock = await stockFixture(manager, "Coverage rounding free stock", "1", 0);
+    await recipeFixture(manager, complete.id, freeStock, "1");
+    const created = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": "coverage-rounding-order" }, payload: { channel: "TAKEAWAY", items: [{ productId: incomplete.id, quantity: 1, options: [] }, { productId: complete.id, quantity: 1, options: [] }] } });
+    expect(created.statusCode, created.body).toBe(201);
+    const settled = await settleAmount(staff, created.json().data, 20_000, "coverage-rounding-payment");
+    expect(settled.statusCode, settled.body).toBe(201);
+    await app.prisma.orderConsumption.updateMany({ where: { orderId: created.json().data.id }, data: { recognizedAt: new Date("2026-11-11T08:00:00.000Z") } });
+
+    const report = await app.inject({ method: "GET", url: "/api/v1/admin/reports/gross-profit?fromDate=2026-11-11&toDate=2026-11-11", cookies: manager });
+    expect(report.statusCode, report.body).toBe(200);
+    expect(report.json().data.costCoverage).toMatchObject({ totalEligibleNetSalesAmount: 20_000, completeCostRevenueAmount: 1, incompleteCostRevenueAmount: 19_999, coveragePercent: "0.01", incompleteCoveragePercent: "100.00", channels: [
+      expect.objectContaining({ channel: "TABLE", netSalesAmount: 0, coveragePercent: null }),
+      expect.objectContaining({ channel: "TAKEAWAY", netSalesAmount: 20_000, completeCostRevenueAmount: 1, coveragePercent: "0.01" }),
+    ] });
+  });
+
+  it("keeps the PACKING service charge as sales with unknown cost and preserves costing-channel classification", async () => {
+    const manager = await session(UserRole.MANAGER, "coverage-packing.manager");
+    const staff = await session(UserRole.STAFF, "coverage-packing.staff");
+    const coffee = await productFixture("Coverage packaged coffee", null, 10_000);
+    const packing = await productFixture("Coverage packing service", "PACKING", 2_000);
+    const stock = await stockFixture(manager, "Coverage package beans", "100", 10_000);
+    await recipeFixture(manager, coffee.id, stock, "10");
+    const table = await app.prisma.cafeTable.create({ data: { name: "Coverage packing table", displayOrder: 1 } });
+    const created = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": "coverage-packing-order" }, payload: { channel: "TABLE", tableId: table.id, items: [{ productId: coffee.id, quantity: 1, options: [] }, { productId: packing.id, quantity: 1, options: [] }] } });
+    expect(created.statusCode, created.body).toBe(201);
+    const settled = await settleAmount(staff, created.json().data, 12_000, "coverage-packing-settlement");
+    expect(settled.statusCode, settled.body).toBe(201);
+    const reportDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", calendar: "gregory", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const coverage = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${reportDate}&toDate=${reportDate}`, cookies: manager });
+    expect(coverage.statusCode, coverage.body).toBe(200);
+    expect(coverage.json().data).toMatchObject({
+      totals: { netSalesAmount: 12_000, theoreticalCogsAmount: null },
+      costCoverage: { totalEligibleNetSalesAmount: 12_000, completeCostRevenueAmount: 10_000, incompleteCostRevenueAmount: 2_000, coveragePercent: "83.33", incompleteCoveragePercent: "16.67", completeOrderItemCount: 1, incompleteOrderItemCount: 1 },
+      products: expect.arrayContaining([
+        expect.objectContaining({ productId: coffee.id, channel: "TABLE", completeCostRevenueAmount: 10_000, incompleteCostRevenueAmount: 0 }),
+        expect.objectContaining({ productId: packing.id, channel: "TABLE", netSalesAmount: 2_000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 2_000, coveragePercent: "0.00", incompleteCostRevenueOfTotalSalesPercent: "16.67" }),
+      ]),
+    });
+    const salesChannels = await app.inject({ method: "GET", url: `/api/v1/admin/reports/sales-channels?fromDate=${reportDate}&toDate=${reportDate}`, cookies: manager });
+    expect(salesChannels.statusCode, salesChannels.body).toBe(200);
+    expect(salesChannels.json().data.revenue).toMatchObject({ totalAmount: 12_000, takeawayAmount: 12_000, dineInAmount: 0 });
+  });
+
   it("keeps stock thresholds optional, exact, versioned, audited and Manager-only", async () => {
     const manager = await session(UserRole.MANAGER, "threshold.manager");
     const staff = await session(UserRole.STAFF, "threshold.staff");
@@ -107,6 +306,7 @@ describe("inventory costing and settlement integration", () => {
     ]);
     expect(data.daily.reduce((sum: number, day: any) => sum + day.netSalesAmount, 0)).toBe(data.totals.netSalesAmount);
     expect(data.daily.reduce((sum: number, day: any) => sum + day.grossProfitAmount, 0)).toBe(data.totals.grossProfitAmount);
+    expect(data.costCoverage).toMatchObject({ totalEligibleNetSalesAmount: data.totals.netSalesAmount, completeCostRevenueAmount: data.totals.netSalesAmount, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCoveragePercent: "0.00" });
   });
 
   it("consumes stock for staff benefits and restores it on manager removal", async () => {
@@ -413,8 +613,8 @@ describe("inventory costing and settlement integration", () => {
     expect(report.json().data).toMatchObject({ totals: { netSalesAmount: 162_000, theoreticalCogsAmount: 16_000, grossProfitAmount: 146_000, grossMarginPercent: "90.12" }, costCoverage: { completeOrderItemCount: 2, incompleteOrderItemCount: 0 }, pendingConsumptionCount: 1 });
     expect(report.json().data.inventoryConsumption.varianceAmount).toBeNull();
     expect(report.json().data.products).toEqual(expect.arrayContaining([
-      { channel: "TAKEAWAY", productId: catalogDiscountProduct.id, productName: catalogDiscountProduct.name, netSalesAmount: 81_000, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
-      { channel: "TAKEAWAY", productId: itemDiscountProduct.id, productName: itemDiscountProduct.name, netSalesAmount: 81_000, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
+      { channel: "TAKEAWAY", productId: catalogDiscountProduct.id, productName: catalogDiscountProduct.name, netSalesAmount: 81_000, completeCostRevenueAmount: 81_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: null, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
+      { channel: "TAKEAWAY", productId: itemDiscountProduct.id, productName: itemDiscountProduct.name, netSalesAmount: 81_000, completeCostRevenueAmount: 81_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: null, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
     ]));
 
     const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlement!.id}/reverse`, cookies: manager, payload: { expectedVersion: settled.json().data.version, reason: "Incorrect full payment" } });
@@ -561,7 +761,7 @@ describe("inventory costing and settlement integration", () => {
     expect(report.statusCode, report.body).toBe(200);
     expect(report.json().data).toMatchObject({
       totals: { netSalesAmount: 1_000, theoreticalCogsAmount: null, knownCogsAmount: 0, grossProfitAmount: null, grossMarginPercent: null },
-      costCoverage: { completeOrderItemCount: 0, incompleteOrderItemCount: 1 },
+      costCoverage: { totalEligibleNetSalesAmount: 1_000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 1_000, coveragePercent: "0.00", incompleteCoveragePercent: "100.00", completeOrderItemCount: 0, incompleteOrderItemCount: 1 },
       pendingConsumptionCount: 1,
       inventoryConsumption: { varianceAmount: null, missingValuationCount: 1 },
     });
@@ -668,7 +868,7 @@ describe("inventory costing and settlement integration", () => {
     expect(report.statusCode, report.body).toBe(200);
     expect(report.json().data).toMatchObject({
       totals: { netSalesAmount: order.totalAmount, theoreticalCogsAmount: null, grossProfitAmount: null, grossMarginPercent: null },
-      costCoverage: { completeOrderItemCount: 0, incompleteOrderItemCount: 1 },
+      costCoverage: { totalEligibleNetSalesAmount: order.totalAmount, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: order.totalAmount, coveragePercent: "0.00", incompleteCoveragePercent: "100.00", completeOrderItemCount: 0, incompleteOrderItemCount: 1 },
       pendingConsumptionCount: 1,
     });
   });
