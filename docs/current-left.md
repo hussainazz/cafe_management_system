@@ -30,6 +30,34 @@ excluded from the classified totals.
 Left: none for this test-coverage delivery. Partial refunds, cancelled-order
 records and explicit test-order flags remain outside the current order model.
 
+## VPS release — cafe-20261112-12705d6 (12 November 2026)
+
+- [x] Push remembered commit `2d4fc64` and release commit `12705d6` to `origin/main`.
+- [x] Build and checksum the API/contracts/POS artifact; exclude environment files,
+  uploaded product images and POS development/cache output.
+- [x] Create and validate a PostgreSQL 17 pre-release backup and the previous
+  API/contracts/POS runtime rollback archive.
+- [x] Apply the five reviewed additive migrations; production is current at 50.
+- [x] Activate API, contracts and POS. Keep the web service and uploaded image
+  storage unchanged.
+
+Artifact SHA-256: `816a4c8e6f578f9176431edc82afc483a48b1a41d074c412240dd7f845440f81`.
+The PG17 database dump is
+`/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261112-12705d6.dump` (SHA-256
+`58f36ad801bcf819efb01c383b5ea9cc8aaa10d0d11927e8f75acbad91cf6281`); the
+rollback archive is `/opt/cafe-menu-release-backups/rollback-before-cafe-20261112-12705d6.tar.gz`
+(SHA-256 `3c543ea64f2483140512babe8e90b9b483f92ed80ffd73617bbb4f4ae811a1b5`).
+
+Verification: Prisma reports all 50 migrations current. API readiness, the
+internal public-menu API, public-menu proxy, `/menu`, `/pos` and `/pos/release`
+return HTTP 200. The Manager sales-channel report returns 401 without
+credentials. `/pos/release` returns `cafe-20261112-12705d6` with `no-store`.
+API, POS and web services are active with zero restarts after release. Product
+image storage remains 32 files / 5,759,237 bytes; no image data was transferred.
+
+Left: none for this release. Browser acceptance remains unclaimed as recorded in
+the implementation stages above.
+
 ## Local implementation complete — Conditional packaging and nested takeaway recipes (12 November 2026)
 
 - [x] Inspect existing multiple-packaging and nested-recipe capabilities and record approved scope.
@@ -68,8 +96,8 @@ Verification on Node 24.21.0:
 
 Left: live browser workflow/visual verification is blocked by `The browser access
 host is unavailable`; automated UI acceptance is complete but live browser
-acceptance is not claimed. Work remains local and uncommitted; no production
-release or activation occurred.
+acceptance is not claimed. This implementation was included in the coordinated
+VPS release recorded below.
 
 ## Local implementation complete — Takeaway packaging (12 November 2026)
 
@@ -105,8 +133,8 @@ Verification on Node 24.21.0:
 
 Left: live browser workflow/visual verification could not run because the CUA
 provider returned `The browser access host is unavailable`. Automated UI checks
-are complete; browser acceptance is not claimed. Changes remain local and
-uncommitted; no production deployment occurred.
+are complete; browser acceptance is not claimed. This implementation was included
+in the coordinated VPS release recorded below.
 
 ## Completed delivery — Screenshot-led inventory implementation (11 November 2026)
 
@@ -117,7 +145,8 @@ uncommitted; no production deployment occurred.
 - [x] Owner approved optional manually configured per-item base-unit warning
   thresholds. Add the nullable exact-decimal schema field, Manager API/editor,
   optimistic versioning, audit snapshots and exact alert comparison. No forecasts
-  or automatic purchasing. The additive migration is applied locally only.
+  or automatic purchasing. The additive migration was applied in the coordinated
+  VPS release recorded below.
 - [x] Add daily paid-order revenue/COGS/profit to the existing Manager report;
   use Tehran recognition days, retain null costs/margins and signed losses.
   Show current-menu category contribution with explicit attribution.
@@ -145,9 +174,9 @@ score. The recorded verdict is
   `../apps/pos/.impeccable/design.json`, scoped to inventory; preserve the
   surrounding POS visual system.
 
-Left: none for this authorized local delivery. The changes are uncommitted; no
-production deployment was performed. All unrelated backend and physical
-café-device acceptance items below remain open.
+Left: none for this inventory delivery; it was included in the coordinated
+VPS release recorded below. All unrelated backend and physical café-device
+acceptance items below remain open.
 
 # Current Stage Status
 
