@@ -31,6 +31,8 @@ const report = {
         productId: "unknown",
         channel: "TABLE",
         productName: "هزینه‌ی نامشخص",
+        soldQuantity: 1,
+        soldWeightGrams: 0,
         netSalesAmount: 900,
         completeCostRevenueAmount: 0,
         incompleteCostRevenueAmount: 900,
@@ -48,6 +50,8 @@ const report = {
         productId: "loss",
         channel: "TAKEAWAY",
         productName: "محصول زیان‌ده",
+        soldQuantity: 1,
+        soldWeightGrams: 0,
         netSalesAmount: 100,
         completeCostRevenueAmount: 100,
         incompleteCostRevenueAmount: 0,
@@ -65,6 +69,8 @@ const report = {
         productId: "profit",
         channel: "TAKEAWAY",
         productName: "محصول سودآور",
+        soldQuantity: 1,
+        soldWeightGrams: 0,
         netSalesAmount: 500,
         completeCostRevenueAmount: 500,
         incompleteCostRevenueAmount: 0,
@@ -317,6 +323,91 @@ describe("profit dashboard", () => {
     }
   });
 
+  it("summarizes sold products across channels and sorts by current price, quantity, dine-in and takeaway sales", async () => {
+    const productRows = [
+      { ...report.data.products[0]!, productId: "a", productName: "قهوه الف", channel: "TABLE" as const, soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 100, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 100 },
+      { ...report.data.products[0]!, productId: "a", productName: "قهوه الف", channel: "TAKEAWAY" as const, soldQuantity: 3, soldWeightGrams: 750, netSalesAmount: 500, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 500 },
+      { ...report.data.products[1]!, productId: "b", productName: "قهوه ب", channel: "TABLE" as const, soldQuantity: 2, soldWeightGrams: 0, netSalesAmount: 610, completeCostRevenueAmount: 610, incompleteCostRevenueAmount: 0 },
+      { ...report.data.products[2]!, productId: "c", productName: "قهوه ج", channel: "TAKEAWAY" as const, soldQuantity: 6, soldWeightGrams: 0, netSalesAmount: 820, completeCostRevenueAmount: 820, incompleteCostRevenueAmount: 0 },
+    ];
+    const catalog = {
+      categories: [{ id: "coffee-category", archivedAt: null }],
+      products: [
+        { id: "a", categoryId: "coffee-category", priceAmount: 10_000, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, isPublic: true, isActive: true, archivedAt: null, optionGroups: [] },
+        { id: "b", categoryId: "coffee-category", priceAmount: 20_000, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, isPublic: true, isActive: true, archivedAt: null, optionGroups: [] },
+        { id: "c", categoryId: "coffee-category", priceAmount: 15_000, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, isPublic: true, isActive: true, archivedAt: null, optionGroups: [] },
+      ],
+      optionGroups: [],
+      tables: [],
+    } as never;
+    vi.mocked(api.readGrossProfitReport).mockResolvedValue({
+      ok: true,
+      data: { ...report, data: {
+        ...report.data,
+        totals: { ...report.data.totals, netSalesAmount: 2_030, knownCogsAmount: 800, theoreticalCogsAmount: null, grossProfitAmount: null, grossMarginPercent: null },
+        products: productRows,
+        costCoverage: { ...report.data.costCoverage, totalEligibleNetSalesAmount: 2_030, completeCostRevenueAmount: 1_430, incompleteCostRevenueAmount: 600, coveragePercent: "70.44", incompleteCoveragePercent: "29.56", completeOrderItemCount: 2, incompleteOrderItemCount: 2, channels: [
+          { channel: "TABLE", netSalesAmount: 710, completeCostRevenueAmount: 610, incompleteCostRevenueAmount: 100, coveragePercent: "85.92", completeOrderItemCount: 1, incompleteOrderItemCount: 1 },
+          { channel: "TAKEAWAY", netSalesAmount: 1_320, completeCostRevenueAmount: 820, incompleteCostRevenueAmount: 500, coveragePercent: "62.12", completeOrderItemCount: 1, incompleteOrderItemCount: 1 },
+        ] },
+      } },
+    } as never);
+    render(<InventoryProfitPanel catalog={catalog} />);
+
+    const region = await screen.findByRole("region", { name: "جدول محصولات فروخته‌شده" });
+    const table = within(region).getByRole("table");
+    const names = () => within(table).getAllByRole("row").slice(1).map((row) => within(row).getByRole("rowheader").textContent?.trim());
+    const rowA = within(table).getByRole("rowheader", { name: /قهوه الف/ }).closest("tr")!;
+    const cellsA = within(rowA).getAllByRole("cell");
+    expect(cellsA[1]!.textContent).toContain("۴");
+    expect(cellsA[1]!.textContent).toContain("۷۵۰ گرم");
+    expect(cellsA[2]!.textContent).toContain("۱۰۰");
+    expect(cellsA[3]!.textContent).toContain("۵۰۰");
+    expect(cellsA[4]!.textContent).toContain("۰");
+    expect(cellsA[5]!.textContent).toContain("۶۰۰");
+
+    const sort = screen.getByLabelText("مرتب‌سازی فروش محصولات");
+    fireEvent.change(sort, { target: { value: "price" } });
+    expect(names()).toEqual(["قهوه ب", "قهوه ج", "قهوه الف"]);
+    fireEvent.change(sort, { target: { value: "quantity" } });
+    expect(names()).toEqual(["قهوه ج", "قهوه الف", "قهوه ب"]);
+    fireEvent.change(sort, { target: { value: "table" } });
+    expect(names()).toEqual(["قهوه ب", "قهوه الف", "قهوه ج"]);
+    fireEvent.change(sort, { target: { value: "takeaway" } });
+    expect(names()).toEqual(["قهوه ج", "قهوه الف", "قهوه ب"]);
+  });
+
+  it("keeps legacy channel sales visible, sorts products without a current price last, and omits the packing service row", async () => {
+    const ordinary = { ...report.data.products[1]!, productId: "ordinary", productName: "محصول منو", channel: "TABLE" as const, soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 1_000 };
+    const legacy = { ...report.data.products[0]!, productId: "legacy", productName: "محصول تاریخی", channel: undefined, soldQuantity: 2, soldWeightGrams: 0, netSalesAmount: 500 };
+    const packing = { ...report.data.products[2]!, productId: "packing", productName: "بسته‌بندی", channel: "TAKEAWAY" as const, soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 250 };
+    vi.mocked(api.readGrossProfitReport).mockResolvedValue({
+      ok: true,
+      data: { ...report, data: { ...report.data, products: [ordinary, legacy, packing], totals: { ...report.data.totals, netSalesAmount: 1_750 } } },
+    } as never);
+    const catalog = {
+      categories: [{ id: "coffee-category", archivedAt: null }],
+      products: [
+        { id: "ordinary", categoryId: "coffee-category", priceAmount: 1_000, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, isPublic: true, systemKey: null, isActive: true, archivedAt: null, optionGroups: [] },
+        { id: "packing", categoryId: "coffee-category", priceAmount: 250, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, isPublic: false, systemKey: "PACKING", isActive: true, archivedAt: null, optionGroups: [] },
+      ],
+      optionGroups: [],
+      tables: [],
+    } as never;
+    render(<InventoryProfitPanel catalog={catalog} />);
+
+    const region = await screen.findByRole("region", { name: "جدول محصولات فروخته‌شده" });
+    const table = within(region).getByRole("table");
+    expect(within(table).queryByRole("rowheader", { name: "بسته‌بندی" })).toBeNull();
+    expect(within(region).getByText(/کانال نامشخص/)).toBeTruthy();
+    const legacyRow = within(table).getByRole("rowheader", { name: "محصول تاریخی" }).closest("tr")!;
+    expect(within(legacyRow).getAllByRole("cell")[4]!.textContent).toContain("۵۰۰");
+
+    fireEvent.change(screen.getByLabelText("مرتب‌سازی فروش محصولات"), { target: { value: "price" } });
+    const names = within(table).getAllByRole("row").slice(1).map((row) => within(row).getByRole("rowheader").textContent?.trim());
+    expect(names).toEqual(["محصول منو", "محصول تاریخی"]);
+  });
+
   it("keeps incomplete total cost and margin unavailable and ranks null profit after losses", async () => {
     render(<InventoryProfitPanel />);
     const table = within(await screen.findByRole("region", { name: "جدول سود محصولات" })).getByRole("table");
@@ -395,6 +486,8 @@ describe("profit dashboard", () => {
     vi.mocked(api.readGrossProfitReport).mockResolvedValueOnce(firstReport as never).mockResolvedValueOnce(nextReport as never);
     render(<InventoryProfitPanel />);
     await screen.findByRole("region", { name: "جدول سود محصولات" });
+    const soldProductsRegion = screen.getByRole("region", { name: "جدول محصولات فروخته‌شده" });
+    expect(within(soldProductsRegion).getByRole("rowheader", { name: /اولویت بازه‌ی قبلی/ })).toBeTruthy();
     const coverageCard = screen.getByRole("heading", { name: "پوشش بهای تمام‌شده فروش" }).closest("section")!;
     expect(coverageCard.querySelector(".inventory-cost-coverage-primary > strong")?.textContent).toBe("۸۰.۰۰٪");
     expect(within(coverageCard).getByText("فروش با هزینه‌ی ناقص").parentElement!.textContent).toContain("۲۰۰ تومان");
@@ -421,6 +514,9 @@ describe("profit dashboard", () => {
     const refreshedPriorityRegion = screen.getByRole("region", { name: "محصولات با اولویت تکمیل هزینه" });
     expect(within(refreshedPriorityRegion).getByRole("rowheader", { name: /اولویت بازه‌ی جدید/ })).toBeTruthy();
     expect(within(refreshedPriorityRegion).queryByRole("rowheader", { name: /اولویت بازه‌ی قبلی/ })).toBeNull();
+    const refreshedSoldProductsRegion = screen.getByRole("region", { name: "جدول محصولات فروخته‌شده" });
+    expect(within(refreshedSoldProductsRegion).getByRole("rowheader", { name: /اولویت بازه‌ی جدید/ })).toBeTruthy();
+    expect(within(refreshedSoldProductsRegion).queryByRole("rowheader", { name: /اولویت بازه‌ی قبلی/ })).toBeNull();
     expect(screen.getByRole("progressbar", { name: "پوشش بهای تمام‌شده داخل کافه" }).getAttribute("aria-valuenow")).toBe("50");
     expect(screen.getByRole("progressbar", { name: "پوشش بهای تمام‌شده بیرون‌بر" }).getAttribute("aria-valuenow")).toBe("0");
   });
