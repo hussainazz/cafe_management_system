@@ -70,6 +70,8 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
     productId: string;
     channel: "TABLE" | "TAKEAWAY";
     productName: string;
+    soldQuantity: number;
+    soldWeightGrams: number;
     netSalesAmount: bigint;
     completeCostRevenueAmount: bigint;
     incompleteCostRevenueAmount: bigint;
@@ -106,6 +108,8 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
         channel,
         productId,
         productName: item.productNameSnapshot,
+        soldQuantity: 0,
+        soldWeightGrams: 0,
         netSalesAmount: 0n,
         completeCostRevenueAmount: 0n,
         incompleteCostRevenueAmount: 0n,
@@ -118,6 +122,8 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
         .filter((allocation) => allocation.settlement.reversal === null)
         .reduce((sum, allocation) => sum + BigInt(allocation.amount), 0n);
       const channelTotals = byChannel.get(channel)!;
+      product.soldQuantity += item.quantity;
+      product.soldWeightGrams += (item.weightGrams ?? 0) * item.quantity;
       product.netSalesAmount += itemRevenue;
       day.netSalesAmount += itemRevenue;
       channelTotals.netSalesAmount += itemRevenue;
@@ -229,6 +235,8 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
           channel: product.channel,
           productId: product.productId,
           productName: product.productName,
+          soldQuantity: product.soldQuantity,
+          soldWeightGrams: product.soldWeightGrams,
           netSalesAmount: productNetSalesAmount,
           completeCostRevenueAmount: amountNumber(product.completeCostRevenueAmount),
           incompleteCostRevenueAmount: amountNumber(product.incompleteCostRevenueAmount),
