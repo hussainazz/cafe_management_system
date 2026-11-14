@@ -1387,6 +1387,8 @@ export const GrossProfitProductSchema = z.object({
   channel: OrderChannelSchema.optional(),
   productId: z.uuid(),
   productName: z.string(),
+  soldQuantity: z.number().int().nonnegative(),
+  soldWeightGrams: z.number().int().nonnegative(),
   netSalesAmount: InventoryMoneySchema,
   completeCostRevenueAmount: InventoryMoneySchema,
   incompleteCostRevenueAmount: InventoryMoneySchema,
