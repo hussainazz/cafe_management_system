@@ -1,0 +1,23 @@
+[Unit]
+Description=Aggregate privacy-safe cafe menu traffic from Nginx logs
+After=nginx.service
+
+[Service]
+Type=oneshot
+User=cafe
+Group=cafe
+SupplementaryGroups=adm
+UMask=0027
+Nice=10
+StateDirectory=cafe-menu-analytics
+StateDirectoryMode=0750
+ExecStart=/usr/bin/python3 /usr/local/libexec/cafe-menu-analytics.py aggregate
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadOnlyPaths=/var/log/nginx
