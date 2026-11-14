@@ -1,3 +1,70 @@
+## Active delivery — Privacy-safe public-menu traffic analytics (13 November 2026)
+
+- [x] Add structured Nginx access logging with `/t/:token` redaction and
+  request-ID QR correlation.
+- [x] Add a daily aggregator that preserves daily/monthly request, QR,
+  peak-hour, payload-byte, and approximate unique-IP metrics without retaining
+  raw IPs or request-level identifiers in summaries.
+- [x] Add an operator report command and document metric definitions and
+  limits.
+- [x] Back up and activate only the required Nginx, script, and systemd changes
+  on the VPS; the public app, database, and uploaded product images were not
+  changed.
+- [x] Validate Nginx syntax, aggregate retained logs, and generate daily and
+  monthly reports. `/menu` totals include QR landings once; redirect counts
+  remain separate.
+- [x] Extend reports with the highest daily payload, exact HTTP status-code
+  counts, and menu-image traffic separate from other services; include
+  `/_next/image` and uploaded-image routes.
+- [x] Document CDN-side metrics and the image-only cache boundary without
+  activating a CDN.
+
+Verification: `nginx -t` passed after activation. The aggregator processed
+1,272,728 access-log records into 15 Tehran-date summaries; 858 malformed lines
+were skipped. The November 1–13 report shows 4,109 `/menu` requests, 391 legacy
+QR-route requests without correlation IDs, an approximate 1,375 distinct IPs,
+and 16.08 GB of response-body payload (15.56 GB menu service, including 14.88
+GB menu images; 520.00 MB other services). The highest daily payload was 1.92
+GB on November 11 (1.87 GB menu service; 43.73 MB other services). Exact HTTP
+status counts are reported for all routes, menu service and other services.
+Image recognition includes `/_next/image` and `/api/product-images/`. The
+report labels body-byte limits; these are not delivered network-traffic totals.
+Nginx, API, web, POS, and the analytics timer are active; the analytics service
+completed successfully without a restart.
+
+Left: observe a real `/t/:token` scan and its `/menu` landing after activation;
+the legacy QR requests cannot be paired retrospectively. CDN Cache Hit Ratio,
+client-delivered bytes and origin bytes require a provider and remain deferred
+until CDN activation. The runbook documents the image-only public cache
+allowlist and bypass rules for other API and POS content. The daily timer runs
+at 00:30 `Asia/Tehran`.
+
+## Completed delivery — Sold products table in inventory report (13 November 2026)
+
+- [x] Extend the Manager gross-profit response with sold item counts and saved
+  weight totals by product and channel.
+- [x] Add a one-row-per-product sales table with current menu price, quantity,
+  dine-in sales, takeaway sales, unknown-channel sales and total net sales.
+- [x] Support sorting by current price, quantity, dine-in revenue, takeaway
+  revenue and total revenue; reuse the report's Persian date-range filter.
+- [x] Preserve full-payment and saved-channel semantics, retain legacy
+  unclassified sales, and keep the PACKING service in café totals without
+  listing it as a menu product.
+- [x] Cover fixed and weighted quantities, channel reconciliation, sorting,
+  unknown channels, PACKING exclusion, missing current prices and date changes.
+- [x] Complete the independent Sol 6.1 medium implementation and test review;
+  apply its coverage and copy corrections.
+
+Verification: the inventory API integration file passes 30 tests; focused POS
+dashboard/workspace tests pass 49 tests; contracts pass 18 tests. API and POS
+typechecks, the API production build, contracts build and `git diff --check`
+pass. The full POS suite passes all 237 tests across 32 files. One
+ManagerWorkspace settlement-sheet test failed to find its payment row on the
+first full run, then passed in its focused run, whole-file run and the clean
+full-suite rerun. Browser/device acceptance was not run.
+
+Left: browser/device acceptance remains unverified.
+
 ## Completed delivery — Sales-weighted cost coverage dashboard (12 November 2026)
 
 - [x] Extend the gross-profit report and contracts with revenue-weighted complete
