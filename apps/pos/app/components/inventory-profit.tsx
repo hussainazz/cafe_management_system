@@ -9,11 +9,23 @@ import { currentPersianDateInput, persianDateToGregorianDate } from "../lib/tehr
 import { formatToman } from "../lib/pos-utils";
 import { InventoryProfitBreakdown } from "./inventory-profit-breakdown";
 import { InventoryTrend, InventoryDailyMargin } from "./inventory-charts";
-import { InventoryMetric, inventoryNumber } from "./inventory-dashboard";
+import { InventoryMetric, inventoryNumber, inventoryQuantity } from "./inventory-dashboard";
 
 const money = (amount: number | null) =>
   amount === null ? "محاسبه نشده" : inventoryNumber(formatToman(amount));
 type Sort = "profit" | "sales" | "margin";
+type SoldProductsSort = "price" | "quantity" | "table" | "takeaway" | "sales";
+
+type SoldProductRow = {
+  productId: string;
+  productName: string;
+  soldQuantity: number;
+  soldWeightGrams: number;
+  tableSalesAmount: number;
+  takeawaySalesAmount: number;
+  unclassifiedSalesAmount: number;
+  netSalesAmount: number;
+};
 
 function currentMenuPrice(product: ManagerCatalog["products"][number]) {
   if (!product.saleDiscountKind || !product.saleDiscountValue) return product.priceAmount;
@@ -33,6 +45,8 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<Sort>("profit");
+  const [soldSearch, setSoldSearch] = useState("");
+  const [soldProductsSort, setSoldProductsSort] = useState<SoldProductsSort>("sales");
   const [priorityLimit, setPriorityLimit] = useState(8);
   const request = useRef(0);
   const load = async (start: typeof from, end: typeof to) => {
@@ -109,6 +123,7 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
       .filter((product) => product.isPublic && product.isActive && !product.archivedAt && currentMenuCategoryIds.has(product.categoryId))
       .map((product) => [product.id, product] as const) ?? [],
   );
+  const packingProductIds = new Set(catalog?.products.filter((product) => product.systemKey === "PACKING").map((product) => product.id) ?? []);
   const renderCurrentMenuPrice = (productId: string) => {
     const menuProduct = currentMenuProducts.get(productId);
     if (!menuProduct) return <span>{catalog ? "در منوی فعلی نیست" : "منوی فعلی بارگذاری نشده"}</span>;
@@ -122,6 +137,57 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
       )}
     </>;
   };
+  const soldProductsById = new Map<string, SoldProductRow>();
+  for (const product of report?.data.products ?? []) {
+    const soldProduct = soldProductsById.get(product.productId) ?? {
+      productId: product.productId,
+      productName: product.productName,
+      soldQuantity: 0,
+      soldWeightGrams: 0,
+      tableSalesAmount: 0,
+      takeawaySalesAmount: 0,
+      unclassifiedSalesAmount: 0,
+      netSalesAmount: 0,
+    };
+    soldProduct.soldQuantity += product.soldQuantity;
+    soldProduct.soldWeightGrams += product.soldWeightGrams;
+    soldProduct.netSalesAmount += product.netSalesAmount;
+    if (product.channel === "TABLE") soldProduct.tableSalesAmount += product.netSalesAmount;
+    if (product.channel === "TAKEAWAY") soldProduct.takeawaySalesAmount += product.netSalesAmount;
+    if (!product.channel) soldProduct.unclassifiedSalesAmount += product.netSalesAmount;
+    soldProductsById.set(product.productId, soldProduct);
+  }
+  const soldProducts = [...soldProductsById.values()]
+    .filter((product) => !packingProductIds.has(product.productId) && product.productName.includes(soldSearch.trim()))
+    .sort((a, b) => {
+      const menuProductA = currentMenuProducts.get(a.productId);
+      const menuProductB = currentMenuProducts.get(b.productId);
+      const left = soldProductsSort === "price"
+        ? menuProductA ? currentMenuPrice(menuProductA) : null
+        : soldProductsSort === "quantity"
+          ? a.soldQuantity
+          : soldProductsSort === "table"
+            ? a.tableSalesAmount
+            : soldProductsSort === "takeaway"
+              ? a.takeawaySalesAmount
+              : a.netSalesAmount;
+      const right = soldProductsSort === "price"
+        ? menuProductB ? currentMenuPrice(menuProductB) : null
+        : soldProductsSort === "quantity"
+          ? b.soldQuantity
+          : soldProductsSort === "table"
+            ? b.tableSalesAmount
+            : soldProductsSort === "takeaway"
+              ? b.takeawaySalesAmount
+              : b.netSalesAmount;
+      if (left === null) {
+        return right === null
+          ? a.productName.localeCompare(b.productName, "fa") || a.productId.localeCompare(b.productId)
+          : 1;
+      }
+      if (right === null) return -1;
+      return right - left || a.productName.localeCompare(b.productName, "fa") || a.productId.localeCompare(b.productId);
+    });
   const coverage = report?.data.costCoverage;
   const maxProfit = Math.max(1, ...ranked.map((product) => Math.abs(product.grossProfitAmount!)));
   const totals = report?.data.totals;
@@ -348,6 +414,80 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
                   <p>هزینه‌ی ناقص: <bdi>{money(channel.incompleteCostRevenueAmount)}</bdi> تومان</p>
                 </article>;
               })}
+            </div>
+          </section>
+          <section className="manager-card inventory-report-products inventory-sold-products" aria-labelledby="inventory-sold-products-title">
+            <header>
+              <h2 id="inventory-sold-products-title">محصولات فروخته‌شده</h2>
+              <p>
+                این جدول از بازه‌ی تاریخ بالای گزارش پیروی می‌کند و سفارش‌های تسویه‌شده‌ی کامل را نشان می‌دهد. کانال از فروش ذخیره‌شده برای هر ردیف می‌آید؛ ردیف سیستمی بسته‌بندی در فهرست کالاها نمایش داده نمی‌شود و در جمع کل گزارش لحاظ شده است. قیمت، قیمت فعلی منو است.
+              </p>
+            </header>
+            <div className="inventory-toolbar">
+              <label>
+                <span>جست‌وجو در محصولات فروخته‌شده</span>
+                <input
+                  type="search"
+                  value={soldSearch}
+                  onChange={(event) => setSoldSearch(event.target.value)}
+                  placeholder="نام محصول منو"
+                />
+              </label>
+              <label>
+                <span>مرتب‌سازی فروش محصولات</span>
+                <select value={soldProductsSort} onChange={(event) => setSoldProductsSort(event.target.value as SoldProductsSort)}>
+                  <option value="sales">بیشترین فروش کل</option>
+                  <option value="price">بیشترین قیمت فعلی منو</option>
+                  <option value="quantity">بیشترین تعداد فروش</option>
+                  <option value="table">بیشترین فروش داخل کافه</option>
+                  <option value="takeaway">بیشترین فروش بیرون‌بر</option>
+                </select>
+              </label>
+            </div>
+            <p className="inventory-table-hint">برای دیدن همه‌ی ستون‌ها، جدول را به طرفین بکشید.</p>
+            <div className="inventory-table-wrap" role="region" aria-label="جدول محصولات فروخته‌شده" tabIndex={0}>
+              <table className="inventory-table">
+                <thead>
+                  <tr>
+                    <th scope="col">محصول</th>
+                    <th scope="col">قیمت فعلی منو</th>
+                    <th scope="col">تعداد فروش</th>
+                    <th scope="col">فروش داخل کافه</th>
+                    <th scope="col">فروش بیرون‌بر</th>
+                    <th scope="col">کانال نامشخص</th>
+                    <th scope="col">فروش خالص کل</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {soldProducts.map((product) => (
+                    <tr key={product.productId}>
+                      <th scope="row">{product.productName}</th>
+                      <td>{renderCurrentMenuPrice(product.productId)}</td>
+                      <td>
+                        <bdi>{inventoryNumber(product.soldQuantity)}</bdi>{" "}{product.soldWeightGrams > 0 ? "واحد" : "عدد"}
+                        {product.soldWeightGrams > 0 && (
+                          <small className="inventory-cell-note">
+                            <bdi>{inventoryQuantity(String(product.soldWeightGrams))}</bdi> گرم
+                          </small>
+                        )}
+                      </td>
+                      <td><bdi>{money(product.tableSalesAmount)}</bdi></td>
+                      <td><bdi>{money(product.takeawaySalesAmount)}</bdi></td>
+                      <td><bdi>{money(product.unclassifiedSalesAmount)}</bdi></td>
+                      <td><bdi>{money(product.netSalesAmount)}</bdi></td>
+                    </tr>
+                  ))}
+                  {soldProducts.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="inventory-empty">
+                        {report.data.products.length === 0
+                          ? "در این بازه محصول فروخته‌شده‌ای ثبت نشده است."
+                          : "محصولی با این نام پیدا نشد."}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </section>
           <div className="inventory-profit-charts"><section className="manager-card"><header><h2>روند فروش، بهای تمام‌شده و سود ناخالص</h2><p>بر اساس روز تسویه‌ی کامل در تهران؛ مبالغ به تومان.</p></header><InventoryTrend daily={report.data.daily ?? []} /></section><section className="manager-card"><header><h2>سود و حاشیه‌ی سود ناخالص روزانه</h2><p>روز را انتخاب کنید تا حاشیه‌ی سود همان روز نمایش داده شود.</p></header><InventoryDailyMargin daily={report.data.daily ?? []} /></section></div>
