@@ -120,13 +120,49 @@ describe("inventory costing and settlement integration", () => {
       ]),
     });
     expect(data.products).toEqual(expect.arrayContaining([
-      expect.objectContaining({ productId: mixed.id, channel: "TABLE", netSalesAmount: 100_000, completeCostRevenueAmount: 50_000, incompleteCostRevenueAmount: 50_000, coveragePercent: "50.00", incompleteCostRevenueOfTotalSalesPercent: "20.83", incompleteCostRevenueSharePercent: "100.00", completeOrderItemCount: 1, incompleteOrderItemCount: 1 }),
-      expect.objectContaining({ productId: mixed.id, channel: "TAKEAWAY", netSalesAmount: 40_000, completeCostRevenueAmount: 40_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: "0.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }),
-      expect.objectContaining({ productId: takeaway.id, channel: "TAKEAWAY", netSalesAmount: 100_000, completeCostRevenueAmount: 100_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: "0.00" }),
+      expect.objectContaining({ productId: mixed.id, channel: "TABLE", soldQuantity: 2, soldWeightGrams: 0, netSalesAmount: 100_000, completeCostRevenueAmount: 50_000, incompleteCostRevenueAmount: 50_000, coveragePercent: "50.00", incompleteCostRevenueOfTotalSalesPercent: "20.83", incompleteCostRevenueSharePercent: "100.00", completeOrderItemCount: 1, incompleteOrderItemCount: 1 }),
+      expect.objectContaining({ productId: mixed.id, channel: "TAKEAWAY", soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 40_000, completeCostRevenueAmount: 40_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: "0.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }),
+      expect.objectContaining({ productId: takeaway.id, channel: "TAKEAWAY", soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 100_000, completeCostRevenueAmount: 100_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: "0.00" }),
     ]));
     expect(data.products.reduce((sum: number, product: any) => sum + product.netSalesAmount, 0)).toBe(data.totals.netSalesAmount);
     expect(data.products.reduce((sum: number, product: any) => sum + product.incompleteCostRevenueAmount, 0)).toBe(data.costCoverage.incompleteCostRevenueAmount);
     expect(GrossProfitReportResponseSchema.safeParse(report.json()).success).toBe(true);
+  });
+
+  it("reports sold item quantities and weighted grams separately for each sales channel", async () => {
+    const manager = await session(UserRole.MANAGER, "sold-quantity.manager");
+    const staff = await session(UserRole.STAFF, "sold-quantity.staff");
+    const fixed = await productFixture("Sold quantity fixed product", null, 1_000);
+    const weighted = await productFixture("Sold quantity weighted product", null, 2_000_000);
+    await app.prisma.product.update({ where: { id: weighted.id }, data: { pricingMode: "WEIGHTED_PER_KG" } });
+
+    const tableOrder = await orderFixture(staff, fixed.id, 2, "sold-quantity-table-order", "TABLE");
+    const tableSettled = await settleAmount(staff, tableOrder, tableOrder.totalAmount, "sold-quantity-table-payment");
+    expect(tableSettled.statusCode, tableSettled.body).toBe(201);
+    const takeawayOrder = await orderFixture(staff, fixed.id, 3, "sold-quantity-takeaway-order");
+    const takeawaySettled = await settleAmount(staff, takeawayOrder, takeawayOrder.totalAmount, "sold-quantity-takeaway-payment");
+    expect(takeawaySettled.statusCode, takeawaySettled.body).toBe(201);
+
+    const weightedOrderResponse = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": "sold-quantity-weighted-order" }, payload: { channel: "TAKEAWAY", items: [{ productId: weighted.id, quantity: 2, weightGrams: 250, options: [] }] } });
+    expect(weightedOrderResponse.statusCode, weightedOrderResponse.body).toBe(201);
+    const weightedOrder = weightedOrderResponse.json().data;
+    const weightedSettled = await settleAmount(staff, weightedOrder, weightedOrder.totalAmount, "sold-quantity-weighted-payment");
+    expect(weightedSettled.statusCode, weightedSettled.body).toBe(201);
+
+    await app.prisma.orderConsumption.updateMany({
+      where: { orderId: { in: [tableOrder.id, takeawayOrder.id, weightedOrder.id] } },
+      data: { recognizedAt: new Date("2026-11-10T08:00:00.000Z") },
+    });
+    const reportDate = "2026-11-10";
+    const response = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${reportDate}&toDate=${reportDate}`, cookies: manager });
+    expect(response.statusCode, response.body).toBe(200);
+    const products = response.json().data.products;
+    expect(products).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: fixed.id, channel: "TABLE", soldQuantity: 2, soldWeightGrams: 0 }),
+      expect.objectContaining({ productId: fixed.id, channel: "TAKEAWAY", soldQuantity: 3, soldWeightGrams: 0 }),
+      expect.objectContaining({ productId: weighted.id, channel: "TAKEAWAY", soldQuantity: 2, soldWeightGrams: 500 }),
+    ]));
+    expect(GrossProfitReportResponseSchema.safeParse(response.json()).success).toBe(true);
   });
 
   it("keeps zero-cost items complete, returns null percentages for zero revenue, and excludes reversed, deleted, and staff-consumption sales", async () => {
@@ -613,8 +649,8 @@ describe("inventory costing and settlement integration", () => {
     expect(report.json().data).toMatchObject({ totals: { netSalesAmount: 162_000, theoreticalCogsAmount: 16_000, grossProfitAmount: 146_000, grossMarginPercent: "90.12" }, costCoverage: { completeOrderItemCount: 2, incompleteOrderItemCount: 0 }, pendingConsumptionCount: 1 });
     expect(report.json().data.inventoryConsumption.varianceAmount).toBeNull();
     expect(report.json().data.products).toEqual(expect.arrayContaining([
-      { channel: "TAKEAWAY", productId: catalogDiscountProduct.id, productName: catalogDiscountProduct.name, netSalesAmount: 81_000, completeCostRevenueAmount: 81_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: null, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
-      { channel: "TAKEAWAY", productId: itemDiscountProduct.id, productName: itemDiscountProduct.name, netSalesAmount: 81_000, completeCostRevenueAmount: 81_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: null, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
+      { channel: "TAKEAWAY", productId: catalogDiscountProduct.id, productName: catalogDiscountProduct.name, soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 81_000, completeCostRevenueAmount: 81_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: null, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
+      { channel: "TAKEAWAY", productId: itemDiscountProduct.id, productName: itemDiscountProduct.name, soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 81_000, completeCostRevenueAmount: 81_000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: null, theoreticalCogsAmount: 8_000, knownCogsAmount: 8_000, grossProfitAmount: 73_000, grossMarginPercent: "90.12", completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
     ]));
 
     const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlement!.id}/reverse`, cookies: manager, payload: { expectedVersion: settled.json().data.version, reason: "Incorrect full payment" } });
