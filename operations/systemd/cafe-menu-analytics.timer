@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh daily cafe menu traffic summaries
+
+[Timer]
+OnCalendar=*-*-* 21:00:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=cafe-menu-analytics.service
+
+[Install]
+WantedBy=timers.target
