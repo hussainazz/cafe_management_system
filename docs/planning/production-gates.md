@@ -317,6 +317,43 @@ completion record.
 
 ## Deployment And Operations
 
+### Public-menu traffic analytics
+
+- Use the active VPS Nginx access log as the source for server-observed `/menu`
+  requests, QR redirect/landing correlation, peak Tehran hours, response-body
+  traffic, image/static-file payloads, and approximate distinct client IPs.
+- Log a JSON record with the normalized URI, replacing `/t/:token` with a fixed
+  redacted path. Do not log the raw request line, query string, customer
+  cookies, referer, or user-agent. The only cookie-derived field is the
+  non-secret QR request ID, mapped to a dedicated field on `/menu`. Keep the
+  existing maximum 14-day raw-log retention.
+- Set a short-lived, HttpOnly, Secure, SameSite=Lax QR-attribution cookie from
+  the Nginx request ID on `/t/:token`; log it only on `/menu`. Clear it on the
+  `/menu` response. Pair that landing with the `/t/` request ID. Count the
+  `/menu` landing once and report QR redirect requests separately; never add
+  redirect requests to page-request totals.
+- Run a local scheduled aggregator that reads rotated and active access logs,
+  buckets timestamps in `Asia/Tehran`, and persists daily aggregate summaries.
+  Monthly unique-IP estimates must merge daily distinct-count sketches rather
+  than sum daily counts. Do not retain raw IPs or request-level identifiers in
+  permanent summaries.
+- Report exact HTTP status-code counts separately for menu-service responses
+  and other Nginx-routed services. Include the highest daily body-byte total,
+  menu-image bytes, and other-service bytes. Detect public menu images from
+  `/_next/image` when used, `/api/product-images/`, bundled image paths, and
+  image response types; do not assume images are requested from `/menu`.
+- Treat Nginx request counts as HTTP requests, not confirmed people or page
+  renders. Treat `$body_bytes_sent` totals as returned response-body payload;
+  they exclude headers and transport overhead, and cached responses may send
+  zero body bytes.
+- If a CDN is activated, label Nginx measurements as origin-side traffic because
+  cache hits no longer reach the VPS. Add provider-sourced Cache Hit Ratio,
+  bytes delivered to clients, and origin bytes alongside the Nginx report;
+  do not estimate CDN delivery from origin logs. Cache only an explicit public
+  image allowlist, including validated product-image delivery and `/_next/image`
+  if enabled. Bypass public caching for other `/api/` endpoints and all `/pos/`
+  content; never apply a generic `/api/*` cache rule.
+
 Deploy one self-hosted authoritative stack on an Iranian VPS:
 
 ```text
