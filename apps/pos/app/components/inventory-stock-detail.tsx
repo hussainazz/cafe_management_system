@@ -106,6 +106,10 @@ export function InventoryStockDetail({
               </dd>
             </div>
             <div>
+              <dt>طبقه‌بندی هزینه</dt>
+              <dd>{item.isPackagingMaterial ? "بسته‌بندی" : "مواد محصول"}</dd>
+            </div>
+            <div>
               <dt>حد هشدار مدیر</dt>
               <dd>
                 {item.lowStockThreshold == null
