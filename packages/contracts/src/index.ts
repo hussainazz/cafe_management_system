@@ -33,7 +33,7 @@ export const ReadinessUnavailableResponseSchema = z.object({
 
 export type ReadinessUnavailableResponse = z.infer<typeof ReadinessUnavailableResponseSchema>;
 
-export const UserRoleSchema = z.enum(["MANAGER", "STAFF"]);
+export const UserRoleSchema = z.enum(["MANAGER", "STAFF", "DEVELOPER"]);
 
 export const AuthenticatedUserSchema = z.object({
   id: z.uuid(),
