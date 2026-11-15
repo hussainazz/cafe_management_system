@@ -152,7 +152,7 @@ export function ManagerWorkspace({
   menuOpen,
 }: {
   section?: ManagerSection;
-  role?: "STAFF" | "MANAGER";
+  role?: "STAFF" | "MANAGER" | "DEVELOPER";
   onOpenMenu: () => void;
   menuOpen: boolean;
 }) {
@@ -278,7 +278,7 @@ export function ManagerWorkspace({
           <h1>{pageTitle}</h1>
         </div>
       </header>
-      {section === "settings" && <nav className="manager-tabs" aria-label="بخش‌های تنظیمات">
+      {section === "settings" && role === "MANAGER" && <nav className="manager-tabs" aria-label="بخش‌های تنظیمات">
         {([
           ["settings", "تنظیمات"],
           ["tables", "میزها"],
@@ -304,11 +304,11 @@ export function ManagerWorkspace({
         />
       )}
       {!loading && panel === "tables" && catalog && <TablesPanel catalog={catalog} mutate={mutate} reload={reloadCatalog} requestConfirm={setConfirm} />}
-      {!loading && panel === "inventory" && catalog && <InventoryWorkspace catalog={catalog} turnoverEnabled={settings?.inventoryActivatedAt !== null && settings?.inventoryActivatedAt !== undefined} />}
+      {!loading && panel === "inventory" && catalog && <InventoryWorkspace catalog={catalog} turnoverEnabled={settings?.inventoryActivatedAt !== null && settings?.inventoryActivatedAt !== undefined} role={role} />}
       {!loading && (panel === "finance" || panel === "payments" || panel === "audit") && (
-        <FinancePanel panel={panel} role={role} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
+        <FinancePanel panel={panel} role={role === "STAFF" ? "STAFF" : "MANAGER"} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
       )}
-      {!loading && panel === "settings" && settings && (
+      {!loading && panel === "settings" && role === "MANAGER" && settings && (
         <SettingsPanel settings={settings} staff={staff} mutate={mutate} reload={reloadSettings} reloadStaff={reloadStaff} requestConfirm={setConfirm} />
       )}
       {confirm && <ConfirmDialog confirm={confirm} close={() => setConfirm(null)} />}
