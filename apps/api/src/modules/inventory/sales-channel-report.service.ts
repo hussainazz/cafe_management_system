@@ -1,6 +1,7 @@
 import type { SalesChannelReportQuery } from "@cafe/contracts";
 import type { PrismaClient } from "../../../generated/prisma/client.js";
 import { tehranReportRange } from "../admin/daily-report.service.js";
+import { activeSalesSettlements, isEligibleSettledOrder, salesChannel } from "./sales-report-eligibility.js";
 
 function money(value: bigint): number {
   const amount = Number(value);
@@ -37,6 +38,9 @@ export async function salesChannelReport(prisma: PrismaClient, query: SalesChann
       },
     },
     select: {
+      state: true,
+      paymentStatus: true,
+      isStaffConsumption: true,
       channel: true,
       inventorySaleChannel: true,
       deferredAt: true,
@@ -68,11 +72,9 @@ export async function salesChannelReport(prisma: PrismaClient, query: SalesChann
   let unclassifiedHistoricalOriginRevenue = 0n;
 
   for (const order of orders) {
-    const activeSettlements = order.paymentSettlements;
-    if (activeSettlements.length === 0) continue;
+    if (!isEligibleSettledOrder(order)) continue;
+    const activeSettlements = activeSalesSettlements(order);
 
-    const settledAmount = activeSettlements.reduce((sum, settlement) => sum + BigInt(settlement.totalAmount), 0n);
-    if (settledAmount !== BigInt(order.totalAmount)) continue;
     const paidAt = activeSettlements[activeSettlements.length - 1]!.recordedAt;
     if (paidAt < range.from || paidAt >= range.to) continue;
 
@@ -85,7 +87,7 @@ export async function salesChannelReport(prisma: PrismaClient, query: SalesChann
     const containsPackaging = order.items.some((item) => item.quantity > 0 && item.product.systemKey === "PACKING");
     totalCount += 1;
 
-    const originalChannel = order.inventorySaleChannel ?? order.channel;
+    const originalChannel = salesChannel(order);
     if (originalChannel === "TAKEAWAY") {
       takeawayCount += 1;
       directTakeawayCount += 1;
