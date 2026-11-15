@@ -49,6 +49,11 @@ import {
   PendingConsumptionsResponseSchema,
   GrossProfitReportResponseSchema,
   SalesChannelReportResponseSchema,
+  SalesAnalyticsResponseSchema,
+  PricingExperimentsResponseSchema,
+  PricingExperimentCreatedResponseSchema,
+  PricingExperimentReportResponseSchema,
+  PricingScenarioResponseSchema,
   type ProductSaleDiscountRequest,
   type RecordSettlementRequest,
   type UpdateOrderRequest,
@@ -63,6 +68,9 @@ import {
   type OrderListQuery,
   type PurchaseListQuery,
   type InventoryCountListQuery,
+  type SalesAnalyticsQuery,
+  type CreatePricingExperimentRequest,
+  type PricingScenarioRequest,
   PaymentHistoryOrderFilterSchema,
 } from "@cafe/contracts";
 import type { z } from "zod";
@@ -98,6 +106,10 @@ export type ProductCostingConfiguration = z.infer<typeof ProductCostingConfigura
 export type ProductCostingPreview = z.infer<typeof ProductCostingPreviewResponseSchema>["data"];
 export type GrossProfitReport = z.infer<typeof GrossProfitReportResponseSchema>;
 export type SalesChannelReport = z.infer<typeof SalesChannelReportResponseSchema>;
+export type SalesAnalyticsReport = z.infer<typeof SalesAnalyticsResponseSchema>;
+export type PricingExperiments = z.infer<typeof PricingExperimentsResponseSchema>;
+export type PricingExperimentReport = z.infer<typeof PricingExperimentReportResponseSchema>;
+export type PricingScenarioReport = z.infer<typeof PricingScenarioResponseSchema>;
 
 export type ApiFailure = {
   kind: "network" | "response" | "invalid-response";
@@ -689,6 +701,23 @@ export const readSalesChannelReport = (fromDate: string, toDate: string) => {
   const query = new URLSearchParams({ fromDate, toDate });
   return managerResponse(`/admin/reports/sales-channels?${query}`, SalesChannelReportResponseSchema, "گزارش فروش دریافت نشد.");
 };
+export const readSalesAnalyticsReport = (query: SalesAnalyticsQuery) => {
+  const params = new URLSearchParams({ fromDate: query.fromDate, toDate: query.toDate, intervalMinutes: String(query.intervalMinutes) });
+  for (const id of query.productIds ?? []) params.append("productIds", id);
+  for (const id of query.categoryIds ?? []) params.append("categoryIds", id);
+  for (const id of query.optionIds ?? []) params.append("optionIds", id);
+  for (const day of query.daysOfWeek ?? []) params.append("daysOfWeek", String(day));
+  if (query.channel) params.set("channel", query.channel);
+  return managerResponse(`/admin/reports/sales-analytics?${params.toString()}`, SalesAnalyticsResponseSchema, "گزارش تحلیل فروش دریافت نشد.");
+};
+export const readPricingExperiments = () => managerResponse("/admin/pricing-experiments", PricingExperimentsResponseSchema, "فهرست آزمایش‌های قیمت‌گذاری دریافت نشد.");
+export const createPricingExperiment = (body: CreatePricingExperimentRequest) => managerMutation("/admin/pricing-experiments", "POST", body, PricingExperimentCreatedResponseSchema, "آزمایش قیمت‌گذاری ذخیره نشد.");
+export const readPricingExperimentReport = (id: string, comparisonDays?: number) => {
+  const query = new URLSearchParams(); if (comparisonDays) query.set("comparisonDays", String(comparisonDays));
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return managerResponse(`/admin/pricing-experiments/${encodeURIComponent(id)}${suffix}`, PricingExperimentReportResponseSchema, "گزارش آزمایش قیمت‌گذاری دریافت نشد.");
+};
+export const simulatePricingScenario = (body: PricingScenarioRequest) => managerMutation("/admin/reports/pricing-experiments/simulate", "POST", body, PricingScenarioResponseSchema, "شبیه‌سازی قیمت دریافت نشد.");
 
 export const activateInventory = () => managerMutation("/admin/settings/inventory/activate", "POST", {}, AdminSettingsResponseSchema, "پاسخ فعال‌سازی انبار معتبر نیست.");
 
