@@ -4,7 +4,7 @@
 
 **Status:** implementation baseline  
 **Primary stack:** TypeScript, Node.js, Fastify, PostgreSQL, Prisma, Next.js  
-**Initial operating model:** one café, one branch, one source of truth  
+**Initial operating model:** one café, one branch, one source of truth
 **Baseline date:** 28 July 2026  
 **Decision status:** baseline decisions are fixed unless replaced by an Architecture Decision Record (ADR).
 
@@ -12,7 +12,7 @@ This document owns product scope, business rules, architecture boundaries, and f
 
 ## Executive Summary
 
-The project is an integrated café operations platform with two applications: a public digital menu and one shared POS application. Staff and Manager users sign in to the same POS, use the same table dashboard, and receive additional panels and actions according to their server-enforced role. Both applications share one backend, one PostgreSQL database, and one set of business rules.
+The project is an integrated café operations platform with two applications: a public digital menu and one shared POS application. Staff, Manager, and restricted Developer users sign in to the same POS and receive panels and actions according to their server-enforced role. Both applications share one backend, one PostgreSQL database, and one set of business rules.
 
 The v1 system is intentionally simple: staff create every order; customers can browse the QR menu but cannot send an order. This lets the first production release concentrate on reliable POS operation, correct prices and payments, and a clean audit trail before customer self-ordering is introduced.
 
@@ -52,7 +52,7 @@ wrapped cookie.
 | Area           | Baseline decision                                                                                                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                                                                                                                     |
-| Roles          | Only Manager and Staff exist. Both use one POS application and one table dashboard; Manager-only capabilities are revealed by authorization rather than a separate application.                                                      |
+| Roles          | Manager, Staff, and the restricted Developer inventory role use one POS application. Manager-only capabilities remain authorized by endpoint; Developer is limited to inventory workspace capabilities and cannot use other Manager operations. |
 | Customers      | Customers browse the generic menu anonymously. A table-scoped QR credential asks for a phone number on first use and creates a short table visit that authorizes only a waiter-call; OTP verification is intentionally deferred to a later phase. When Staff or Manager explicitly holds an eligible table occupied, that table alone may temporarily bypass customer phone collection for its current QR context; returning it to available clears the bypass. Collected phones are unverified and must not be used for marketing until OTP/consent work is added. There are no order, payment, tracking, loyalty, or marketing capabilities. |
 | Currency       | Every amount is an integer count of **Toman**. Floating-point money is forbidden. Verified terminal-boundary conversion is allowed only under ADR 0012; accounting remains integer Toman.                                                                                                                                |
 | Time           | Store timestamps in UTC. Display timestamps and calculate calendar-day reports in `Asia/Tehran`.                                                                                                                                       |
@@ -67,7 +67,7 @@ User-facing surfaces:
 | Surface      | Primary user     | v1 purpose                                                                                                                                                                                                                                                  |
 | ------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Digital Menu | Customer         | Browse the menu, categories, item details, priced item options, current availability, and final Toman prices; from a table-scoped QR context, send a waiter-call. Preparation timing remains internal to POS. No cart submission, payment, or order tracking. |
-| Shared POS   | Staff, Manager   | Use one table dashboard for orders, payments, waiter-calls, deletion, and receipts. Staff and Managers can manage catalog/prices and catalog sale discounts, browse payment history, and correct or reverse settlements. Accounting summaries, inventory costing, stock counts, gross-profit reports, Staff-account, settings, and audit capabilities remain Manager-only. |
+| Shared POS   | Staff, Manager, Developer | Staff and Managers use the table dashboard for orders, payments, waiter-calls, deletion, and receipts. Developer users enter the inventory workspace only. Staff and Managers can manage catalog/prices and catalog sale discounts, browse payment history, and correct or reverse settlements. Accounting summaries, inventory costing, stock counts, gross-profit reports, Staff-account, settings, and audit capabilities remain Manager-only except for the inventory capabilities explicitly assigned to Developer. |
 
 Explicit non-goals for v1:
 
@@ -95,10 +95,10 @@ acceptance gates are tracked in [`current-left.md`](../current-left.md).
 
 ## Actors, Permissions, And Workflows
 
-There are no application roles beyond Manager and Staff in v1. Both roles use the same POS application and table dashboard. A Manager receives additional server-authorized capabilities; this is not a separate Manager application or a second implementation of POS business rules.
+The POS has three roles. Staff and Manager use the same operational table dashboard; Developer signs into the same POS shell but is restricted to inventory. Manager receives other additional server-authorized capabilities; this is not a separate application or a second implementation of POS business rules.
 
-| Capability                                                                  | Staff | Manager |
-| --------------------------------------------------------------------------- | :---: | :-----: |
+| Capability                                                                  | Staff | Manager | Developer |
+| --------------------------------------------------------------------------- | :---: | :-----: | :-------: |
 | Sign in and use POS                                                         |  Yes  |   Yes   |
 | Create and edit `OPEN` orders before they are deleted                       |  Yes  |   Yes   |
 | Assign or move a table on an open order                                     |  Yes  |   Yes   |
@@ -108,8 +108,9 @@ There are no application roles beyond Manager and Staff in v1. Both roles use th
 | View and handle active waiter-calls in the shared table dashboard           |  Yes  |   Yes   |
 | Browse payment history                                                     |  Yes  |   Yes   |
 | View the accounting summary for the applied payment-history filter          |  No   |   Yes   |
-| Manage stock items, purchases, recipes, costing, and physical counts         |  No   |   Yes   |
-| View inventory history, pending consumption, and gross-profit reports       |  No   |   Yes   |
+| Manage stock items, purchases, recipes, costing, and physical counts         |  No   |   Yes   |    Yes    |
+| View inventory history, pending consumption, and gross-profit reports       |  No   |   Yes   |    Yes    |
+| View inventory sales, analytics, and pricing-experiment tabs                 |  No   |   No    |    Yes    |
 | Apply an item-level or order-level discount without a required reason while permitted |  Yes  |  Yes  |
 | Configure or remove a catalog product sale discount                          |  Yes  |   Yes   |
 | Manage categories, products, options, images, prices, and availability      |  Yes  |   Yes   |
@@ -119,7 +120,7 @@ There are no application roles beyond Manager and Staff in v1. Both roles use th
 | Correct or reverse a settlement                                             |  Yes  |   Yes   |
 | Change whether settlement reversals require a reason                         |  No   |   Yes   |
 
-Authorization is enforced by permissions in routes and service methods, not only by hiding buttons. Since v1 has only two roles, the initial permission set can be simple and explicit rather than over-designed.
+Developer's inventory workspace includes sales, analytics, gross-profit, and pricing-experiment views. Manager keeps only خریدها, نمای کلی, اقلام موجودی, دستور تهیه و هزینه, دستورهای مشترک, شمارش انبار, and گردش موجودی in the inventory workspace. Authorization is enforced by routes and service methods, not only by hiding buttons; all non-inventory Manager-only routes continue to reject Developer users.
 
 v1 staff-created order flow:
 
