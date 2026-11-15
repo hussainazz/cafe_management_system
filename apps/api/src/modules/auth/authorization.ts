@@ -27,3 +27,4 @@ export function requireAuthenticatedRole(...roles: UserRole[]) {
 export const requireStaff = requireAuthenticatedRole("STAFF", "MANAGER");
 export const requireManagerRoute = requireAuthenticatedRole("MANAGER");
 export const requireInventoryRoute = requireAuthenticatedRole("MANAGER", "DEVELOPER");
+export const requireSessionRoute = requireAuthenticatedRole("STAFF", "MANAGER", "DEVELOPER");
