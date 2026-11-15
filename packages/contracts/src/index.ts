@@ -897,6 +897,7 @@ export const StockUnitConversionInputSchema = z.object({
 
 export const CreateStockItemRequestSchema = z.object({
   lowStockThreshold: InventoryNonNegativeDecimalSchema.refine(value => value.split(".")[0]!.length <= 14, "The stock threshold exceeds the supported quantity range.").nullable().optional(),
+  isPackagingMaterial: z.boolean().default(false),
   name: z.string().trim().min(1).max(160),
   category: z.string().trim().min(1).max(120),
   baseUnit: InventoryUnitSchema,
@@ -928,6 +929,7 @@ export const StockItemSchema = z.object({
   name: z.string(),
   category: z.string(),
   baseUnit: InventoryUnitSchema,
+  isPackagingMaterial: z.boolean(),
   isActive: z.boolean(),
   archivedAt: z.iso.datetime().nullable(),
   version: InventoryVersionSchema,
@@ -1383,6 +1385,155 @@ export const SalesChannelReportResponseSchema = z.object({
 });
 export type SalesChannelReport = z.infer<typeof SalesChannelReportResponseSchema>;
 
+const SalesAnalyticsDaysSchema = z.array(z.coerce.number().int().min(0).max(6)).max(7).optional();
+export const SalesAnalyticsQuerySchema = z.object({
+  fromDate: z.iso.date(),
+  toDate: z.iso.date(),
+  intervalMinutes: z.coerce.number().int().refine((value) => value === 30 || value === 60).default(60),
+  productIds: z.array(z.uuid()).max(8).optional(),
+  categoryIds: z.array(z.uuid()).max(20).optional(),
+  optionIds: z.array(z.uuid()).max(30).optional(),
+  channel: OrderChannelSchema.optional(),
+  daysOfWeek: SalesAnalyticsDaysSchema,
+}).strict().refine((query) => query.fromDate <= query.toDate, {
+  message: "fromDate must not be later than toDate.",
+  path: ["toDate"],
+}).refine((query) => {
+  const from = Date.parse(`${query.fromDate}T00:00:00.000Z`);
+  const to = Date.parse(`${query.toDate}T00:00:00.000Z`);
+  return (to - from) / (24 * 60 * 60 * 1_000) <= 92;
+}, {
+  message: "The analytics range cannot exceed 93 calendar days.",
+  path: ["toDate"],
+});
+export type SalesAnalyticsQuery = z.infer<typeof SalesAnalyticsQuerySchema>;
+
+const SalesAnalyticsSignedAmountSchema = z.number().int().min(-2_147_483_647).max(2_147_483_647);
+const SalesAnalyticsPercentSchema = z.string().regex(/^-?\d+(?:\.\d{2})?$/).nullable();
+const SalesAnalyticsChannelSchema = z.enum(["TABLE", "TAKEAWAY", "UNKNOWN"]);
+// Reporting variants contain selections per unit, so a partial selection may
+// be fractional. Order-entry contracts continue to require integer counts.
+const SalesAnalyticsOptionSchema = z.object({ optionId: z.uuid(), optionName: z.string(), quantity: z.number().positive() });
+const SalesAnalyticsClockSchema = z.object({ dayOfWeek: z.number().int().min(0).max(6), hour: z.number().int().min(0).max(23), minute: z.union([z.literal(0), z.literal(30)]) });
+const SalesAnalyticsOperationalOverviewSchema = z.object({
+  orderCount: z.number().int().nonnegative(),
+  itemUnits: z.number().int().nonnegative(),
+  netSalesAmount: InventoryMoneySchema,
+  averageOrderValueAmount: InventoryMoneySchema.nullable(),
+  orderValueSumAmount: InventoryMoneySchema,
+  itemEntryFallbackCount: z.number().int().nonnegative(),
+});
+const SalesAnalyticsFinancialOverviewSchema = z.object({
+  orderCount: z.number().int().nonnegative(),
+  itemUnits: z.number().int().nonnegative(),
+  netSalesAmount: InventoryMoneySchema,
+  averageOrderValueAmount: InventoryMoneySchema.nullable(),
+  knownCogsAmount: InventoryMoneySchema,
+  completeCostRevenueAmount: InventoryMoneySchema,
+  incompleteCostRevenueAmount: InventoryMoneySchema,
+  completeCostItemCount: z.number().int().nonnegative(),
+  incompleteCostItemCount: z.number().int().nonnegative(),
+  knownContributionAmount: SalesAnalyticsSignedAmountSchema,
+  knownContributionMarginPercent: SalesAnalyticsPercentSchema,
+  totalContributionAmount: SalesAnalyticsSignedAmountSchema.nullable(),
+  totalContributionMarginPercent: SalesAnalyticsPercentSchema,
+  costCoveragePercent: SalesAnalyticsPercentSchema,
+  isCostComplete: z.boolean(),
+});
+const SalesAnalyticsFinancialBucketSchema = SalesAnalyticsClockSchema.extend({
+  orderCount: z.number().int().nonnegative(),
+  itemUnits: z.number().int().nonnegative(),
+  netSalesAmount: InventoryMoneySchema,
+  averageOrderValueAmount: InventoryMoneySchema.nullable(),
+  orderValueSumAmount: InventoryMoneySchema,
+  knownCogsAmount: InventoryMoneySchema,
+  completeCostRevenueAmount: InventoryMoneySchema,
+  incompleteCostRevenueAmount: InventoryMoneySchema,
+  completeCostItemCount: z.number().int().nonnegative(),
+  incompleteCostItemCount: z.number().int().nonnegative(),
+  knownContributionAmount: SalesAnalyticsSignedAmountSchema,
+  knownContributionMarginPercent: SalesAnalyticsPercentSchema,
+  totalContributionAmount: SalesAnalyticsSignedAmountSchema.nullable(),
+  totalContributionMarginPercent: SalesAnalyticsPercentSchema,
+  costCoveragePercent: SalesAnalyticsPercentSchema,
+  isCostComplete: z.boolean(),
+  hasSales: z.boolean(),
+  isScheduledOpen: z.boolean(),
+  closureKnown: z.literal(true),
+});
+const SalesAnalyticsDemandBucketSchema = SalesAnalyticsClockSchema.extend({
+  orderCount: z.number().int().nonnegative(),
+  itemUnits: z.number().int().nonnegative(),
+  netSalesAmount: InventoryMoneySchema,
+  averageOrderValueAmount: InventoryMoneySchema.nullable(),
+  orderValueSumAmount: InventoryMoneySchema,
+  hasSales: z.boolean(),
+  isScheduledOpen: z.boolean(),
+  closureKnown: z.literal(true),
+});
+const SalesAnalyticsProductDemandSchema = z.object({
+  date: z.iso.date(), hour: z.number().int().min(0).max(23), minute: z.union([z.literal(0), z.literal(30)]),
+  productId: z.uuid(), productName: z.string(), categoryId: z.uuid().nullable(), categoryName: z.string().nullable(),
+  channel: SalesAnalyticsChannelSchema, options: z.array(SalesAnalyticsOptionSchema),
+  quantitySold: z.number().int().nonnegative(), uniqueOrdersContainingProduct: z.number().int().nonnegative(),
+  netSalesAmount: InventoryMoneySchema, itemEntryFallbackCount: z.number().int().nonnegative(),
+});
+const SalesAnalyticsProductFinancialSchema = z.object({
+  date: z.iso.date(), hour: z.number().int().min(0).max(23), minute: z.union([z.literal(0), z.literal(30)]),
+  productId: z.uuid(), productName: z.string(), categoryId: z.uuid().nullable(), categoryName: z.string().nullable(),
+  channel: SalesAnalyticsChannelSchema, options: z.array(SalesAnalyticsOptionSchema),
+  quantitySold: z.number().int().nonnegative(), uniqueOrdersContainingProduct: z.number().int().nonnegative(),
+  netSalesAmount: InventoryMoneySchema, knownCogsAmount: InventoryMoneySchema,
+  completeCostRevenueAmount: InventoryMoneySchema, incompleteCostRevenueAmount: InventoryMoneySchema,
+  knownContributionAmount: SalesAnalyticsSignedAmountSchema, knownContributionMarginPercent: SalesAnalyticsPercentSchema,
+  totalContributionAmount: SalesAnalyticsSignedAmountSchema.nullable(), totalContributionMarginPercent: SalesAnalyticsPercentSchema,
+  costCoveragePercent: SalesAnalyticsPercentSchema, isCostComplete: z.boolean(),
+  packagingChargeRevenueAmount: InventoryMoneySchema, packagingKnownMaterialCostAmount: InventoryMoneySchema,
+  contributionBeforePackagingAmount: SalesAnalyticsSignedAmountSchema.nullable(),
+  combinedContributionAfterPackagingAmount: SalesAnalyticsSignedAmountSchema.nullable(),
+  packagingChargeAttributionComplete: z.boolean(), packagingCostAttributionComplete: z.boolean(),
+});
+
+export const SalesAnalyticsResponseSchema = z.object({
+  data: z.object({
+    overview: z.object({ operationalDemand: SalesAnalyticsOperationalOverviewSchema, financialRecognition: SalesAnalyticsFinancialOverviewSchema }),
+    operationalBuckets: z.array(SalesAnalyticsDemandBucketSchema),
+    financialBuckets: z.array(SalesAnalyticsFinancialBucketSchema),
+    productDemandSeries: z.array(SalesAnalyticsProductDemandSchema),
+    productFinancialSeries: z.array(SalesAnalyticsProductFinancialSchema),
+    productPeaks: z.array(z.object({
+      productId: z.uuid(), productName: z.string(), totalQuantity: z.number().int().nonnegative(),
+      uniqueOrdersContainingProduct: z.number().int().nonnegative(),
+      highestVolume: SalesAnalyticsClockSchema.extend({ quantity: z.number().int().nonnegative() }).nullable(),
+      highestRevenue: SalesAnalyticsClockSchema.extend({ amount: InventoryMoneySchema }).nullable(),
+      highestKnownContribution: SalesAnalyticsClockSchema.extend({ amount: SalesAnalyticsSignedAmountSchema, costCoveragePercent: SalesAnalyticsPercentSchema }).nullable(),
+      weekdayDistribution: z.array(z.object({ dayOfWeek: z.number().int().min(0).max(6), quantity: z.number().int().nonnegative(), uniqueOrdersContainingProduct: z.number().int().nonnegative() })),
+      channelDistribution: z.array(z.object({ channel: SalesAnalyticsChannelSchema, quantity: z.number().int().nonnegative(), uniqueOrdersContainingProduct: z.number().int().nonnegative(), netSalesAmount: InventoryMoneySchema })),
+    })),
+    insights: z.object({
+      busiestPeriod: SalesAnalyticsClockSchema.extend({ orderCount: z.number().int().nonnegative() }).nullable(),
+      highestRevenuePeriod: SalesAnalyticsClockSchema.extend({ amount: InventoryMoneySchema }).nullable(),
+      highestKnownContributionPeriod: SalesAnalyticsClockSchema.extend({ amount: SalesAnalyticsSignedAmountSchema, costCoveragePercent: SalesAnalyticsPercentSchema }).nullable(),
+      highestAverageOrderValuePeriod: SalesAnalyticsClockSchema.extend({ amount: InventoryMoneySchema }).nullable(),
+      strongestCategoriesByWindow: z.array(z.object({ window: z.enum(["NIGHT", "MORNING", "AFTERNOON", "EVENING"]), categoryId: z.uuid().nullable(), categoryName: z.string(), netSalesAmount: InventoryMoneySchema })),
+      contributionPerOperatingHourAmount: SalesAnalyticsSignedAmountSchema.nullable(),
+      operatingHoursPerDay: z.literal(16),
+      operatingHoursInRange: z.number().int().nonnegative(),
+    }),
+    timeSemantics: z.object({
+      timezone: z.literal("Asia/Tehran"),
+      operatingSchedule: z.object({ opensAtHour: z.literal(8), closesAtHour: z.literal(0), hoursPerDay: z.literal(16) }),
+      operationalTimeLabel: z.literal("ORDER_CREATED_OR_ITEM_FIRST_ENTERED"),
+      financialTimeLabel: z.literal("RECOGNIZED_CONSUMPTION"),
+      historicalItemEntryFallbackCount: z.number().int().nonnegative(),
+      itemEntryDefinition: z.string(),
+      categoryDefinition: z.literal("CURRENT_CATALOG"),
+    }),
+  }),
+  meta: z.object({ requestId: z.string(), range: z.object({ from: z.iso.datetime(), to: z.iso.datetime() }), intervalMinutes: z.union([z.literal(30), z.literal(60)]) }),
+});
+export type SalesAnalyticsReport = z.infer<typeof SalesAnalyticsResponseSchema>;
+
 export const GrossProfitProductSchema = z.object({
   channel: OrderChannelSchema.optional(),
   productId: z.uuid(),
@@ -1403,8 +1554,302 @@ export const GrossProfitProductSchema = z.object({
   incompleteOrderItemCount: z.number().int().nonnegative(),
 });
 
+const reportPercentSchema = z.string().regex(/^\d+(?:\.\d{2})?$/).nullable();
+export const PackagingEconomicsProductSchema = z.object({
+  productId: z.uuid(),
+  productName: z.string(),
+  categoryId: z.uuid().nullable(),
+  categoryName: z.string().nullable(),
+  channel: OrderChannelSchema,
+  options: z.array(SalesAnalyticsOptionSchema),
+  soldQuantity: z.number().int().nonnegative(),
+  soldWeightGrams: z.number().int().nonnegative(),
+  productNetSalesAmount: InventoryMoneySchema,
+  packagingChargeRevenueAmount: InventoryMoneySchema,
+  nonPackagingKnownCostAmount: InventoryMoneySchema,
+  packagingKnownCostAmount: InventoryMoneySchema,
+  unclassifiedKnownCostAmount: InventoryMoneySchema,
+  netRecoveryAmount: z.number().int().nullable(),
+  packagingRecoveryRatePercent: reportPercentSchema,
+  productContributionBeforePackagingAmount: z.number().int().nullable(),
+  combinedContributionAfterPackagingAmount: z.number().int().nullable(),
+  isCostComplete: z.boolean(),
+  isPackagingAttributionComplete: z.boolean(),
+});
+
+const PackagingEconomicsGroupSchema = z.object({
+  categoryId: z.uuid().nullable(),
+  categoryName: z.string(),
+  channel: OrderChannelSchema,
+  productNetSalesAmount: InventoryMoneySchema,
+  packagingChargeRevenueAmount: InventoryMoneySchema,
+  knownMaterialCostAmount: InventoryMoneySchema,
+  unclassifiedKnownCostAmount: InventoryMoneySchema,
+  netRecoveryAmount: z.number().int().nullable(),
+  recoveryRatePercent: reportPercentSchema,
+  isCostComplete: z.boolean(),
+});
+
+export const PackagingEconomicsSchema = z.object({
+  totals: z.object({
+    packagingChargeRevenueAmount: InventoryMoneySchema,
+    knownMaterialCostAmount: InventoryMoneySchema,
+    unclassifiedKnownCostAmount: InventoryMoneySchema,
+    netRecoveryAmount: z.number().int().nullable(),
+    recoveryRatePercent: reportPercentSchema,
+    unattributedOrderLevelChargeRevenueAmount: InventoryMoneySchema,
+    packagingRelevantProductRevenueAmount: InventoryMoneySchema,
+    completeAttributionRevenueAmount: InventoryMoneySchema,
+    incompleteAttributionRevenueAmount: InventoryMoneySchema,
+    attributionCoveragePercent: reportPercentSchema,
+    completeOrderItemCount: z.number().int().nonnegative(),
+    incompleteOrderItemCount: z.number().int().nonnegative(),
+    ambiguousOrderItemCount: z.number().int().nonnegative(),
+    missingMaterialValuationCount: z.number().int().nonnegative(),
+    theoreticalPackagingCostAmount: InventoryMoneySchema.nullable(),
+    postedPackagingMovementAmount: InventoryMoneySchema.nullable(),
+    packagingMovementVarianceAmount: z.number().int().nullable(),
+    packagingMovementReconciliationAvailable: z.boolean(),
+    isCostComplete: z.boolean(),
+  }),
+  products: z.array(PackagingEconomicsProductSchema),
+  categories: z.array(PackagingEconomicsGroupSchema),
+  daily: z.array(z.object({
+    date: z.iso.date(),
+    packagingChargeRevenueAmount: InventoryMoneySchema,
+    knownMaterialCostAmount: InventoryMoneySchema,
+    unclassifiedKnownCostAmount: InventoryMoneySchema,
+    netRecoveryAmount: z.number().int().nullable(),
+    isCostComplete: z.boolean(),
+    incompleteOrderItemCount: z.number().int().nonnegative(),
+  })),
+});
+
+export const CatalogPriceDimensionSchema = z.enum([
+  "PRODUCT_BASE_PRICE", "OPTION_PRICE", "PRODUCT_OPTION_OVERRIDE", "PRODUCT_DISCOUNT", "PACKAGING_CHARGE",
+]);
+export const CatalogPriceChangeSourceSchema = z.enum([
+  "BASELINE", "POS_PRODUCT_CREATE", "POS_PRODUCT_UPDATE", "POS_OPTION_CREATE", "POS_OPTION_UPDATE", "POS_PRODUCT_DISCOUNT",
+]);
+export const PriceHistoryQuerySchema = z.object({
+  fromDate: z.iso.date(),
+  toDate: z.iso.date(),
+  productId: z.uuid().optional(),
+  optionId: z.uuid().optional(),
+  dimension: CatalogPriceDimensionSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.uuid().optional(),
+}).strict().refine((query) => query.fromDate <= query.toDate, {
+  message: "fromDate must not be later than toDate.",
+  path: ["toDate"],
+}).refine((query) => {
+  const from = Date.parse(`${query.fromDate}T00:00:00.000Z`);
+  const to = Date.parse(`${query.toDate}T00:00:00.000Z`);
+  return (to - from) / (24 * 60 * 60 * 1_000) <= 365;
+}, {
+  message: "The price-history range cannot exceed 366 calendar days.",
+  path: ["toDate"],
+});
+export type PriceHistoryQuery = z.infer<typeof PriceHistoryQuerySchema>;
+
+export const CatalogPriceChangeSchema = z.object({
+  id: z.uuid(),
+  changeSetId: z.string(),
+  productId: z.uuid().nullable(),
+  productNameSnapshot: z.string().nullable(),
+  optionId: z.uuid().nullable(),
+  optionNameSnapshot: z.string().nullable(),
+  dimension: CatalogPriceDimensionSchema,
+  previousAmount: InventoryMoneySchema.nullable(),
+  newAmount: InventoryMoneySchema.nullable(),
+  previousEffectivePriceAmount: InventoryMoneySchema.nullable(),
+  newEffectivePriceAmount: InventoryMoneySchema.nullable(),
+  previousDiscount: z.object({ kind: z.enum(["FIXED", "PERCENTAGE"]), value: z.number().int().positive() }).nullable(),
+  newDiscount: z.object({ kind: z.enum(["FIXED", "PERCENTAGE"]), value: z.number().int().positive() }).nullable(),
+  source: CatalogPriceChangeSourceSchema,
+  effectiveAt: z.iso.datetime().nullable(),
+  effectiveTimeKnown: z.boolean(),
+  recordedAt: z.iso.datetime(),
+  actor: z.object({ id: z.uuid(), username: z.string(), role: UserRoleSchema }).nullable(),
+  requestId: z.string().nullable(),
+});
+export const PriceHistoryResponseSchema = z.object({
+  data: z.object({ changes: z.array(CatalogPriceChangeSchema) }),
+  meta: z.object({ requestId: z.string(), range: z.object({ from: z.iso.datetime(), to: z.iso.datetime() }), page: z.object({ limit: z.number().int(), nextCursor: z.string().nullable(), hasMore: z.boolean() }) }),
+});
+
+export const PricingExperimentTargetKindSchema = z.enum(["PRODUCT", "OPTION", "PACKAGING"]);
+export const PricingExperimentTargetInputSchema = z.object({
+  targetKind: PricingExperimentTargetKindSchema,
+  productId: z.uuid(),
+  optionId: z.uuid().optional(),
+  previousPriceAmount: InventoryMoneySchema.nullable().optional(),
+  proposedPriceAmount: InventoryMoneySchema,
+}).strict().superRefine((target, context) => {
+  if ((target.targetKind === "OPTION") !== Boolean(target.optionId)) {
+    context.addIssue({ code: "custom", path: ["optionId"], message: "Option targets require an option; other target kinds do not." });
+  }
+});
+export const CreatePricingExperimentRequestSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  effectiveAt: z.iso.datetime(),
+  expectedEvaluationDays: z.number().int().min(1).max(90),
+  comparisonDays: z.number().int().min(1).max(90),
+  notes: z.string().trim().max(1000).nullable().optional(),
+  targets: z.array(PricingExperimentTargetInputSchema).min(1).max(60),
+}).strict().superRefine((input, context) => {
+  const keys = input.targets.map((target) => `${target.targetKind}:${target.productId}:${target.optionId ?? ""}`);
+  if (new Set(keys).size !== keys.length) context.addIssue({ code: "custom", path: ["targets"], message: "Experiment targets must be unique." });
+});
+export type CreatePricingExperimentRequest = z.infer<typeof CreatePricingExperimentRequestSchema>;
+
+const PricingExperimentTargetSchema = z.object({
+  id: z.uuid(), targetKey: z.string(), targetKind: PricingExperimentTargetKindSchema,
+  productId: z.uuid(), productNameSnapshot: z.string(), optionId: z.uuid().nullable(), optionNameSnapshot: z.string().nullable(),
+  previousPriceAmount: InventoryMoneySchema.nullable(), proposedPriceAmount: InventoryMoneySchema,
+  priceHistory: z.object({
+    status: z.enum(["MATCHED", "MISSING", "MISMATCHED", "AMBIGUOUS"]),
+    changeIds: z.array(z.uuid()), effectiveAt: z.iso.datetime().nullable(),
+    originalPriceMatches: z.boolean().nullable(),
+  }),
+});
+const PricingExperimentMetadataSchema = z.object({
+  id: z.uuid(), name: z.string(), effectiveAt: z.iso.datetime(), expectedEvaluationDays: z.number().int().positive(),
+  comparisonDays: z.number().int().positive(), notes: z.string().nullable(), createdAt: z.iso.datetime(),
+  createdBy: z.object({ id: z.uuid(), username: z.string() }), targets: z.array(PricingExperimentTargetSchema),
+});
+export const PricingExperimentsResponseSchema = z.object({
+  data: z.object({ experiments: z.array(PricingExperimentMetadataSchema) }),
+  meta: z.object({ requestId: z.string() }),
+});
+export const PricingExperimentCreatedResponseSchema = z.object({
+  data: z.object({ experiment: PricingExperimentMetadataSchema }),
+  meta: z.object({ requestId: z.string() }),
+});
+
+const PricingSignedAmountSchema = z.number().int().min(-2_147_483_647).max(2_147_483_647);
+const PricingPercentSchema = z.string().regex(/^-?\d+(?:\.\d{2})?$/).nullable();
+const PricingPeriodMetricsSchema = z.object({
+  fromDate: z.iso.date().nullable(), toDate: z.iso.date().nullable(), requestedDayCount: z.number().int().nonnegative(),
+  includedDayCount: z.number().int().nonnegative(), weekdayCounts: z.array(z.object({ dayOfWeek: z.number().int().min(0).max(6), dayCount: z.number().int().nonnegative() })),
+  orderCount: z.number().int().nonnegative(), itemUnits: z.number().int().nonnegative(), affectedItemUnits: z.number().int().nonnegative(),
+  netRevenueAmount: InventoryMoneySchema, affectedNetRevenueAmount: InventoryMoneySchema, unaffectedNetRevenueAmount: InventoryMoneySchema,
+  unattributedNetRevenueAmount: InventoryMoneySchema, affectedContributionAmount: PricingSignedAmountSchema.nullable(),
+  unaffectedContributionAmount: PricingSignedAmountSchema.nullable(),
+  averageSellingPriceAmount: InventoryMoneySchema.nullable(), averageOrderValueAmount: InventoryMoneySchema.nullable(),
+  ingredientCogsAmount: InventoryMoneySchema, completeCostRevenueAmount: InventoryMoneySchema, incompleteCostRevenueAmount: InventoryMoneySchema,
+  packagingChargeRevenueAmount: InventoryMoneySchema, packagingMaterialCostAmount: InventoryMoneySchema,
+  packagingDeficitAmount: PricingSignedAmountSchema.nullable(), packagingRecoveryRatePercent: PricingPercentSchema,
+  packagingCostCoveragePercent: PricingPercentSchema, variableCostAmount: InventoryMoneySchema.nullable(),
+  knownContributionAmount: PricingSignedAmountSchema, contributionAmount: PricingSignedAmountSchema.nullable(),
+  contributionMarginPercent: PricingPercentSchema, contributionPerOrderAmount: PricingSignedAmountSchema.nullable(),
+  costCoveragePercent: PricingPercentSchema, monthlyEquivalentContributionAmount: PricingSignedAmountSchema.nullable(),
+  fixedCostCoveragePercent: PricingPercentSchema, operatingSurplusAmount: PricingSignedAmountSchema.nullable(),
+  breakEvenRevenueAmount: InventoryMoneySchema.nullable(), marginOfSafetyAmount: PricingSignedAmountSchema.nullable(),
+  marginOfSafetyPercent: PricingPercentSchema, takeawayOrderCount: z.number().int().nonnegative(), takeawayMixPercent: PricingPercentSchema,
+  orderDiscountAmount: InventoryMoneySchema, itemDiscountAmount: InventoryMoneySchema,
+});
+const PricingDailyPointSchema = z.object({
+  date: z.iso.date(), phase: z.enum(["BEFORE", "EFFECTIVE_DAY", "AFTER"]), experimentStartMarker: z.boolean(),
+  orderCount: z.number().int().nonnegative(), itemUnits: z.number().int().nonnegative(), netRevenueAmount: InventoryMoneySchema,
+  contributionAmount: PricingSignedAmountSchema.nullable(), contributionMarginPercent: PricingPercentSchema,
+});
+const PricingProductImpactSchema = z.object({
+  productId: z.uuid(), productName: z.string(), categoryId: z.uuid().nullable(), categoryName: z.string().nullable(),
+  channel: SalesAnalyticsChannelSchema, options: z.array(SalesAnalyticsOptionSchema), affected: z.boolean(), targetKinds: z.array(PricingExperimentTargetKindSchema),
+  previousPriceAmount: InventoryMoneySchema.nullable(), experimentPriceAmount: InventoryMoneySchema.nullable(), currentCatalogPriceAmount: InventoryMoneySchema.nullable(),
+  averageRealizedPriceBeforeAmount: InventoryMoneySchema.nullable(), averageRealizedPriceAfterAmount: InventoryMoneySchema.nullable(),
+  quantityBefore: z.number().int().nonnegative(), quantityAfter: z.number().int().nonnegative(), quantityChangePercent: PricingPercentSchema,
+  unitShareBeforePercent: PricingPercentSchema, unitShareAfterPercent: PricingPercentSchema,
+  revenueBeforeAmount: InventoryMoneySchema, revenueAfterAmount: InventoryMoneySchema, revenueChangeAmount: PricingSignedAmountSchema,
+  revenueShareBeforePercent: PricingPercentSchema, revenueShareAfterPercent: PricingPercentSchema,
+  unitCostBeforeAmount: InventoryMoneySchema.nullable(), unitCostAfterAmount: InventoryMoneySchema.nullable(),
+  contributionBeforeAmount: PricingSignedAmountSchema.nullable(), contributionAfterAmount: PricingSignedAmountSchema.nullable(),
+  contributionChangeAmount: PricingSignedAmountSchema.nullable(), costCoveragePercent: PricingPercentSchema,
+});
+const PricingCategoryImpactSchema = z.object({
+  categoryId: z.uuid().nullable(), categoryName: z.string(), affected: z.boolean(),
+  netRevenueBeforeAmount: InventoryMoneySchema, netRevenueAfterAmount: InventoryMoneySchema,
+  contributionBeforeAmount: PricingSignedAmountSchema.nullable(), contributionAfterAmount: PricingSignedAmountSchema.nullable(),
+  revenueShareBeforePercent: PricingPercentSchema, revenueShareAfterPercent: PricingPercentSchema,
+});
+const PricingBreakEvenSchema = z.object({
+  productId: z.uuid().nullable(), optionId: z.uuid().nullable(), label: z.string(),
+  previousUnitContributionAmount: PricingSignedAmountSchema.nullable(), newUnitContributionAmount: PricingSignedAmountSchema.nullable(),
+  priceIncreaseAmount: PricingSignedAmountSchema.nullable(), maximumTolerableUnitDeclinePercent: PricingPercentSchema,
+  contributionBenefitAtObservedVolumeAmount: PricingSignedAmountSchema.nullable(),
+});
+export const PricingExperimentReportResponseSchema = z.object({
+  data: z.object({
+    experiment: PricingExperimentMetadataSchema,
+    status: z.enum(["IN_PROGRESS", "READY", "INCONCLUSIVE"]),
+    assessment: z.object({ outcome: z.enum(["IMPROVED", "DECLINED", "INCONCLUSIVE"]), summaryFa: z.string(), reasons: z.array(z.string()) }),
+    periods: z.object({ before: PricingPeriodMetricsSchema, after: PricingPeriodMetricsSchema, weekdayCompositionMatched: z.boolean(), excludedCurrentPartialDay: z.boolean(), effectiveDayExcluded: z.boolean() }),
+    changes: z.object({
+      totalContributionAmount: PricingSignedAmountSchema.nullable(), totalContributionPercent: PricingPercentSchema,
+      netRevenueAmount: PricingSignedAmountSchema, netRevenuePercent: PricingPercentSchema,
+      affectedQuantity: z.number().int(), affectedQuantityPercent: PricingPercentSchema,
+      averageOrderValueAmount: PricingSignedAmountSchema.nullable(), averageOrderValuePercent: PricingPercentSchema,
+      packagingDeficitAmount: PricingSignedAmountSchema.nullable(), packagingDeficitPercent: PricingPercentSchema,
+      fixedCostCoveragePercent: PricingPercentSchema,
+      marginOfSafetyAmount: PricingSignedAmountSchema.nullable(), marginOfSafetyPercent: PricingPercentSchema,
+    }),
+    daily: z.array(PricingDailyPointSchema), products: z.array(PricingProductImpactSchema), categories: z.array(PricingCategoryImpactSchema),
+    decomposition: z.object({
+      method: z.string(), priceEffectAmount: PricingSignedAmountSchema.nullable(), volumeEffectAmount: PricingSignedAmountSchema.nullable(),
+      mixEffectAmount: PricingSignedAmountSchema.nullable(), unitCostEffectAmount: PricingSignedAmountSchema.nullable(),
+      observedContributionChangeAmount: PricingSignedAmountSchema.nullable(), residualAmount: PricingSignedAmountSchema.nullable(),
+      reconciles: z.boolean(), limitations: z.array(z.string()),
+    }),
+    breakEven: z.object({ products: z.array(PricingBreakEvenSchema), wholeAffectedGroupDeclinePercent: PricingPercentSchema,
+      overallOrderCountChangePercent: PricingPercentSchema, totalContributionChangeAmount: PricingSignedAmountSchema.nullable(),
+      assumption: z.string() }),
+    controls: z.object({ affectedContributionChangePercent: PricingPercentSchema, unaffectedContributionChangePercent: PricingPercentSchema,
+      relativeContributionChangePercent: PricingPercentSchema, comparisonIsObservational: z.literal(true) }),
+    confounders: z.object({ discountsChanged: z.boolean().nullable(), catalogPriceChanges: z.number().int().nonnegative(), holidays: z.literal("UNKNOWN"),
+      weather: z.literal("UNKNOWN"), productAvailability: z.literal("UNKNOWN"), operationalClosures: z.literal("UNKNOWN"), specialEvents: z.literal("UNKNOWN") }),
+    dataQuality: z.object({ flags: z.array(z.object({ code: z.string(), severity: z.enum(["INFO", "WARNING", "BLOCKER"]), messageFa: z.string() })),
+      costCoverageComplete: z.boolean(), packagingAttributionComplete: z.boolean(), validOrderCount: z.number().int().nonnegative() }),
+  }),
+  meta: z.object({ requestId: z.string() }),
+});
+
+export const PricingExperimentReportQuerySchema = z.object({ comparisonDays: z.coerce.number().int().min(1).max(90).optional() }).strict();
+export const PricingScenarioRuleKindSchema = z.enum(["PRODUCT", "CATEGORY", "OPTION", "PACKAGING"]);
+export const PricingScenarioRuleSchema = z.object({
+  targetKind: PricingScenarioRuleKindSchema,
+  productId: z.uuid().optional(), categoryId: z.uuid().optional(), optionId: z.uuid().optional(),
+  adjustmentAmount: z.number().int().min(-1_000_000).max(1_000_000),
+}).strict().superRefine((rule, context) => {
+  if (rule.targetKind === "PRODUCT" && (!rule.productId || rule.categoryId || rule.optionId)) context.addIssue({ code: "custom", path: ["productId"], message: "Product scenarios require one product." });
+  if (rule.targetKind === "CATEGORY" && (!rule.categoryId || rule.productId || rule.optionId)) context.addIssue({ code: "custom", path: ["categoryId"], message: "Category scenarios require one category." });
+  if (rule.targetKind === "OPTION" && (!rule.productId || !rule.optionId || rule.categoryId)) context.addIssue({ code: "custom", path: ["optionId"], message: "Option scenarios require a product and option." });
+  if (rule.targetKind === "PACKAGING" && (!rule.productId || rule.categoryId || rule.optionId)) context.addIssue({ code: "custom", path: ["productId"], message: "Packaging scenarios require the packaging product." });
+});
+export const PricingScenarioRequestSchema = z.object({
+  fromDate: z.iso.date(), toDate: z.iso.date(), rules: z.array(PricingScenarioRuleSchema).min(1).max(60),
+  customVolumeChangePercent: z.number().min(-100).max(100).optional(),
+}).strict().refine((query) => query.fromDate <= query.toDate, { message: "fromDate must not be later than toDate.", path: ["toDate"] });
+export type PricingScenarioRequest = z.infer<typeof PricingScenarioRequestSchema>;
+export const PricingScenarioResponseSchema = z.object({
+  data: z.object({ source: PricingPeriodMetricsSchema, scenarios: z.array(z.object({
+    volumeChangePercent: z.string(), netRevenueAmount: InventoryMoneySchema, contributionAmount: PricingSignedAmountSchema.nullable(),
+    packagingDeficitAmount: PricingSignedAmountSchema.nullable(), monthlyEquivalentContributionAmount: PricingSignedAmountSchema.nullable(),
+    fixedCostCoveragePercent: PricingPercentSchema, operatingSurplusAmount: PricingSignedAmountSchema.nullable(),
+    breakEvenVolumeDeclinePercent: PricingPercentSchema, costsComplete: z.boolean(),
+  })), assumptions: z.array(z.string()),
+    rules: z.array(z.object({ targetKind: PricingScenarioRuleKindSchema, label: z.string(), currentPriceAmount: InventoryMoneySchema,
+      proposedPriceAmount: InventoryMoneySchema, affectedItemUnits: z.number().int().nonnegative() })),
+  }), meta: z.object({ requestId: z.string() }),
+});
+
 export const GrossProfitReportResponseSchema = z.object({
   data: z.object({
+    soldProducts: z.array(z.object({
+      productId: z.uuid(), productName: z.string(), channel: OrderChannelSchema,
+      soldQuantity: z.number().int().nonnegative(), soldWeightGrams: z.number().int().nonnegative(),
+      netSalesAmount: InventoryMoneySchema,
+    })),
     totals: z.object({
       netSalesAmount: InventoryMoneySchema,
       theoreticalCogsAmount: InventoryMoneySchema.nullable(),
@@ -1446,6 +1891,7 @@ export const GrossProfitReportResponseSchema = z.object({
       varianceAmount: z.number().int().nullable(),
       missingValuationCount: z.number().int().nonnegative(),
     }),
+    packagingEconomics: PackagingEconomicsSchema,
   }),
   meta: z.object({ requestId: z.string(), range: z.object({ from: z.iso.datetime(), to: z.iso.datetime() }) }),
 });
