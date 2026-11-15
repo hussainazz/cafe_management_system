@@ -290,6 +290,12 @@ async function verifyExistingDataUpgrade(files) {
     );
     if (retained.rows[0]?.totalAmount !== 100000 || retained.rows[0]?.dailyOrderNumber !== 1)
       throw new Error("Existing valid financial data was not retained");
+    const catalogBaseline = await client.query(`
+      SELECT "dimension", "previousAmount", "newAmount", "previousEffectivePriceAmount", "newEffectivePriceAmount", "effectiveAt", "source", "actorId"
+      FROM "catalog_price_changes" WHERE "productId" = '30000000-0000-4000-8000-000000000001'
+    `);
+    if (catalogBaseline.rows.length !== 1 || catalogBaseline.rows[0]?.dimension !== "PRODUCT_BASE_PRICE" || catalogBaseline.rows[0]?.previousAmount !== null || catalogBaseline.rows[0]?.newAmount !== 100000 || catalogBaseline.rows[0]?.previousEffectivePriceAmount !== null || catalogBaseline.rows[0]?.newEffectivePriceAmount !== 100000 || catalogBaseline.rows[0]?.effectiveAt !== null || catalogBaseline.rows[0]?.source !== "BASELINE" || catalogBaseline.rows[0]?.actorId !== null)
+      throw new Error("The catalog migration did not preserve an explicitly unknown baseline price");
     const dailySequence = await client.query(`SELECT "lastNumber" FROM "daily_order_sequences"`);
     if (dailySequence.rows[0]?.lastNumber !== 1)
       throw new Error("Existing orders did not initialize their Tehran-day sequence");
