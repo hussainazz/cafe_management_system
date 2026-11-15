@@ -708,4 +708,122 @@ describe("Manager administration", () => {
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log?cursor=not-a-cursor", cookies: manager })).statusCode).toBe(400);
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log?from=2026-09-10T00:00:00.000Z&to=2026-09-09T00:00:00.000Z", cookies: manager })).statusCode).toBe(400);
   });
+
+  it("records atomic, filtered price history for products, shared options, overrides and packaging charges", async () => {
+    const manager = await session(UserRole.MANAGER, "price-history.manager");
+    const staff = await session(UserRole.STAFF, "price-history.staff");
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", calendar: "gregory", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    expect((await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}` })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}`, cookies: staff })).statusCode).toBe(403);
+
+    const categoryResponse = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "Price history category" } });
+    expect(categoryResponse.statusCode, categoryResponse.body).toBe(200);
+    const categoryId = categoryResponse.json().data.id;
+    const packing = await app.prisma.product.findUniqueOrThrow({ where: { categoryId_systemKey: { categoryId, systemKey: "PACKING" } } });
+    const packUpdate = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${packing.id}`, cookies: manager, payload: { priceAmount: 20_000 } });
+    expect(packUpdate.statusCode, packUpdate.body).toBe(200);
+
+    const groupResponse = await app.inject({ method: "POST", url: "/api/v1/admin/option-groups", cookies: manager, payload: { name: "Price history size" } });
+    expect(groupResponse.statusCode, groupResponse.body).toBe(200);
+    const groupId = groupResponse.json().data.id;
+    const optionResponse = await app.inject({ method: "POST", url: `/api/v1/admin/option-groups/${groupId}/options`, cookies: manager, payload: { name: "Price history large", priceAmount: 1_000, displayOrder: 0 } });
+    expect(optionResponse.statusCode, optionResponse.body).toBe(200);
+    const optionId = optionResponse.json().data.id;
+    const createProduct = (name: string, override: number | null) => app.inject({ method: "POST", url: "/api/v1/admin/products", cookies: manager, payload: { categoryId, name, priceAmount: 10_000, preparationDeadlineMinutes: 5, optionGroups: [{ optionGroupId: groupId, displayOrder: 0, minSelections: 0, maxSelections: 1, options: [{ optionId, displayOrder: 0, priceAmountOverride: override }] }] } });
+    const first = await createProduct("Price history first product", null);
+    const second = await createProduct("Price history second product", 2_000);
+    expect(first.statusCode, first.body).toBe(200);
+    expect(second.statusCode, second.body).toBe(200);
+    const firstId = first.json().data.id;
+    const secondId = second.json().data.id;
+    expect((await app.prisma.productOptionGroupOption.findFirstOrThrow({ where: { productId: firstId, optionId } })).priceAmountOverride).toBeNull();
+
+    expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${firstId}`, cookies: manager, payload: { priceAmount: 12_000 } })).statusCode).toBe(200);
+    const optionUpdate = await app.inject({ method: "PATCH", url: `/api/v1/admin/option-groups/${groupId}/options/${optionId}`, cookies: manager, payload: { priceAmount: 1_500 } });
+    expect(optionUpdate.statusCode, optionUpdate.body).toBe(200);
+    const overrideUpdate = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${secondId}`, cookies: manager, payload: { optionGroups: [{ optionGroupId: groupId, displayOrder: 0, minSelections: 0, maxSelections: 1, options: [{ optionId, displayOrder: 0, priceAmountOverride: 2_500 }] }] } });
+    expect(overrideUpdate.statusCode, overrideUpdate.body).toBe(200);
+    const discount = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${firstId}/sale-discount`, cookies: manager, payload: { saleDiscount: { kind: "FIXED", value: 1_000 } } });
+    expect(discount.statusCode, discount.body).toBe(200);
+
+    const edgeProduct = await app.inject({ method: "POST", url: "/api/v1/admin/products", cookies: manager, payload: { categoryId, name: "Price history rounding edge", priceAmount: 10_999, preparationDeadlineMinutes: 5 } });
+    expect(edgeProduct.statusCode, edgeProduct.body).toBe(200);
+    const edgeProductId = edgeProduct.json().data.id;
+    const edgeDiscount = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${edgeProductId}/sale-discount`, cookies: manager, payload: { saleDiscount: { kind: "PERCENTAGE", value: 1 } } });
+    expect(edgeDiscount.statusCode, edgeDiscount.body).toBe(200);
+    const edgeHistory = await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&productId=${edgeProductId}&dimension=PRODUCT_DISCOUNT`, cookies: manager });
+    expect(edgeHistory.json().data.changes[0]).toMatchObject({ previousEffectivePriceAmount: 10_999, newEffectivePriceAmount: 10_999, newDiscount: { kind: "PERCENTAGE", value: 1 } });
+
+    const beforeNoop = await app.prisma.catalogPriceChange.count();
+    expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${firstId}`, cookies: manager, payload: { priceAmount: 12_000 } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/option-groups/${groupId}/options/${optionId}`, cookies: manager, payload: { priceAmount: 1_500 } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${firstId}/sale-discount`, cookies: manager, payload: { saleDiscount: { kind: "FIXED", value: 1_000 } } })).statusCode).toBe(200);
+    expect(await app.prisma.catalogPriceChange.count()).toBe(beforeNoop);
+
+    const beforeInvalid = await app.prisma.catalogPriceChange.count();
+    const invalidPrice = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${firstId}`, cookies: manager, payload: { priceAmount: 500 } });
+    expect(invalidPrice.statusCode).toBe(422);
+    expect(await app.prisma.catalogPriceChange.count()).toBe(beforeInvalid);
+
+    const optionHistory = await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&optionId=${optionId}&limit=100`, cookies: manager });
+    expect(optionHistory.statusCode, optionHistory.body).toBe(200);
+    const optionChanges = optionHistory.json().data.changes;
+    expect(optionChanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: firstId, optionId, dimension: "OPTION_PRICE", previousAmount: 1_000, newAmount: 1_500, actor: expect.objectContaining({ username: "price-history.manager", role: "MANAGER" }) }),
+      expect.objectContaining({ productId: secondId, optionId, dimension: "PRODUCT_OPTION_OVERRIDE", previousAmount: 2_000, newAmount: 2_500 }),
+    ]));
+    expect(optionChanges.some((change: any) => change.productId === secondId && change.dimension === "OPTION_PRICE" && change.previousAmount === 1_000 && change.newAmount === 1_500)).toBe(false);
+
+    const firstHistory = await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&productId=${firstId}&limit=2`, cookies: manager });
+    expect(firstHistory.statusCode, firstHistory.body).toBe(200);
+    expect(firstHistory.json().data.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dimension: "OPTION_PRICE", previousAmount: 1_000, newAmount: 1_500 }),
+      expect.objectContaining({ dimension: "PRODUCT_DISCOUNT", previousDiscount: null, newDiscount: { kind: "FIXED", value: 1_000 }, previousEffectivePriceAmount: 12_000, newEffectivePriceAmount: 11_000 }),
+    ]));
+    expect(firstHistory.json().meta.page.hasMore).toBe(true);
+    const nextPage = await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&productId=${firstId}&limit=2&cursor=${firstHistory.json().meta.page.nextCursor}`, cookies: manager });
+    expect(nextPage.statusCode).toBe(200);
+    expect(nextPage.json().data.changes).toEqual(expect.arrayContaining([expect.objectContaining({ dimension: "PRODUCT_BASE_PRICE", previousAmount: 10_000, newAmount: 12_000 })]));
+    expect(nextPage.json().data.changes.map((change: any) => change.id)).not.toContain(firstHistory.json().data.changes[0].id);
+
+    const packagingHistory = await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&dimension=PACKAGING_CHARGE`, cookies: manager });
+    expect(packagingHistory.statusCode).toBe(200);
+    expect(packagingHistory.json().data.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: packing.id, dimension: "PACKAGING_CHARGE", source: "POS_PRODUCT_CREATE", previousAmount: null, newAmount: 15_000 }),
+      expect.objectContaining({ productId: packing.id, dimension: "PACKAGING_CHARGE", source: "POS_PRODUCT_UPDATE", previousAmount: 15_000, newAmount: 20_000 }),
+    ]));
+    expect(optionHistory.json().data.changes.every((change: any) => change.effectiveTimeKnown && change.actor && change.requestId)).toBe(true);
+    expect((await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=2026-12-01&toDate=${today}`, cookies: manager })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&cursor=00000000-0000-4000-8000-000000000000`, cookies: manager })).statusCode).toBe(400);
+
+    const tehranStart = new Date(`${today}T00:00:00.000+03:30`);
+    const tehranEnd = new Date(tehranStart.getTime() + 24 * 60 * 60 * 1_000);
+    await app.prisma.catalogPriceChange.createMany({ data: [
+      { changeSetId: "boundary-before-start", productId: edgeProductId, productNameSnapshot: "Price history rounding edge", dimension: "PRODUCT_BASE_PRICE", previousAmount: 10_998, newAmount: 10_999, previousEffectivePriceAmount: 10_998, newEffectivePriceAmount: 10_999, source: "POS_PRODUCT_UPDATE", effectiveAt: new Date(tehranStart.getTime() - 1), requestId: "boundary-before-start" },
+      { changeSetId: "boundary-at-start", productId: edgeProductId, productNameSnapshot: "Price history rounding edge", dimension: "PRODUCT_BASE_PRICE", previousAmount: 10_998, newAmount: 10_999, previousEffectivePriceAmount: 10_998, newEffectivePriceAmount: 10_999, source: "POS_PRODUCT_UPDATE", effectiveAt: tehranStart, requestId: "boundary-at-start" },
+      { changeSetId: "boundary-at-end", productId: edgeProductId, productNameSnapshot: "Price history rounding edge", dimension: "PRODUCT_BASE_PRICE", previousAmount: 10_999, newAmount: 11_000, previousEffectivePriceAmount: 10_999, newEffectivePriceAmount: 11_000, source: "POS_PRODUCT_UPDATE", effectiveAt: tehranEnd, requestId: "boundary-at-end" },
+    ] });
+    const boundaryHistory = await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&productId=${edgeProductId}&dimension=PRODUCT_BASE_PRICE`, cookies: manager });
+    const boundaryRequestIds = boundaryHistory.json().data.changes.map((change: any) => change.requestId);
+    expect(boundaryRequestIds).toContain("boundary-at-start");
+    expect(boundaryRequestIds).not.toContain("boundary-before-start");
+    expect(boundaryRequestIds).not.toContain("boundary-at-end");
+  });
+
+  it("serializes concurrent price writes into a consistent old-to-new event chain", async () => {
+    const manager = await session(UserRole.MANAGER, "price-history.concurrent.manager");
+    const category = await app.prisma.category.create({ data: { name: "Concurrent price category", displayOrder: 1 } });
+    const product = await app.prisma.product.create({ data: { categoryId: category.id, name: "Concurrent price product", priceAmount: 10_000, preparationDeadlineMinutes: 5, displayOrder: 1 } });
+    const patch = (priceAmount: number) => app.inject({ method: "PATCH", url: `/api/v1/admin/products/${product.id}`, cookies: manager, payload: { priceAmount } });
+    const results = await Promise.all([patch(11_000), patch(12_000)]);
+    expect(results.map((result) => result.statusCode)).toEqual([200, 200]);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", calendar: "gregory", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const history = await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&productId=${product.id}&dimension=PRODUCT_BASE_PRICE&limit=100`, cookies: manager });
+    expect(history.statusCode).toBe(200);
+    const events = history.json().data.changes.filter((change: any) => change.previousAmount !== null);
+    expect(events).toHaveLength(2);
+    expect(events[0].previousAmount).toBe(events[1].newAmount);
+    expect(events[0].newAmount).toBe((await app.prisma.product.findUniqueOrThrow({ where: { id: product.id } })).priceAmount);
+    expect(new Date(events[0].recordedAt).getTime()).toBeGreaterThan(new Date(events[1].recordedAt).getTime());
+  });
 });
