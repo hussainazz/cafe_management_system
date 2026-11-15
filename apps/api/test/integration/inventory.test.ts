@@ -38,8 +38,8 @@ async function productFixture(name: string, systemKey: string | null = null, pri
   const category = await app.prisma.category.create({ data: { name: `${name} category`, displayOrder: 1 } });
   return app.prisma.product.create({ data: { categoryId: category.id, name, priceAmount, systemKey, preparationDeadlineMinutes: 5, displayOrder: 1 } });
 }
-async function stockFixture(manager: Record<string, string>, name: string, quantity: string, value: number) {
-  const created = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name, category: "Ingredients", baseUnit: "GRAM", openingQuantity: quantity, openingValueAmount: value, conversions: [{ label: "kg", baseQuantityPerPack: "1000", isActive: true }] } });
+async function stockFixture(manager: Record<string, string>, name: string, quantity: string, value: number, isPackagingMaterial = false) {
+  const created = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name, category: "Ingredients", baseUnit: "GRAM", isPackagingMaterial, openingQuantity: quantity, openingValueAmount: value, conversions: [{ label: "kg", baseQuantityPerPack: "1000", isActive: true }] } });
   expect(created.statusCode, created.body).toBe(201);
   return created.json().data.id as string;
 }
@@ -294,6 +294,177 @@ describe("inventory costing and settlement integration", () => {
     const salesChannels = await app.inject({ method: "GET", url: `/api/v1/admin/reports/sales-channels?fromDate=${reportDate}&toDate=${reportDate}`, cookies: manager });
     expect(salesChannels.statusCode, salesChannels.body).toBe(200);
     expect(salesChannels.json().data.revenue).toMatchObject({ totalAmount: 12_000, takeawayAmount: 12_000, dineInAmount: 0 });
+  });
+
+  it("attributes nested takeaway packaging and grouped holders once, reconciles gross profit, and removes reversed charges", async () => {
+    const manager = await session(UserRole.MANAGER, "packaging-economics.manager");
+    const staff = await session(UserRole.STAFF, "packaging-economics.staff");
+    const coffee = await productFixture("Packaging economics coffee", null, 10_000);
+    const packing = await productFixture("Packaging economics charge", "PACKING", 500);
+    const baseStock = await stockFixture(manager, "Packaging economics table recipe", "100", 50_000);
+    const takeawayIngredient = await stockFixture(manager, "Packaging economics takeaway ingredient", "100", 10_000);
+    const nestedPackaging = await stockFixture(manager, "Packaging economics nested cup", "100", 10_000, true);
+    const groupedHolder = await stockFixture(manager, "Packaging economics holder", "100", 20_000);
+    const zeroServiceStock = await stockFixture(manager, "Packaging economics service balance", "1", 0);
+    const createRecipe = async (name: string, components: Array<Record<string, unknown>>) => {
+      const response = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/recipes", cookies: manager, payload: { name, outputUnit: "PIECE", yieldQuantity: "1", components } });
+      expect(response.statusCode, response.body).toBe(201);
+      return response.json().data;
+    };
+    const baseRecipe = await createRecipe("Packaging economics base recipe", [{ componentKey: "base", sourceKind: "STOCK_ITEM", stockItemId: baseStock, quantity: "1", displayOrder: 0 }]);
+    const nestedRecipe = await createRecipe("Packaging economics nested package", [{ componentKey: "cup", sourceKind: "STOCK_ITEM", stockItemId: nestedPackaging, quantity: "2", displayOrder: 0 }]);
+    const takeawayRecipe = await createRecipe("Packaging economics takeaway override", [
+      { componentKey: "tea", sourceKind: "STOCK_ITEM", stockItemId: takeawayIngredient, quantity: "5", displayOrder: 0 },
+      { componentKey: "nested-cup", sourceKind: "RECIPE", nestedRecipeId: nestedRecipe.id, quantity: "1", displayOrder: 1 },
+    ]);
+    const configured = await app.inject({ method: "PUT", url: `/api/v1/admin/products/${coffee.id}/costing`, cookies: manager, payload: { expectedVersion: 1, mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", takeawayRecipeId: takeawayRecipe.id, takeawayPackaging: [{ stockItemId: groupedHolder, quantity: "1", mode: "PER_GROUP", groupSize: 2, minQuantity: 2 }], optionRules: [], combinations: [] } });
+    expect(configured.statusCode, configured.body).toBe(200);
+    const serviceRecipe = await recipeFixture(manager, packing.id, zeroServiceStock, "1");
+    expect(serviceRecipe.id).toBeTruthy();
+    const discount = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${coffee.id}/sale-discount`, cookies: manager, payload: { saleDiscount: { kind: "FIXED", value: 1_000 } } });
+    expect(discount.statusCode, discount.body).toBe(200);
+
+    const created = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": "packaging-economics-order" }, payload: { channel: "TAKEAWAY", items: [{ productId: coffee.id, quantity: 2, options: [] }, { productId: packing.id, quantity: 1, options: [] }] } });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json().data.totalAmount).toBe(18_500);
+    const settled = await settleAmount(staff, created.json().data, 18_500, "packaging-economics-payment");
+    expect(settled.statusCode, settled.body).toBe(201);
+    const settlementId = settled.json().data.settlements[0].id as string;
+    const consumption = await app.prisma.orderConsumption.findUniqueOrThrow({ where: { orderId_paymentSettlementId: { orderId: created.json().data.id, paymentSettlementId: settlementId } }, include: { items: true } });
+    const coffeeOrderItem = created.json().data.items.find((item: any) => item.productId === coffee.id);
+    const coffeeConsumption = consumption.items.find((item) => item.orderItemId === coffeeOrderItem.id)!;
+    expect(coffeeConsumption.costSnapshot).toMatchObject({ packagingAttributionComplete: true, components: expect.arrayContaining([
+      expect.objectContaining({ stockItemId: nestedPackaging, quantity: "4", packagingQuantity: "4", packagingKnownCostAmount: 400, nonPackagingKnownCostAmount: 0 }),
+      expect.objectContaining({ stockItemId: groupedHolder, quantity: "1", packagingQuantity: "1", packagingKnownCostAmount: 200 }),
+      expect.objectContaining({ stockItemId: takeawayIngredient, quantity: "10", packagingQuantity: "0", nonPackagingKnownCostAmount: 1_000 }),
+    ]) });
+    await app.prisma.orderConsumption.update({ where: { id: consumption.id }, data: { recognizedAt: new Date("2026-11-11T08:00:00.000Z") } });
+    const reportUrl = "/api/v1/admin/reports/gross-profit?fromDate=2026-11-11&toDate=2026-11-11";
+    const report = await app.inject({ method: "GET", url: reportUrl, cookies: manager });
+    expect(report.statusCode, report.body).toBe(200);
+    expect(report.json().data.totals).toMatchObject({ netSalesAmount: 18_500, knownCogsAmount: 1_600, theoreticalCogsAmount: 1_600, grossProfitAmount: 16_900 });
+    expect(report.json().data.packagingEconomics.totals).toMatchObject({ packagingChargeRevenueAmount: 500, knownMaterialCostAmount: 600, unclassifiedKnownCostAmount: 0, netRecoveryAmount: -100, recoveryRatePercent: "83.33", unattributedOrderLevelChargeRevenueAmount: 0, attributionCoveragePercent: "100.00", isCostComplete: true });
+    expect(report.json().data.packagingEconomics.products).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: coffee.id, channel: "TAKEAWAY", soldQuantity: 2, productNetSalesAmount: 18_000, packagingChargeRevenueAmount: 500, nonPackagingKnownCostAmount: 1_000, packagingKnownCostAmount: 600, productContributionBeforePackagingAmount: 17_000, combinedContributionAfterPackagingAmount: 16_900 }),
+    ]));
+    expect(report.json().data.packagingEconomics.daily).toEqual(expect.arrayContaining([expect.objectContaining({ date: "2026-11-11", packagingChargeRevenueAmount: 500, knownMaterialCostAmount: 600, netRecoveryAmount: -100 })]));
+    expect(GrossProfitReportResponseSchema.safeParse(report.json()).success).toBe(true);
+
+    const reversed = await app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlementId}/reverse`, cookies: manager, payload: { expectedVersion: settled.json().data.version, reason: "Packaging report reversal" } });
+    expect(reversed.statusCode, reversed.body).toBe(200);
+    const afterReversal = await app.inject({ method: "GET", url: reportUrl, cookies: manager });
+    expect(afterReversal.statusCode).toBe(200);
+    expect(afterReversal.json().data.packagingEconomics.totals.packagingChargeRevenueAmount).toBe(0);
+  });
+
+  it("splits a one-product order charge across option variants without double-counting repeated product lines", async () => {
+    const manager = await session(UserRole.MANAGER, "packaging-options.manager");
+    const staff = await session(UserRole.STAFF, "packaging-options.staff");
+    const product = await productFixture("Packaging option coffee", null, 10_000);
+    const packing = await productFixture("Packaging option charge", "PACKING", 1_001);
+    const material = await stockFixture(manager, "Packaging option cup", "100", 10_000, true);
+    const recipe = await recipeFixture(manager, product.id, material, "1");
+    const group = await app.prisma.optionGroup.create({ data: { name: "Packaging option size" } });
+    const small = await app.prisma.option.create({ data: { optionGroupId: group.id, name: "Small package", priceAmount: 0, displayOrder: 1 } });
+    const large = await app.prisma.option.create({ data: { optionGroupId: group.id, name: "Large package", priceAmount: 0, displayOrder: 2 } });
+    await app.prisma.productOptionGroup.create({ data: { productId: product.id, optionGroupId: group.id, displayOrder: 1, minSelections: 1, maxSelections: 1, allowedOptions: { create: [{ optionId: small.id, displayOrder: 1 }, { optionId: large.id, displayOrder: 2 }] } } });
+    const configured = await app.inject({ method: "PUT", url: `/api/v1/admin/products/${product.id}/costing`, cookies: manager, payload: { expectedVersion: 1, mode: "RECIPE", recipeId: recipe.id, recipeQuantity: "1", optionRules: [
+      { optionId: small.id, rules: [{ action: "CHANGE_QUANTITY", componentKey: "beans", quantity: "1" }] },
+      { optionId: large.id, rules: [{ action: "CHANGE_QUANTITY", componentKey: "beans", quantity: "2" }] },
+    ], combinations: [] } });
+    expect(configured.statusCode, configured.body).toBe(200);
+
+    const order = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": "packaging-options-order" }, payload: { channel: "TAKEAWAY", items: [
+      { productId: product.id, quantity: 1, options: [{ optionId: small.id, quantity: 1 }] },
+      { productId: product.id, quantity: 1, options: [{ optionId: large.id, quantity: 1 }] },
+      { productId: packing.id, quantity: 1, options: [] },
+    ] } });
+    expect(order.statusCode, order.body).toBe(201);
+    const settled = await settleAmount(staff, order.json().data, 21_001, "packaging-options-settlement");
+    expect(settled.statusCode, settled.body).toBe(201);
+    await app.prisma.orderConsumption.updateMany({ where: { orderId: order.json().data.id }, data: { recognizedAt: new Date("2026-11-11T08:00:00.000Z") } });
+
+    const report = await app.inject({ method: "GET", url: "/api/v1/admin/reports/gross-profit?fromDate=2026-11-11&toDate=2026-11-11", cookies: manager });
+    expect(report.statusCode, report.body).toBe(200);
+    const rows = report.json().data.packagingEconomics.products.filter((row: any) => row.productId === product.id);
+    expect(rows).toHaveLength(2);
+    const smallerOptionId = small.id.localeCompare(large.id) < 0 ? small.id : large.id;
+    const smallCharge = small.id === smallerOptionId ? 501 : 500;
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ options: [{ optionId: small.id, optionName: "Small package", quantity: 1 }], packagingChargeRevenueAmount: smallCharge, packagingKnownCostAmount: 100 }),
+      expect.objectContaining({ options: [{ optionId: large.id, optionName: "Large package", quantity: 1 }], packagingChargeRevenueAmount: 1_001 - smallCharge, packagingKnownCostAmount: 200 }),
+    ]));
+    expect(rows.reduce((sum: number, row: any) => sum + row.packagingChargeRevenueAmount, 0)).toBe(1_001);
+    expect(report.json().data.packagingEconomics.totals).toMatchObject({ packagingChargeRevenueAmount: 1_001, knownMaterialCostAmount: 300, netRecoveryAmount: 701, unattributedOrderLevelChargeRevenueAmount: 0 });
+    expect(GrossProfitReportResponseSchema.safeParse(report.json()).success).toBe(true);
+  });
+
+  it("leaves multi-product table charges unattributed and exposes legacy component cost as ambiguous", async () => {
+    const manager = await session(UserRole.MANAGER, "packaging-ambiguous.manager");
+    const staff = await session(UserRole.STAFF, "packaging-ambiguous.staff");
+    const coffee = await productFixture("Packaging ambiguous coffee", null, 10_000);
+    const tea = await productFixture("Packaging ambiguous tea", null, 5_000);
+    const packing = await productFixture("Packaging ambiguous charge", "PACKING", 2_000);
+    const stock = await stockFixture(manager, "Packaging ambiguous stock", "100", 10_000);
+    await recipeFixture(manager, coffee.id, stock, "1");
+    const table = await app.prisma.cafeTable.create({ data: { name: "Packaging ambiguous table", displayOrder: 1 } });
+    const created = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": "packaging-ambiguous-order" }, payload: { channel: "TABLE", tableId: table.id, items: [{ productId: coffee.id, quantity: 1, options: [] }, { productId: tea.id, quantity: 1, options: [] }, { productId: packing.id, quantity: 1, options: [] }] } });
+    expect(created.statusCode, created.body).toBe(201);
+    const settled = await settleAmount(staff, created.json().data, 17_000, "packaging-ambiguous-payment");
+    expect(settled.statusCode, settled.body).toBe(201);
+    const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: created.json().data.id }, include: { items: true } });
+    const coffeeOrderItem = created.json().data.items.find((item: any) => item.productId === coffee.id);
+    const coffeeConsumption = consumption.items.find((item) => item.orderItemId === coffeeOrderItem.id)!;
+    await app.prisma.orderConsumptionItem.update({ where: { id: coffeeConsumption.id }, data: { costSnapshot: { orderChannel: "TABLE", components: [{ stockItemId: stock, quantity: "1", knownCostAmount: 100 }], missingReasons: [] } } });
+    await app.prisma.orderConsumption.update({ where: { id: consumption.id }, data: { recognizedAt: new Date("2026-11-11T08:00:00.000Z") } });
+    const report = await app.inject({ method: "GET", url: "/api/v1/admin/reports/gross-profit?fromDate=2026-11-11&toDate=2026-11-11", cookies: manager });
+    expect(report.statusCode, report.body).toBe(200);
+    expect(report.json().data.packagingEconomics.totals).toMatchObject({ packagingChargeRevenueAmount: 2_000, knownMaterialCostAmount: 0, unclassifiedKnownCostAmount: 100, netRecoveryAmount: null, unattributedOrderLevelChargeRevenueAmount: 2_000, attributionCoveragePercent: "0.00", ambiguousOrderItemCount: 2, isCostComplete: false });
+    expect(report.json().data.packagingEconomics.products).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: coffee.id, packagingChargeRevenueAmount: 0, unclassifiedKnownCostAmount: 100, isPackagingAttributionComplete: false, combinedContributionAfterPackagingAmount: null }),
+      expect.objectContaining({ productId: tea.id, packagingChargeRevenueAmount: 0, isPackagingAttributionComplete: false }),
+    ]));
+    expect(report.json().data.packagingEconomics.categories.some((category: any) => category.channel === "TABLE" && category.isCostComplete === false)).toBe(true);
+  });
+
+  it("keeps ordinary dine-in sales outside packaging economics and returns N/A for zero material cost", async () => {
+    const manager = await session(UserRole.MANAGER, "packaging-dine-in.manager");
+    const staff = await session(UserRole.STAFF, "packaging-dine-in.staff");
+    const product = await productFixture("Packaging-free dine-in coffee");
+    const order = await orderFixture(staff, product.id, 1, "packaging-free-dine-in-order", "TABLE");
+    const settled = await settleAmount(staff, order, order.totalAmount, "packaging-free-dine-in-settlement");
+    expect(settled.statusCode, settled.body).toBe(201);
+    await app.prisma.orderConsumption.updateMany({ where: { orderId: order.id }, data: { recognizedAt: new Date("2026-11-11T08:00:00.000Z") } });
+
+    const report = await app.inject({ method: "GET", url: "/api/v1/admin/reports/gross-profit?fromDate=2026-11-11&toDate=2026-11-11", cookies: manager });
+    expect(report.statusCode, report.body).toBe(200);
+    expect(report.json().data.totals.netSalesAmount).toBe(order.totalAmount);
+    expect(report.json().data.packagingEconomics.totals).toMatchObject({ packagingChargeRevenueAmount: 0, knownMaterialCostAmount: 0, netRecoveryAmount: 0, recoveryRatePercent: null, packagingRelevantProductRevenueAmount: 0, isCostComplete: true });
+    expect(report.json().data.packagingEconomics.products).toEqual([]);
+  });
+
+  it("withholds recovery when a tagged packaging material has no recorded valuation", async () => {
+    const manager = await session(UserRole.MANAGER, "packaging-unvalued.manager");
+    const staff = await session(UserRole.STAFF, "packaging-unvalued.staff");
+    const product = await productFixture("Unvalued packaging coffee");
+    const ingredient = await stockFixture(manager, "Unvalued packaging coffee beans", "100", 10_000);
+    const unvaluedPackaging = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Unvalued paper cup", category: "Packaging", baseUnit: "PIECE", isPackagingMaterial: true, conversions: [] } });
+    expect(unvaluedPackaging.statusCode, unvaluedPackaging.body).toBe(201);
+    // New stock records with a zero opening value are still tracked at zero
+    // cost. Simulate a legacy stock row that has never received a valuation.
+    await app.prisma.inventoryBalance.update({ where: { stockItemId: unvaluedPackaging.json().data.id }, data: { trackingStartedAt: null } });
+    const recipe = await recipeFixture(manager, product.id, ingredient, "1");
+    const configured = await app.inject({ method: "PUT", url: `/api/v1/admin/products/${product.id}/costing`, cookies: manager, payload: { expectedVersion: 1, mode: "RECIPE", recipeId: recipe.id, recipeQuantity: "1", takeawayPackaging: [{ stockItemId: unvaluedPackaging.json().data.id, quantity: "1" }], optionRules: [], combinations: [] } });
+    expect(configured.statusCode, configured.body).toBe(200);
+    const order = await orderFixture(staff, product.id, 1, "unvalued-packaging-order");
+    const settled = await settleAmount(staff, order, order.totalAmount, "unvalued-packaging-settlement");
+    expect(settled.statusCode, settled.body).toBe(201);
+    await app.prisma.orderConsumption.updateMany({ where: { orderId: order.id }, data: { recognizedAt: new Date("2026-11-11T08:00:00.000Z") } });
+
+    const report = await app.inject({ method: "GET", url: "/api/v1/admin/reports/gross-profit?fromDate=2026-11-11&toDate=2026-11-11", cookies: manager });
+    expect(report.statusCode, report.body).toBe(200);
+    expect(report.json().data.packagingEconomics.totals).toMatchObject({ knownMaterialCostAmount: 0, netRecoveryAmount: null, recoveryRatePercent: null, missingMaterialValuationCount: 1, isCostComplete: false });
+    expect(report.json().data.packagingEconomics.products).toEqual(expect.arrayContaining([expect.objectContaining({ productId: product.id, isPackagingAttributionComplete: false, combinedContributionAfterPackagingAmount: null })]));
   });
 
   it("keeps stock thresholds optional, exact, versioned, audited and Manager-only", async () => {
@@ -605,6 +776,7 @@ describe("inventory costing and settlement integration", () => {
       costCoverage: { completeOrderItemCount: 1, incompleteOrderItemCount: 0 },
       pendingConsumptionCount: 0,
       inventoryConsumption: { amount: 8_000, isEstimate: true, varianceAmount: 0, missingValuationCount: 0 },
+      packagingEconomics: { products: [expect.objectContaining({ productId: product.id, productContributionBeforePackagingAmount: -7_000, combinedContributionAfterPackagingAmount: -7_000, isPackagingAttributionComplete: true })] },
     });
     expect(new Date(report.json().meta.range.from).getTime()).toBeLessThan(Date.now());
     expect(new Date(report.json().meta.range.to).getTime()).toBeGreaterThan(Date.now());
