@@ -10,6 +10,7 @@ import { formatToman } from "../lib/pos-utils";
 import { InventoryProfitBreakdown } from "./inventory-profit-breakdown";
 import { InventoryTrend, InventoryDailyMargin } from "./inventory-charts";
 import { InventoryMetric, inventoryNumber, inventoryQuantity } from "./inventory-dashboard";
+import { InventoryPackagingEconomics } from "./inventory-packaging-economics";
 
 const money = (amount: number | null) =>
   amount === null ? "محاسبه نشده" : inventoryNumber(formatToman(amount));
@@ -138,7 +139,7 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
     </>;
   };
   const soldProductsById = new Map<string, SoldProductRow>();
-  for (const product of report?.data.products ?? []) {
+  for (const product of report?.data.soldProducts ?? []) {
     const soldProduct = soldProductsById.get(product.productId) ?? {
       productId: product.productId,
       productName: product.productName,
@@ -154,7 +155,7 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
     soldProduct.netSalesAmount += product.netSalesAmount;
     if (product.channel === "TABLE") soldProduct.tableSalesAmount += product.netSalesAmount;
     if (product.channel === "TAKEAWAY") soldProduct.takeawaySalesAmount += product.netSalesAmount;
-    if (!product.channel) soldProduct.unclassifiedSalesAmount += product.netSalesAmount;
+    if (product.channel !== "TABLE" && product.channel !== "TAKEAWAY") soldProduct.unclassifiedSalesAmount += product.netSalesAmount;
     soldProductsById.set(product.productId, soldProduct);
   }
   const soldProducts = [...soldProductsById.values()]
@@ -334,6 +335,7 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
               detail="سهم سود ناخالص از فروش خالص"
             />
           </dl>
+          {report.data.packagingEconomics && <InventoryPackagingEconomics data={report.data.packagingEconomics} />}
           <section className="manager-card inventory-cost-coverage" aria-labelledby="inventory-cost-coverage-title">
             <header>
               <h2 id="inventory-cost-coverage-title">پوشش بهای تمام‌شده فروش</h2>
