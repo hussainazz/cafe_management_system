@@ -67,7 +67,7 @@ function dtoStock(row: any) {
     : balance?.trackingStartedAt ? decimal(0) : null;
   return {
     id: row.id, name: row.archivedName ?? row.name, category: row.category, baseUnit: row.baseUnit,
-    isActive: row.isActive, archivedAt: row.archivedAt?.toISOString() ?? null, version: row.version,
+    isPackagingMaterial: row.isPackagingMaterial, isActive: row.isActive, archivedAt: row.archivedAt?.toISOString() ?? null, version: row.version,
     conversions: row.conversions.map((conversion: any) => ({ id: conversion.id, label: conversion.label, baseQuantityPerPack: dstr(conversion.baseQuantityPerPack), isActive: conversion.isActive })),
     lowStockThreshold: row.lowStockThreshold == null ? null : row.lowStockThreshold.toFixed(6),
     balance: { quantityOnHand: balance?.trackingStartedAt ? dstr(balance.quantityOnHand) : null, carryingValueAmount: balance?.trackingStartedAt ? balance.carryingValueAmount : null, movingAverageCostPerBaseUnit: unitCost?.toFixed(6) ?? null, trackingStartedAt: balance?.trackingStartedAt?.toISOString() ?? null },
@@ -86,11 +86,11 @@ export async function createStockItem(prisma: PrismaClient, actor: Authenticated
     if (duplicate) fail(409, ErrorCodes.CONFLICT, "An active stock item with this name already exists.");
     const occurredAt = new Date();
     const openingQuantity = decimal(input.openingQuantity);
-    const row = await tx.stockItem.create({ data: { name: input.name, category: input.category, baseUnit: input.baseUnit, lowStockThreshold: input.lowStockThreshold == null ? null : decimal(input.lowStockThreshold), createdById: actor.id, conversions: { create: input.conversions.map((conversion) => ({ label: conversion.label, baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), isActive: conversion.isActive })) }, balance: { create: { quantityOnHand: openingQuantity, carryingValueAmount: input.openingValueAmount, trackingStartedAt: occurredAt } } }, include: { conversions: true, balance: true } });
+    const row = await tx.stockItem.create({ data: { name: input.name, category: input.category, baseUnit: input.baseUnit, isPackagingMaterial: input.isPackagingMaterial, lowStockThreshold: input.lowStockThreshold == null ? null : decimal(input.lowStockThreshold), createdById: actor.id, conversions: { create: input.conversions.map((conversion) => ({ label: conversion.label, baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), isActive: conversion.isActive })) }, balance: { create: { quantityOnHand: openingQuantity, carryingValueAmount: input.openingValueAmount, trackingStartedAt: occurredAt } } }, include: { conversions: true, balance: true } });
     const openingCount = await tx.inventoryCount.create({ data: { kind: InventoryCountKind.OPENING, status: InventoryCountStatus.POSTED, createdById: actor.id, createdAt: occurredAt, postedAt: occurredAt, lines: { create: { stockItemId: row.id, observedQuantity: openingQuantity, observedValueAmount: input.openingValueAmount } } }, include: { lines: true } });
     const openingLine = openingCount.lines[0]!;
     if (!openingQuantity.isZero() || input.openingValueAmount !== 0) await tx.inventoryMovement.create({ data: { stockItemId: row.id, kind: InventoryMovementKind.OPENING_COUNT, quantityDelta: openingQuantity, valueDeltaAmount: input.openingValueAmount, inventoryCountLineId: openingLine.id, createdById: actor.id, occurredAt } });
-    await audit(tx, actor.id, requestId, "CREATE_STOCK_ITEM", "STOCK_ITEM", row.id, undefined, { name: row.name, baseUnit: row.baseUnit, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, openingQuantity: dstr(openingQuantity), openingValueAmount: input.openingValueAmount, openingCountId: openingCount.id });
+    await audit(tx, actor.id, requestId, "CREATE_STOCK_ITEM", "STOCK_ITEM", row.id, undefined, { name: row.name, baseUnit: row.baseUnit, isPackagingMaterial: row.isPackagingMaterial, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, openingQuantity: dstr(openingQuantity), openingValueAmount: input.openingValueAmount, openingCountId: openingCount.id });
     return dtoStock(row);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -119,7 +119,7 @@ export async function updateStockItem(prisma: PrismaClient, actor: Authenticated
     }
     const conversions = input.conversions;
     if (conversions && new Set(conversions.map((conversion) => conversion.label.toLocaleLowerCase())).size !== conversions.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Conversion labels must be unique for a stock item.");
-    const updated = await tx.stockItem.updateMany({ where: { id, version: input.expectedVersion }, data: { ...(input.lowStockThreshold === undefined ? {} : { lowStockThreshold: input.lowStockThreshold === null ? null : decimal(input.lowStockThreshold) }), ...(input.name === undefined ? {} : { name: input.name }), ...(input.category === undefined ? {} : { category: input.category }), ...(input.baseUnit === undefined ? {} : { baseUnit: input.baseUnit }), version: { increment: 1 } } });
+    const updated = await tx.stockItem.updateMany({ where: { id, version: input.expectedVersion }, data: { ...(input.lowStockThreshold === undefined ? {} : { lowStockThreshold: input.lowStockThreshold === null ? null : decimal(input.lowStockThreshold) }), ...(input.isPackagingMaterial === undefined ? {} : { isPackagingMaterial: input.isPackagingMaterial }), ...(input.name === undefined ? {} : { name: input.name }), ...(input.category === undefined ? {} : { category: input.category }), ...(input.baseUnit === undefined ? {} : { baseUnit: input.baseUnit }), version: { increment: 1 } } });
     if (updated.count !== 1) fail(409, ErrorCodes.STALE_VERSION, "The stock item has changed.");
     if (conversions) {
       const retained = new Set(conversions.flatMap((conversion) => conversion.id ? [conversion.id] : []));
@@ -133,7 +133,7 @@ export async function updateStockItem(prisma: PrismaClient, actor: Authenticated
       }
     }
     const row = await tx.stockItem.findUniqueOrThrow({ where: { id }, include: { conversions: true, balance: true } });
-    await audit(tx, actor.id, requestId, "UPDATE_STOCK_ITEM", "STOCK_ITEM", id, { version: current.version, lowStockThreshold: current.lowStockThreshold?.toFixed(6) ?? null }, { version: row.version, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, ...(input.openingQuantity === undefined ? {} : { openingQuantity: input.openingQuantity, openingValueAmount: input.openingValueAmount }) });
+    await audit(tx, actor.id, requestId, "UPDATE_STOCK_ITEM", "STOCK_ITEM", id, { version: current.version, lowStockThreshold: current.lowStockThreshold?.toFixed(6) ?? null, isPackagingMaterial: current.isPackagingMaterial }, { version: row.version, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, isPackagingMaterial: row.isPackagingMaterial, ...(input.openingQuantity === undefined ? {} : { openingQuantity: input.openingQuantity, openingValueAmount: input.openingValueAmount }) });
     return dtoStock(row);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -219,8 +219,8 @@ export async function updatePurchase(prisma: PrismaClient, actor: AuthenticatedU
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
-type FlatComponent = { stockItemId: string; stockItemName: string; baseUnit: string; quantity: Prisma.Decimal; sourceKey: string };
-type CostSnapshot = { components: Array<{ stockItemId: string; stockItemName: string; baseUnit: string; quantity: string; knownCostAmount: number | null }>; isComplete: boolean; missingReasons: string[]; configurationVersion: number | null };
+type FlatComponent = { stockItemId: string; stockItemName: string; baseUnit: string; quantity: Prisma.Decimal; isPackagingMaterial: boolean; sourceKey: string };
+type CostSnapshot = { components: Array<{ stockItemId: string; stockItemName: string; baseUnit: string; quantity: string; packagingQuantity: string; isPackagingMaterial: boolean; knownCostAmount: number | null; packagingKnownCostAmount: number | null; nonPackagingKnownCostAmount: number | null }>; isComplete: boolean; packagingAttributionComplete: boolean; missingReasons: string[]; configurationVersion: number | null };
 async function flattenRecipe(tx: Tx, recipeId: string, amount: Prisma.Decimal, keyPrefix = "", seen = new Set<string>(), missingReasons: string[] = []): Promise<FlatComponent[]> {
   if (seen.has(recipeId)) { missingReasons.push(`recipe-cycle:${recipeId}`); return []; }
   const recipe = await tx.recipe.findUnique({ where: { id: recipeId }, include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }], include: { stockItem: true } } } });
@@ -231,7 +231,7 @@ async function flattenRecipe(tx: Tx, recipeId: string, amount: Prisma.Decimal, k
   for (const component of recipe.components) {
     const path = keyPrefix ? `${keyPrefix}/${component.componentKey}` : component.componentKey;
     const quantity = component.quantity.mul(ratio);
-    if (component.sourceKind === "STOCK_ITEM" && component.stockItem?.isActive && !component.stockItem.archivedAt) result.push({ stockItemId: component.stockItem.id, stockItemName: component.stockItem.name, baseUnit: component.stockItem.baseUnit, quantity, sourceKey: path });
+    if (component.sourceKind === "STOCK_ITEM" && component.stockItem?.isActive && !component.stockItem.archivedAt) result.push({ stockItemId: component.stockItem.id, stockItemName: component.stockItem.name, baseUnit: component.stockItem.baseUnit, quantity, isPackagingMaterial: component.stockItem.isPackagingMaterial, sourceKey: path });
     else if (component.nestedRecipeId) result.push(...await flattenRecipe(tx, component.nestedRecipeId, quantity, path, nextSeen, missingReasons));
     else missingReasons.push(`missing-stock:${component.stockItemId}`);
   }
@@ -255,9 +255,9 @@ function applyCostingRule(components: Array<{ componentKey: string; label: strin
 }
 async function resolveCosting(tx: Tx, productId: string, optionIds: string[], quantity: number, weightGrams: number | null, includeCosts: boolean, channel: "TABLE" | "TAKEAWAY" = "TABLE", orderQuantity = quantity, previousQuantity = 0): Promise<CostSnapshot> {
   const product = await tx.product.findUnique({ where: { id: productId }, select: { id: true, name: true, pricingMode: true } });
-  if (!product) return { components: [], isComplete: false, missingReasons: ["product-not-found"], configurationVersion: null };
+  if (!product) return { components: [], isComplete: false, packagingAttributionComplete: false, missingReasons: ["product-not-found"], configurationVersion: null };
   const config: any = await tx.productCostingConfiguration.findUnique({ where: { productId }, include: { product: { select: { optionRecipeCostings: { include: { recipe: { include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }] } } } } }, optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true } }, costingCombinations: { where: { isActive: true }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true } } } } } } } });
-  if (!config) return { components: [], isComplete: false, missingReasons: [`missing-costing:${product.name}`], configurationVersion: null };
+  if (!config) return { components: [], isComplete: false, packagingAttributionComplete: false, missingReasons: [`missing-costing:${product.name}`], configurationVersion: null };
   const overrides = channel === "TAKEAWAY" ? config.takeawayOptionRecipes ?? [] : [];
   const overriddenIds = new Set(overrides.map((entry: any) => entry.optionId));
   const optionCostings = [...config.product.optionRecipeCostings.filter((entry: any) => !overriddenIds.has(entry.optionId))];
@@ -318,7 +318,7 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
     if (component.sourceKind === "STOCK_ITEM") {
       const stock = await tx.stockItem.findFirst({ where: { id: component.sourceId, isActive: true, archivedAt: null } });
       if (!stock) { missingReasons.push(`missing-stock:${component.sourceId}`); continue; }
-      flattened.push({ stockItemId: stock.id, stockItemName: stock.name, baseUnit: stock.baseUnit, quantity: component.quantity, sourceKey: component.componentKey });
+      flattened.push({ stockItemId: stock.id, stockItemName: stock.name, baseUnit: stock.baseUnit, quantity: component.quantity, isPackagingMaterial: stock.isPackagingMaterial, sourceKey: component.componentKey });
     } else flattened.push(...await flattenRecipe(tx, component.sourceId, component.quantity, component.componentKey, new Set(), missingReasons));
   }
   if (config.extrasRecipeId && selectedOptionRecipes.length === 0) flattened.push(...await flattenRecipe(tx, config.extrasRecipeId, unitMultiplier, "", new Set(), missingReasons));
@@ -331,24 +331,28 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
     const stock = await tx.stockItem.findFirst({ where: { id: packing.stockItemId, isActive: true, archivedAt: null } });
     if (!stock) { missingReasons.push(`missing-stock:${packing.stockItemId}`); continue; }
     flattened.push({ stockItemId: stock.id, stockItemName: stock.name, baseUnit: stock.baseUnit,
-      quantity: decimal(packing.quantity).mul(multiplier), sourceKey: `$packaging:${stock.id}` });
+      quantity: decimal(packing.quantity).mul(multiplier), isPackagingMaterial: true, sourceKey: `$packaging:${stock.id}` });
   }
-  const merged = new Map<string, FlatComponent>();
+  const packagingAttributionComplete = missingReasons.length === 0;
+  const merged = new Map<string, { stockItemId: string; stockItemName: string; baseUnit: string; quantity: Prisma.Decimal; packagingQuantity: Prisma.Decimal }>();
   for (const component of flattened) {
     const key = `${component.stockItemId}:${component.baseUnit}`;
     const old = merged.get(key);
-    if (old) old.quantity = old.quantity.plus(component.quantity);
-    else merged.set(key, { ...component });
+    if (old) {
+      old.quantity = old.quantity.plus(component.quantity);
+      if (component.isPackagingMaterial) old.packagingQuantity = old.packagingQuantity.plus(component.quantity);
+    } else merged.set(key, { stockItemId: component.stockItemId, stockItemName: component.stockItemName, baseUnit: component.baseUnit, quantity: component.quantity, packagingQuantity: component.isPackagingMaterial ? component.quantity : decimal(0) });
   }
   const resolved = [];
   for (const component of merged.values()) {
     const balance = includeCosts ? await tx.inventoryBalance.findUnique({ where: { stockItemId: component.stockItemId } }) : null;
     const tracked = !!balance?.trackingStartedAt;
     const knownCostAmount = tracked ? intMoney(component.quantity.mul(balance!.quantityOnHand.gt(0) ? decimal(balance!.carryingValueAmount).div(balance!.quantityOnHand) : decimal(0))) : null;
+    const packagingKnownCostAmount = tracked ? intMoney(component.packagingQuantity.mul(balance!.quantityOnHand.gt(0) ? decimal(balance!.carryingValueAmount).div(balance!.quantityOnHand) : decimal(0))) : null;
     if (!tracked && includeCosts) missingReasons.push(`missing-valuation:${component.stockItemId}`);
-    resolved.push({ stockItemId: component.stockItemId, stockItemName: component.stockItemName, baseUnit: component.baseUnit, quantity: dstr(component.quantity), knownCostAmount });
+    resolved.push({ stockItemId: component.stockItemId, stockItemName: component.stockItemName, baseUnit: component.baseUnit, quantity: dstr(component.quantity), packagingQuantity: dstr(component.packagingQuantity), isPackagingMaterial: component.quantity.gt(0) && component.packagingQuantity.eq(component.quantity), knownCostAmount, packagingKnownCostAmount, nonPackagingKnownCostAmount: knownCostAmount === null || packagingKnownCostAmount === null ? null : knownCostAmount - packagingKnownCostAmount });
   }
-  return { components: resolved, isComplete: missingReasons.length === 0 && resolved.every((component) => component.knownCostAmount !== null), missingReasons: [...new Set(missingReasons)], configurationVersion: config.version };
+  return { components: resolved, isComplete: missingReasons.length === 0 && resolved.every((component) => component.knownCostAmount !== null), packagingAttributionComplete, missingReasons: [...new Set(missingReasons)], configurationVersion: config.version };
 }
 
 function serializeRules(rules: any[]) { return rules.map(ruleDto); }
@@ -612,7 +616,8 @@ export async function updateCount(prisma: PrismaClient, actor: AuthenticatedUser
 
 async function trackOrderItemSnapshots(tx: Tx, orderId: string, onlyMissing = false) {
   const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { channel: true, inventorySaleChannel: true } });
-  const items = await tx.orderItem.findMany({ where: { orderId }, orderBy: [{ displayOrder: "asc" }, { id: "asc" }], include: { options: true, costingSnapshot: true } });
+  const items = await tx.orderItem.findMany({ where: { orderId }, orderBy: [{ displayOrder: "asc" }, { id: "asc" }], include: { options: true, costingSnapshot: true, product: { select: { systemKey: true } } } });
+  const hasPackingCharge = items.some((item) => item.product.systemKey === "PACKING");
   const quantities = new Map<string, number>();
   const previousQuantities = new Map<string, number>();
   for (const item of items) quantities.set(item.productId, (quantities.get(item.productId) ?? 0) + item.quantity);
@@ -621,17 +626,19 @@ async function trackOrderItemSnapshots(tx: Tx, orderId: string, onlyMissing = fa
     previousQuantities.set(item.productId, previousQuantity + item.quantity);
     if (onlyMissing && item.costingSnapshot) continue;
     const orderChannel = order.inventorySaleChannel ?? order.channel;
-    const snapshot = { ...await resolveCosting(tx, item.productId, item.options.map((option) => option.optionId), item.quantity, item.weightGrams, false, orderChannel, quantities.get(item.productId)!, previousQuantity), orderChannel };
+    const costing = await resolveCosting(tx, item.productId, item.options.map((option) => option.optionId), item.quantity, item.weightGrams, false, orderChannel, quantities.get(item.productId)!, previousQuantity);
+    const snapshot = { ...costing, packagingAttributionComplete: costing.packagingAttributionComplete && !(orderChannel === "TABLE" && hasPackingCharge), orderChannel };
     const data = { configurationVersion: snapshot.configurationVersion, snapshot: snapshot as unknown as Prisma.InputJsonValue, isComplete: snapshot.missingReasons.length === 0, missingReasons: snapshot.missingReasons as unknown as Prisma.InputJsonValue };
     if (onlyMissing) await tx.orderItemCostingSnapshot.create({ data: { orderItemId: item.id, ...data } });
     else await tx.orderItemCostingSnapshot.upsert({ where: { orderItemId: item.id }, create: { orderItemId: item.id, ...data }, update: data });
   }
 }
-async function readOrderItemSnapshots(tx: Tx, orderId: string): Promise<Array<{ itemId: string; productName: string; quantity: number; weightGrams: number | null; orderChannel: "TABLE" | "TAKEAWAY" | undefined; components: CostSnapshot["components"]; missingReasons: string[] }>> {
-  const items = await tx.orderItem.findMany({ where: { orderId }, include: { costingSnapshot: true } });
+async function readOrderItemSnapshots(tx: Tx, orderId: string): Promise<Array<{ itemId: string; productId: string; productName: string; quantity: number; weightGrams: number | null; orderChannel: "TABLE" | "TAKEAWAY" | undefined; components: CostSnapshot["components"]; packagingAttributionComplete: boolean; missingReasons: string[] }>> {
+  const items = await tx.orderItem.findMany({ where: { orderId }, include: { costingSnapshot: true, product: { select: { systemKey: true } } } });
+  const hasPackingCharge = items.some((item) => item.product.systemKey === "PACKING");
   return items.map((item) => {
     const saved = (item.costingSnapshot?.snapshot ?? {}) as unknown as CostSnapshot & { orderChannel?: "TABLE" | "TAKEAWAY" };
-    return { orderChannel: saved.orderChannel, itemId: item.id, productName: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams, components: saved.components ?? [], missingReasons: saved.missingReasons ?? ["missing-costing-snapshot"] };
+    return { orderChannel: saved.orderChannel, itemId: item.id, productId: item.productId, productName: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams, components: saved.components ?? [], packagingAttributionComplete: saved.packagingAttributionComplete === true && !(saved.orderChannel === "TABLE" && hasPackingCharge), missingReasons: saved.missingReasons ?? ["missing-costing-snapshot"] };
   });
 }
 async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: string | null, actorId: string, at: Date) {
@@ -654,8 +661,10 @@ async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: st
       if (!tracked) { complete = false; missing.add(`missing-valuation:${component.stockItemId}`); }
       if (cost !== null) known += cost;
       else complete = false;
+      const packagingQuantity = (component as any).packagingQuantity ?? (component.isPackagingMaterial ? component.quantity : "0");
+      const packagingCost = tracked ? intMoney(decimal(packagingQuantity).mul(balance!.quantityOnHand.gt(0) ? decimal(balance!.carryingValueAmount).div(balance!.quantityOnHand) : decimal(0))) : null;
       allNeeds.set(component.stockItemId, (allNeeds.get(component.stockItemId) ?? decimal(0)).plus(component.quantity));
-      components.push({ ...component, knownCostAmount: cost });
+      components.push({ ...component, packagingQuantity, knownCostAmount: cost, packagingKnownCostAmount: packagingCost, nonPackagingKnownCostAmount: cost === null || packagingCost === null ? null : cost - packagingCost });
     }
     itemAmounts.push({ snapshot, amount: complete ? known : 0, known, complete, components });
   }
@@ -671,7 +680,7 @@ async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: st
   const knownCogsAmount = itemAmounts.reduce((sum, item) => sum + item.known, 0);
   const isCostComplete = itemAmounts.every((item) => item.complete) && snapshots.length > 0;
   const theoreticalCogsAmount = isCostComplete ? knownCogsAmount : null;
-  const consumption = await tx.orderConsumption.create({ data: { orderId: order.id, cycleNumber: cycleNumber + 1, paymentSettlementId: settlementId, status: !turnoverEligible ? OrderConsumptionStatus.UNTRACKED : canFulfill ? OrderConsumptionStatus.POSTED : OrderConsumptionStatus.PENDING, recognizedById: actorId, recognizedAt: at, resolvedAt: !turnoverEligible || canFulfill ? at : null, theoreticalCogsAmount, knownCogsAmount, isCostComplete, costSnapshot: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, components: item.components })) as unknown as Prisma.InputJsonValue, items: { create: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, costSnapshot: { orderChannel: item.snapshot.orderChannel ?? order.channel, components: item.components, missingReasons: item.snapshot.missingReasons } })) } } });
+  const consumption = await tx.orderConsumption.create({ data: { orderId: order.id, cycleNumber: cycleNumber + 1, paymentSettlementId: settlementId, status: !turnoverEligible ? OrderConsumptionStatus.UNTRACKED : canFulfill ? OrderConsumptionStatus.POSTED : OrderConsumptionStatus.PENDING, recognizedById: actorId, recognizedAt: at, resolvedAt: !turnoverEligible || canFulfill ? at : null, theoreticalCogsAmount, knownCogsAmount, isCostComplete, costSnapshot: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productId: item.snapshot.productId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, packagingAttributionComplete: item.snapshot.packagingAttributionComplete, components: item.components })) as unknown as Prisma.InputJsonValue, items: { create: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, costSnapshot: { orderChannel: item.snapshot.orderChannel ?? order.channel, packagingAttributionComplete: item.snapshot.packagingAttributionComplete, components: item.components, missingReasons: item.snapshot.missingReasons } })) } } });
   if (turnoverEligible && canFulfill && !await consumeStockForOrder(tx, consumption.id, movementRows, actorId, at)) await tx.orderConsumption.update({ where: { id: consumption.id }, data: { status: OrderConsumptionStatus.PENDING, resolvedAt: null } });
   return consumption;
 }
