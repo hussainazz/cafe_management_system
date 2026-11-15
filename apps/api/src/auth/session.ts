@@ -52,7 +52,7 @@ export function readAccessToken(token: string | undefined): AccessSession | unde
     if (
       typeof decoded.userId !== "string" ||
       typeof decoded.username !== "string" ||
-      (decoded.role !== "MANAGER" && decoded.role !== "STAFF") ||
+      (decoded.role !== "MANAGER" && decoded.role !== "STAFF" && decoded.role !== "DEVELOPER") ||
       typeof decoded.refreshSessionId !== "string" ||
       typeof decoded.exp !== "number" ||
       decoded.exp <= Math.floor(Date.now() / 1_000)
