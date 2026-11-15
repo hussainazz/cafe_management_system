@@ -4,14 +4,14 @@ import {
   PosCatalogResponseSchema,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
-import { requireStaff } from "../auth/authorization.js";
+import { requirePosCatalogRoute } from "../auth/authorization.js";
 import { readPosCatalog } from "./pos.service.js";
 
 export const posRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     "/pos/catalog",
     {
-      preHandler: requireStaff,
+      preHandler: requirePosCatalogRoute,
       schema: {
         tags: ["POS"],
         summary: "Read the current POS catalog",
