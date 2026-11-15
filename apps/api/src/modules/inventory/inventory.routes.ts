@@ -56,7 +56,7 @@ import {
   PricingScenarioResponseSchema,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
-import { requireManagerRoute } from "../auth/authorization.js";
+import { requireInventoryRoute } from "../auth/authorization.js";
 import { grossProfitReport } from "./gross-profit.service.js";
 import { salesChannelReport } from "./sales-channel-report.service.js";
 import { salesAnalyticsReport } from "./sales-analytics.service.js";
@@ -97,7 +97,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   const idempotencyHeaders = zodToJsonSchema(IdempotencyRequestHeadersSchema);
   const errors = Object.fromEntries([400, 401, 403, 404, 409, 422, 429, 500, 503].map((status) => [status, zodToJsonSchema(ErrorResponseSchema)]));
   const manager = { preHandler: async (request: FastifyRequest) => {
-    await requireManagerRoute(request);
+    await requireInventoryRoute(request);
   } };
 
   app.get("/admin/inventory/stock-items", { ...manager, schema: { tags: ["Manager inventory"], headers, response: { 200: zodToJsonSchema(StockItemsResponseSchema), ...errors } } }, async (request) => ({ data: { stockItems: await listStockItems(app.prisma) }, meta: meta(request) }));
