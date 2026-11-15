@@ -7,14 +7,14 @@
 - [x] Reconciled operational and financial packaging revenue. Added order-entry timestamp lifecycle, fully costed/mixed-cost reports, independent peak/AOV/decomposition expectations, and successful dashboard/error-retry/CSV tests. Fixed invalid money labels found during the live browser check.
 - [x] Exercised the local Manager workflow at 390×844 and 1280×800, with real API responses, half-hour analytics, incomplete-data disclosures, multi-category packaging selection, volume simulation, and CSV download. Wide tables scroll within the panels; no page overflow or browser warnings/errors were observed. Created one clearly labeled local analytical QA experiment; catalog prices were unchanged.
 - [x] Full post-fix verification passed: API 30 files / 267 tests, POS 35 files / 250 tests, contracts 8 files / 28 tests, all affected typechecks and production builds. Final focused API regressions pass 11 tests; affected component tests pass 9 tests. All ten original controlled review examples now return their expected results. [Completion evidence](reviews/inventory-finance-completion-2026-11-15.md).
-- Left: no Phase 2/3 implementation or local verification items remain. Phase 1 production baseline/release verification remains open independently. Physical café-device acceptance belongs to the release gates. The unrelated sold-products regression follow-up remains below. No production access, deployment, commit, or push occurred.
+- Left: no Phase 1–3 implementation or local verification items remain. Production release `cafe-20261115-aadc136` is complete; see the deployment evidence below. Physical café-device acceptance remains a separate release gate. The sold-products regression coverage follow-up remains open.
 
 ## Active fix — Sold-products historical undercount (15 November 2026)
 
 - [x] Traced report dates, product identity, and inventory recognition dependency; verified production aggregates in read-only transactions.
 - [x] For Tehran 2026-10-17 through 2026-11-15, پنینی بیکن گوشت has 20 paid, non-deleted, non-staff units, also confirmed by last active settlement date. Historical names: بیکن گوشت گرم 11, پنینی بیکن گوشت 9. Same product ID; only 2 units appear in eligible consumption records. Production recognition history starts 2026-11-12.
 - [x] Sold-products API now derives quantity and realized revenue from fully paid order items by final active settlement date, independent of inventory consumption records. It displays the current product name by stable product ID. Cost and stock-turnover reports still use their historical snapshots.
-- Left: Add regression coverage for missing recognition records, renamed products, reversed settlements, and Tehran date boundaries. Typecheck and validate the Manager UI/report contract. No production deployment performed.
+- Left: Add regression coverage for missing recognition records, renamed products, reversed settlements, and Tehran date boundaries. The implementation is included in production release `cafe-20261115-aadc136`; the follow-up coverage remains open.
 
 ## Active delivery — Phase 1 packaging economics and price history (15 November 2026)
 
@@ -43,8 +43,8 @@ typechecks pass. `pnpm --filter @cafe/api test:migrations` verifies 51 migration
 including existing-data upgrade, exact seed, atomic failure, and clean backup
 restore. `git diff --check` passes.
 
-Left: apply the release migration and verify the baseline before the next
-production price adjustment. Production was not migrated or deployed. Inventory
+Production release `cafe-20261115-aadc136` applied the migration and verified
+366 catalog price-history baseline rows before any later price change. Inventory
 movement/count reconciliation remains unavailable because those records do not
 preserve component roles; the report states this explicitly.
 
@@ -67,8 +67,8 @@ item-entry migration to isolated `cafe_management_test`; the focused analytics
 integration file passed both tests. The POS suite passed 33 files / 242 tests,
 and contracts passed 6 files / 22 tests. Contracts, API, and POS typechecks;
 API and POS production builds; and `git diff --check` passed. POS browser/device
-acceptance was not run. The development and production databases were not
-migrated, and nothing was deployed.
+acceptance had not yet run at the implementation checkpoint. The later
+coordinated production migration and deployment are recorded below.
 
 Left: no Phase 2 implementation items remain. Phase 1's populated-catalog
 baseline and release checks remain open independently. Phase 3 code work can
@@ -81,8 +81,8 @@ Schedule update (15 November 2026): Manager analytics now records the daily
 and calculates contribution per operating hour using 16 scheduled hours per
 day. Sales recorded outside opening hours remain included and are labeled.
 Verification: focused API integration, POS component, and contract checks plus
-the affected typechecks and API/POS production builds passed; no database
-outside the isolated test database was changed, and nothing was deployed.
+the affected typechecks and API/POS production builds passed. Production
+deployment is recorded below.
 
 ## Completed delivery — Phase 3 pricing experiments and strategy evaluation (15 November 2026)
 
@@ -105,12 +105,40 @@ the full POS suite passes 244 tests across 35 files. Contracts, API and POS
 typechecks and builds pass, as does `git diff --check`. The isolated test
 database migration reset and 53-migration rehearsal pass. The local development
 database has all 53 migrations applied, including the Phase 1, Phase 2, and
-Phase 3 migrations. No production database or service was changed, and nothing
-was deployed. Browser/device acceptance was not run.
+Phase 3 migrations. Production deployment is recorded below. Browser/device
+acceptance was not run at this implementation checkpoint.
 
 Left: no Phase 3 implementation or verification items remain. The Phase 1
-catalog baseline release check remains an independent prerequisite for
-interpreting live experiments.
+catalog baseline is deployed and recorded; physical café-device acceptance
+remains open.
+
+## Production release — Inventory finance Phases 1–3 (15 November 2026)
+
+- Released `main` commit `aadc1364f4bf3e03caf05d5ffe0d0336659d1a11` as
+  `cafe-20261115-aadc136` after committing and pushing each changed file
+  separately. The release artifact SHA-256 is
+  `f127536f21e77f40f23ea4009d2a8ed7d8b19ba8bb94bbe73cbc2efa35c91b10`.
+- Applied migrations `20261115120000_packaging_economics_price_history`,
+  `20261115150000_sales_analytics_item_entry`, and
+  `20261115170000_pricing_experiments` after confirming they were the only
+  pending migrations and validating the pre-release database backup.
+- Production Prisma status reports all 53 migrations current. The baseline
+  created 366 `BASELINE` price-history rows; no pricing experiments existed
+  immediately after migration.
+- API liveness/readiness, direct public-menu API, web menu proxy/page, POS page,
+  and public `/pos/release` return expected responses. Manager analytics and
+  pricing routes are present and require authentication (401 unauthenticated).
+  API, POS, and web services are active with zero automatic restarts.
+- VPS product-image storage remains at 32 files / 5,759,237 bytes. Environment
+  files, developer image uploads, POS development/cache output, and unchanged
+  POS public assets were excluded from the transfer.
+- Verified pre-release database backup:
+  `/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261115-aadc136.dump`
+  (SHA-256 `99132b6b9d6a8adcca6971ca399b96b1d58bdbbdf81696c977899cbc594a0e52`).
+  Verified rollback archive:
+  `/opt/cafe-menu-release-backups/rollback-before-cafe-20261115-aadc136.tar.gz`
+  (SHA-256 `721d0cdf5a298fb31bdc7799ebcaa5e0f08f3d3f59c6975c5eeb1e8bd2e3f249`).
+- Left: physical café-device acceptance remains a release gate.
 
 ## Active delivery — Privacy-safe public-menu traffic analytics (13 November 2026)
 
