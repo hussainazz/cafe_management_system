@@ -778,3 +778,23 @@ with a restrictive recipe FK and non-null JSONB `takeawayOptionRecipes` default
 product option ownership, duplicate options and output units. Conditional
 packaging fields live in the existing validated JSON array; no old mappings
 are rewritten. Order snapshots persist the resolved whole-group requirements.
+# Pricing experiment constraints (ADR 0013)
+
+- A pricing experiment has a non-empty bounded name, valid UTC effective
+  timestamp, positive expected evaluation duration, comparison duration within
+  the report limit, creator, and creation timestamp. Notes are bounded text.
+- An experiment target belongs to one experiment and has a stable target key
+  unique within that experiment. It stores the target kind, product identity,
+  optional option identity, name snapshots, nullable prior integer-Toman price,
+  and non-negative proposed integer-Toman price.
+- `PRODUCT` and `PACKAGING` targets require a product and forbid an option.
+  `OPTION` targets require both a product and option. Database checks enforce
+  this shape; service validation also verifies that the option is available to
+  the selected product when the target is created.
+- Product and option references use restrictive deletes. Experiment targets
+  are immutable after creation; deletion of an experiment is not exposed.
+- Experiment metadata writes never update Product, Option, catalog price
+  history, order, settlement, or inventory records. Scenario requests are
+  read-only calculations.
+- Access is Manager-only at the route and service boundaries. The creator and
+  timestamp remain on each persisted experiment for review.
