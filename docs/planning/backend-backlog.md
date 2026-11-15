@@ -48,6 +48,11 @@ Last reconciled: 15 November 2026. The prioritized sections below are the
 authoritative backend acceptance criteria; this summary records whether each
 stage is implemented.
 
+- **P13 / Stage 20 — Active.** Add a restricted Developer role for inventory
+  workspace operations, assign inventory views explicitly between Developer
+  and Manager, and preserve server-side denial of all unrelated Manager
+  capabilities. See the active checklist in `../current-left.md`.
+
 - **P0 / Stage 1 — Complete.** Foundation, migrations, bootstrap, isolated test
   database, contracts, health checks, and fresh-environment rehearsal are in
   place.
