@@ -1,3 +1,19 @@
+## Active delivery — Restricted Developer inventory account (15 November 2026)
+
+- [x] Record the approved scope extension: Developer is a dedicated restricted
+  role with access to inventory operations only; unrelated Manager endpoints
+  remain Manager-only.
+- [x] Add the Developer database/API role, inventory-only server authorization,
+  POS inventory workspace, distinct tab assignment, and a password-safe
+  account-provisioning command. Manager retains خریدها, نمای کلی, اقلام موجودی,
+  دستور تهیه و هزینه, دستورهای مشترک, شمارش انبار, and گردش موجودی.
+- [x] Generate Prisma and build contracts, API, and POS. API, POS, and contract
+  typechecks and whitespace checks pass; the API artifact contains the Debian
+  OpenSSL 3 Prisma engine. Automated tests were not run.
+- Left: Rehearse/apply the additive migration and provision the requested
+  production Developer account; verify role access, then commit and push each
+  changed file separately and deploy/release-check the VPS.
+
 ## Completed delivery — Inventory finance Phases 2–3 correctness and coverage (15 November 2026)
 
 - [x] Reviewed Stages 17–19 implementation, contracts, migrations, and tests against the approved plans and ADR 0013. Findings and coverage assessment: [inventory finance review](reviews/inventory-finance-review-2026-11-15.md).
