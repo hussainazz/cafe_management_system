@@ -17,6 +17,7 @@ const item = {
   name: "قهوه",
   category: "مواد اولیه",
   baseUnit: "GRAM",
+  isPackagingMaterial: false,
   lowStockThreshold: "12.125001",
   version: 1,
   isActive: true,
