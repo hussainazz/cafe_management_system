@@ -250,6 +250,41 @@ For every API release that changes Prisma schema:
   mismatch, stop the release. Keep the previous compatible API active or roll
   back the artifact, then apply the reviewed migration and repeat the probes.
 
+### Inventory finance release — 15 November 2026
+
+Release `cafe-20261115-aadc136` is deployed from `main` commit
+`aadc1364f4bf3e03caf05d5ffe0d0336659d1a11`. Its verified artifact SHA-256 is
+`f127536f21e77f40f23ea4009d2a8ed7d8b19ba8bb94bbe73cbc2efa35c91b10`. The
+artifact contains the API runtime, matching contracts, POS production output,
+Prisma schema, and all migration files. It excludes secrets, developer-local
+product images, POS development/cache output, source maps, and unchanged public
+assets.
+
+Before activation, production migration status showed exactly three pending
+migrations: `20261115120000_packaging_economics_price_history`,
+`20261115150000_sales_analytics_item_entry`, and
+`20261115170000_pricing_experiments`. A PostgreSQL 17.12 client created a
+custom-format backup from the PostgreSQL 17.11 production server; `pg_restore
+--list` passed. The validated backup is
+`/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261115-aadc136.dump`
+(SHA-256 `99132b6b9d6a8adcca6971ca399b96b1d58bdbbdf81696c977899cbc594a0e52`).
+The previous runtime rollback archive was also captured and validated at
+`/opt/cafe-menu-release-backups/rollback-before-cafe-20261115-aadc136.tar.gz`
+(SHA-256 `721d0cdf5a298fb31bdc7799ebcaa5e0f08f3d3f59c6975c5eeb1e8bd2e3f249`).
+
+All three additive migrations applied successfully; the post-release status
+reports all 53 migrations current. The baseline created 366 `BASELINE` price
+history records, and the pricing-experiment table was empty after migration.
+API liveness/readiness, the direct API public-menu route, the web public-menu
+proxy/page, POS page, and public `/pos/release` returned expected responses.
+The new Manager analytics and pricing routes responded with 401 without an
+authenticated session. `cafe-api.service`, `cafe-pos.service`, and
+`cafe-web.service` are active with zero automatic restarts. POS-uploaded image
+storage remains 32 files / 5,759,237 bytes.
+
+The production migration and route checks are complete. Physical café-device
+acceptance remains a separate operational gate.
+
 ### Next.js artifact transfer rule
 
 The shared local `.next` directory can retain large Turbopack development and
