@@ -44,7 +44,7 @@ This document tracks backend work. Product and business rules live in `scope.md`
 
 ## Current Backend Status
 
-Last reconciled: 13 October 2026. The prioritized sections below are the
+Last reconciled: 15 November 2026. The prioritized sections below are the
 authoritative backend acceptance criteria; this summary records whether each
 stage is implemented.
 
@@ -67,18 +67,165 @@ stage is implemented.
   costing, settlement recognition, stock correction, and count reconciliation.
 - **P7 / Stage 13 — Complete.** Manager inventory/costing panels and
   gross-profit reporting.
-- **P8 / Stage 15 — In progress.** Product-first recipe setup maps menu options
+- **P8 / Stage 15 — Complete.** Product-first recipe setup maps menu options
   to complete reusable recipes while preserving existing costing behavior.
 - **P8 / Stage 14 — Complete.** Integration, browser, migration/restore, and
   measured-performance verification for the inventory phase.
 - **P9 / Stage 16 — Complete.** Manager-managed explanatory product notes are
   persisted in the catalog and exposed in the public menu product detail.
+- **P10 / Stage 17 — Active.** Packaging economics reporting and auditable
+  catalog price-change history are implemented locally; production release
+  remains.
+- **P11 / Stage 18 — Complete.** Bounded sales, contribution, and peak-hour
+  analytics are implemented and locally verified; see `docs/current-left.md`.
+- **P12 / Stage 19 — Complete.** Manager pricing experiments and strategy
+  evaluation are implemented and locally verified under [ADR 0013](../adr/0013-pricing-experiments-and-strategy-evaluation.md); see `docs/current-left.md`.
 
-Last recorded integrated local verification (2 October 2026): isolated API
-suite 16 files / 102 tests, POS suite 18 files / 87 tests, contracts build,
-API/POS typechecks, production POS build, and attached-browser checks at
-469×343, 390×844, and desktop sizes. This predates the 3 October changes; those
-changes still need their migration and release verification.
+Last recorded integrated local verification (15 November 2026, after the
+Phase 2/3 correctness review): the full isolated API suite passes 30 files /
+267 tests after `test:db:reset` applies all 53 migrations. Contracts pass 28
+tests across 8 files; the full POS suite passes 250 tests across 35 files.
+Contracts, API and POS typechecks and production builds pass, as does
+`git diff --check`. All eight review findings are fixed, with 11 PostgreSQL/API
+regressions, exact methodology assertions, and successful dashboard coverage.
+The local Manager browser journey passes at 390×844 and 1280×800, including
+CSV download and simulation. See [the completion record](../reviews/inventory-finance-completion-2026-11-15.md).
+The earlier 53-migration rehearsal remains historical evidence; it was not
+rerun for these schema-neutral fixes. Physical café-device acceptance and the
+Phase 1 production baseline/release gate remain separate. No production
+migration or release was performed.
+
+### P10 — Stage 17 Packaging Economics And Price History — Active
+
+Implement the approved Phase 1 finance-analytics brief before the next menu
+price adjustment.
+
+Acceptance criteria:
+
+- Report packaging charge revenue, attributable packaging material costs,
+  recovery and recovery rate while preserving the canonical gross-profit
+  calculation and reconciling packaging amounts exactly once.
+- Attribute known packaging costs from direct packaging mappings and explicitly
+  classified stock items inside nested recipes. Keep historical rows without
+  sufficient component metadata marked ambiguous.
+- Add Manager packaging economics in Inventory/Profitability with product and
+  selected-option/channel and category breakdowns, Tehran-date trends,
+  reconciliation-safe single-product charge allocation, unattributed
+  multi-product charges, and clear cost-completeness status.
+- Capture an immutable baseline of current catalog prices without inventing
+  prior changes. Record later product, option, option-override, discount, and
+  packaging-charge changes atomically with catalog writes.
+- Expose bounded Manager price-history reads filtered by date, product, option,
+  and packaging-charge dimension. Preserve shared-option effects and actor,
+  source, effective-time certainty, and stable event IDs.
+- Cover sales attribution, option-variant charge rounding, costing,
+  reconciliation, price-history writes and reads, concurrency, no-op writes,
+  reversals, Tehran boundaries, and role restrictions with relevant tests and
+  typechecks.
+
+Left: implementation and verification are tracked in `docs/current-left.md`.
+
+### P11 — Stage 18 Sales, Contribution And Peak-Hour Analytics — Complete
+
+Implement the approved Phase 2 Manager analytics brief. Preserve the existing
+settled-order eligibility, recognized-consumption timing, costing snapshots,
+and packaging attribution rules.
+
+Acceptance criteria:
+
+- Add Manager-only, bounded server-side reporting for Tehran weekday/hour and
+  hourly or 30-minute intervals. Separate order/item demand time from
+  financial-recognition time and disclose historical order-time fallback for
+  item lines without first-entry timestamps.
+- Report eligible order counts, item units, settled net revenue, contribution
+  from fully costed revenue, margin and coverage, and average order value. An
+  incomplete cost bucket never presents a full contribution or margin.
+- Provide product/category/option and TABLE/TAKEAWAY filters, day-of-week
+  filters, multi-product comparisons, product peaks, and packaging contribution
+  using the established Phase 1 allocation and completeness rules.
+- Add first-entry timestamps to new order-item lines without changing order,
+  settlement, or historical costing behavior; retain null for existing rows.
+- Apply the daily 08:00–00:00 scheduled opening window to hourly buckets,
+  distinguish scheduled closures from open hours with zero sales, and compute
+  contribution per operating hour over 16 scheduled hours per selected date
+  and weekday. Preserve recorded transactions outside the scheduled window.
+- Test Tehran boundaries, created/recognized time separation, order and item
+  aggregation, options, channels, discounts, reversals, exclusions, incomplete
+  costs, empty buckets, product filters, authorization, and mobile rendering.
+
+Verification: `pnpm --filter @cafe/api test` and the focused analytics
+integration test passed on isolated `cafe_management_test`; the full POS suite
+passed 33 files / 242 tests; contracts passed 6 files / 22 tests. Contracts,
+API, and POS typechecks and API/POS production builds passed. The first-entry
+migration was applied only to the isolated test database. No browser/device
+acceptance, development/production migration, or deployment occurred.
+
+Post-review verification (15 November 2026): the new financial and first-entry
+lifecycle regressions pass within the full 267-test API suite. The 250-test POS
+suite, affected typechecks/builds, and responsive real-API Manager browser
+journey pass. All review follow-ups are closed locally; see the completion
+record linked above.
+
+Left: no Phase 2 implementation or local verification items remain. Phase 1's
+populated-production baseline and release checks remain open separately.
+
+### P12 — Stage 19 Pricing Experiments And Strategy Evaluation — Complete
+
+Implement the approved Phase 3 brief under ADR 0013. Reuse the Phase 1 price
+history and packaging economics and the Phase 2 eligible-order, settlement,
+costing, and recognition rules.
+
+Acceptance criteria:
+
+- Add Manager-only create/list/report workflows for analytical experiment
+  metadata and product, option, variant, and packaging targets. Associate
+  matching Phase 1 price events where possible and flag missing, ambiguous, or
+  mismatched history without inventing baseline prices. Experiment writes and
+  simulations never change catalog data.
+- Compare equal pre/post counts of full `Asia/Tehran` days, exclude or mark the
+  effective/partial day, align weekday composition, and expose unavailable or
+  incomplete post-change periods.
+- Reuse the Phase 2 valid-order and financial-recognition rules, historical
+  order/option/discount snapshots, Phase 1 packaging allocation, and cost
+  completeness flags. Report affected and unaffected products, variants,
+  options, packaging, channel, and category performance.
+- Show sales, contribution, cost coverage, average realized price, order value,
+  packaging recovery, fixed-cost coverage, and 30-day monthly equivalents.
+  Use the confirmed 265,000,000 Toman monthly fixed-cost assumption. Suppress a
+  complete margin or operating surplus when relevant variable costs are
+  incomplete.
+- Explain contribution changes with a documented price/volume/mix/unit-cost
+  decomposition. Components reconcile when inputs are complete; otherwise
+  report residuals and limitations. Label control comparisons observational.
+- Calculate per-target and whole-experiment volume break-even points from
+  contribution, and provide non-mutating product/category/option/packaging
+  simulations with volume sensitivity controls.
+- Add Manager-only Persian RTL dashboard, daily trends, product and packaging
+  comparisons, strategy assessment, and CSV export.
+- Cover history association, snapshots, discounts, packaging, settlements and
+  reversals, cost completeness, decomposition, break-even, substitution/mix,
+  identical or partial periods, Tehran boundaries, fixed costs, empty data,
+  Manager authorization, and simulation/catalog isolation. Run affected tests,
+  typechecks, and builds. Do not deploy or change production data.
+
+Verification: the full isolated API suite passes, including pricing
+integration and Shapley methodology coverage. Contracts pass 28 tests across 8
+files; the full POS suite passes 244 tests across 35 files. Contracts, API and
+POS typechecks and builds pass. The 53-migration isolated test rehearsal and
+`git diff --check` pass. The local development database has all 53 migrations
+applied. No production migration or deployment occurred; browser/device
+acceptance was not run.
+
+Post-review verification (15 November 2026): all eight review findings and the
+cost-change/revenue-semantics follow-ups are fixed. The full API suite passes
+267 tests, POS passes 250, and contracts pass 28. Final affected component
+checks and 11 PostgreSQL/API regressions pass. Typechecks/builds and the
+responsive real-API report/simulation/CSV browser journey pass.
+
+Left: no Stage 19 implementation or local verification items remain. Live
+interpretation depends on release and verification of the Phase 1 catalog
+baseline; physical café-device acceptance remains a release check. Production
+remains untouched.
 
 ## Stage 0 Backlog — Scope And Domain Baseline
 
