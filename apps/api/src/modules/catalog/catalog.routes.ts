@@ -10,6 +10,7 @@ import {
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import { requireStaff } from "../auth/authorization.js";
+import { effectiveProductPrice, lockCatalogPriceHistory, recordPriceEvents } from "../admin/price-history.js";
 
 const ProductIdPathSchema = z.object({ productId: z.uuid() });
 
@@ -31,12 +32,15 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request) => {
       const product = await app.prisma.$transaction(async (tx) => {
+        await lockCatalogPriceHistory(tx);
+        const current = await tx.product.findUnique({
+          where: { id: request.params.productId },
+          select: { id: true, name: true, priceAmount: true, saleDiscountKind: true, saleDiscountValue: true },
+        });
+        if (!current) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested product was not found.");
+        const previousDiscount = current.saleDiscountKind && current.saleDiscountValue !== null ? { kind: current.saleDiscountKind, value: current.saleDiscountValue } : null;
+        const newDiscount = request.body.saleDiscount ?? null;
         if (request.body.saleDiscount?.kind === "FIXED") {
-          const current = await tx.product.findUnique({
-            where: { id: request.params.productId },
-            select: { priceAmount: true },
-          });
-          if (!current) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested product was not found.");
           if (request.body.saleDiscount.value > current.priceAmount) {
             throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A product offer cannot reduce the unit price below zero.");
           }
@@ -49,6 +53,19 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
           },
           select: { id: true, saleDiscountKind: true, saleDiscountValue: true },
         });
+        if (previousDiscount?.kind !== newDiscount?.kind || previousDiscount?.value !== newDiscount?.value) {
+          await recordPriceEvents(tx, request.authenticatedUser!.id, request.id, "POS_PRODUCT_DISCOUNT", [{
+            productId: current.id,
+            productNameSnapshot: current.name,
+            dimension: "PRODUCT_DISCOUNT",
+            previousAmount: current.priceAmount,
+            newAmount: current.priceAmount,
+            previousEffectivePriceAmount: effectiveProductPrice(current.priceAmount, previousDiscount as any),
+            newEffectivePriceAmount: effectiveProductPrice(current.priceAmount, newDiscount as any),
+            previousDiscount: previousDiscount as any,
+            newDiscount: newDiscount as any,
+          }]);
+        }
         await tx.auditLog.create({ data: { actorId: request.authenticatedUser!.id, requestId: request.id, operation: "UPDATE_PRODUCT_SALE_DISCOUNT", entityType: "PRODUCT", entityId: updated.id, afterSnapshot: updated } });
         return updated;
       });
