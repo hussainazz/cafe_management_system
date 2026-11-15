@@ -16,7 +16,7 @@ import {
   refreshCookieName,
 } from "../../auth/session.js";
 import { login, logout, logoutAll, refresh } from "./auth.service.js";
-import { requireStaff } from "./authorization.js";
+import { requireSessionRoute } from "./authorization.js";
 import { clearLoginFailures, loginRetryAfterSeconds, recordLoginFailure } from "./login-attempts.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 
@@ -94,7 +94,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     "/auth/me",
     {
-      preHandler: requireStaff,
+      preHandler: requireSessionRoute,
       schema: {
         tags: ["Authentication"],
         summary: "Read the current user",
@@ -112,7 +112,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/auth/logout",
     {
-      preHandler: requireStaff,
+      preHandler: requireSessionRoute,
       schema: {
         tags: ["Authentication"],
         summary: "Sign out",
@@ -131,7 +131,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/auth/logout-all",
     {
-      preHandler: requireStaff,
+      preHandler: requireSessionRoute,
       schema: {
         tags: ["Authentication"],
         summary: "Sign out of all sessions",
