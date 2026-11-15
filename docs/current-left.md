@@ -1,3 +1,117 @@
+## Completed delivery — Inventory finance Phases 2–3 correctness and coverage (15 November 2026)
+
+- [x] Reviewed Stages 17–19 implementation, contracts, migrations, and tests against the approved plans and ADR 0013. Findings and coverage assessment: [inventory finance review](reviews/inventory-finance-review-2026-11-15.md).
+- [x] Re-ran the full isolated API suite, 29 files / 254 tests, POS suite, 35 files / 244 tests, and contracts suite, 8 files / 28 tests. All passed. API reset applied all 53 migrations to `cafe_management_test`; API, POS, and contracts typechecks passed.
+- [x] Reproduced calculation and history-matching defects with controlled service-level fixtures. Existing passing tests do not establish complete financial correctness. No implementation fixes or persistent regression tests were added during the review.
+- [x] Fixed all eight review findings. Added actual PostgreSQL/API regressions for historical option/weight units, category-specific packaging cohorts, normalized variants, overlapping-target contribution break-even, incomplete costs, and scoped/effective price history.
+- [x] Reconciled operational and financial packaging revenue. Added order-entry timestamp lifecycle, fully costed/mixed-cost reports, independent peak/AOV/decomposition expectations, and successful dashboard/error-retry/CSV tests. Fixed invalid money labels found during the live browser check.
+- [x] Exercised the local Manager workflow at 390×844 and 1280×800, with real API responses, half-hour analytics, incomplete-data disclosures, multi-category packaging selection, volume simulation, and CSV download. Wide tables scroll within the panels; no page overflow or browser warnings/errors were observed. Created one clearly labeled local analytical QA experiment; catalog prices were unchanged.
+- [x] Full post-fix verification passed: API 30 files / 267 tests, POS 35 files / 250 tests, contracts 8 files / 28 tests, all affected typechecks and production builds. Final focused API regressions pass 11 tests; affected component tests pass 9 tests. All ten original controlled review examples now return their expected results. [Completion evidence](reviews/inventory-finance-completion-2026-11-15.md).
+- Left: no Phase 2/3 implementation or local verification items remain. Phase 1 production baseline/release verification remains open independently. Physical café-device acceptance belongs to the release gates. The unrelated sold-products regression follow-up remains below. No production access, deployment, commit, or push occurred.
+
+## Active fix — Sold-products historical undercount (15 November 2026)
+
+- [x] Traced report dates, product identity, and inventory recognition dependency; verified production aggregates in read-only transactions.
+- [x] For Tehran 2026-10-17 through 2026-11-15, پنینی بیکن گوشت has 20 paid, non-deleted, non-staff units, also confirmed by last active settlement date. Historical names: بیکن گوشت گرم 11, پنینی بیکن گوشت 9. Same product ID; only 2 units appear in eligible consumption records. Production recognition history starts 2026-11-12.
+- [x] Sold-products API now derives quantity and realized revenue from fully paid order items by final active settlement date, independent of inventory consumption records. It displays the current product name by stable product ID. Cost and stock-turnover reports still use their historical snapshots.
+- Left: Add regression coverage for missing recognition records, renamed products, reversed settlements, and Tehran date boundaries. Typecheck and validate the Manager UI/report contract. No production deployment performed.
+
+## Active delivery — Phase 1 packaging economics and price history (15 November 2026)
+
+- [x] Preserve canonical gross profit while separating packaging revenue,
+  attributable material cost, recovery, and completeness.
+- [x] Classify packaging materials in nested recipes for future cost snapshots;
+  expose historical cost components with ambiguous identity as unclassified.
+- [x] Add Manager packaging economics with product, selected-option, and
+  channel views, category summaries, Tehran-date trends, exact charge allocation,
+  and clear limits.
+- [x] Capture the current effective catalog as a baseline without inventing
+  prior price changes. Atomically record later product, option, override,
+  discount, and packaging-charge changes.
+- [x] Add a bounded Manager price-history API and cover date/product/option/
+  packaging filters, shared options, no-op writes, concurrency, and access.
+- [x] Review test completion and add edge coverage for legacy/unvalued costs,
+  duplicate product lines, option variants, largest-remainder rounding, zero
+  packaging cost, Tehran date boundaries, invalid cursors, reversals, and
+  Manager authorization; run affected suites and typechecks.
+
+Verification: `pnpm --filter @cafe/api test` passed with the new migration
+applied to the isolated `cafe_management_test` database. The updated admin and
+inventory integration files pass 58 tests; the full POS suite passes 240 tests
+across 32 files; contracts pass 18 tests across 4 files; API, POS, and contracts
+typechecks pass. `pnpm --filter @cafe/api test:migrations` verifies 51 migrations,
+including existing-data upgrade, exact seed, atomic failure, and clean backup
+restore. `git diff --check` passes.
+
+Left: apply the release migration and verify the baseline before the next
+production price adjustment. Production was not migrated or deployed. Inventory
+movement/count reconciliation remains unavailable because those records do not
+preserve component roles; the report states this explicitly.
+
+## Completed delivery — Phase 2 sales, contribution and peak-hour analytics (15 November 2026)
+
+- [x] Add bounded Manager analytics APIs with separate operational-demand and
+  financial-recognition time bases, Tehran heatmaps, interval comparisons, and
+  product/category/option/channel/day filters.
+- [x] Add first-entry timestamps for new order-item lines; preserve null on
+  historical rows and use order creation time as a labeled fallback.
+- [x] Reuse eligible-order, recognized-consumption, costing-coverage, and
+  packaging-attribution rules for overview, contribution, and product peaks.
+- [x] Add the Persian RTL Manager dashboard with overview, peak-hour, product
+  comparison, and product-detail sections.
+- [x] Add API, contract, and responsive component coverage for the Phase 2
+  acceptance cases; run the affected suites, typechecks, and builds.
+
+Verification: `pnpm --filter @cafe/api test` passed after its reset applied the
+item-entry migration to isolated `cafe_management_test`; the focused analytics
+integration file passed both tests. The POS suite passed 33 files / 242 tests,
+and contracts passed 6 files / 22 tests. Contracts, API, and POS typechecks;
+API and POS production builds; and `git diff --check` passed. POS browser/device
+acceptance was not run. The development and production databases were not
+migrated, and nothing was deployed.
+
+Left: no Phase 2 implementation items remain. Phase 1's populated-catalog
+baseline and release checks remain open independently. Phase 3 code work can
+begin; live pricing experiments should wait until that Phase 1 release gate is
+closed.
+
+Schedule update (15 November 2026): Manager analytics now records the daily
+08:00–00:00 opening window, marks buckets from 00:00 up to (but not including)
+08:00 as scheduled closures,
+and calculates contribution per operating hour using 16 scheduled hours per
+day. Sales recorded outside opening hours remain included and are labeled.
+Verification: focused API integration, POS component, and contract checks plus
+the affected typechecks and API/POS production builds passed; no database
+outside the isolated test database was changed, and nothing was deployed.
+
+## Completed delivery — Phase 3 pricing experiments and strategy evaluation (15 November 2026)
+
+- [x] Add Manager-only experiment records and targets, automatically associate
+  matching Phase 1 price events, and surface incomplete/mismatched history.
+- [x] Add equal full-day pre/post reports using historical snapshots and the
+  existing settlement, contribution, cost-coverage, and packaging rules.
+- [x] Add daily trends, affected/unaffected product and option impact,
+  packaging recovery, reconciled price/volume/mix/cost decomposition, and
+  contribution-based volume break-even analysis.
+- [x] Add fixed-cost coverage using 265,000,000 Toman per month and non-mutating
+  price/volume scenario simulation.
+- [x] Add the Persian RTL Manager dashboard and CSV export.
+- [x] Add API, contract, and component coverage; run affected tests, typechecks,
+  builds, and whitespace checks. No production data change or deployment.
+
+Verification: the full isolated API suite, including pricing integration and
+Shapley methodology coverage, passes. Contracts pass 28 tests across 8 files;
+the full POS suite passes 244 tests across 35 files. Contracts, API and POS
+typechecks and builds pass, as does `git diff --check`. The isolated test
+database migration reset and 53-migration rehearsal pass. The local development
+database has all 53 migrations applied, including the Phase 1, Phase 2, and
+Phase 3 migrations. No production database or service was changed, and nothing
+was deployed. Browser/device acceptance was not run.
+
+Left: no Phase 3 implementation or verification items remain. The Phase 1
+catalog baseline release check remains an independent prerequisite for
+interpreting live experiments.
+
 ## Active delivery — Privacy-safe public-menu traffic analytics (13 November 2026)
 
 - [x] Add structured Nginx access logging with `/t/:token` redaction and
@@ -2113,13 +2227,13 @@ or full Stage 10 exit gate.
 - [x] POS TypeScript check and optimized production build pass after the
   interface follow-up; generated `next-env.d.ts` build-only changes were
   discarded.
-- [ ] Finish the coordinated production build and local release artifact checks.
-  Full API tests pass against the isolated `cafe_management_test` database;
-  all 190 POS tests pass across 29 files; API/POS/web typechecks pass. Contracts
-  build and Prisma client generation pass. The three feature migrations are
-  applied to local development and isolated test databases, with all 45
-  checkout migrations current. Per the user's instruction, no live browser
-  review was performed. No production migration or release activation occurred.
+- [x] Finish the coordinated production build and local release artifact checks.
+  The full isolated API suite passes 267 tests, POS passes 250, and contracts
+  pass 28. API/POS/contracts typechecks and production builds pass. All 53
+  checkout migrations apply to the local development and isolated test
+  databases. Responsive browser checks covered real analytics, pricing
+  experiments, simulations, and CSV export. Production migration and release
+  activation are tracked below.
 - [x] Restore local POS-to-API connectivity after the API dev watcher started
   without `DATABASE_URL` and left port 3001 closed. Built contracts and
   regenerated the Prisma client, then started the API against the validated
