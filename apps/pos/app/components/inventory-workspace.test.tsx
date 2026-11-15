@@ -9,13 +9,13 @@ vi.mock("../lib/api-client", () => ({
   createInventoryPurchase: vi.fn(), previewProductCosting: vi.fn(), postInventoryCount: vi.fn(),
   postInventoryPurchase: vi.fn(), readGrossProfitReport: vi.fn(), readInventoryCounts: vi.fn(),
   readInventoryMovements: vi.fn(), readInventoryPurchases: vi.fn(), readInventoryRecipes: vi.fn(),
-  readInventoryStockItems: vi.fn(), readPendingInventoryConsumption: vi.fn(), readProductCosting: vi.fn(), readSalesChannelReport: vi.fn(),
+  readInventoryStockItems: vi.fn(), readPendingInventoryConsumption: vi.fn(), readProductCosting: vi.fn(), readSalesChannelReport: vi.fn(), readSalesAnalyticsReport: vi.fn(),
   returnInventoryPurchase: vi.fn(), saveInventoryRecipe: vi.fn(), saveInventoryStockItem: vi.fn(),
   saveProductCosting: vi.fn(), updateInventoryCount: vi.fn(), updateInventoryPurchase: vi.fn(),
 }));
 
 const stock = {
-  id: "stock-1", name: "قهوه", category: "مواد اولیه", baseUnit: "GRAM", isActive: true,
+  id: "stock-1", name: "قهوه", category: "مواد اولیه", baseUnit: "GRAM", isPackagingMaterial: false, isActive: true,
   archivedAt: null, version: 1, conversions: [],
   balance: { quantityOnHand: "100", carryingValueAmount: 20_000, movingAverageCostPerBaseUnit: "200", trackingStartedAt: "2026-10-13T08:00:00.000Z" },
   createdAt: "2026-10-13T08:00:00.000Z", updatedAt: "2026-10-13T08:00:00.000Z",
@@ -215,6 +215,30 @@ describe("InventoryWorkspace", () => {
     await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(null, expect.objectContaining({
       name: "قهوه تازه", baseUnit: "GRAM", conversions: [{ label: "بسته", baseQuantityPerPack: "250.125", isActive: true }],
     })));
+  });
+
+  it("saves the packaging-material classification when creating a stock item", async () => {
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.change(screen.getByLabelText("نام کالا"), { target: { value: "لیوان کاغذی" } });
+    fireEvent.change(screen.getByLabelText("واحد مبنا"), { target: { value: "PIECE" } });
+    fireEvent.change(screen.getByLabelText("تعداد در هر بسته (عدد)"), { target: { value: "50" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /این کالا بسته‌بندی است/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ثبت کالا" }));
+    await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(null, expect.objectContaining({ name: "لیوان کاغذی", isPackagingMaterial: true })));
+  });
+
+  it("loads and updates an existing packaging-material classification", async () => {
+    const packagingStock = { ...stock, isPackagingMaterial: true };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([packagingStock], "stockItems") as never);
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.click(screen.getByRole("button", { name: "ویرایش قهوه" }));
+    const checkbox = await screen.findByRole("checkbox", { name: /این کالا بسته‌بندی است/ }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره تغییرات" }));
+    await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(stock.id, expect.objectContaining({ isPackagingMaterial: false, expectedVersion: stock.version })));
   });
 
   it("shows an inline API validation error and retains the entered purchase quantity", async () => {
@@ -539,9 +563,9 @@ it("rejects an inverted packaging quantity range before saving any recipe", asyn
   expect(api.saveProductCosting).not.toHaveBeenCalled();
 });
 
-it("opens sales channel analytics from the inventory dashboard", async () => {
+it("opens sales channel reporting from the inventory dashboard", async () => {
   render(<InventoryWorkspace catalog={catalog} />);
-  fireEvent.click(await screen.findByRole("button", { name: "آمار فروش" }));
+  fireEvent.click(await screen.findByRole("button", { name: "فروش کانال‌ها" }));
   await screen.findByText("جمع سفارش‌های تسویه‌شده");
   expect(api.readSalesChannelReport).toHaveBeenCalledTimes(1);
   expect(screen.getByText("در این بازه سفارش واجد شرایطی ثبت نشده است.")).toBeTruthy();
