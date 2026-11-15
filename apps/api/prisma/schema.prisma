@@ -123,6 +123,29 @@ enum OrderConsumptionStatus {
   UNTRACKED
 }
 
+enum CatalogPriceDimension {
+  PRODUCT_BASE_PRICE
+  OPTION_PRICE
+  PRODUCT_OPTION_OVERRIDE
+  PRODUCT_DISCOUNT
+  PACKAGING_CHARGE
+}
+
+enum CatalogPriceChangeSource {
+  BASELINE
+  POS_PRODUCT_CREATE
+  POS_PRODUCT_UPDATE
+  POS_OPTION_CREATE
+  POS_OPTION_UPDATE
+  POS_PRODUCT_DISCOUNT
+}
+
+enum PricingExperimentTargetKind {
+  PRODUCT
+  OPTION
+  PACKAGING
+}
+
 model User {
   id           String   @id @default(uuid())
   username     String   @unique
@@ -149,6 +172,8 @@ model User {
   updatedCostingConfigurations ProductCostingConfiguration[] @relation("CostingConfigurationUpdatedBy")
   terminalAttemptsCreated      TerminalPaymentAttempt[] @relation("TerminalAttemptCreatedBy")
   terminalAttemptsResolved     TerminalPaymentAttempt[] @relation("TerminalAttemptResolvedBy")
+  catalogPriceChanges          CatalogPriceChange[]
+  createdPricingExperiments     PricingExperiment[]      @relation("PricingExperimentCreatedBy")
 
   @@map("users")
 }
@@ -223,6 +248,8 @@ model Product {
   optionCostingRules   ProductOptionCostingRule[]
   optionRecipeCostings ProductOptionRecipeCosting[]
   costingCombinations  ProductCostingCombination[]
+  catalogPriceChanges  CatalogPriceChange[]
+  pricingExperimentTargets PricingExperimentTarget[]
 
   @@unique([categoryId, systemKey])
   @@index([categoryId, isActive, isAvailable, displayOrder])
@@ -313,11 +340,86 @@ model Option {
   recipeCostings            ProductOptionRecipeCosting[]
   optionCostingRules        ProductOptionCostingRule[]
   costingCombinationOptions CostingCombinationOption[]
+  catalogPriceChanges       CatalogPriceChange[]
+  pricingExperimentTargets  PricingExperimentTarget[]
 
   @@unique([optionGroupId, name])
   @@unique([id, optionGroupId])
   @@index([optionGroupId, isActive, isAvailable, displayOrder])
   @@map("options")
+}
+
+model CatalogPriceChange {
+  id                           String                  @id @default(uuid())
+  changeSetId                  String
+  productId                    String?
+  productNameSnapshot          String?
+  optionId                     String?
+  optionNameSnapshot           String?
+  dimension                    CatalogPriceDimension
+  previousAmount               Int?
+  newAmount                    Int?
+  previousEffectivePriceAmount Int?
+  newEffectivePriceAmount      Int?
+  previousDiscountKind         DiscountKind?
+  previousDiscountValue        Int?
+  newDiscountKind              DiscountKind?
+  newDiscountValue             Int?
+  source                       CatalogPriceChangeSource
+  effectiveAt                  DateTime?
+  recordedAt                   DateTime                @default(now())
+  actorId                      String?
+  requestId                    String?
+
+  product Product? @relation(fields: [productId], references: [id], onDelete: Restrict)
+  option  Option?  @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  actor   User?    @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([recordedAt, id])
+  @@index([productId, recordedAt, id])
+  @@index([optionId, recordedAt, id])
+  @@index([dimension, recordedAt, id])
+  @@index([changeSetId])
+  @@map("catalog_price_changes")
+}
+
+model PricingExperiment {
+  id                      String   @id @default(uuid())
+  name                    String   @db.VarChar(100)
+  effectiveAt             DateTime
+  expectedEvaluationDays  Int
+  comparisonDays          Int
+  notes                   String?  @db.VarChar(1000)
+  createdById             String
+  createdAt               DateTime @default(now())
+
+  createdBy User                     @relation("PricingExperimentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  targets   PricingExperimentTarget[]
+
+  @@index([effectiveAt, createdAt])
+  @@index([createdById, createdAt])
+  @@map("pricing_experiments")
+}
+
+model PricingExperimentTarget {
+  id                   String                       @id @default(uuid())
+  experimentId         String
+  targetKey            String                       @db.VarChar(120)
+  targetKind           PricingExperimentTargetKind
+  productId            String
+  optionId             String?
+  productNameSnapshot  String                       @db.VarChar(200)
+  optionNameSnapshot   String?                      @db.VarChar(200)
+  previousPriceAmount  Int?
+  proposedPriceAmount  Int
+
+  experiment PricingExperiment @relation(fields: [experimentId], references: [id], onDelete: Restrict)
+  product    Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  option     Option?           @relation(fields: [optionId], references: [id], onDelete: Restrict)
+
+  @@unique([experimentId, targetKey])
+  @@index([productId, optionId])
+  @@map("pricing_experiment_targets")
 }
 
 model CafeTable {
@@ -519,6 +621,7 @@ model OrderItem {
   id                  String             @id @default(uuid())
   orderId             String
   productId           String
+  enteredAt           DateTime?
   productNameSnapshot String
   basePriceSnapshot   Int
   pricingModeSnapshot ProductPricingMode @default(FIXED)
@@ -541,6 +644,7 @@ model OrderItem {
 
   @@index([orderId, displayOrder])
   @@index([productId])
+  @@index([enteredAt])
   @@map("order_items")
 }
 
@@ -734,6 +838,7 @@ model StockItem {
   archivedName String?
   category     String
   baseUnit     InventoryUnit
+  isPackagingMaterial Boolean @default(false)
   isActive     Boolean       @default(true)
   archivedAt   DateTime?
   version      Int           @default(1)
