@@ -65,6 +65,38 @@ full-suite rerun. Browser/device acceptance was not run.
 
 Left: browser/device acceptance remains unverified.
 
+## VPS release — cafe-20261115-e0732f6 (15 November 2026)
+
+- [x] Push all 16 pending `main` commits to `origin/main` before release; the
+  release source is commit `e0732f6a8f18ea21b0fde61e26a27a962249a362`.
+- [x] Build one compatible API/contracts/POS artifact for the sold-products
+  inventory report update. Exclude environment files, uploaded product images,
+  and POS development/cache/standalone output.
+- [x] Validate the PostgreSQL 17 pre-release backup and previous coordinated
+  API/contracts/POS runtime rollback archive.
+- [x] Activate API, contracts and POS together. No schema migration was needed;
+  production remains current at 50 migrations. Web, Nginx and the already-active
+  menu analytics service were unchanged.
+
+Artifact SHA-256:
+`82ac5d895339610f2c4c349fefc22a77b9f2e99c56e20895181968bd32580c52`.
+PostgreSQL 17.11 backup:
+`/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261115-e0732f6.dump`
+(SHA-256 `e596542c0379e4e64b3a0e0f6ee44c6f34b782baa61e10ad3dd4564db484ee0b`).
+Runtime rollback archive:
+`/opt/cafe-menu-release-backups/rollback-before-cafe-20261115-e0732f6.tar.gz`
+(SHA-256 `92862ba553e4ca3cb19d0d45d3eba3f2a380e7b6918e0f10bcae6edb164d9b04`).
+
+Verification: contracts, API and POS production builds pass. Local and public
+`/pos/release` return HTTP 200 with release ID `cafe-20261115-e0732f6` and
+`no-store`; public `/pos` and `/menu` return HTTP 200. The gross-profit API
+returns HTTP 401 without Manager credentials. API readiness passes, all 50
+migrations are current, API/POS/web/Nginx and the analytics timer are active
+with zero systemd restarts, and product-image storage remains 32 files /
+5,759,237 bytes. No product image or environment file was transferred.
+
+Left: browser/device acceptance remains unverified.
+
 ## Completed delivery — Sales-weighted cost coverage dashboard (12 November 2026)
 
 - [x] Extend the gross-profit report and contracts with revenue-weighted complete
