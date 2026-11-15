@@ -1,5 +1,28 @@
 # API Inventory
 
+## Finance analytics response units
+
+Reporting option `quantity` is a per-product-unit selection ratio for
+fixed-price products and can be fractional. This applies to packaging economics,
+sales analytics, and pricing experiment impact rows. It is not an order-entry
+count; order request quantities remain positive integers. Reporting variant
+identity is independent of order-line size.
+
+Unfiltered operational and financial net sales both include separate PACKING
+charges. Product/category/option filters use the same fee-exclusion rule in
+both reports. Their operational and recognition timestamps remain distinct.
+
+Pricing experiment history uses product-scoped effective price events.
+Simulations apply the recorded line's pricing mode, grams, and option counts;
+packaging targets identify a category-specific PACKING product. Observed
+experiment break-even uses earlier and later unit contribution, including cost
+changes, with overlapping targets counted once. Hypothetical scenario break-even
+requires complete costs for the affected cohort. Café-wide contribution and
+surplus remain unavailable if any relevant source costs are incomplete.
+
+These are clarifications of the approved Stage 18–19 reporting contracts; they
+do not add order writes, catalog-price writes, or deployment authority.
+
 ## SEP bridge health-only API (Phase B, ADR 0012)
 
 The separate Windows bridge binds only to `127.0.0.1:18711` by default.
@@ -224,9 +247,9 @@ implementation change.
 
 | Method | Path | Access | Stage | Purpose |
 | ------ | ---- | ------ | ----- | ------- |
-| `GET` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | List stock items, base units, pack conversions, tracking state, optional Manager-configured low-stock threshold in base units, and current valuation. |
-| `POST` | `/api/v1/admin/inventory/stock-items` | Manager | 12 | Create a stock item with explicit base unit, opening quantity/value, and item-specific pack conversions; initialize the balance and opening ledger entry. |
-| `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager | 12 | Version-check editable configuration and allow one-time opening quantity/value initialization only while the item is untracked. |
+| `GET` | `/api/v1/admin/inventory/stock-items` | Manager | 12, 17 | List stock items, base units, pack conversions, packaging-material classification, tracking state, optional Manager-configured low-stock threshold in base units, and current valuation. |
+| `POST` | `/api/v1/admin/inventory/stock-items` | Manager | 12, 17 | Create a stock item with explicit base unit, optional packaging-material classification, opening quantity/value, and item-specific pack conversions; initialize the balance and opening ledger entry. |
+| `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager | 12, 17 | Version-check editable configuration, packaging-material classification, and one-time opening quantity/value initialization only while the item is untracked. |
 | `POST` | `/api/v1/admin/inventory/stock-items/:stockItemId/archive` | Manager | 12 | Archive an unused or referenced item without deleting ledger history. |
 | `GET` | `/api/v1/admin/inventory/purchases` | Manager | 12 | Cursor-page purchases with optional supplier/item search, status, and received-time filters. |
 | `POST` | `/api/v1/admin/inventory/purchases` | Manager | 12 | Create a received-purchase draft with supplier text and itemized direct costs. |
@@ -247,6 +270,17 @@ implementation change.
 | `GET` | `/api/v1/admin/inventory/movements` | Manager | 12 | Cursor-page inventory history with date-range, stock-item, movement-type, or POS order-number filters; include the visible order number on order-related movements. |
 | `GET` | `/api/v1/admin/inventory/pending-consumption` | Manager | 12 | Read whole orders awaiting stock or count reconciliation. |
 | `GET` | `/api/v1/admin/reports/gross-profit` | Manager | 13 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, compatible inventory consumption estimates, and daily Tehran-date revenue/COGS/profit with null margins for no sales. |
+| `GET` | `/api/v1/admin/reports/gross-profit` | Manager | 17 | Also report packaging charge revenue, known attributable packaging cost, recovery, recovery coverage, product/option/channel and category breakdowns, unattributed order-level charges, and Tehran-date packaging trends without changing canonical gross-profit totals. |
+| `GET` | `/api/v1/admin/price-history` | Manager | 17 | Cursor-page price baseline and change records by bounded Tehran-date range, product, option, or price dimension. Include stable event IDs, before/after amounts and discounts, actor, source, and whether effective time is known. |
+
+## Manager Pricing Experiments (Stage 19, ADR 0013)
+
+| Method | Path | Access | Stage | Purpose |
+| ------ | ---- | ------ | ----- | ------- |
+| `GET` | `/api/v1/admin/pricing-experiments` | Manager | 19 | List bounded experiment metadata, target prices, linked Phase 1 change events, and data-quality flags. |
+| `POST` | `/api/v1/admin/pricing-experiments` | Manager | 19 | Create an analysis-only experiment with an effective timestamp, evaluation/comparison duration, target prices, and optional notes. Never write catalog prices. |
+| `GET` | `/api/v1/admin/pricing-experiments/:experimentId` | Manager | 19 | Return the pre/post analysis, product and option impact, packaging recovery, contribution decomposition, break-even volume, fixed-cost coverage, and data-quality limits. |
+| `POST` | `/api/v1/admin/reports/pricing-experiments/simulate` | Manager | 19 | Calculate a non-mutating product/category/option/packaging pricing scenario and selected volume sensitivity. |
 
 Inventory routes declare `400`, `401`, `403`, `404`, `409`, `422`, `429`,
 `500`, and `503` error envelopes in their runtime response schemas. Validation
