@@ -42,10 +42,12 @@ import { InventoryStockDetail } from "./inventory-stock-detail";
 import { InventoryIcon, RefreshIcon } from "./icons";
 import { InventoryProfitPanel } from "./inventory-profit";
 import { InventorySalesChannelsPanel } from "./inventory-sales-channels";
+import { InventorySalesAnalytics } from "./inventory-sales-analytics";
+import { InventoryPricingExperiments } from "./inventory-pricing-experiments";
 import { InventoryOverview } from "./inventory-dashboard";
 import { emptyInventoryItem, lowInventoryItem, inventoryAmountTotal, inventoryNumber, inventoryQuantity, inventoryUnitLabels as unitLabels, inventoryMovementLabels as movementLabels } from "./inventory-presentation";
 
-type View = "overview" | "profit" | "sales" | "stock" | "purchases" | "preparations" | "recipes" | "counts" | "history";
+type View = "overview" | "profit" | "sales" | "analytics" | "pricing-experiments" | "stock" | "purchases" | "preparations" | "recipes" | "counts" | "history";
 type Unit = "GRAM" | "MILLILITER" | "PIECE";
 type StockConversion = { id?: string; label: string; baseQuantityPerPack: string; isActive: boolean };
 type PurchaseLineDraft = { stockItemId: string; conversionId: string; purchaseUnitLabel: string; purchaseQuantity: string; directCostAmount: string };
@@ -184,7 +186,7 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false }: { catal
       <nav className="inventory-tabs manager-tabs" aria-label="بخش‌های انبار">
         {([
           ["purchases", "خریدها"], ["overview", "نمای کلی"], ["stock", "اقلام موجودی"], ["recipes", "دستور تهیه و هزینه"],
-          ["preparations", "دستورهای مشترک"], ["counts", "شمارش انبار"], ["history", "گردش موجودی"], ["sales", "آمار فروش"], ["profit", "سود ناخالص"],
+          ["preparations", "دستورهای مشترک"], ["counts", "شمارش انبار"], ["history", "گردش موجودی"], ["sales", "فروش کانال‌ها"], ["analytics", "اوج و مشارکت"], ["profit", "سود ناخالص"], ["pricing-experiments", "آزمایش قیمت‌گذاری"],
         ] as const).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={view === id ? "is-active" : ""} aria-pressed={view === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
       </nav>
       {success && <p className="inventory-success" role="status">تغییرات ثبت شد.</p>}
@@ -194,6 +196,8 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false }: { catal
         {view === "overview" && !readErrors.overview && <InventoryOverview items={stockItems} pending={pending} pendingHasMore={pendingHasMore} onNavigate={navigate} onOpenStock={id => { setStockSelection(id || null); navigate("stock"); }} />}
         {view === "profit" && <InventoryProfitPanel catalog={catalog} onInspectProduct={(productId) => { setCostingProductSelection(productId); navigate("recipes"); }} />}
         {view === "sales" && <InventorySalesChannelsPanel />}
+        {view === "analytics" && <InventorySalesAnalytics catalog={catalog} />}
+        {view === "pricing-experiments" && <InventoryPricingExperiments catalog={catalog} />}
         {view === "stock" && <StockPanel initialSelectedId={stockSelection} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} />}
         {view === "purchases" && !readErrors.purchases && <PurchasePanel onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
         {view === "preparations" && !readErrors.preparations && <InventoryPreparations items={stockItems} recipes={recipes} mutate={mutate} onDirtyChange={markDirty} />}
@@ -215,6 +219,7 @@ function StockPanel({ initialSelectedId, onDirtyChange, items, mutate, confirm }
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const selected = activeItems.find(item => item.id === selectedId);
   const [threshold, setThreshold] = useState("");
+  const [isPackagingMaterial, setIsPackagingMaterial] = useState(false);
   const shownItems = activeItems.filter((item) => item.name.includes(search.trim()) && (!unit || item.baseUnit === unit) && (!stockStatus || (stockStatus === "low" ? lowInventoryItem(item) : stockStatus === "empty" ? emptyInventoryItem(item) : stockStatus === "untracked" ? !item.balance.trackingStartedAt : !!item.balance.trackingStartedAt && !emptyInventoryItem(item))));
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<InventoryStockItem | null>(null);
@@ -225,8 +230,8 @@ function StockPanel({ initialSelectedId, onDirtyChange, items, mutate, confirm }
   const [openingQuantity, setOpeningQuantity] = useState("0");
   const [openingValueAmount, setOpeningValueAmount] = useState("0");
   const [localError, setLocalError] = useState<string | null>(null);
-  const reset = () => { setDirty(false); setSelectedId(null); setThreshold(""); setEditing(null); setName(""); setBaseUnit("GRAM"); setConversions([{ label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }]); setPiecePackQuantity(""); setOpeningQuantity("0"); setOpeningValueAmount("0"); setLocalError(null); };
-  const startEdit = (item: InventoryStockItem) => { if (dirty && !window.confirm("تغییرات کالا ذخیره نشده است. ویرایش کالای دیگری را شروع می‌کنید؟")) return; setDirty(false); requestAnimationFrame(() => { nameInputRef.current?.focus(); nameInputRef.current?.scrollIntoView?.({ block: "center", behavior: "auto" }); }); setSelectedId(null); setThreshold(item.lowStockThreshold ?? ""); setEditing(item); setName(item.name); setBaseUnit(item.baseUnit); setConversions(item.conversions.map((conversion) => ({ id: conversion.id, label: conversion.label, baseQuantityPerPack: conversion.baseQuantityPerPack, isActive: conversion.isActive }))); setPiecePackQuantity(item.baseUnit === "PIECE" ? item.conversions.find((conversion) => conversion.isActive)?.baseQuantityPerPack ?? "" : ""); setOpeningQuantity(item.balance.quantityOnHand ?? "0"); setOpeningValueAmount(String(item.balance.carryingValueAmount ?? 0)); setLocalError(null); };
+  const reset = () => { setDirty(false); setSelectedId(null); setThreshold(""); setIsPackagingMaterial(false); setEditing(null); setName(""); setBaseUnit("GRAM"); setConversions([{ label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }]); setPiecePackQuantity(""); setOpeningQuantity("0"); setOpeningValueAmount("0"); setLocalError(null); };
+  const startEdit = (item: InventoryStockItem) => { if (dirty && !window.confirm("تغییرات کالا ذخیره نشده است. ویرایش کالای دیگری را شروع می‌کنید؟")) return; setDirty(false); requestAnimationFrame(() => { nameInputRef.current?.focus(); nameInputRef.current?.scrollIntoView?.({ block: "center", behavior: "auto" }); }); setSelectedId(null); setThreshold(item.lowStockThreshold ?? ""); setIsPackagingMaterial(item.isPackagingMaterial); setEditing(item); setName(item.name); setBaseUnit(item.baseUnit); setConversions(item.conversions.map((conversion) => ({ id: conversion.id, label: conversion.label, baseQuantityPerPack: conversion.baseQuantityPerPack, isActive: conversion.isActive }))); setPiecePackQuantity(item.baseUnit === "PIECE" ? item.conversions.find((conversion) => conversion.isActive)?.baseQuantityPerPack ?? "" : ""); setOpeningQuantity(item.balance.quantityOnHand ?? "0"); setOpeningValueAmount(String(item.balance.carryingValueAmount ?? 0)); setLocalError(null); };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if ((!editing || !editing.balance.trackingStartedAt) && (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(openingQuantity) || !/^\d+$/.test(openingValueAmount))) { setLocalError("مقدار آغازین و ارزش موجودی را به‌درستی وارد کنید."); return; }
@@ -243,7 +248,7 @@ function StockPanel({ initialSelectedId, onDirtyChange, items, mutate, confirm }
       : conversions.filter((entry) => entry.label.trim() || entry.baseQuantityPerPack.trim());
     if (packs.some((entry) => !entry.label.trim() || !/^\d+(?:\.\d{1,6})?$/.test(entry.baseQuantityPerPack))) { setLocalError("نام بسته‌بندی و مقدار تبدیل را وارد کنید."); return; }
     if (threshold.trim() && (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(threshold) || threshold.split(".")[0]!.length > 14)) { setLocalError("حد هشدار باید عدد نامنفی با حداکثر شش رقم اعشار باشد."); return; }
-    const body = { lowStockThreshold: threshold.trim() || null, name: name.trim(), category: editing?.category ?? "مواد اولیه", baseUnit, ...(!editing || !editing.balance.trackingStartedAt ? { openingQuantity, openingValueAmount: Number(openingValueAmount) } : {}), conversions: packs.map((entry) => ({ ...(entry.id ? { id: entry.id } : {}), label: entry.label.trim(), baseQuantityPerPack: entry.baseQuantityPerPack, isActive: entry.isActive })) };
+    const body = { lowStockThreshold: threshold.trim() || null, isPackagingMaterial, name: name.trim(), category: editing?.category ?? "مواد اولیه", baseUnit, ...(!editing || !editing.balance.trackingStartedAt ? { openingQuantity, openingValueAmount: Number(openingValueAmount) } : {}), conversions: packs.map((entry) => ({ ...(entry.id ? { id: entry.id } : {}), label: entry.label.trim(), baseQuantityPerPack: entry.baseQuantityPerPack, isActive: entry.isActive })) };
     const ok = await mutate(() => saveInventoryStockItem(editing?.id ?? null, { ...body, ...(editing ? { expectedVersion: editing.version } : {}) }));
     if (ok) reset();
   };
@@ -266,6 +271,7 @@ function StockPanel({ initialSelectedId, onDirtyChange, items, mutate, confirm }
           </div>)}
           <button className="secondary-button" type="button" onClick={() => { setDirty(true); setConversions((current) => [...current, { label: "", baseQuantityPerPack: "", isActive: true }]); }}>افزودن تبدیل</button>
         </fieldset>}
+        <label><span><input type="checkbox" checked={isPackagingMaterial} onChange={(event) => setIsPackagingMaterial(event.target.checked)} /> این کالا بسته‌بندی است</span><small>هزینه‌ی این کالا در دستورهای تهیه، برای گزارش هزینه‌ی بسته‌بندی جداگانه ثبت می‌شود. این تغییر روی سفارش‌های گذشته اثر ندارد.</small></label>
         <label><span>حد هشدار موجودی ({unitLabels[baseUnit]}) · اختیاری</span><input aria-label={`حد هشدار موجودی (${unitLabels[baseUnit]}) · اختیاری`} aria-describedby="stock-threshold-hint" inputMode="decimal" value={threshold} onChange={event => setThreshold(event.target.value)} placeholder="بدون هشدار" /><small id="stock-threshold-hint">خالی بگذارید تا هشدار کمبود غیرفعال باشد؛ موجودی برابر یا کمتر از این عدد هشدار می‌گیرد.</small></label>
         {localError && <p className="form-error" role="alert">{localError}</p>}
         <div className="inventory-actions"><button type="submit">{editing ? "ذخیره تغییرات" : "ثبت کالا"}</button>{editing && <button className="secondary-button" type="button" onClick={reset}>انصراف از ویرایش</button>}</div>
