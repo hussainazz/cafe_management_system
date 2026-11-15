@@ -222,10 +222,14 @@ cost-change/revenue-semantics follow-ups are fixed. The full API suite passes
 checks and 11 PostgreSQL/API regressions pass. Typechecks/builds and the
 responsive real-API report/simulation/CSV browser journey pass.
 
-Left: no Stage 19 implementation or local verification items remain. Live
-interpretation depends on release and verification of the Phase 1 catalog
-baseline; physical café-device acceptance remains a release check. Production
-remains untouched.
+Production release `cafe-20261115-aadc136` is deployed from commit
+`aadc1364f4bf3e03caf05d5ffe0d0336659d1a11`. All 53 migrations are current,
+the Phase 1 baseline contains 366 catalog price-history rows, and API/POS/web
+health, public menu, and POS release probes pass. The release and backup record
+is in `docs/planning/production-gates.md`.
+
+Left: no Stage 19 implementation or local verification items remain. Physical
+café-device acceptance remains a separate release check.
 
 ## Stage 0 Backlog — Scope And Domain Baseline
 
