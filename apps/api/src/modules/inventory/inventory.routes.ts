@@ -45,11 +45,22 @@ import {
   UpdateProductCostingRequestSchema,
   SalesChannelReportQuerySchema,
   SalesChannelReportResponseSchema,
+  SalesAnalyticsQuerySchema,
+  SalesAnalyticsResponseSchema,
+  CreatePricingExperimentRequestSchema,
+  PricingExperimentsResponseSchema,
+  PricingExperimentCreatedResponseSchema,
+  PricingExperimentReportResponseSchema,
+  PricingExperimentReportQuerySchema,
+  PricingScenarioRequestSchema,
+  PricingScenarioResponseSchema,
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { requireManagerRoute } from "../auth/authorization.js";
 import { grossProfitReport } from "./gross-profit.service.js";
 import { salesChannelReport } from "./sales-channel-report.service.js";
+import { salesAnalyticsReport } from "./sales-analytics.service.js";
+import { createPricingExperiment, listPricingExperiments, pricingExperimentReport, simulatePricingScenario } from "./pricing-experiment.service.js";
 import {
   archiveRecipe,
   archiveStockItem,
@@ -118,4 +129,20 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   app.get("/admin/inventory/pending-consumption", { ...manager, schema: { tags: ["Manager inventory"], headers, querystring: zodToJsonSchema(PendingConsumptionQuerySchema), response: { 200: zodToJsonSchema(PendingConsumptionsResponseSchema), ...errors } } }, async (request: any) => { const result = await listPendingConsumptions(app.prisma, parsed(PendingConsumptionQuerySchema, request.query)); return { data: { consumptions: result.consumptions }, meta: { requestId: request.id, page: result.page } }; });
   app.get("/admin/reports/gross-profit", { ...manager, schema: { tags: ["Manager inventory"], headers, querystring: zodToJsonSchema(GrossProfitReportQuerySchema), response: { 200: zodToJsonSchema(GrossProfitReportResponseSchema), ...errors } } }, async (request: any) => { const result = await grossProfitReport(app.prisma, parsed(GrossProfitReportQuerySchema, request.query)); return { data: result.data, meta: { requestId: request.id, range: { from: result.range.from.toISOString(), to: result.range.to.toISOString() } } }; });
   app.get("/admin/reports/sales-channels", { ...manager, schema: { tags: ["Manager inventory"], headers, querystring: zodToJsonSchema(SalesChannelReportQuerySchema), response: { 200: zodToJsonSchema(SalesChannelReportResponseSchema), ...errors } } }, async (request: any) => { const result = await salesChannelReport(app.prisma, parsed(SalesChannelReportQuerySchema, request.query)); return { data: result.data, meta: { requestId: request.id, range: { from: result.range.from.toISOString(), to: result.range.to.toISOString() } } }; });
+  app.get("/admin/reports/sales-analytics", { ...manager, schema: { tags: ["Manager inventory"], summary: "Read bounded sales, contribution, and peak-hour analytics", headers, querystring: zodToJsonSchema(SalesAnalyticsQuerySchema), response: { 200: zodToJsonSchema(SalesAnalyticsResponseSchema), ...errors } } }, async (request: any) => { const result = await salesAnalyticsReport(app.prisma, parsed(SalesAnalyticsQuerySchema, request.query)); return { data: result.data, meta: { requestId: request.id, range: { from: result.range.from.toISOString(), to: result.range.to.toISOString() }, intervalMinutes: result.intervalMinutes } }; });
+
+  app.get("/admin/pricing-experiments", { ...manager, schema: { tags: ["Manager inventory"], summary: "List recorded pricing experiments", headers, response: { 200: zodToJsonSchema(PricingExperimentsResponseSchema), ...errors } } }, async (request) => ({ data: await listPricingExperiments(app.prisma), meta: meta(request) }));
+  app.post("/admin/pricing-experiments", { ...manager, schema: { tags: ["Manager inventory"], summary: "Create analysis-only pricing experiment metadata", headers, body: zodToJsonSchema(CreatePricingExperimentRequestSchema), response: { 201: zodToJsonSchema(PricingExperimentCreatedResponseSchema), ...errors } } }, async (request: any, reply) => {
+    const experiment = await createPricingExperiment(app.prisma, request.authenticatedUser!, request.id, parsed(CreatePricingExperimentRequestSchema, request.body));
+    reply.code(201); return { data: { experiment }, meta: meta(request) };
+  });
+  app.get("/admin/pricing-experiments/:experimentId", { ...manager, schema: { tags: ["Manager inventory"], summary: "Evaluate before and after pricing experiment", headers, params: zodToJsonSchema(z.object({ experimentId: z.uuid() })), querystring: zodToJsonSchema(PricingExperimentReportQuerySchema), response: { 200: zodToJsonSchema(PricingExperimentReportResponseSchema), ...errors } } }, async (request: any) => {
+    const { experimentId } = z.object({ experimentId: z.uuid() }).parse(request.params);
+    const { comparisonDays } = parsed(PricingExperimentReportQuerySchema, request.query);
+    const result = await pricingExperimentReport(app.prisma, experimentId, comparisonDays);
+    return { data: result, meta: meta(request) };
+  });
+  app.post("/admin/reports/pricing-experiments/simulate", { ...manager, schema: { tags: ["Manager inventory"], summary: "Simulate pricing and volume sensitivity without catalog writes", headers, body: zodToJsonSchema(PricingScenarioRequestSchema), response: { 200: zodToJsonSchema(PricingScenarioResponseSchema), ...errors } } }, async (request: any) => ({
+    data: await simulatePricingScenario(app.prisma, parsed(PricingScenarioRequestSchema, request.body)), meta: meta(request),
+  }));
 };
