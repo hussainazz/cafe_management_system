@@ -12,6 +12,7 @@ datasource db {
 enum UserRole {
   MANAGER
   STAFF
+  DEVELOPER
 }
 
 enum OrderChannel {
