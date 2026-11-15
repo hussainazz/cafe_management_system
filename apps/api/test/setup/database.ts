@@ -2,6 +2,8 @@ import { Client } from "pg";
 import { beforeEach } from "vitest";
 
 const tableNames = [
+  "pricing_experiment_targets",
+  "pricing_experiments",
   "terminal_payment_attempts",
   "inventory_movements",
   "order_consumption_items",
@@ -23,6 +25,7 @@ const tableNames = [
   "stock_unit_conversions",
   "stock_items",
   "audit_logs",
+  "catalog_price_changes",
   "idempotency_records",
   "waiter_calls",
   "customer_table_visits",
