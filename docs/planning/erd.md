@@ -670,3 +670,16 @@ whole-order-payment cycle and records pending/posted/reconciled status.
 source and any compensation are retained. The full
 field-level constraints are in `database-constraints.md` and the accepted
 business rules are in `inventory-costing.md`.
+# Pricing experiments (ADR 0013)
+
+`PricingExperiment` stores Manager-authored analysis metadata: name, effective
+timestamp, expected evaluation days, comparison days, notes, creator, and
+creation timestamp. `PricingExperimentTarget` stores one product, product-option
+variant, or packaging target with immutable name/price inputs. Targets reference
+catalog identities with restrictive deletes; a nullable previous price remains
+unknown when history does not support it. Price-change event associations are
+resolved from `CatalogPriceChange` and never rewrite an order or catalog row.
+
+Experiment records do not represent orders, price commands, forecasts, or
+accounting entries. Their report derives sales from existing order and
+settlement snapshots and recognized consumption records.
