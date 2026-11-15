@@ -19,6 +19,11 @@ const item = {
 };
 const report = {
   data: {
+    soldProducts: [
+      { productId: "unknown", productName: "هزینه‌ی نامشخص", channel: "TABLE", soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 900 },
+      { productId: "loss", productName: "محصول زیان‌ده", channel: "TAKEAWAY", soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 100 },
+      { productId: "profit", productName: "محصول سودآور", channel: "TAKEAWAY", soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 500 },
+    ],
     totals: {
       netSalesAmount: 1500,
       theoreticalCogsAmount: null,
@@ -99,6 +104,12 @@ const report = {
       ],
     },
     pendingConsumptionCount: 1,
+    packagingEconomics: {
+      totals: { packagingChargeRevenueAmount: 4_000, knownMaterialCostAmount: 5_000, unclassifiedKnownCostAmount: 100, netRecoveryAmount: -1_000, recoveryRatePercent: "80.00", unattributedOrderLevelChargeRevenueAmount: 500, packagingRelevantProductRevenueAmount: 600, completeAttributionRevenueAmount: 400, incompleteAttributionRevenueAmount: 200, attributionCoveragePercent: "66.67", completeOrderItemCount: 1, incompleteOrderItemCount: 1, ambiguousOrderItemCount: 1, missingMaterialValuationCount: 0, theoreticalPackagingCostAmount: null, postedPackagingMovementAmount: null, packagingMovementVarianceAmount: null, packagingMovementReconciliationAvailable: false, isCostComplete: false },
+      products: [{ productId: "packaging-product", productName: "محصول بسته‌بندی", categoryId: null, categoryName: null, channel: "TAKEAWAY", options: [], soldQuantity: 1, soldWeightGrams: 0, productNetSalesAmount: 600, packagingChargeRevenueAmount: 0, nonPackagingKnownCostAmount: 300, packagingKnownCostAmount: 200, unclassifiedKnownCostAmount: 100, netRecoveryAmount: null, packagingRecoveryRatePercent: null, productContributionBeforePackagingAmount: null, combinedContributionAfterPackagingAmount: null, isCostComplete: false, isPackagingAttributionComplete: false }],
+      categories: [{ categoryId: null, categoryName: "نامشخص", channel: "TAKEAWAY", productNetSalesAmount: 600, packagingChargeRevenueAmount: 0, knownMaterialCostAmount: 200, unclassifiedKnownCostAmount: 100, netRecoveryAmount: null, recoveryRatePercent: null, isCostComplete: false }],
+      daily: [{ date: "2026-11-11", packagingChargeRevenueAmount: 4_000, knownMaterialCostAmount: 5_000, unclassifiedKnownCostAmount: 100, netRecoveryAmount: -1_000, isCostComplete: false, incompleteOrderItemCount: 1 }],
+    },
     inventoryConsumption: {
       amount: null,
       varianceAmount: null,
@@ -229,6 +240,21 @@ describe("inventory overview", () => {
 });
 
 describe("profit dashboard", () => {
+  it("shows packaging deficits, incomplete attribution, product/category tables and a daily trend", async () => {
+    vi.mocked(api.readGrossProfitReport).mockResolvedValue({
+      ok: true,
+      data: { ...report, data: { ...report.data, packagingEconomics: { ...report.data.packagingEconomics, products: [{ ...report.data.packagingEconomics.products[0]!, options: [{ optionId: "option-large", optionName: "گزینه‌ی بزرگ", quantity: 1 }] }] } } },
+    } as never);
+    render(<InventoryProfitPanel />);
+    await screen.findByRole("heading", { name: "اقتصاد بسته‌بندی" });
+    expect(screen.getByText("کسری بازیافت هزینه")).toBeTruthy();
+    expect(screen.getByText(/در سطح سفارش باقی مانده است/)).toBeTruthy();
+    expect(screen.getByRole("region", { name: "تفکیک بسته‌بندی بر اساس محصول" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "تفکیک بسته‌بندی بر اساس دسته‌بندی" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /روند روزانه درآمد بسته‌بندی/ })).toBeTruthy();
+    expect(screen.getByText("گزینه‌ی بزرگ")).toBeTruthy();
+  });
+
   it("shows the current discounted menu price while preserving historical net sales and updating with catalog changes", async () => {
     const catalogForPrice = (priceAmount: number) => ({
       categories: [{ id: "coffee-category", archivedAt: null }],
@@ -346,6 +372,7 @@ describe("profit dashboard", () => {
         ...report.data,
         totals: { ...report.data.totals, netSalesAmount: 2_030, knownCogsAmount: 800, theoreticalCogsAmount: null, grossProfitAmount: null, grossMarginPercent: null },
         products: productRows,
+        soldProducts: productRows,
         costCoverage: { ...report.data.costCoverage, totalEligibleNetSalesAmount: 2_030, completeCostRevenueAmount: 1_430, incompleteCostRevenueAmount: 600, coveragePercent: "70.44", incompleteCoveragePercent: "29.56", completeOrderItemCount: 2, incompleteOrderItemCount: 2, channels: [
           { channel: "TABLE", netSalesAmount: 710, completeCostRevenueAmount: 610, incompleteCostRevenueAmount: 100, coveragePercent: "85.92", completeOrderItemCount: 1, incompleteOrderItemCount: 1 },
           { channel: "TAKEAWAY", netSalesAmount: 1_320, completeCostRevenueAmount: 820, incompleteCostRevenueAmount: 500, coveragePercent: "62.12", completeOrderItemCount: 1, incompleteOrderItemCount: 1 },
@@ -383,7 +410,7 @@ describe("profit dashboard", () => {
     const packing = { ...report.data.products[2]!, productId: "packing", productName: "بسته‌بندی", channel: "TAKEAWAY" as const, soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 250 };
     vi.mocked(api.readGrossProfitReport).mockResolvedValue({
       ok: true,
-      data: { ...report, data: { ...report.data, products: [ordinary, legacy, packing], totals: { ...report.data.totals, netSalesAmount: 1_750 } } },
+      data: { ...report, data: { ...report.data, products: [ordinary, legacy, packing], soldProducts: [ordinary, legacy, packing], totals: { ...report.data.totals, netSalesAmount: 1_750 } } },
     } as never);
     const catalog = {
       categories: [{ id: "coffee-category", archivedAt: null }],
@@ -466,6 +493,7 @@ describe("profit dashboard", () => {
       data: { ...report, data: {
         ...report.data,
         products: [{ ...report.data.products[0]!, productId: "before-range", productName: "اولویت بازه‌ی قبلی", netSalesAmount: 1_000, completeCostRevenueAmount: 800, incompleteCostRevenueAmount: 200, coveragePercent: "80.00" }],
+        soldProducts: [{ productId: "before-range", productName: "اولویت بازه‌ی قبلی", channel: "TABLE", soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 1_000 }],
         costCoverage: { ...report.data.costCoverage, totalEligibleNetSalesAmount: 1_000, completeCostRevenueAmount: 800, incompleteCostRevenueAmount: 200, coveragePercent: "80.00", incompleteCoveragePercent: "20.00", channels: [
           { channel: "TABLE", netSalesAmount: 1_000, completeCostRevenueAmount: 800, incompleteCostRevenueAmount: 200, coveragePercent: "80.00", completeOrderItemCount: 1, incompleteOrderItemCount: 1 },
           { channel: "TAKEAWAY", netSalesAmount: 0, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 0, coveragePercent: null, completeOrderItemCount: 0, incompleteOrderItemCount: 0 },
@@ -477,6 +505,7 @@ describe("profit dashboard", () => {
       data: { ...report, data: {
         ...report.data,
         products: [{ ...report.data.products[0]!, productId: "after-range", productName: "اولویت بازه‌ی جدید", netSalesAmount: 2_000, completeCostRevenueAmount: 500, incompleteCostRevenueAmount: 1_500, coveragePercent: "25.00" }],
+        soldProducts: [{ productId: "after-range", productName: "اولویت بازه‌ی جدید", channel: "TAKEAWAY", soldQuantity: 2, soldWeightGrams: 0, netSalesAmount: 2_000 }],
         costCoverage: { ...report.data.costCoverage, totalEligibleNetSalesAmount: 2_000, completeCostRevenueAmount: 500, incompleteCostRevenueAmount: 1_500, coveragePercent: "25.00", incompleteCoveragePercent: "75.00", channels: [
           { channel: "TABLE", netSalesAmount: 1_000, completeCostRevenueAmount: 500, incompleteCostRevenueAmount: 500, coveragePercent: "50.00", completeOrderItemCount: 1, incompleteOrderItemCount: 1 },
           { channel: "TAKEAWAY", netSalesAmount: 1_000, completeCostRevenueAmount: 0, incompleteCostRevenueAmount: 1_000, coveragePercent: "0.00", completeOrderItemCount: 0, incompleteOrderItemCount: 1 },
