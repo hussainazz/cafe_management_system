@@ -288,7 +288,27 @@ function toCreatedOrder(order: {
     state: order.state as "OPEN" | "CLOSED" | "DELETED",
     paymentStatus: order.paymentStatus as "UNPAID" | "PARTIALLY_PAID" | "PAID",
     createdAt: order.createdAt.toISOString(),
-    items: order.items.map((item) => ({ ...item, options: item.options })),
+    items: order.items.map((item) => ({
+      id: item.id,
+      productId: item.productId,
+      productNameSnapshot: item.productNameSnapshot,
+      basePriceSnapshot: item.basePriceSnapshot,
+      pricingModeSnapshot: item.pricingModeSnapshot,
+      weightGrams: item.weightGrams,
+      quantity: item.quantity,
+      note: item.note,
+      discountKind: item.discountKind,
+      discountValue: item.discountValue,
+      discountAmount: item.discountAmount,
+      discountReason: item.discountReason,
+      lineTotalAmount: item.lineTotalAmount,
+      options: item.options.map((option) => ({
+        optionId: option.optionId,
+        optionNameSnapshot: option.optionNameSnapshot,
+        priceSnapshot: option.priceSnapshot,
+        quantity: option.quantity,
+      })),
+    })),
   } as CreatedOrder;
 }
 
@@ -429,6 +449,7 @@ export async function createOrder(
           items: {
             create: preparedItems.map((item) => ({
               ...item,
+              enteredAt: createdAt,
               options: { create: item.options },
             })),
           },
@@ -783,7 +804,10 @@ export async function updateOrder(
         const key = preparationKey(item);
         existingIds.set(key, [...(existingIds.get(key) ?? []), item.id]);
       }
+      const previousEnteredAt = new Map(order.items.map((item) => [item.id, item.enteredAt]));
       const preparedIds = prepared.map((item) => existingIds.get(preparationKey(item))?.shift() ?? randomUUID());
+      const newItemsEnteredAt = new Date();
+      const enteredAtById = new Map(preparedIds.map((id) => [id, previousEnteredAt.has(id) ? previousEnteredAt.get(id)! : newItemsEnteredAt]));
       if (input.items) {
         // Option snapshots are dependent rows with a restrictive foreign key.
         // Remove them before replacing unpaid order items as one transaction.
@@ -793,7 +817,7 @@ export async function updateOrder(
         await transaction.orderItemCostingSnapshot.deleteMany({ where: { orderItem: { orderId } } });
         await transaction.orderItem.deleteMany({ where: { orderId } });
       }
-      await transaction.orderItem.createMany({ data: prepared.map(({ options, ...item }, index) => ({ ...item, id: preparedIds[index]!, orderId })) });
+      await transaction.orderItem.createMany({ data: prepared.map(({ options, ...item }, index) => ({ ...item, id: preparedIds[index]!, orderId, enteredAt: enteredAtById.get(preparedIds[index]!)! })) });
       for (const item of prepared) {
         const created = await transaction.orderItem.findFirstOrThrow({ where: { orderId, displayOrder: item.displayOrder }, select: { id: true } });
         await transaction.orderItemOption.createMany({ data: item.options.map((option) => ({ ...option, orderItemId: created.id })) });
