@@ -73,8 +73,11 @@ const normalizeInventoryQuantity = (value: string) => {
   return `${whole}.${fraction.padEnd(6, "0")}`;
 };
 
-export function InventoryWorkspace({ catalog, turnoverEnabled = false }: { catalog: ManagerCatalog; turnoverEnabled?: boolean }) {
-  const [view, setView] = useRecoveryState<View>("inventory-view", "purchases");
+const managerInventoryViews = new Set<View>(["purchases", "overview", "stock", "recipes", "preparations", "counts", "history"]);
+
+export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "MANAGER" }: { catalog: ManagerCatalog; turnoverEnabled?: boolean; role?: "MANAGER" | "STAFF" | "DEVELOPER" }) {
+  const [view, setView] = useRecoveryState<View>("inventory-view", role === "DEVELOPER" ? "sales" : "purchases");
+  const activeView: View = role === "MANAGER" && !managerInventoryViews.has(view) ? "purchases" : view;
   const [stockSelection, setStockSelection] = useState<string | null>(null);
   const [costingProductSelection, setCostingProductSelection] = useState<string | undefined>(undefined);
   const [stockItems, setStockItems] = useState<InventoryStockItem[]>([]);
@@ -95,6 +98,7 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false }: { catal
   const dirtyPanel = useRef(false);
   const markDirty = useCallback((dirty: boolean) => { dirtyPanel.current = dirty; }, []);
   const navigate = (next: View) => {
+    if (role === "MANAGER" && !managerInventoryViews.has(next)) return;
     if (next === view) return;
     if (dirtyPanel.current && !window.confirm("تغییرات این بخش ذخیره نشده است. بدون ذخیره از این بخش خارج می‌شوید؟")) return;
     dirtyPanel.current = false; setError(null); setSuccess(false); setView(next);
@@ -187,23 +191,23 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false }: { catal
         {([
           ["purchases", "خریدها"], ["overview", "نمای کلی"], ["stock", "اقلام موجودی"], ["recipes", "دستور تهیه و هزینه"],
           ["preparations", "دستورهای مشترک"], ["counts", "شمارش انبار"], ["history", "گردش موجودی"], ["sales", "فروش کانال‌ها"], ["analytics", "اوج و مشارکت"], ["profit", "سود ناخالص"], ["pricing-experiments", "آزمایش قیمت‌گذاری"],
-        ] as const).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={view === id ? "is-active" : ""} aria-pressed={view === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
+        ] as const).filter(([id]) => role !== "MANAGER" || managerInventoryViews.has(id)).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={activeView === id ? "is-active" : ""} aria-pressed={activeView === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
       </nav>
       {success && <p className="inventory-success" role="status">تغییرات ثبت شد.</p>}
       {error && !confirm && <p className="form-error" role="alert">{error}</p>}
-      {readErrors[view] && !error && !confirm && <p className="form-error" role="alert">{readErrors[view]} <button type="button" disabled={loading || busy} onClick={() => void reload()}>بارگذاری دوباره</button></p>}
-      {loading ? <div className="inventory-loading" role="status"><span>در حال بارگذاری اطلاعات موجودی…</span><div aria-hidden="true" /></div> : <div id="inventory-active-panel" role="region" aria-labelledby={`inventory-view-${view}`}>
-        {view === "overview" && !readErrors.overview && <InventoryOverview items={stockItems} pending={pending} pendingHasMore={pendingHasMore} onNavigate={navigate} onOpenStock={id => { setStockSelection(id || null); navigate("stock"); }} />}
-        {view === "profit" && <InventoryProfitPanel catalog={catalog} onInspectProduct={(productId) => { setCostingProductSelection(productId); navigate("recipes"); }} />}
-        {view === "sales" && <InventorySalesChannelsPanel />}
-        {view === "analytics" && <InventorySalesAnalytics catalog={catalog} />}
-        {view === "pricing-experiments" && <InventoryPricingExperiments catalog={catalog} />}
-        {view === "stock" && <StockPanel initialSelectedId={stockSelection} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} />}
-        {view === "purchases" && !readErrors.purchases && <PurchasePanel onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
-        {view === "preparations" && !readErrors.preparations && <InventoryPreparations items={stockItems} recipes={recipes} mutate={mutate} onDirtyChange={markDirty} />}
-        {view === "recipes" && <ProductOptionRecipePanel {...(costingProductSelection ? { initialProductId: costingProductSelection } : {})} onDirtyChange={markDirty} catalog={catalog} items={stockItems} recipes={recipes} mutate={mutate} />}
-        {view === "counts" && <CountPanel onDirtyChange={markDirty} items={stockItems} pending={pending} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
-        {view === "history" && <HistoryPanel pending={pending} items={stockItems} refreshVersion={historyRefreshVersion} />}
+      {readErrors[activeView] && !error && !confirm && <p className="form-error" role="alert">{readErrors[activeView]} <button type="button" disabled={loading || busy} onClick={() => void reload()}>بارگذاری دوباره</button></p>}
+      {loading ? <div className="inventory-loading" role="status"><span>در حال دریافت اطلاعات موجودی…</span><div aria-hidden="true" /></div> : <div id="inventory-active-panel" role="region" aria-labelledby={`inventory-view-${activeView}`}>
+        {activeView === "overview" && !readErrors.overview && <InventoryOverview items={stockItems} pending={pending} pendingHasMore={pendingHasMore} onNavigate={navigate} onOpenStock={id => { setStockSelection(id || null); navigate("stock"); }} />}
+        {activeView === "profit" && <InventoryProfitPanel catalog={catalog} onInspectProduct={(productId) => { setCostingProductSelection(productId); navigate("recipes"); }} />}
+        {activeView === "sales" && <InventorySalesChannelsPanel />}
+        {activeView === "analytics" && <InventorySalesAnalytics catalog={catalog} />}
+        {activeView === "pricing-experiments" && <InventoryPricingExperiments catalog={catalog} />}
+        {activeView === "stock" && <StockPanel initialSelectedId={stockSelection} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} />}
+        {activeView === "purchases" && !readErrors.purchases && <PurchasePanel onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
+        {activeView === "preparations" && !readErrors.preparations && <InventoryPreparations items={stockItems} recipes={recipes} mutate={mutate} onDirtyChange={markDirty} />}
+        {activeView === "recipes" && <ProductOptionRecipePanel {...(costingProductSelection ? { initialProductId: costingProductSelection } : {})} onDirtyChange={markDirty} catalog={catalog} items={stockItems} recipes={recipes} mutate={mutate} />}
+        {activeView === "counts" && <CountPanel onDirtyChange={markDirty} items={stockItems} pending={pending} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
+        {activeView === "history" && <HistoryPanel pending={pending} items={stockItems} refreshVersion={historyRefreshVersion} />}
       </div>}
       {confirm && <div className="manager-dialog-backdrop" role="presentation"><section className="manager-dialog" role="alertdialog" aria-modal="true" aria-labelledby="inventory-confirm-title" aria-describedby="inventory-confirm-detail" onKeyDown={handleConfirmKeyDown}><h2 id="inventory-confirm-title">{confirm.title}</h2><p id="inventory-confirm-detail">{confirm.detail}</p>{confirm.summary && <ul className="inventory-confirm-summary">{confirm.summary.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)}</ul>}{error && <p className="form-error" role="alert">{error}</p>}<div className="inventory-actions"><button className={confirm.danger ? "danger-button" : undefined} type="button" disabled={busy} onClick={() => { void confirm.run().then((ok) => { if (ok) closeConfirm(); }); }}>{confirm.actionLabel}</button><button ref={confirmCancelRef} className="secondary-button" type="button" disabled={busy} onClick={closeConfirm}>بازگشت</button></div></section></div>}
     </section>
