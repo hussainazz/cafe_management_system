@@ -1,4 +1,4 @@
-## Active delivery — Developer Manager parity and exclusive analysis views (16 November 2026)
+## Completed delivery — Developer Manager parity and exclusive analysis views (16 November 2026)
 
 - [x] Record the updated scope: Developer receives all Manager capabilities;
   Manager is excluded from inventory overview, sales-channel, peak/contribution,
