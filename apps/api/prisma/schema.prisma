@@ -139,6 +139,7 @@ enum CatalogPriceChangeSource {
   POS_OPTION_CREATE
   POS_OPTION_UPDATE
   POS_PRODUCT_DISCOUNT
+  CATALOG_PRICE_MIGRATION
 }
 
 enum PricingExperimentTargetKind {
