@@ -51,7 +51,7 @@
 - [x] Sold-products API now derives quantity and realized revenue from fully paid order items by final active settlement date, independent of inventory consumption records. It displays the current product name by stable product ID. Cost and stock-turnover reports still use their historical snapshots.
 - Left: Add regression coverage for missing recognition records, renamed products, reversed settlements, and Tehran date boundaries. The implementation is included in production release `cafe-20261115-aadc136`; the follow-up coverage remains open.
 
-## Active delivery — Phase 1 packaging economics and price history (15 November 2026)
+## Completed delivery — Phase 1 packaging economics and price history (16 November 2026)
 
 - [x] Preserve canonical gross profit while separating packaging revenue,
   attributable material cost, recovery, and completeness.
@@ -69,6 +69,9 @@
   duplicate product lines, option variants, largest-remainder rounding, zero
   packaging cost, Tehran date boundaries, invalid cursors, reversals, and
   Manager authorization; run affected suites and typechecks.
+- [x] Set every active category-specific packaging charge to 20,000 Toman in
+  production, record the migration as its own price-history source, and preserve
+  historical order snapshots.
 
 Verification: `pnpm --filter @cafe/api test` passed with the new migration
 applied to the isolated `cafe_management_test` database. The updated admin and
@@ -82,6 +85,10 @@ Production release `cafe-20261115-aadc136` applied the migration and verified
 366 catalog price-history baseline rows before any later price change. Inventory
 movement/count reconciliation remains unavailable because those records do not
 preserve component roles; the report states this explicitly.
+
+Left: no Phase 1 implementation, verification, or authorized catalog price
+change remains. Physical café-device and live screen-reader acceptance remain
+separate.
 
 ## Completed delivery — Phase 2 sales, contribution and peak-hour analytics (15 November 2026)
 
@@ -207,6 +214,40 @@ data or deployment was changed.
   `/opt/cafe-menu-release-backups/rollback-before-cafe-20261115-aadc136.tar.gz`
   (SHA-256 `721d0cdf5a298fb31bdc7799ebcaa5e0f08f3d3f59c6975c5eeb1e8bd2e3f249`).
 - Left: physical café-device acceptance remains a release gate.
+
+## Production release — POS finance refinements and packaging price (16 November 2026)
+
+- Released `main` commit `89975fc81f39c171697e2b8e67c5ad07c67bd0f3` as
+  `cafe-20261116-89975fc`; each changed file was committed and pushed
+  separately. The coordinated API, contracts, POS, and web artifact SHA-256 is
+  `93ad618c1ad5ffe86bb1f3c4b5cd1957639b2b637476a2bbda405d1c75afe154`.
+- Applied `20261116160000_catalog_price_migration_source` and
+  `20261116170000_packaging_charge_20000` after confirming they were the only
+  pending migrations and validating the pre-release backup. Production reports
+  all 56 migrations current.
+- All 16 active category-specific `PACKING` products now cost 20,000 Toman.
+  The migration recorded 16 `CATALOG_PRICE_MIGRATION` history events and 16
+  matching audit entries; it did not alter historical order snapshots. New
+  source categories and the menu seeder now use the same 20,000 Toman default.
+- API liveness/readiness, direct public-menu API, web public-menu proxy/page,
+  POS page, and public `/pos/release` return HTTP 200. The unavailable-menu
+  fallback is absent. `/pos/release` reports `cafe-20261116-89975fc` with
+  `Cache-Control: no-store, max-age=0`. API, POS, and web services are active
+  with zero automatic restarts.
+- The PostgreSQL 17.11 pre-release backup passed `pg_restore --list` with 420
+  entries: `/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261116-89975fc.dump`
+  (SHA-256 `2e1e7ced40ea438cc334a8aea1ea50690ad15b16b4701ad577dd57f81a60b686`).
+  The verified rollback archive is
+  `/opt/cafe-menu-release-backups/rollback-before-cafe-20261116-89975fc.tar.gz`
+  (SHA-256 `81e722bdc60f3af5de41d2f91447000702a18319a28242253b23345beeb511da`).
+- VPS product-image storage remains at 32 files / 5,759,237 bytes. No
+  environment file or product-image data was transferred. Next.js development,
+  cache, standalone, types, turbopack output, and source maps were excluded.
+- Local API tests and contracts tests pass; API, contracts, POS, and web
+  typechecks and API/POS/web production builds pass. A test-database migration
+  rehearsal verified no-discount, fixed-discount, and percentage-discount
+  packaging price history and audit records. Live POS interaction and
+  screen-reader acceptance were not run.
 
 ## Active delivery — Privacy-safe public-menu traffic analytics (13 November 2026)
 
