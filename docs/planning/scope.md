@@ -12,7 +12,7 @@ This document owns product scope, business rules, architecture boundaries, and f
 
 ## Executive Summary
 
-The project is an integrated café operations platform with two applications: a public digital menu and one shared POS application. Staff, Manager, and restricted Developer users sign in to the same POS and receive panels and actions according to their server-enforced role. Both applications share one backend, one PostgreSQL database, and one set of business rules.
+The project is an integrated café operations platform with two applications: a public digital menu and one shared POS application. Staff, Manager, and Developer users sign in to the same POS and receive panels and actions according to their server-enforced role. Developer has every Manager capability plus five exclusive inventory analysis views; Manager cannot access those views. Both applications share one backend, one PostgreSQL database, and one set of business rules.
 
 The v1 system is intentionally simple: staff create every order; customers can browse the QR menu but cannot send an order. This lets the first production release concentrate on reliable POS operation, correct prices and payments, and a clean audit trail before customer self-ordering is introduced.
 
@@ -35,9 +35,10 @@ v1 success criteria:
 
 ## Product Boundaries
 
-Inventory costing is available to Managers before stock turnover is enabled:
-they can record purchases, configure recipes, calculate product costs, and view
-gross-profit reports. A Manager can permanently enable stock turnover from Café
+Inventory costing operations are available to Managers and Developers before
+stock turnover is enabled: they can record purchases, configure recipes, and
+calculate product costs. Gross-profit reporting is Developer-only. A Manager
+or Developer can permanently enable stock turnover from Café
 Settings. Before that point, paid orders still receive theoretical cost
 snapshots for gross-profit reporting, but they do not create stock deductions or
 pending-consumption work. Only orders created after turnover is enabled are
@@ -52,8 +53,8 @@ wrapped cookie.
 | Area           | Baseline decision                                                                                                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                                                                                                                     |
-| Roles          | Manager, Staff, and the restricted Developer inventory role use one POS application. Manager-only capabilities remain authorized by endpoint; Developer is limited to inventory workspace capabilities and cannot use other Manager operations. |
-| Customers      | Customers browse the generic menu anonymously. A table-scoped QR credential asks for a phone number on first use and creates a short table visit that authorizes only a waiter-call; OTP verification is intentionally deferred to a later phase. When Staff or Manager explicitly holds an eligible table occupied, that table alone may temporarily bypass customer phone collection for its current QR context; returning it to available clears the bypass. Collected phones are unverified and must not be used for marketing until OTP/consent work is added. There are no order, payment, tracking, loyalty, or marketing capabilities. |
+| Roles          | Manager, Staff, and Developer use one POS application. Developer has all Manager capabilities plus exclusive access to inventory overview, sales-channel, peak/contribution, gross-profit, and pricing-experiment views. Manager cannot access those five analysis views. |
+| Customers      | Customers browse the generic menu anonymously. A table-scoped QR credential asks for a phone number on first use and creates a short table visit that authorizes only a waiter-call; OTP verification is intentionally deferred to a later phase. When Staff, Manager, or Developer explicitly holds an eligible table occupied, that table alone may temporarily bypass customer phone collection for its current QR context; returning it to available clears the bypass. Collected phones are unverified and must not be used for marketing until OTP/consent work is added. There are no order, payment, tracking, loyalty, or marketing capabilities. |
 | Currency       | Every amount is an integer count of **Toman**. Floating-point money is forbidden. Verified terminal-boundary conversion is allowed only under ADR 0012; accounting remains integer Toman.                                                                                                                                |
 | Time           | Store timestamps in UTC. Display timestamps and calculate calendar-day reports in `Asia/Tehran`.                                                                                                                                       |
 | Ordering       | Every v1 order is created by a logged-in Staff user through POS.                                                                                                                                                                       |
@@ -67,7 +68,7 @@ User-facing surfaces:
 | Surface      | Primary user     | v1 purpose                                                                                                                                                                                                                                                  |
 | ------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Digital Menu | Customer         | Browse the menu, categories, item details, priced item options, current availability, and final Toman prices; from a table-scoped QR context, send a waiter-call. Preparation timing remains internal to POS. No cart submission, payment, or order tracking. |
-| Shared POS   | Staff, Manager, Developer | Staff and Managers use the table dashboard for orders, payments, waiter-calls, deletion, and receipts. Developer users enter the inventory workspace only. Staff and Managers can manage catalog/prices and catalog sale discounts, browse payment history, and correct or reverse settlements. Accounting summaries, inventory costing, stock counts, gross-profit reports, Staff-account, settings, and audit capabilities remain Manager-only except for the inventory capabilities explicitly assigned to Developer. |
+| Shared POS   | Staff, Manager, Developer | Staff, Manager, and Developer use the shared operational POS according to their permissions. Developer has the full Manager workspace and server-authorized capabilities, plus five exclusive inventory analysis views. Manager retains inventory operations but cannot open those analysis views. |
 
 Explicit non-goals for v1:
 
@@ -95,32 +96,32 @@ acceptance gates are tracked in [`current-left.md`](../current-left.md).
 
 ## Actors, Permissions, And Workflows
 
-The POS has three roles. Staff and Manager use the same operational table dashboard; Developer signs into the same POS shell but is restricted to inventory. Manager receives other additional server-authorized capabilities; this is not a separate application or a second implementation of POS business rules.
+The POS has three roles. Staff, Manager, and Developer use the same operational table dashboard. Developer receives all Manager capabilities and five additional inventory analysis views. This is not a separate application or a second implementation of POS business rules.
 
 | Capability                                                                  | Staff | Manager | Developer |
 | --------------------------------------------------------------------------- | :---: | :-----: | :-------: |
-| Sign in and use POS                                                         |  Yes  |   Yes   |
-| Create and edit `OPEN` orders before they are deleted                       |  Yes  |   Yes   |
-| Assign or move a table on an open order                                     |  Yes  |   Yes   |
-| Record a cash, card-terminal, or card-to-card transfer settlement           |  Yes  |   Yes   |
-| Delete an order, including an already-paid order, without a required reason |  Yes  |   Yes   |
-| Print/reprint receipts                                                      |  Yes  |   Yes   |
-| View and handle active waiter-calls in the shared table dashboard           |  Yes  |   Yes   |
-| Browse payment history                                                     |  Yes  |   Yes   |
-| View the accounting summary for the applied payment-history filter          |  No   |   Yes   |
+| Sign in and use POS                                                         |  Yes  |   Yes   |   Yes   |
+| Create and edit `OPEN` orders before they are deleted                       |  Yes  |   Yes   |   Yes   |
+| Assign or move a table on an open order                                     |  Yes  |   Yes   |   Yes   |
+| Record a cash, card-terminal, or card-to-card transfer settlement           |  Yes  |   Yes   |   Yes   |
+| Delete an order, including an already-paid order, without a required reason |  Yes  |   Yes   |   Yes   |
+| Print/reprint receipts                                                      |  Yes  |   Yes   |   Yes   |
+| View and handle active waiter-calls in the shared table dashboard           |  Yes  |   Yes   |   Yes   |
+| Browse payment history                                                     |  Yes  |   Yes   |   Yes   |
+| View the accounting summary for the applied payment-history filter          |  No   |   Yes   |   Yes   |
 | Manage stock items, purchases, recipes, costing, and physical counts         |  No   |   Yes   |    Yes    |
-| View inventory history, pending consumption, and gross-profit reports       |  No   |   Yes   |    Yes    |
-| View inventory sales, analytics, and pricing-experiment tabs                 |  No   |   No    |    Yes    |
-| Apply an item-level or order-level discount without a required reason while permitted |  Yes  |  Yes  |
-| Configure or remove a catalog product sale discount                          |  Yes  |   Yes   |
-| Manage categories, products, options, images, prices, and availability      |  Yes  |   Yes   |
-| Manage Staff accounts and role assignment                                   |  No   |   Yes   |
-| Change café settings, including the settlement-reversal reason policy       |  No   |   Yes   |
-| View full audit history                                                      |  No   |   Yes   |
-| Correct or reverse a settlement                                             |  Yes  |   Yes   |
-| Change whether settlement reversals require a reason                         |  No   |   Yes   |
+| View inventory history and pending consumption                              |  No   |   Yes   |    Yes    |
+| View inventory overview, sales-channel, peak/contribution, gross-profit, and pricing-experiment views |  No | No | Yes |
+| Apply an item-level or order-level discount without a required reason while permitted |  Yes  |  Yes  |  Yes  |
+| Configure or remove a catalog product sale discount                          |  Yes  |   Yes   |  Yes  |
+| Manage categories, products, options, images, prices, and availability      |  Yes  |   Yes   |  Yes  |
+| Manage Staff accounts and role assignment                                   |  No   |   Yes   |  Yes  |
+| Change café settings, including the settlement-reversal reason policy       |  No   |   Yes   |  Yes  |
+| View full audit history                                                      |  No   |   Yes   |  Yes  |
+| Correct or reverse a settlement                                             |  Yes  |   Yes   |  Yes  |
+| Change whether settlement reversals require a reason                         |  No   |   Yes   |  Yes  |
 
-Developer's inventory workspace includes sales, analytics, gross-profit, and pricing-experiment views. Manager keeps only خریدها, نمای کلی, اقلام موجودی, دستور تهیه و هزینه, دستورهای مشترک, شمارش انبار, and گردش موجودی in the inventory workspace. Authorization is enforced by routes and service methods, not only by hiding buttons; all non-inventory Manager-only routes continue to reject Developer users.
+Developer receives every Manager workspace and capability, including orders, catalog, payments, accounting, settings, staff administration, audit, and inventory operations. Developer additionally has exclusive access to نمای کلی, فروش کانال‌ها, اوج و مشارکت, سود ناخالص, and آزمایش قیمت‌گذاری in the inventory workspace. Manager retains the inventory management sections but cannot open those five views in the interface; dedicated analysis-report and pricing-experiment API routes enforce the role boundary server-side. Authorization is enforced by routes and service methods, not only by hiding buttons.
 
 v1 staff-created order flow:
 
@@ -157,7 +158,7 @@ Corrections and exceptional flows:
 
 - The server recalculates totals; the POS never supplies an authoritative total.
 - A same-key retry returns the original order/payment result rather than creating another record.
-- Each delete action is audited with its actor and timestamp. A deletion reason is optional; Staff and Manager have the same authority to delete an order at any payment status. Staff and Manager may reverse an entire posted settlement; a reason is required only when the Manager-controlled setting `settlementReversalReasonRequired` is enabled. It defaults to off. Settlement corrections never require a reason. Posted tenders and allocations are never edited.
+- Each delete action is audited with its actor and timestamp. A deletion reason is optional; Staff, Manager, and Developer have the same authority to delete an order at any payment status. All three roles may reverse an entire posted settlement; a reason is required only when the Manager/Developer-controlled setting `settlementReversalReasonRequired` is enabled. It defaults to off. Settlement corrections never require a reason. Posted tenders and allocations are never edited.
 - A stale POS update receives a clear conflict response rather than silently overwriting a newer edit.
 
 ## MVP V1 Definition
@@ -171,11 +172,11 @@ Corrections and exceptional flows:
 | Table operations       | Assign, transfer, view active orders with estimated table release time, mark tables occupied or available, receive QR-scan occupancy reminders, and acknowledge/resolve eligible-table waiter-calls by opening the highlighted table in the shared dashboard. No order or table split/merge. |
 | Customer menu          | Mobile-first QR menu for browse/search/category filtering, product explanations, priced item options, current availability, final Toman price, and a table-scoped waiter-call action. Product explanations appear in the item detail popup after its options. Preparation deadlines are not displayed to customers. No checkout or order submission.                                                                                                                                                                                                                              |
 | Payments               | Per-payer settlements for selected item quantities, each with one or more cash, manual or verified SEP card-terminal, or card-to-card transfer tenders; split tender, item allocation, total-paid calculation, optional card-to-card transfer references, and audit trail. No online payments.                                                                                                                                                  |
-| Discounts              | Staff and Managers may configure or remove a fixed or percentage sale discount on a catalog product. They may also apply a fixed or percentage discount to an order item or whole order without a required reason while settlement immutability permits it. A reason may be recorded optionally. There are no taxes or service charges. |
+| Discounts              | Managers and Developers may configure or remove a fixed or percentage sale discount on a catalog product. Staff, Managers, and Developers may apply a fixed or percentage discount to an order item or whole order without a required reason while settlement immutability permits it. A reason may be recorded optionally. There are no taxes or service charges. |
 | Receipts               | Print-friendly HTML has two variants: a concise bar ticket with the order number, local time, table/takeaway context, item quantities, selected options, and notes; and a detailed customer receipt (whole-order or payer-settlement) with item snapshots, Toman totals, tender summary where applicable, order number, and `Asia/Tehran` display time. The bar ticket excludes prices, discounts, totals, and payment details. |
-| Reports                | One Manager-only accounting summary bound to the applied payment-history filter. It defaults to the current `Asia/Tehran` calendar day and supports the same bounded Persian-calendar date/time window. The report window does not limit storage retention.                                                                                                                                                                        |
-| Staff and Manager capabilities | Role-gated panels/actions in the shared POS for payment history, catalog and price management, catalog sale discounts, settlement corrections, and settlement reversals. |
-| Manager capabilities   | Role-gated panels inside the shared POS for accounting summaries, inventory, product preparation deadlines, an optional café-wide seating limit, availability, Staff accounts, settings, the daily report, and audit log.                                                                                                                                                                                                                |
+| Reports                | One Manager-and-Developer accounting summary bound to the applied payment-history filter. It defaults to the current `Asia/Tehran` calendar day and supports the same bounded Persian-calendar date/time window. The report window does not limit storage retention.                                                                                                                                                                        |
+| Staff, Manager, and Developer capabilities | Role-gated panels/actions in the shared POS for payment history, catalog and price management, catalog sale discounts, settlement corrections, and settlement reversals. |
+| Manager capabilities   | Role-gated panels inside the shared POS for accounting summaries, inventory management, product preparation deadlines, an optional café-wide seating limit, availability, Staff accounts, settings, the daily report, and audit log. Developer receives these same capabilities plus the exclusive inventory analysis views. |
 | Quality and operations | Critical tests, OpenAPI documentation, Docker deployment, HTTPS, backups, restore test, monitoring, and release rollback/forward-fix.                                                                                                                                                                                                                                                                                           |
 
 Pilot acceptance scenarios:
@@ -196,13 +197,13 @@ Pilot acceptance scenarios:
 
 | Module     | Owns                                                                                                                          |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Identity   | Users, credentials, sessions, Manager/Staff role, permissions, authentication events.                                         |
+| Identity   | Users, credentials, sessions, Manager/Staff/Developer roles, permissions, authentication events.                                         |
 | Catalog    | Categories, products and their customer-facing explanatory notes, images, option groups/options, availability, preparation deadlines, and display order.                  |
 | Ordering   | Orders, order items, first-entry timestamps, price/preparation snapshots, notes, channel, lifecycle state, payment status, and idempotency.           |
 | Tables     | Physical-table order and labels, seating limits, waiter-call eligibility, current occupancy state, QR-scan occupancy reminders, active table estimates, assignment/clearing of active orders, table QR credentials, and waiter-call lifecycle. |
 | Payments   | Settlements, tender entries, item-quantity allocations, settlement reversal policy, Tehran-business-day sequential order display numbering, and balance calculation. |
 | Inventory  | Stock items, explicit purchase-pack conversions, received purchases, moving-average valuations, recipes, product costing, append-only movements, physical counts, and pending order consumption; see [`inventory-costing.md`](inventory-costing.md). |
-| Reporting  | Staff and Manager payment history, Manager-only bounded daily accounting, the approved gross-profit report with cost coverage and inventory-consumption estimates, and bounded sales/contribution/peak-hour analytics; see [`inventory-costing.md`](inventory-costing.md). |
+| Reporting  | Staff, Manager, and Developer payment history; Manager-and-Developer bounded daily accounting; and Developer-only gross-profit, sales-channel, and peak/contribution reports; see [`inventory-costing.md`](inventory-costing.md). |
 | Operations | Café settings, audit logs, system health, and operational metadata.                                                           |
 
 Catalog category membership has two kinds. A source category owns each
@@ -224,7 +225,7 @@ Money, pricing, and tax rules:
 - The accounting database stores money as signed-safe integer Toman values, never floating-point money. ADR 0012 permits checked conversion at the SEP boundary after unit verification; original integer wire amounts and explicit units may be retained only as terminal evidence, not ledger amounts.
 - Product and option prices are final customer prices before any active Manager-configured product sale discount. No tax, VAT, service charge, or tax calculation exists in v1.
 - Whenever a catalog sale, item, or order discount is applied, round the resulting discounted final amount to the nearest 1,000 Toman (halfway values round up). Apply this to the amount persisted by the server and shown in POS, receipts, and the public menu. Undiscounted amounts retain their exact Toman value. POS monetary amounts use comma-separated groups of three digits; the public menu retains its compact display in thousands of Toman.
-- A product sale discount is configured only by a Manager and applies to new order-item snapshots only; changing or removing it never changes historical orders. Staff and Manager may apply order-item or order-level discounts while the order is open, with an optional reason and subject to settlement immutability.
+- A product sale discount is configured only by a Manager or Developer and applies to new order-item snapshots only; changing or removing it never changes historical orders. Staff, Manager, and Developer may apply order-item or order-level discounts while the order is open, with an optional reason and subject to settlement immutability.
 - The backend is the only authority for unit price, option price, discount, line total, grand total, settlement total, paid total, and balance.
 - Each order item stores a snapshot of product name, base price, product preparation-deadline minutes, selected options and their prices, quantity, discount allocation, and final line total.
 - Each product has a Manager-configurable preparation deadline in minutes. Order items snapshot this value so old bar tickets and table estimates do not change after catalog edits.
@@ -238,11 +239,11 @@ Payment, deletion, integrity, and audit rules:
 - A settlement selects one or more unallocated order-item quantities or an integer Toman amount up to the remaining balance. The server calculates quantity-based amounts from immutable item snapshots and deterministic discount allocation; amount-based payments are deterministically allocated across remaining item snapshots in display order. An item cannot be over-allocated across active settlements.
 - Each settlement has one or more tender records. The supported methods are `CASH`, `CARD_TERMINAL`, and `CARD_TRANSFER`; their amounts must sum exactly to the settlement amount. Manual card-terminal payments store no reconciliation reference. The optional SEP path in ADR 0012 retains authenticated terminal evidence in a dedicated attempt linked to its posted payment; it does not reuse the card-transfer reference. Card-to-card transfer references are optional.
 - A settlement request is idempotent as one atomic command. Creating it, inserting tenders and allocations, recalculating the order payment status/balance, incrementing the order version, and writing audit entries occur in one transaction.
-- A settlement reversal recalculates the order payment status/balance, increments the order version, and writes its audit entry in one transaction. Staff and Manager can reverse a full settlement. Reversal reason is optional by default and becomes required when the Manager-controlled `settlementReversalReasonRequired` setting is enabled. Correcting a settlement's tender method in POS never requires a reason and retains before/after tender snapshots.
-- `settlementReversalReasonRequired` is a Manager-only café setting, defaults to `false`, and controls only full-settlement reversals; it does not affect tender corrections.
+- A settlement reversal recalculates the order payment status/balance, increments the order version, and writes its audit entry in one transaction. Staff, Manager, and Developer can reverse a full settlement. Reversal reason is optional by default and becomes required when the Manager/Developer-controlled `settlementReversalReasonRequired` setting is enabled. Correcting a settlement's tender method in POS never requires a reason and retains before/after tender snapshots.
+- `settlementReversalReasonRequired` is a Manager-and-Developer café setting, defaults to `false`, and controls only full-settlement reversals; it does not affect tender corrections.
 - `UNPAID`, `PARTIALLY_PAID`, and `PAID` are derived from active settlement allocations and persisted on the order for efficient POS reads. When a settlement makes an order `PAID`, the server atomically transitions it to `CLOSED`; for a table order it also marks the table `AVAILABLE`, clears occupancy metadata, invalidates the prior guest context, and resolves any pending waiter call. Overpayment and an unallocated tender balance are forbidden.
 - Order content and table assignment can be edited while the order state is `OPEN`. After the first settlement, edits are constrained to adding new items, increasing quantities, adjusting only quantities that have not been allocated to a settlement, item notes for unsettled items, and table transfer. Settled item quantities, posted settlement allocations, tenders, and payer receipts are never rewritten. Order-level discount changes are allowed only before the first settlement because they affect allocation math.
-- Posted settlements, tenders, and allocations are not physically deleted. Staff and Managers can correct tender methods without a reason, retaining before/after snapshots, or reverse the entire settlement and record a replacement. Reversal requires a reason only when the Manager-controlled setting is enabled; both actions are audited.
+- Posted settlements, tenders, and allocations are not physically deleted. Staff, Managers, and Developers can correct tender methods without a reason, retaining before/after snapshots, or reverse the entire settlement and record a replacement. Reversal requires a reason only when the Manager/Developer-controlled setting is enabled; both actions are audited.
 - Marking an order `DELETED` preserves the order, its items, settlements, tenders, reversals, and audit history. Reports can include or exclude deleted orders explicitly; they must never disappear accidentally.
 - Database constraints enforce positive quantities, non-negative prices/discounts, valid states, unique identifiers, foreign keys, and required price snapshots.
 - Every multi-record order or settlement operation runs in a PostgreSQL transaction.
@@ -271,9 +272,9 @@ Waiter-call rules:
   `/t/:token`, which establishes a signed, HttpOnly table context for at most
   12 hours and redirects to `/menu`; every QR resolves directly to the table
   UUID attached to that credential.
-- A table has the operational states `AVAILABLE` and `OCCUPIED`. Staff and Manager have the same authority to mark either state; the system does not assign acknowledgement or resolution to a particular person.
-- When a customer scans an eligible table QR while that table is `AVAILABLE`, the dashboard receives a non-blocking occupancy reminder. The scan does not create an order, change the table to occupied, or expose any customer identity. Staff or Manager must explicitly mark the table `OCCUPIED`.
-- A waiter-call may be submitted only from an eligible QR context with a remembered customer session and unexpired visit bound to that exact table credential, except while Staff or Manager has explicitly held that same table occupied with its temporary OTP-bypass policy enabled. The bypass is table-local, requires the occupied state, creates no customer identity record, and is cleared whenever the table is made available or its context is invalidated. Submission creates or returns that table's one `PENDING` call and highlights the table in the shared POS dashboard.
+- A table has the operational states `AVAILABLE` and `OCCUPIED`. Staff, Manager, and Developer have the same authority to mark either state; the system does not assign acknowledgement or resolution to a particular person.
+- When a customer scans an eligible table QR while that table is `AVAILABLE`, the dashboard receives a non-blocking occupancy reminder. The scan does not create an order, change the table to occupied, or expose any customer identity. Staff, Manager, or Developer must explicitly mark the table `OCCUPIED`.
+- A waiter-call may be submitted only from an eligible QR context with a remembered customer session and unexpired visit bound to that exact table credential, except while Staff, Manager, or Developer has explicitly held that same table occupied with its temporary OTP-bypass policy enabled. The bypass is table-local, requires the occupied state, creates no customer identity record, and is cleared whenever the table is made available or its context is invalidated. Submission creates or returns that table's one `PENDING` call and highlights the table in the shared POS dashboard.
 - Every newly created table or takeaway order receives the next positive integer in one shared `Asia/Tehran` business-day sequence. The sequence restarts at `1` on the next Tehran day, is assigned atomically in the order transaction, and an idempotent replay never consumes another number. UUID remains the durable order identity.
 - Opening/clicking the highlighted table in the shared POS acknowledges and resolves the pending call in one staff action, returns the table card to its normal `OCCUPIED` state, and retains the call as history. The acknowledgement/resolution records timestamps but no responsible-user foreign keys.
 - The opaque QR credential is stored only as a hash and is never emitted by API,
@@ -302,7 +303,7 @@ Deployment units:
 
 - One Fastify API process owns business rules, persistence, authentication, OpenAPI, and WebSocket notifications.
 - One Next.js menu application provides the anonymous digital menu.
-- One separate Next.js POS application provides a single shared shell for both Staff and Manager. They use the same operational routes and table dashboard; role-gated Manager routes/panels extend that shell rather than forming another application.
+- One separate Next.js POS application provides a single shared shell for Staff, Manager, and Developer. They use the same operational routes and table dashboard; role-gated Manager/Developer routes and panels extend that shell rather than forming another application.
 - PostgreSQL is the transactional source of truth.
 - Local/self-hosted image storage holds product images; the database stores metadata and references.
 - Caddy or Nginx terminates HTTPS and proxies web, API, and WebSocket traffic.
@@ -347,10 +348,10 @@ Frontend and operational UX:
 
 Authentication, authorization, and security:
 
-- Staff and Manager use short-lived access tokens with rotated, revocable refresh sessions. Store refresh tokens hashed at rest.
+- Staff, Manager, and Developer use short-lived access tokens with rotated, revocable refresh sessions. Store refresh tokens hashed at rest.
 - Use secure HTTP-only cookies where the deployment origin permits, with CSRF protection through SameSite policy, origin checks, and a CSRF token when needed.
 - Bootstrap the first Manager as a one-time deployment procedure, never as a permanent public registration route.
-- Enforce Staff and Manager access to product sale-discount configuration, catalog and price management, payment history, and settlement corrections/reversals server-side. Keep accounting summaries, inventory, user, settings, reporting, and full-audit operations Manager-only. Staff and Manager may apply item/order discounts without a required reason through the shared POS while settlement rules permit them. Hiding panels in the shared POS is not sufficient authorization.
+- Enforce Staff, Manager, and Developer access to shared POS operations, catalog and price management, payment history, and settlement corrections/reversals server-side. Manager and Developer may also use accounting, inventory-management, user, settings, and full-audit operations. The five inventory analysis views are Developer-only. Hiding panels in the shared POS is not sufficient authorization.
 - Require HTTPS, security headers, least-privilege database credentials, secret management, request-size limits, rate-limited login, and safe logging.
 - Normal `/menu` browsing is public and read-only. A table QR exchanges once
   for a signed 12-hour HttpOnly context cookie, which grants only the narrowly
@@ -360,12 +361,12 @@ Authentication, authorization, and security:
 
 Reporting and audit:
 
-- The Manager-only daily accounting summary uses the currently applied, bounded payment-history filter. It defaults to the current `Asia/Tehran` calendar day. The separate inventory gross-profit report accepts bounded arbitrary Persian-calendar date ranges, resolved server-side in `Asia/Tehran`.
+- The Manager-and-Developer daily accounting summary uses the currently applied, bounded payment-history filter. It defaults to the current `Asia/Tehran` calendar day. Developer-only inventory reports accept bounded arbitrary Persian-calendar date ranges, resolved server-side in `Asia/Tehran`.
 - The daily report distinguishes gross item totals, discounts, active settled/paid amounts by payment method, reversed settlements, and logically deleted orders. There are no tax or service-charge fields.
 - Gross-profit reporting uses whole-order full-payment recognition, persisted net selling amounts, theoretical COGS snapshots, explicit cost coverage, and inventory-based consumption estimates. Incomplete cost coverage never produces a fabricated full margin.
-- Manager sales analytics separates operational order/item-entry time from financial recognition time. New order-item lines record their first entry time; older lines without that value use order creation time and are identified as an approximation. Financial contribution and margin follow the existing recognized-consumption and costing snapshots, with incomplete cost coverage shown explicitly. Reports use `Asia/Tehran` buckets and bounded date ranges. The scheduled opening window is daily 08:00–00:00: hours from 00:00 up to 08:00 are known scheduled closures, and contribution per operating hour uses 16 scheduled hours per matching report date and selected weekday. Recorded sales outside that window remain in the report and are identified as outside scheduled hours.
-- Manager pricing experiments compare recorded prices and realized sales using historical order snapshots, recognized costs, and Phase 1 packaging attribution. They report observational changes and clearly labeled hypothetical price/volume sensitivities. They do not change catalog prices, forecast demand, prove causation, or provide automatic price recommendations. Current RUN Café fixed-cost coverage uses the confirmed monthly amount of 265,000,000 Toman as an explicit assumption. Incomplete variable-cost coverage cannot produce a full contribution, margin, or operating surplus.
-- Staff and Manager payment history is a separate cursor-paginated operational view over retained settlements and receipts. Staff may also open and print an individual whole-order or payer-settlement receipt through authorized POS order workflows.
+- Developer sales analytics separates operational order/item-entry time from financial recognition time. New order-item lines record their first entry time; older lines without that value use order creation time and are identified as an approximation. Financial contribution and margin follow the existing recognized-consumption and costing snapshots, with incomplete cost coverage shown explicitly. Reports use `Asia/Tehran` buckets and bounded date ranges. The scheduled opening window is daily 08:00–00:00: hours from 00:00 up to 08:00 are known scheduled closures, and contribution per operating hour uses 16 scheduled hours per matching report date and selected weekday. Recorded sales outside that window remain in the report and are identified as outside scheduled hours.
+- Developer pricing experiments compare recorded prices and realized sales using historical order snapshots, recognized costs, and Phase 1 packaging attribution. They report observational changes and clearly labeled hypothetical price/volume sensitivities. They do not change catalog prices, forecast demand, prove causation, or provide automatic price recommendations. Current RUN Café fixed-cost coverage uses the confirmed monthly amount of 265,000,000 Toman as an explicit assumption. Incomplete variable-cost coverage cannot produce a full contribution, margin, or operating surplus.
+- Staff, Manager, and Developer payment history is a separate cursor-paginated operational view over retained settlements and receipts. All three roles may also open and print an individual whole-order or payer-settlement receipt through authorized POS order workflows.
 - The applied report window is never a retention policy. Orders, order items, settlements, tenders, reversals, receipts derived from snapshots, and audit records remain in PostgreSQL regardless of age.
 - The accounting summary queries transactional tables, is verified against known fixtures, and receives supporting indexes based on measured query plans. Required applied date bounds keep reporting bounded so it cannot degrade POS work.
 
