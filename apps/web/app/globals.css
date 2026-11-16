@@ -940,7 +940,7 @@ main {
 
 .price-line small {
   color: var(--ink-muted);
-  font-size: 8px;
+  font-size: 15px;
 }
 
 .old-price {
