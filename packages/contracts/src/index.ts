@@ -1629,7 +1629,7 @@ export const CatalogPriceDimensionSchema = z.enum([
   "PRODUCT_BASE_PRICE", "OPTION_PRICE", "PRODUCT_OPTION_OVERRIDE", "PRODUCT_DISCOUNT", "PACKAGING_CHARGE",
 ]);
 export const CatalogPriceChangeSourceSchema = z.enum([
-  "BASELINE", "POS_PRODUCT_CREATE", "POS_PRODUCT_UPDATE", "POS_OPTION_CREATE", "POS_OPTION_UPDATE", "POS_PRODUCT_DISCOUNT",
+  "BASELINE", "POS_PRODUCT_CREATE", "POS_PRODUCT_UPDATE", "POS_OPTION_CREATE", "POS_OPTION_UPDATE", "POS_PRODUCT_DISCOUNT", "CATALOG_PRICE_MIGRATION",
 ]);
 export const PriceHistoryQuerySchema = z.object({
   fromDate: z.iso.date(),
