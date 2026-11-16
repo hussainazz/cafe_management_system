@@ -158,6 +158,7 @@ export function ManagerWorkspace({
 }) {
   const [settingsPanel, setSettingsPanel] = useRecoveryState<SettingsPanel>("manager-settings-panel", "settings");
   const panel: Panel = section === "settings" ? settingsPanel : section;
+  const hasManagerAccess = role !== "STAFF";
   const pageTitle = section === "settings" ? "تنظیمات" : section === "finance" ? "حسابداری" : section === "payments" ? "تاریخچه‌ی پرداخت" : section === "catalog" ? "منو و کالاها" : "انبار";
   const [catalog, setCatalog] = useState<ManagerCatalog | null>(null);
   const [staff, setStaff] = useState<ManagerStaff | null>(null);
@@ -184,15 +185,15 @@ export function ManagerWorkspace({
     return () => { cancelRecovery?.(); window.removeEventListener("run-cafe:api-failure", failed); window.removeEventListener(recoveryNoticeEvent, notified); };
   }, []);
   useEffect(() => {
-    if (loading || failure || !catalog || (role === "MANAGER" && (!staff || !settings))) return;
+    if (loading || failure || !catalog || (hasManagerAccess && (!staff || !settings))) return;
     const healthy = window.setTimeout(finishRecoveryEpisode, 30_000);
     return () => window.clearTimeout(healthy);
-  }, [loading, failure, catalog, staff, settings, role]);
+  }, [loading, failure, catalog, staff, settings, role, hasManagerAccess]);
   const reloadCatalog = useCallback(async () => {
-    const result = role === "MANAGER" ? await readManagerCatalog() : await readStaffCatalog();
+    const result = hasManagerAccess ? await readManagerCatalog() : await readStaffCatalog();
     if (result.ok) setCatalog(result.data);
     return result;
-  }, [role]);
+  }, [hasManagerAccess]);
   const reloadStaff = useCallback(async () => {
     const result = await readManagerStaff();
     if (result.ok) setStaff(result.data);
@@ -205,13 +206,13 @@ export function ManagerWorkspace({
   }, []);
   const reloadAll = useCallback(async () => {
     setLoading(true);
-    const results = role === "MANAGER"
+    const results = hasManagerAccess
       ? await Promise.all([reloadCatalog(), reloadStaff(), reloadSettings()])
       : [await reloadCatalog()];
     const failed = results.find((result) => !result.ok);
     setFailure(failed && !failed.ok ? failed.error : null);
     setLoading(false);
-  }, [reloadCatalog, reloadSettings, reloadStaff, role]);
+  }, [reloadCatalog, reloadSettings, reloadStaff, hasManagerAccess]);
   useEffect(() => {
     void reloadAll();
   }, [reloadAll]);
@@ -278,7 +279,7 @@ export function ManagerWorkspace({
           <h1>{pageTitle}</h1>
         </div>
       </header>
-      {section === "settings" && role === "MANAGER" && <nav className="manager-tabs" aria-label="بخش‌های تنظیمات">
+      {section === "settings" && hasManagerAccess && <nav className="manager-tabs" aria-label="بخش‌های تنظیمات">
         {([
           ["settings", "تنظیمات"],
           ["tables", "میزها"],
@@ -306,9 +307,9 @@ export function ManagerWorkspace({
       {!loading && panel === "tables" && catalog && <TablesPanel catalog={catalog} mutate={mutate} reload={reloadCatalog} requestConfirm={setConfirm} />}
       {!loading && panel === "inventory" && catalog && <InventoryWorkspace catalog={catalog} turnoverEnabled={settings?.inventoryActivatedAt !== null && settings?.inventoryActivatedAt !== undefined} role={role} />}
       {!loading && (panel === "finance" || panel === "payments" || panel === "audit") && (
-        <FinancePanel panel={panel} role={role === "STAFF" ? "STAFF" : "MANAGER"} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
+        <FinancePanel panel={panel} role={hasManagerAccess ? "MANAGER" : "STAFF"} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
       )}
-      {!loading && panel === "settings" && role === "MANAGER" && settings && (
+      {!loading && panel === "settings" && hasManagerAccess && settings && (
         <SettingsPanel settings={settings} staff={staff} mutate={mutate} reload={reloadSettings} reloadStaff={reloadStaff} requestConfirm={setConfirm} />
       )}
       {confirm && <ConfirmDialog confirm={confirm} close={() => setConfirm(null)} />}
@@ -745,7 +746,7 @@ function FinancePanel({
   useEffect(() => {
     void Promise.all([
       loadPayments(appliedPaymentFilters, paymentListFilter === "PREVIOUS_UNPAID" ? undefined : paymentListFilter ?? undefined),
-      ...(role === "MANAGER" ? [loadReport(appliedPaymentFilters), loadAudit()] : []),
+      ...(role !== "STAFF" ? [loadReport(appliedPaymentFilters), loadAudit()] : []),
     ]);
   }, [appliedPaymentFilters, loadAudit, loadPayments, loadReport, paymentListFilter, role]);
   useEffect(() => {
@@ -796,7 +797,7 @@ function FinancePanel({
   return (
     <div className={`manager-grid${panel === "finance" || panel === "payments" ? " finance-dashboard-grid" : ""}`}>
       {(panel === "finance" || panel === "payments") && <div className="finance-dashboard">
-      {panel === "finance" && role === "MANAGER" && <ManagerCard className="manager-card--accounting" title="نمای کلی مالی" hint="گزارش بر اساس بازه‌ی انتخاب‌شده برای پرداخت‌ها.">
+      {panel === "finance" && role !== "STAFF" && <ManagerCard className="manager-card--accounting" title="نمای کلی مالی" hint="گزارش بر اساس بازه‌ی انتخاب‌شده برای پرداخت‌ها.">
         {report ? <>
           <div className="finance-metrics">
             <article className="finance-metric finance-metric--primary"><span>کل</span><strong>{formatToman(report.data.salesAmount)}</strong><small>تومان</small></article>
@@ -1028,7 +1029,7 @@ function FinancePanel({
                       () => reverseSettlement(item.id, { expectedVersion: order.data.version, ...(reason ? { reason } : {}) }),
                       async () => {
                         await refreshPayments();
-                        if (role === "MANAGER") await loadReport(appliedPaymentFilters);
+                        if (role !== "STAFF") await loadReport(appliedPaymentFilters);
                       },
                     );
                   },
@@ -1053,7 +1054,7 @@ function FinancePanel({
                         () => deleteOpenOrder(item.orderId, { expectedVersion: order.data.version }),
                         async () => {
                           await refreshPayments();
-                          if (role === "MANAGER") await loadReport(appliedPaymentFilters);
+                          if (role !== "STAFF") await loadReport(appliedPaymentFilters);
                         },
                       );
                     },
@@ -1115,7 +1116,7 @@ function FinancePanel({
               setEditingSettlementId(null);
               setSelectedOrder(null);
               await refreshPayments();
-              if (role === "MANAGER") await loadReport(appliedPaymentFilters);
+              if (role !== "STAFF") await loadReport(appliedPaymentFilters);
             }}
           />
         ) : null;
