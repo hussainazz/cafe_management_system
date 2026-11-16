@@ -300,7 +300,7 @@ async function main() {
         data: {
           categoryId: category.id,
           name: PACKING_DEFAULT_NAME,
-          priceAmount: 15000,
+          priceAmount: 20000,
           isPublic: false,
           systemKey: PACKING_SYSTEM_KEY,
           preparationDeadlineMinutes: 1,
