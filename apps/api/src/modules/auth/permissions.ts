@@ -13,5 +13,5 @@ export function requireRole(user: AuthenticatedUser, roles: readonly UserRole[])
 }
 
 export function requireManager(user: AuthenticatedUser): void {
-  requireRole(user, ["MANAGER"]);
+  requireRole(user, ["MANAGER", "DEVELOPER"]);
 }
