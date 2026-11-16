@@ -9,10 +9,12 @@
   report and pricing-experiment API routes.
 - [x] Add or update regression coverage for Developer Manager-only workflows,
   Manager denial of the five views, and Staff restrictions.
-- [ ] Build and verify the changed API and POS artifacts.
-- [ ] Commit and push each changed file separately, then upload and activate a
+- [x] Build and verify the changed API and POS artifacts.
+- [x] Commit and push each changed file separately, then upload and activate a
   coordinated VPS release under the production gates.
-- Left: implementation, local verification, publication, and VPS activation.
+- Left: physical café-device acceptance remains a separate operational gate.
+  The deployed release is `cafe-20261116-33362ad`; see the release evidence in
+  [`production-gates.md`](planning/production-gates.md).
 
 ## Completed delivery — Inventory finance Phases 2–3 correctness and coverage (15 November 2026)
 
