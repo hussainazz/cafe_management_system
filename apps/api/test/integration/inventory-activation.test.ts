@@ -5,8 +5,8 @@ import { buildApp } from "../../src/app.js";
 const app = buildApp();
 beforeAll(async () => { await app.ready(); });
 afterAll(async () => { await app.close(); });
-async function login(role: "MANAGER" | "STAFF") {
-  const username = `activation.${role.toLowerCase()}`;
+async function login(role: "MANAGER" | "STAFF" | "DEVELOPER") {
+  const username = `activation.${role.toLowerCase()}.${randomUUID()}`;
   await app.prisma.user.create({ data: { username, role, passwordHash: await hashPassword("CafePassword2026") } });
   const response = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username, password: "CafePassword2026" } });
   expect(response.statusCode).toBe(200);
@@ -51,9 +51,10 @@ async function receipt(manager: Record<string, string>, stockItemId: string, key
     expect(result.statusCode, result.body).toBe(200);
   }
 }
-async function report(manager: Record<string, string>) {
+async function report(_manager: Record<string, string>) {
+  const developer = await login("DEVELOPER");
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-  const response = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${date}&toDate=${date}`, cookies: manager });
+  const response = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${date}&toDate=${date}`, cookies: developer });
   expect(response.statusCode, response.body).toBe(200);
   return response.json().data;
 }
@@ -207,3 +208,4 @@ describe("permanent stock turnover activation", () => {
   });
 
 });
+import { randomUUID } from "node:crypto";
