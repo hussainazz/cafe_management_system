@@ -24,9 +24,8 @@ import { setRecoveryUser, readRecovery, writeRecovery } from "../lib/automatic-r
 type Workspace = "orders" | "deferred" | "staff-consumption" | ManagerSection;
 
 function restoredWorkspace(role: AuthenticatedUser["role"]): Workspace {
-  if (role === "DEVELOPER") return "inventory";
   const saved = readRecovery<Workspace | "manager">("workspace");
-  if (role !== "MANAGER") return saved === "catalog" || saved === "payments" || saved === "deferred" || saved === "staff-consumption" ? saved : "orders";
+  if (role === "STAFF") return saved === "catalog" || saved === "payments" || saved === "deferred" || saved === "staff-consumption" ? saved : "orders";
   return saved === "manager" ? "settings" : saved ?? "orders";
 }
 
@@ -170,7 +169,7 @@ export function PosSessionBoundary() {
       />
     );
 
-  const role = session.user.role === "MANAGER" ? "مدیر" : session.user.role === "DEVELOPER" ? "developer" : "پرسنل";
+  const role = session.user.role === "MANAGER" ? "مدیر" : session.user.role === "DEVELOPER" ? "توسعه‌دهنده" : "پرسنل";
   const selectWorkspace = (next: Workspace) => {
     setWorkspace(next);
     writeRecovery("workspace", next);
@@ -224,7 +223,6 @@ export function PosSessionBoundary() {
           <span className="drawer-operator__role">{role}</span>
         </div>
         <nav aria-label="گروه‌های فضای کاری">
-          {session.user.role !== "DEVELOPER" && <>
           <h2>عملیات روزانه</h2>
           <button
             className={`nav-item ${workspace === "orders" ? "is-active" : ""}`}
@@ -236,21 +234,16 @@ export function PosSessionBoundary() {
           </button>
           <button className={`nav-item ${workspace === "deferred" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("deferred")}><ClockIcon /><span>سفارش‌های تسویه‌نشده</span></button>
           <button className={`nav-item ${workspace === "staff-consumption" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("staff-consumption")}><CupIcon /><span>حساب پرسنل</span></button>
-          </>}
           {session.user.role === "STAFF" && <>
             <h2>مدیریت روزانه</h2>
             <button className={`nav-item ${workspace === "catalog" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("catalog")}><CatalogIcon /><span>منو و کالاها</span></button>
             <button className={`nav-item ${workspace === "payments" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("payments")}><AccountingIcon /><span>تاریخچه‌ی پرداخت</span></button>
           </>}
-          {session.user.role === "MANAGER" && <>
+          {(session.user.role === "MANAGER" || session.user.role === "DEVELOPER") && <>
             <h2>مدیریت</h2>
             <button className={`nav-item ${workspace === "settings" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("settings")}><SettingsIcon /><span>تنظیمات</span></button>
             <button className={`nav-item ${workspace === "finance" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("finance")}><AccountingIcon /><span>حسابداری</span></button>
             <button className={`nav-item ${workspace === "catalog" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("catalog")}><CatalogIcon /><span>منو و کالاها</span></button>
-            <button className={`nav-item ${workspace === "inventory" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("inventory")}><InventoryIcon /><span>انبار</span></button>
-          </>}
-          {session.user.role === "DEVELOPER" && <>
-            <h2>انبار</h2>
             <button className={`nav-item ${workspace === "inventory" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("inventory")}><InventoryIcon /><span>انبار</span></button>
           </>}
         </nav>
@@ -277,7 +270,7 @@ export function PosSessionBoundary() {
 
       <main ref={mainRef} className="pos-main" inert={drawerOpen} tabIndex={-1}>
         <TerminalConnectionMonitor />
-        {workspace === "orders" ? <OrdersWorkspace openOrderId={openOrderId} onOpenedOrder={() => setOpenOrderId(null)} refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : workspace === "deferred" ? <DeferredOrders menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} onOpenOrder={(id) => { setOpenOrderId(id); selectWorkspace("orders"); }} /> : workspace === "staff-consumption" ? <StaffConsumption role={session.user.role === "MANAGER" ? "MANAGER" : "STAFF"} menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} /> : <ManagerWorkspace section={workspace} role={session.user.role} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
+        {workspace === "orders" ? <OrdersWorkspace openOrderId={openOrderId} onOpenedOrder={() => setOpenOrderId(null)} refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : workspace === "deferred" ? <DeferredOrders menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} onOpenOrder={(id) => { setOpenOrderId(id); selectWorkspace("orders"); }} /> : workspace === "staff-consumption" ? <StaffConsumption role={session.user.role} menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} /> : <ManagerWorkspace section={workspace} role={session.user.role} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
         <ReleaseUpdateGuard activity={workspace === "orders" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
       </main>
     </div>
