@@ -336,7 +336,7 @@ it("shows gross profit before turnover activation even when stock consumption is
     },
     meta: { range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } },
   }) as never);
-  render(<InventoryWorkspace catalog={catalog} turnoverEnabled={false} />);
+  render(<InventoryWorkspace catalog={catalog} turnoverEnabled={false} role="DEVELOPER" />);
   fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
   await screen.findByText("برای این بازه در دسترس نیست");
   expect(screen.getAllByText("۹,۸۰۰").length).toBeGreaterThan(0);
@@ -355,7 +355,7 @@ it("opens the current costing setup for a product from its historical priority r
     },
     meta: { requestId: "test", range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } },
   }) as never);
-  render(<InventoryWorkspace catalog={packagingCatalog} />);
+  render(<InventoryWorkspace catalog={packagingCatalog} role="DEVELOPER" />);
   fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
   fireEvent.click(await screen.findByRole("button", { name: "بررسی هزینه‌ی فعلی" }));
   await waitFor(() => expect(api.readProductCosting).toHaveBeenLastCalledWith("product-1"));
@@ -383,7 +383,7 @@ it("does not offer current-cost inspection for an archived historical product", 
     meta: { requestId: "test", range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } },
   }) as never);
 
-  render(<InventoryWorkspace catalog={historicalCatalog} />);
+  render(<InventoryWorkspace catalog={historicalCatalog} role="DEVELOPER" />);
   fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
   const priorityRegion = await screen.findByRole("region", { name: "محصولات با اولویت تکمیل هزینه" });
   const archivedRow = within(priorityRegion).getByRole("rowheader", { name: /محصول بایگانی‌شده/ });
@@ -428,7 +428,7 @@ function mockPackaging() {
 }
 it("loads, edits, saves and removes takeaway packaging while preserving the base recipe", async () => {
   mockPackaging();
-  render(<InventoryWorkspace catalog={packagingCatalog} />);
+  render(<InventoryWorkspace catalog={packagingCatalog} role="DEVELOPER" />);
   fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
   const packaging = await screen.findByLabelText("قلم بسته‌بندی 1");
   expect((packaging as HTMLSelectElement).value).toBe("cup-1");
@@ -444,7 +444,7 @@ it("loads, edits, saves and removes takeaway packaging while preserving the base
 it("sends the preview channel and invalidates old results after switching it", async () => {
   mockPackaging();
   vi.mocked(api.previewProductCosting).mockResolvedValue(ok({ data: { isComplete: true, knownCostAmount: 3700, components: [], missingReasons: [] } }) as never);
-  render(<InventoryWorkspace catalog={packagingCatalog} />);
+  render(<InventoryWorkspace catalog={packagingCatalog} role="DEVELOPER" />);
   fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
   const channel = await screen.findByLabelText("نوع سفارش برای محاسبه‌ی هزینه");
   fireEvent.click(screen.getByRole("button", { name: "محاسبه‌ی هزینه‌ی مواد اصلی محصول" }));
@@ -470,7 +470,7 @@ it("blocks duplicate packaging rows without saving recipes or configuration", as
 it("shows dine-in and takeaway margins for the same product as distinct rows", async () => {
   const row = { productId: "product-1", productName: "اسپرسو", soldQuantity: 1, soldWeightGrams: 0, netSalesAmount: 10000, completeCostRevenueAmount: 10000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCostRevenueOfTotalSalesPercent: "0.00", incompleteCostRevenueSharePercent: null, knownCogsAmount: 2000, theoreticalCogsAmount: 2000, grossProfitAmount: 8000, grossMarginPercent: "80.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 };
   vi.mocked(api.readGrossProfitReport).mockResolvedValue(ok({ data: { totals: { netSalesAmount: 20000, theoreticalCogsAmount: 4500, knownCogsAmount: 4500, grossProfitAmount: 15500, grossMarginPercent: "77.50" }, products: [{ ...row, channel: "TABLE" }, { ...row, channel: "TAKEAWAY", knownCogsAmount: 2500, theoreticalCogsAmount: 2500, grossProfitAmount: 7500, grossMarginPercent: "75.00" }], costCoverage: { totalEligibleNetSalesAmount: 20000, completeCostRevenueAmount: 20000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", incompleteCoveragePercent: "0.00", completeOrderItemCount: 2, incompleteOrderItemCount: 0, channels: [{ channel: "TABLE", netSalesAmount: 10000, completeCostRevenueAmount: 10000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }, { channel: "TAKEAWAY", netSalesAmount: 10000, completeCostRevenueAmount: 10000, incompleteCostRevenueAmount: 0, coveragePercent: "100.00", completeOrderItemCount: 1, incompleteOrderItemCount: 0 }] }, pendingConsumptionCount: 0, inventoryConsumption: { amount: null, isEstimate: true, varianceAmount: null, missingValuationCount: 0 } }, meta: { range: { from: "2026-11-10T20:30:00.000Z", to: "2026-11-11T20:30:00.000Z" } } }) as never);
-  render(<InventoryWorkspace catalog={packagingCatalog} />);
+  render(<InventoryWorkspace catalog={packagingCatalog} role="DEVELOPER" />);
   fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
   const table = await screen.findByRole("region", { name: "جدول سود محصولات" });
   expect(within(table).getByRole("rowheader", { name: /اسپرسو.*داخل کافه/ })).toBeTruthy();
@@ -564,9 +564,20 @@ it("rejects an inverted packaging quantity range before saving any recipe", asyn
 });
 
 it("opens sales channel reporting from the inventory dashboard", async () => {
-  render(<InventoryWorkspace catalog={catalog} />);
+  render(<InventoryWorkspace catalog={catalog} role="DEVELOPER" />);
   fireEvent.click(await screen.findByRole("button", { name: "فروش کانال‌ها" }));
   await screen.findByText("جمع سفارش‌های تسویه‌شده");
   expect(api.readSalesChannelReport).toHaveBeenCalledTimes(1);
   expect(screen.getByText("در این بازه سفارش واجد شرایطی ثبت نشده است.")).toBeTruthy();
+});
+
+it("shows all five analysis views only to Developer", async () => {
+  const exclusiveLabels = ["نمای کلی", "فروش کانال‌ها", "اوج و مشارکت", "سود ناخالص", "آزمایش قیمت‌گذاری"];
+  const { unmount } = render(<InventoryWorkspace catalog={catalog} role="MANAGER" />);
+  await screen.findByRole("heading", { name: "پیش‌نویس خرید" });
+  for (const label of exclusiveLabels) expect(screen.queryByRole("button", { name: label })).toBeNull();
+  unmount();
+  render(<InventoryWorkspace catalog={catalog} role="DEVELOPER" />);
+  await screen.findByText("جمع سفارش‌های تسویه‌شده");
+  for (const label of exclusiveLabels) expect(screen.getByRole("button", { name: label })).toBeTruthy();
 });
