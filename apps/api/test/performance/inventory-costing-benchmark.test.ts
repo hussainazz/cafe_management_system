@@ -63,9 +63,11 @@ describe("Inventory response-time measurement", () => {
     const passwordHash = await hashPassword(password);
     const staff = await app.prisma.user.create({ data: { username: "inventory-benchmark-staff", passwordHash, role: UserRole.STAFF } });
     await app.prisma.user.create({ data: { username: "inventory-benchmark-manager", passwordHash, role: UserRole.MANAGER } });
+    await app.prisma.user.create({ data: { username: "inventory-benchmark-developer", passwordHash, role: UserRole.DEVELOPER } });
     const login = async (username: string) => app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username, password } });
     const staffCookies = cookies(await login("inventory-benchmark-staff"));
     const managerCookies = cookies(await login("inventory-benchmark-manager"));
+    const developerCookies = cookies(await login("inventory-benchmark-developer"));
 
     const category = await app.prisma.category.create({ data: { name: "Inventory benchmark", displayOrder: 1 } });
     const product = await app.prisma.product.create({ data: { categoryId: category.id, name: "Inventory benchmark drink", priceAmount: 10_000, preparationDeadlineMinutes: 5, displayOrder: 1 } });
@@ -113,7 +115,7 @@ describe("Inventory response-time measurement", () => {
       return () => app.inject({ method: "POST", url: `/api/v1/admin/inventory/counts/${count.json().data.id}/post`, cookies: managerCookies, headers: { "idempotency-key": `inventory-benchmark-count-${randomUUID()}` }, payload: { expectedVersion: 1, absorbedOrderConsumptionIds: [] } });
     }));
     const reportDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", calendar: "gregory", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-    results.push(await measure("bounded gross-profit report (one day)", async () => () => app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${reportDate}&toDate=${reportDate}`, cookies: managerCookies })));
+    results.push(await measure("bounded gross-profit report (one day)", async () => () => app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${reportDate}&toDate=${reportDate}`, cookies: developerCookies })));
 
     process.stdout.write("INVENTORY_BENCHMARK_RESULTS=" + JSON.stringify({
       method: `Fastify inject; one warmup then ${sampleCount} timed successful requests per operation; includes route handling, serialization, and local test PostgreSQL work; excludes TCP/TLS/browser/network time.`,
