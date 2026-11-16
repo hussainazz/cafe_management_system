@@ -13,7 +13,7 @@ async function request(cookies: Cookies, method: "GET" | "POST" | "PUT" | "PATCH
   expect(response.statusCode, response.body).toBe(status);
   return response.json().data;
 }
-async function login(role: "MANAGER" | "STAFF") {
+async function login(role: "MANAGER" | "STAFF" | "DEVELOPER") {
   const username = `${role.toLowerCase()}.${randomUUID()}`;
   await app.prisma.user.create({ data: { username, role, passwordHash: await hashPassword("CafePassword2026") } });
   const response = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username, password: "CafePassword2026" } });
@@ -22,6 +22,7 @@ async function login(role: "MANAGER" | "STAFF") {
 }
 async function fixture(active = false, mode: "RECIPE" | "PURCHASED_ITEM" = "RECIPE", weighted = false) {
   const manager = await login("MANAGER");
+  const developer = await login("DEVELOPER");
   if (active) await request(manager, "POST", "/admin/settings/inventory/activate", {});
   const category = await app.prisma.category.create({ data: { name: "Packaging drinks", displayOrder: 1 } });
   const product = await app.prisma.product.create({ data: { name: "Packaging coffee", categoryId: category.id, priceAmount: 10000, preparationDeadlineMinutes: 1, displayOrder: 1, pricingMode: weighted ? "WEIGHTED_PER_KG" : "FIXED" } });
@@ -34,9 +35,9 @@ async function fixture(active = false, mode: "RECIPE" | "PURCHASED_ITEM" = "RECI
   const input = { ...base, optionRules: [], combinations: [], takeawayPackaging: [{ stockItemId: cup.id, quantity: "1" }, { stockItemId: holder.id, quantity: "0.5" }] };
   const configuration = await request(manager, "PUT", `/admin/products/${product.id}/costing`, { ...input, expectedVersion: 1 });
   ProductCostingConfigurationResponseSchema.parse({ data: configuration, meta: { requestId: "test" } });
-  return { manager, product, beans, cup, holder, recipe, input, configuration };
+  return { manager, developer, product, beans, cup, holder, recipe, input, configuration };
 }
-type Fixture = Pick<Awaited<ReturnType<typeof fixture>>, "manager" | "product">;
+type Fixture = Pick<Awaited<ReturnType<typeof fixture>>, "manager" | "developer" | "product">;
 async function preview(f: Fixture, channel: "TABLE" | "TAKEAWAY", quantity = 1, weightGrams?: number, optionIds: string[] = []) {
   const data = await request(f.manager, "POST", `/admin/products/${f.product.id}/costing/preview`, { channel, quantity, optionIds, ...(weightGrams ? { weightGrams } : {}) });
   ProductCostingPreviewResponseSchema.parse({ data, meta: { requestId: "test" } });
@@ -51,7 +52,7 @@ async function pay(f: Fixture, current: any, amount = current.balanceAmount, key
 }
 async function report(f: Fixture) {
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-  const response = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${date}&toDate=${date}`, cookies: f.manager });
+  const response = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${date}&toDate=${date}`, cookies: f.developer });
   expect(response.statusCode, response.body).toBe(200);
   return GrossProfitReportResponseSchema.parse(response.json()).data;
 }
