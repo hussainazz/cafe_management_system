@@ -1,37 +1,18 @@
-## Active delivery — Restricted Developer inventory account (15 November 2026)
+## Active delivery — Developer Manager parity and exclusive analysis views (16 November 2026)
 
-- [x] Record the approved scope extension: Developer is a dedicated restricted
-  role with access to inventory operations only; unrelated Manager endpoints
-  remain Manager-only.
-- [x] Add the Developer database/API role, inventory-only server authorization,
-  POS inventory workspace, distinct tab assignment, and a password-safe
-  account-provisioning command. Manager retains خریدها, نمای کلی, اقلام موجودی,
-  دستور تهیه و هزینه, دستورهای مشترک, شمارش انبار, and گردش موجودی.
-- [x] Generate Prisma and build contracts, API, and POS. API, POS, and contract
-  typechecks and whitespace checks pass; the API artifact contains the Debian
-  OpenSSL 3 Prisma engine. Automated tests were not run.
-- [x] Apply the additive `20261115190000_developer_inventory_role` migration
-  (production is at 54 migrations) and provision the requested `hosein`
-  Developer account. The password is stored only as a hash; existing sessions
-  were revoked.
-- [x] Verify the Developer inventory screen in the browser with all 11
-  inventory tabs available. Manager inventory navigation groups its seven
-  management sections separately from the four analysis and reporting views.
-  Developer session/catalog/inventory reads return 200; Manager settings and
-  user administration return 403.
-- [x] Commit and push each changed file separately. `main` is pushed through
-  `ac018ea`.
-- [x] Deploy and check the VPS: `cafe-api`, `cafe-pos`, and `cafe-web` are
-  active with zero restarts; API readiness is healthy and both POS release
-  endpoints report `cafe-20261115-devrole`.
-- Production evidence: the pre-migration database backup is
-  `/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261115-devrole.dump`
-  (SHA-256 `88ecd58181388668504e83f17c695d963191ccc3080bbcc00a79b25f820c2240`);
-  the latest runtime rollback archive is
-  `/opt/cafe-menu-release-backups/rollback-before-cafe-20261115-devrole-catalogfix.tar.gz`.
-  Public Arvan edge TLS handshake was unavailable during this release, so
-  external HTTPS routing was not verified; direct VPS and local Nginx checks
-  passed. Automated tests were not run.
+- [x] Record the updated scope: Developer receives all Manager capabilities;
+  Manager is excluded from inventory overview, sales-channel, peak/contribution,
+  gross-profit, and pricing-experiment views.
+- [x] Update server authorization and POS navigation/workspaces for role parity.
+- [x] Keep all five exclusive views absent from Manager navigation and clamp
+  restored Manager view state; deny Manager access to the dedicated analysis
+  report and pricing-experiment API routes.
+- [x] Add or update regression coverage for Developer Manager-only workflows,
+  Manager denial of the five views, and Staff restrictions.
+- [ ] Build and verify the changed API and POS artifacts.
+- [ ] Commit and push each changed file separately, then upload and activate a
+  coordinated VPS release under the production gates.
+- Left: implementation, local verification, publication, and VPS activation.
 
 ## Completed delivery — Inventory finance Phases 2–3 correctness and coverage (15 November 2026)
 
