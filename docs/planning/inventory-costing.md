@@ -9,7 +9,7 @@ current progress remains in `../current-left.md`.
 
 ## Purpose And Boundaries
 
-Add a Manager-only stock, purchase, recipe, physical-count, and gross-profit
+Add Manager-and-Developer stock, purchase, recipe, and physical-count
 workspace to the existing POS. This phase calculates gross profit only:
 
 ```text
@@ -165,8 +165,10 @@ The product remains one café, one branch, and one authoritative API/database.
 ## Authorization And Delivery
 
 - Inventory configuration, purchases, counts, movements, pending consumption,
-  previews, and gross-profit reports are Manager-only. Settlement commands
-  remain available through existing Staff/Manager order workflows and trigger
+  and previews are available to Manager and Developer. Overview, sales-channel,
+  sales analytics, gross-profit, and pricing-experiment views are Developer-only.
+  Settlement commands remain available through Staff, Manager, and Developer
+  order workflows and trigger
   stock recognition in the API. Staff, receipts, and public-menu DTOs never
   expose cost or margin data.
 - Posting commands require idempotency keys. Editable configurations use
@@ -182,17 +184,17 @@ The product remains one café, one branch, and one authoritative API/database.
 1. Approved planning baseline, schema, contracts, and migration.
 2. Purchases, valuation, recipes, settlement integration, and count
    reconciliation.
-3. Manager stock/costing panels and gross-profit reports.
+3. Manager/Developer stock and costing panels, plus Developer gross-profit reports.
 4. Integration, browser, migration/restore, and performance verification.
 
 ## Optional stock warning threshold — approved 11 November 2026
 
-A Manager may set or clear `lowStockThreshold` per stock item in its base unit.
+A Manager or Developer may set or clear `lowStockThreshold` per stock item in its base unit.
 It is a nonnegative exact decimal with at most six fractional digits, null by
 default. A tracked balance at or below a configured threshold needs attention;
 an unset threshold does not create a low-stock alert. Untracked balances remain
 unknown. Zero balances remain explicitly visible regardless of configuration.
-Edits use existing Manager authorization, optimistic versioning and audit logs.
+Edits use Manager and Developer authorization, optimistic versioning and audit logs.
 Thresholds are advisory only: no automatic purchase, stock write, forecast or
 change to recipe costing/settlement recognition follows from an alert.
 
@@ -271,7 +273,7 @@ contribute to this product's holder groups. For a one-time package on quantities
 
 ## Phase 1 packaging economics and price history — approved 15 November 2026
 
-The Manager gross-profit report keeps its current definition and adds a separate
+The Developer gross-profit report keeps its current definition and adds a separate
 packaging-economics view:
 
 ```text
