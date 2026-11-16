@@ -10,7 +10,7 @@ beforeAll(async () => { await app.ready(); });
 afterAll(async () => { await app.close(); });
 
 async function fixture() {
-  const manager = await app.prisma.user.create({ data: { username: `finance.${randomUUID()}`, passwordHash: await hashPassword("CafePassword2026"), role: "MANAGER" } });
+  const manager = await app.prisma.user.create({ data: { username: `finance.${randomUUID()}`, passwordHash: await hashPassword("CafePassword2026"), role: "DEVELOPER" } });
   const login = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: manager.username, password: "CafePassword2026" } });
   expect(login.statusCode).toBe(200);
   const cookies = Object.fromEntries(login.cookies.map(({ name, value }) => [name, value]));
