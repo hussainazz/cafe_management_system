@@ -65,7 +65,7 @@ async function settleAmount(staff: Record<string, string>, order: any, amount: n
 
 describe("inventory costing and settlement integration", () => {
   it("reports revenue-weighted coverage for discounted multi-settlement sales, mixed historical snapshots, and both channels", async () => {
-    const manager = await session(UserRole.MANAGER, "coverage-weighted.manager");
+    const manager = await session(UserRole.DEVELOPER, "coverage-weighted.manager");
     const staff = await session(UserRole.STAFF, "coverage-weighted.staff");
     const mixed = await productFixture("Coverage mixed history");
     const takeaway = await productFixture("Coverage takeaway complete");
@@ -130,7 +130,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("reports sold item quantities and weighted grams separately for each sales channel", async () => {
-    const manager = await session(UserRole.MANAGER, "sold-quantity.manager");
+    const manager = await session(UserRole.DEVELOPER, "sold-quantity.manager");
     const staff = await session(UserRole.STAFF, "sold-quantity.staff");
     const fixed = await productFixture("Sold quantity fixed product", null, 1_000);
     const weighted = await productFixture("Sold quantity weighted product", null, 2_000_000);
@@ -166,7 +166,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("keeps zero-cost items complete, returns null percentages for zero revenue, and excludes reversed, deleted, and staff-consumption sales", async () => {
-    const manager = await session(UserRole.MANAGER, "coverage-edge.manager");
+    const manager = await session(UserRole.DEVELOPER, "coverage-edge.manager");
     const staff = await session(UserRole.STAFF, "coverage-edge.staff");
     const free = await productFixture("Coverage real zero cost");
     const zeroStock = await stockFixture(manager, "Coverage zero-cost stock", "10", 0);
@@ -211,7 +211,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("allocates a one-Toman discount remainder across a mixed-cost order and reconciles two settlements exactly", async () => {
-    const manager = await session(UserRole.MANAGER, "coverage-allocation.manager");
+    const manager = await session(UserRole.DEVELOPER, "coverage-allocation.manager");
     const staff = await session(UserRole.STAFF, "coverage-allocation.staff");
     const incomplete = await productFixture("Coverage allocation incomplete", null, 33_000);
     const complete = await productFixture("Coverage allocation complete", null, 68_000);
@@ -248,7 +248,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("rounds an exact half-hundredth of weighted coverage upward and leaves empty channels undefined", async () => {
-    const manager = await session(UserRole.MANAGER, "coverage-rounding.manager");
+    const manager = await session(UserRole.DEVELOPER, "coverage-rounding.manager");
     const staff = await session(UserRole.STAFF, "coverage-rounding.staff");
     const incomplete = await productFixture("Coverage rounding incomplete", null, 19_999);
     const complete = await productFixture("Coverage rounding complete", null, 1);
@@ -269,7 +269,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("keeps the PACKING service charge as sales with unknown cost and preserves costing-channel classification", async () => {
-    const manager = await session(UserRole.MANAGER, "coverage-packing.manager");
+    const manager = await session(UserRole.DEVELOPER, "coverage-packing.manager");
     const staff = await session(UserRole.STAFF, "coverage-packing.staff");
     const coffee = await productFixture("Coverage packaged coffee", null, 10_000);
     const packing = await productFixture("Coverage packing service", "PACKING", 2_000);
@@ -297,7 +297,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("attributes nested takeaway packaging and grouped holders once, reconciles gross profit, and removes reversed charges", async () => {
-    const manager = await session(UserRole.MANAGER, "packaging-economics.manager");
+    const manager = await session(UserRole.DEVELOPER, "packaging-economics.manager");
     const staff = await session(UserRole.STAFF, "packaging-economics.staff");
     const coffee = await productFixture("Packaging economics coffee", null, 10_000);
     const packing = await productFixture("Packaging economics charge", "PACKING", 500);
@@ -358,7 +358,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("splits a one-product order charge across option variants without double-counting repeated product lines", async () => {
-    const manager = await session(UserRole.MANAGER, "packaging-options.manager");
+    const manager = await session(UserRole.DEVELOPER, "packaging-options.manager");
     const staff = await session(UserRole.STAFF, "packaging-options.staff");
     const product = await productFixture("Packaging option coffee", null, 10_000);
     const packing = await productFixture("Packaging option charge", "PACKING", 1_001);
@@ -400,7 +400,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("leaves multi-product table charges unattributed and exposes legacy component cost as ambiguous", async () => {
-    const manager = await session(UserRole.MANAGER, "packaging-ambiguous.manager");
+    const manager = await session(UserRole.DEVELOPER, "packaging-ambiguous.manager");
     const staff = await session(UserRole.STAFF, "packaging-ambiguous.staff");
     const coffee = await productFixture("Packaging ambiguous coffee", null, 10_000);
     const tea = await productFixture("Packaging ambiguous tea", null, 5_000);
@@ -428,7 +428,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("keeps ordinary dine-in sales outside packaging economics and returns N/A for zero material cost", async () => {
-    const manager = await session(UserRole.MANAGER, "packaging-dine-in.manager");
+    const manager = await session(UserRole.DEVELOPER, "packaging-dine-in.manager");
     const staff = await session(UserRole.STAFF, "packaging-dine-in.staff");
     const product = await productFixture("Packaging-free dine-in coffee");
     const order = await orderFixture(staff, product.id, 1, "packaging-free-dine-in-order", "TABLE");
@@ -444,7 +444,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("withholds recovery when a tagged packaging material has no recorded valuation", async () => {
-    const manager = await session(UserRole.MANAGER, "packaging-unvalued.manager");
+    const manager = await session(UserRole.DEVELOPER, "packaging-unvalued.manager");
     const staff = await session(UserRole.STAFF, "packaging-unvalued.staff");
     const product = await productFixture("Unvalued packaging coffee");
     const ingredient = await stockFixture(manager, "Unvalued packaging coffee beans", "100", 10_000);
@@ -467,8 +467,8 @@ describe("inventory costing and settlement integration", () => {
     expect(report.json().data.packagingEconomics.products).toEqual(expect.arrayContaining([expect.objectContaining({ productId: product.id, isPackagingAttributionComplete: false, combinedContributionAfterPackagingAmount: null })]));
   });
 
-  it("keeps stock thresholds optional, exact, versioned, audited and Manager-only", async () => {
-    const manager = await session(UserRole.MANAGER, "threshold.manager");
+  it("keeps stock thresholds optional, exact, versioned and audited for Manager and Developer", async () => {
+    const manager = await session(UserRole.DEVELOPER, "threshold.manager");
     const staff = await session(UserRole.STAFF, "threshold.staff");
     const id = await stockFixture(manager, "Threshold beans", "12.125001", 500);
     const url = `/api/v1/admin/inventory/stock-items/${id}`;
@@ -492,7 +492,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("groups daily profit by Tehran recognition date with quiet days and exact aggregate reconciliation", async () => {
-    const manager = await session(UserRole.MANAGER, "daily-profit.manager");
+    const manager = await session(UserRole.DEVELOPER, "daily-profit.manager");
     const staff = await session(UserRole.STAFF, "daily-profit.staff");
     const product = await productFixture("Daily profit coffee");
     const stockId = await stockFixture(manager, "Daily beans", "1000", 10000);
@@ -517,7 +517,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("consumes stock for staff benefits and restores it on manager removal", async () => {
-    const manager = await session(UserRole.MANAGER, "benefit-inventory.manager");
+    const manager = await session(UserRole.DEVELOPER, "benefit-inventory.manager");
     const staff = await session(UserRole.STAFF, "benefit-inventory.staff");
     const product = await productFixture("Staff benefit coffee");
     const stockItemId = await stockFixture(manager, "Benefit beans", "1000", 10_000);
@@ -532,7 +532,7 @@ describe("inventory costing and settlement integration", () => {
     expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } })).quantityOnHand.toString()).toBe("1000");
   });
   it("consumes only retained items when removing the final unpaid line closes an item-paid order", async () => {
-    const manager = await session(UserRole.MANAGER, "unpaid-removal.manager");
+    const manager = await session(UserRole.DEVELOPER, "unpaid-removal.manager");
     const staff = await session(UserRole.STAFF, "unpaid-removal.staff");
     const paid = await productFixture("Retained coffee");
     const unpaid = await productFixture("Removed coffee");
@@ -561,7 +561,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("initializes a new stock item after other items are tracked while preventing a tracked item from being reopened", async () => {
-    const manager = await session(UserRole.MANAGER, "opening-per-item.manager");
+    const manager = await session(UserRole.DEVELOPER, "opening-per-item.manager");
     const first = await stockFixture(manager, "Existing opening beans", "100", 1000);
     const second = await stockFixture(manager, "Later opening beans", "200", 2000);
     expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId: first } })).quantityOnHand.toString()).toBe("100");
@@ -576,7 +576,7 @@ describe("inventory costing and settlement integration", () => {
     expect(resetZero.statusCode, resetZero.body).toBe(409);
   });
   it("rejects receipt value overflow and rolls back earlier lines in the same receipt", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-overflow.manager");
+    const manager = await session(UserRole.DEVELOPER, "inventory-overflow.manager");
     const stockItemId = await stockFixture(manager, "Overflow beans", "100", 2_147_483_646);
     const line = { stockItemId, conversionId: null, purchaseUnitLabel: "GRAM", purchaseQuantity: "1", directCostAmount: 1 };
     const draft = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/purchases", cookies: manager, payload: { receivedAt: "2026-10-14T08:00:00.000Z", lines: [line, line] } });
@@ -592,7 +592,7 @@ describe("inventory costing and settlement integration", () => {
     expect(await app.prisma.idempotencyRecord.count({ where: { operation: "POST_INVENTORY_PURCHASE" } })).toBe(0);
   });
   it("returns field errors for blank suppliers, oversized quantities, and inexact pack conversions without saving a draft", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-errors.manager");
+    const manager = await session(UserRole.DEVELOPER, "inventory-errors.manager");
     const stock = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Precision beans", category: "Ingredients", baseUnit: "GRAM", conversions: [{ label: "pack", baseQuantityPerPack: "0.123456" }] } });
     expect(stock.statusCode, stock.body).toBe(201);
     const body = { receivedAt: "2026-10-14T08:00:00.000Z", supplier: null, lines: [{ stockItemId: stock.json().data.id, conversionId: stock.json().data.conversions[0].id, purchaseUnitLabel: "pack", purchaseQuantity: "0.123456", directCostAmount: 100 }] };
@@ -614,7 +614,7 @@ describe("inventory costing and settlement integration", () => {
     expect(stale.json().error.details).toEqual([{ path: "expectedVersion", code: "current_version", message: "Current version is 1." }]);
   });
   it("keeps saved recipes stable, retries whole pending orders at receipt-time moving average, and restores deleted stock once", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-flow.manager");
+    const manager = await session(UserRole.DEVELOPER, "inventory-flow.manager");
     const staff = await session(UserRole.STAFF, "inventory-flow.staff");
     const product = await productFixture("Inventory Latte");
     const stockItemId = await stockFixture(manager, "Inventory Beans", "100", 10_000);
@@ -670,7 +670,7 @@ describe("inventory costing and settlement integration", () => {
   }, 15_000);
 
   it("reconciles a pending whole order to a physical count without deducting it again", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-count.manager");
+    const manager = await session(UserRole.DEVELOPER, "inventory-count.manager");
     const staff = await session(UserRole.STAFF, "inventory-count.staff");
     const product = await productFixture("Counted Mocha");
     const stockItemId = await stockFixture(manager, "Counted Beans", "100", 10_000);
@@ -696,7 +696,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("restores a posted order consumption when its final settlement is reversed", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-reversal.manager");
+    const manager = await session(UserRole.DEVELOPER, "inventory-reversal.manager");
     const staff = await session(UserRole.STAFF, "inventory-reversal.staff");
     const product = await productFixture("Reversal Cappuccino");
     const stockItemId = await stockFixture(manager, "Reversal Beans", "200", 20_000);
@@ -717,7 +717,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("previews option overrides and weighted purchased items and rejects recipe cycles", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-preview.manager");
+    const manager = await session(UserRole.DEVELOPER, "inventory-preview.manager");
     const stockItemId = await stockFixture(manager, "Preview Beans", "200", 20_000);
     const category = await app.prisma.category.create({ data: { name: "Preview drinks", displayOrder: 1 } });
     const group = await app.prisma.optionGroup.create({ data: { name: "Preview options" } });
@@ -751,8 +751,8 @@ describe("inventory costing and settlement integration", () => {
     expect(weightedPreview.json().data).toMatchObject({ isComplete: true, knownCostAmount: 25_000, components: [{ quantity: "250" }] });
   });
 
-  it("reports full-payment revenue and theoretical costs by Tehran date to Managers only", async () => {
-    const manager = await session(UserRole.MANAGER, "gross-profit.manager");
+  it("reports full-payment revenue and theoretical costs by Tehran date to Developers only", async () => {
+    const manager = await session(UserRole.DEVELOPER, "gross-profit.manager");
     const staff = await session(UserRole.STAFF, "gross-profit.staff");
     const product = await productFixture("Gross Profit Espresso");
     const stockItemId = await stockFixture(manager, "Gross Profit Beans", "100", 10_000);
@@ -789,7 +789,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("reports persisted catalog, item, and order discounts and removes a reversed sale from its original period", async () => {
-    const manager = await session(UserRole.MANAGER, "gross-profit-discount.manager");
+    const manager = await session(UserRole.DEVELOPER, "gross-profit-discount.manager");
     const staff = await session(UserRole.STAFF, "gross-profit-discount.staff");
     const catalogDiscountProduct = await productFixture("Catalog-discount gross-profit coffee");
     const itemDiscountProduct = await productFixture("Item-discount gross-profit coffee");
@@ -835,7 +835,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("keeps a multi-ingredient order wholly pending until every ingredient is available", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-multi-shortage.manager");
+    const manager = await session(UserRole.DEVELOPER, "inventory-multi-shortage.manager");
     const staff = await session(UserRole.STAFF, "inventory-multi-shortage.staff");
     const product = await productFixture("Multi-ingredient shortage drink");
     const beans = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Multi-shortage beans", category: "Ingredients", baseUnit: "GRAM", openingQuantity: "100", openingValueAmount: 10_000, conversions: [] } });
@@ -885,7 +885,7 @@ describe("inventory costing and settlement integration", () => {
   }, 15_000);
 
   it("returns posted purchase stock with carrying value, idempotent replay, and an over-return guard", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-return.manager");
+    const manager = await session(UserRole.DEVELOPER, "inventory-return.manager");
     const stockItemId = await stockFixture(manager, "Returnable beans", "100", 10_000);
     const purchase = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/purchases", cookies: manager, payload: { receivedAt: new Date().toISOString(), supplier: "Return test supplier", lines: [{ stockItemId, conversionId: null, purchaseUnitLabel: "GRAM", purchaseQuantity: "100", directCostAmount: 20_000 }] } });
     expect(purchase.statusCode, purchase.body).toBe(201);
@@ -927,7 +927,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("calculates cafe gross margin from aggregate sales and costs rather than averaging product margins", async () => {
-    const manager = await session(UserRole.MANAGER, "gross-profit-weighted-margin.manager");
+    const manager = await session(UserRole.DEVELOPER, "gross-profit-weighted-margin.manager");
     const staff = await session(UserRole.STAFF, "gross-profit-weighted-margin.staff");
     const lowerSales = await productFixture("Weighted margin lower-sales product");
     const higherSales = await productFixture("Weighted margin higher-sales product");
@@ -954,7 +954,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("reports a sold ingredient with no opening valuation as incomplete instead of zero cost", async () => {
-    const manager = await session(UserRole.MANAGER, "gross-profit-incomplete.manager");
+    const manager = await session(UserRole.DEVELOPER, "gross-profit-incomplete.manager");
     const staff = await session(UserRole.STAFF, "gross-profit-incomplete.staff");
     const product = await productFixture("Unvalued ingredient product");
     const managerId = (await app.prisma.user.findFirstOrThrow({ where: { username: "gross-profit-incomplete.manager" } })).id;
@@ -978,7 +978,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("uses exact fractional moving averages and rounds only posted Toman values half up", async () => {
-    const manager = await session(UserRole.MANAGER, "fractional-valuation.manager");
+    const manager = await session(UserRole.DEVELOPER, "fractional-valuation.manager");
     const staff = await session(UserRole.STAFF, "fractional-valuation.staff");
     const product = await productFixture("Fractional valuation product");
     const stockItemId = await stockFixture(manager, "Fractional valuation stock", "3", 10);
@@ -1002,7 +1002,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("rejects ineligible count reconciliation and records explicit physical adjustments", async () => {
-    const manager = await session(UserRole.MANAGER, "count-eligibility.manager");
+    const manager = await session(UserRole.DEVELOPER, "count-eligibility.manager");
     const staff = await session(UserRole.STAFF, "count-eligibility.staff");
     const product = await productFixture("Count eligibility product");
     const stockIds: string[] = [];
@@ -1037,7 +1037,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("restores reconciled stock on settlement correction exactly once and keeps tender-only corrections inventory-neutral", async () => {
-    const manager = await session(UserRole.MANAGER, "reconciled-correction.manager");
+    const manager = await session(UserRole.DEVELOPER, "reconciled-correction.manager");
     const staff = await session(UserRole.STAFF, "reconciled-correction.staff");
     const product = await productFixture("Reconciled correction product");
     const stockItemId = await stockFixture(manager, "Reconciled correction stock", "100", 10_000);
@@ -1065,7 +1065,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("keeps sales with missing product costing configuration visibly incomplete", async () => {
-    const manager = await session(UserRole.MANAGER, "missing-config.manager");
+    const manager = await session(UserRole.DEVELOPER, "missing-config.manager");
     const staff = await session(UserRole.STAFF, "missing-config.staff");
     const product = await productFixture("No costing configuration product");
     const order = await orderFixture(staff, product.id, 1, "missing-config-order-create-01");
@@ -1081,8 +1081,8 @@ describe("inventory costing and settlement integration", () => {
     });
   });
 
-  it("enforces Manager-only inventory operations and stable management/history boundaries", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-management.manager");
+  it("enforces shared Manager and Developer inventory operations and stable history boundaries", async () => {
+    const manager = await session(UserRole.DEVELOPER, "inventory-management.manager");
     const staff = await session(UserRole.STAFF, "inventory-management.staff");
     const item = await stockFixture(manager, "Managed stock item", "100", 10_000);
     const forbidden = [
@@ -1108,8 +1108,35 @@ describe("inventory costing and settlement integration", () => {
     expect(JSON.stringify(history.json().data)).not.toMatch(/password|token|secret/i);
   });
 
-  it("validates inventory response DTOs and keeps every protected read Manager-only", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-dto.manager");
+  it("gives Developer Manager access while reserving analysis reports to Developer", async () => {
+    const manager = await session(UserRole.MANAGER, "developer-parity.manager");
+    const developer = await session(UserRole.DEVELOPER, "developer-parity.developer");
+    const product = await productFixture("Developer parity simulation product");
+    const managerInventory = await app.inject({ method: "GET", url: "/api/v1/admin/inventory/stock-items", cookies: manager });
+    expect(managerInventory.statusCode, managerInventory.body).toBe(200);
+    const developerSettings = await app.inject({ method: "GET", url: "/api/v1/admin/settings", cookies: developer });
+    expect(developerSettings.statusCode, developerSettings.body).toBe(200);
+    const developerUsers = await app.inject({ method: "GET", url: "/api/v1/admin/users", cookies: developer });
+    expect(developerUsers.statusCode, developerUsers.body).toBe(200);
+
+    const exclusiveViews = [
+      ["GET", "/api/v1/admin/reports/gross-profit?fromDate=2026-11-10&toDate=2026-11-10"],
+      ["GET", "/api/v1/admin/reports/sales-channels?fromDate=2026-11-10&toDate=2026-11-10"],
+      ["GET", "/api/v1/admin/reports/sales-analytics?fromDate=2026-11-10&toDate=2026-11-10"],
+      ["GET", "/api/v1/admin/pricing-experiments"],
+      ["POST", "/api/v1/admin/reports/pricing-experiments/simulate"],
+    ] as const;
+    for (const [method, url] of exclusiveViews) {
+      const payload = method === "POST" ? { fromDate: "2026-11-10", toDate: "2026-11-10", rules: [{ targetKind: "PRODUCT", productId: product.id, adjustmentAmount: 0 }] } : undefined;
+      const denied = await app.inject({ method, url, cookies: manager, ...(payload ? { payload } : {}) });
+      expect(denied.statusCode, `${method} ${url}: ${denied.body}`).toBe(403);
+      const allowed = await app.inject({ method, url, cookies: developer, ...(payload ? { payload } : {}) });
+      expect(allowed.statusCode, `${method} ${url}: ${allowed.body}`).not.toBe(403);
+    }
+  });
+
+  it("validates inventory response DTOs and keeps every protected read outside Staff access", async () => {
+    const manager = await session(UserRole.DEVELOPER, "inventory-dto.manager");
     const staff = await session(UserRole.STAFF, "inventory-dto.staff");
     const itemId = await stockFixture(manager, "DTO boundary stock", "5", 1_000);
     const product = await productFixture("DTO boundary product");
@@ -1194,7 +1221,7 @@ describe("inventory costing and settlement integration", () => {
   });
 
   it("covers P2 inventory editing, stale versions, draft history, and malformed management input", async () => {
-    const manager = await session(UserRole.MANAGER, "inventory-p2.manager");
+    const manager = await session(UserRole.DEVELOPER, "inventory-p2.manager");
     const created = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Editable stock", category: "Ingredients", baseUnit: "GRAM", conversions: [{ label: "kg", baseQuantityPerPack: "1000", isActive: true }] } });
     expect(created.statusCode, created.body).toBe(201);
     const stockItemId = created.json().data.id as string;
