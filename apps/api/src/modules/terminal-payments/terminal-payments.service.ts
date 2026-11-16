@@ -47,7 +47,7 @@ function dto(attempt: TerminalPaymentAttempt): TerminalAttempt {
 }
 
 export async function prepareTerminalAttempt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, body: RecordSettlementRequest, key: string, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]); enabled();
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]); enabled();
   const input = RecordSettlementRequestSchema.parse(body);
   const cards = input.payments.filter(payment => payment.method === "CARD_TERMINAL");
   if (cards.length !== 1 || input.payments.some(payment => !Number.isSafeInteger(payment.amount) || payment.amount > 2_147_483_647))
@@ -89,7 +89,7 @@ export async function prepareTerminalAttempt(prisma: PrismaClient, actor: Authen
 }
 
 export async function readTerminalAttempt(prisma: PrismaClient, actor: AuthenticatedUser, id: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   // Monotonic uncertainty classification only; this read can never dispatch or settle.
   await prisma.terminalPaymentAttempt.updateMany({ where: { id, status: "PENDING", dispatchedAt: { lt: new Date(Date.now() - 45000) } }, data: { status: "UNKNOWN", version: { increment: 1 } } });
   const attempt = await prisma.terminalPaymentAttempt.findUnique({ where: { id } });
@@ -97,7 +97,7 @@ export async function readTerminalAttempt(prisma: PrismaClient, actor: Authentic
   return dto(attempt);
 }
 export async function activeTerminalAttempt(prisma: PrismaClient, actor: AuthenticatedUser, orderId?: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   const attempt = await prisma.terminalPaymentAttempt.findFirst({ where: { ...(orderId ? { orderId } : {}), status: { in: [...unresolved] } }, orderBy: { createdAt: "asc" } });
   return attempt ? readTerminalAttempt(prisma, actor, attempt.id) : null;
 }
@@ -141,7 +141,7 @@ export async function reportTerminalResult(prisma: PrismaClient, body: TerminalR
 }
 
 export async function reconcileTerminalAttempt(prisma: PrismaClient, actor: AuthenticatedUser, id: string, input: TerminalReconcile, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async tx => {
     const attempt = await lockedAttempt(tx, id);
     if (!unresolved.includes(attempt.status as "PENDING" | "UNKNOWN")) {
