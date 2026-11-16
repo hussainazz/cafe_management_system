@@ -23,6 +23,10 @@ surplus remain unavailable if any relevant source costs are incomplete.
 These are clarifications of the approved Stage 18–19 reporting contracts; they
 do not add order writes, catalog-price writes, or deployment authority.
 
+In route access labels below, Staff access includes Manager and Developer for
+shared POS workflows; Manager access also includes Developer, except where a
+route is explicitly marked Developer-only.
+
 ## SEP bridge health-only API (Phase B, ADR 0012)
 
 The separate Windows bridge binds only to `127.0.0.1:18711` by default.
@@ -66,8 +70,10 @@ in `request-response-conventions.md`.
 Legend:
 
 - **Public**: anonymous QR-menu browsing plus the narrowly scoped table-context exchange and waiter-call commands documented below.
-- **Staff**: authenticated Staff or Manager.
-- **Manager**: authenticated Manager only.
+- **Staff**: authenticated Staff, Manager, or Developer for shared POS
+  workflows.
+- **Manager**: authenticated Manager or Developer, except routes explicitly
+  marked Developer-only.
 - **Internal**: infrastructure or authenticated application-session support;
   never a public-menu capability.
 
@@ -84,7 +90,7 @@ Legend:
 
 | Method | Path                      | Access   | Stage | Purpose                                                                               |
 | ------ | ------------------------- | -------- | ----- | ------------------------------------------------------------------------------------- |
-| `POST` | `/api/v1/auth/login`      | Public   | 2     | Authenticate an active Staff or Manager username/password pair and establish an application session. |
+| `POST` | `/api/v1/auth/login`      | Public   | 2     | Authenticate an active Staff, Manager, or Developer username/password pair and establish an application session. |
 | `POST` | `/api/v1/auth/refresh`    | Internal | 2     | Rotate a valid refresh session and issue the next access session.                     |
 | `POST` | `/api/v1/auth/logout`     | Staff    | 2     | Revoke the current refresh session.                                                   |
 | `GET`  | `/api/v1/auth/me`         | Staff    | 2     | Return the current authenticated user and role.                                       |
@@ -172,7 +178,7 @@ state and table-display context.
 
 ## Shared POS Waiter-Calls
 
-Staff and Manager use these same contracts from the shared table dashboard.
+Staff, Manager, and Developer use these same contracts from the shared table dashboard.
 
 | Method | Path                                             | Access | Stage | Purpose                                                                                                      |
 | ------ | ------------------------------------------------ | ------ | ----- | ------------------------------------------------------------------------------------------------------------ |
@@ -183,9 +189,9 @@ Staff and Manager use these same contracts from the shared table dashboard.
 
 ## Staff Catalog, Manager Staff Accounts, And Settings
 
-Staff and Manager catalog writes archive/deactivate referenced records rather
+Staff, Manager, and Developer catalog writes archive/deactivate referenced records rather
 than physically remove them. Staff-account and café-setting operations remain
-Manager-only. Each product has at most one current image. Product images are
+Manager-and-Developer-only. Each product has at most one current image. Product images are
 uploaded through the API and subsequently served through a controlled image
 route; the database stores image metadata and storage references, not image
 bytes.
@@ -234,53 +240,56 @@ query limit does not delete or expire older orders or payment records.
 | `GET`  | `/api/v1/admin/payments`                          | Staff   | 6     | Cursor-paginated payment history over retained settlements/tenders, with links to existing settlement receipts.               |
 | `GET`  | `/api/v1/admin/reports/daily`                     | Manager | 6     | Return the daily accounting summary for `period=today` or `period=yesterday`; reject arbitrary dates and ranges.               |
 | `GET`  | `/api/v1/admin/audit-log`                         | Manager | 6     | Search bounded retained audit history using safe fields only.                                                                  |
-| `POST` | `/api/v1/admin/settlements/:settlementId/reverse` | Staff   | 6     | Reverse one posted settlement with a reason only when the Manager-only cafe setting requires it; never edit its original tenders or allocations.                         |
+| `POST` | `/api/v1/admin/settlements/:settlementId/reverse` | Staff   | 6     | Reverse one posted settlement with a reason only when the Manager/Developer-only cafe setting requires it; never edit its original tenders or allocations.                         |
 | `POST` | `/api/v1/admin/settlements/:settlementId/edit`    | Staff   | 6     | Correct tender methods without a reason, retaining the old settlement and atomically recording replacement tenders.             |
 
-## Manager Inventory, Costing, And Gross-Profit Workflows
+## Manager Inventory Operations And Developer Analysis Workflows
 
-Inventory endpoints are approved by scope update and ADR 0011. Configuration,
-inventory values, and reports remain Manager-only. Posting routes require an
+Inventory endpoints are approved by scope update and ADR 0011. Inventory
+configuration and operations are available to Manager and Developer. The
+overview, sales-channel, peak/contribution, gross-profit, and pricing-experiment
+views are Developer-only. Posting routes require an
 `Idempotency-Key`; versioned edits require the expected version. Each route
 must have shared request/response schemas and generated OpenAPI coverage in the
 implementation change.
 
 | Method | Path | Access | Stage | Purpose |
 | ------ | ---- | ------ | ----- | ------- |
-| `GET` | `/api/v1/admin/inventory/stock-items` | Manager | 12, 17 | List stock items, base units, pack conversions, packaging-material classification, tracking state, optional Manager-configured low-stock threshold in base units, and current valuation. |
-| `POST` | `/api/v1/admin/inventory/stock-items` | Manager | 12, 17 | Create a stock item with explicit base unit, optional packaging-material classification, opening quantity/value, and item-specific pack conversions; initialize the balance and opening ledger entry. |
-| `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager | 12, 17 | Version-check editable configuration, packaging-material classification, and one-time opening quantity/value initialization only while the item is untracked. |
-| `POST` | `/api/v1/admin/inventory/stock-items/:stockItemId/archive` | Manager | 12 | Archive an unused or referenced item without deleting ledger history. |
-| `GET` | `/api/v1/admin/inventory/purchases` | Manager | 12 | Cursor-page purchases with optional supplier/item search, status, and received-time filters. |
-| `POST` | `/api/v1/admin/inventory/purchases` | Manager | 12 | Create a received-purchase draft with supplier text and itemized direct costs. |
-| `PATCH` | `/api/v1/admin/inventory/purchases/:purchaseId` | Manager | 12 | Version-check edits to a draft purchase. |
-| `POST` | `/api/v1/admin/inventory/purchases/:purchaseId/post` | Manager | 12 | Post a receipt once, append movements, update moving averages, and retry eligible pending orders. |
-| `POST` | `/api/v1/admin/inventory/purchases/:purchaseId/returns` | Manager | 12 | Record a dated stock return as a compensating ledger event. |
-| `GET` | `/api/v1/admin/inventory/recipes` | Manager | 12 | List precise recipe variants, their shared ingredient names, and measured named components. |
-| `POST` | `/api/v1/admin/inventory/recipes` | Manager | 12 | Create a precise recipe variant and shared ingredient name after validating component units and cycle-free references. |
-| `PATCH` | `/api/v1/admin/inventory/recipes/:recipeId` | Manager | 12 | Version-check a precise recipe and shared ingredient name edit without changing saved order snapshots. |
-| `POST` | `/api/v1/admin/inventory/recipes/:recipeId/archive` | Manager | 12 | Archive a recipe while retaining referenced configurations and history. |
-| `GET` | `/api/v1/admin/products/:productId/costing` | Staff   | 12 | Read a product's recipe or purchased-item costing configuration and option rules. |
-| `PUT` | `/api/v1/admin/products/:productId/costing` | Staff   | 12 | Version-check and replace a product's costing configuration and option rules. |
-| `POST` | `/api/v1/admin/products/:productId/costing/preview` | Staff   | 12 | Resolve selected options and return known ingredient quantities, cost, and incompleteness reasons. |
-| `GET` | `/api/v1/admin/inventory/counts` | Manager | 12 | Cursor-page counts with optional stock-item search, kind/status, and created-time filters. |
-| `POST` | `/api/v1/admin/inventory/counts` | Manager | 12 | Create a physical-count draft with observed quantities and values; require one shared reason if any observed quantity differs from its recorded balance. |
-| `PATCH` | `/api/v1/admin/inventory/counts/:countId` | Manager | 12 | Version-check edits to a physical-count draft and its shared discrepancy reason. |
-| `POST` | `/api/v1/admin/inventory/counts/:countId/post` | Manager | 12 | Post a count once, explicitly reconcile selected pending orders, and establish counted balances. |
-| `GET` | `/api/v1/admin/inventory/movements` | Manager | 12 | Cursor-page inventory history with date-range, stock-item, movement-type, or POS order-number filters; include the visible order number on order-related movements. |
-| `GET` | `/api/v1/admin/inventory/pending-consumption` | Manager | 12 | Read whole orders awaiting stock or count reconciliation. |
-| `GET` | `/api/v1/admin/reports/gross-profit` | Manager | 13 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, compatible inventory consumption estimates, and daily Tehran-date revenue/COGS/profit with null margins for no sales. |
-| `GET` | `/api/v1/admin/reports/gross-profit` | Manager | 17 | Also report packaging charge revenue, known attributable packaging cost, recovery, recovery coverage, product/option/channel and category breakdowns, unattributed order-level charges, and Tehran-date packaging trends without changing canonical gross-profit totals. |
-| `GET` | `/api/v1/admin/price-history` | Manager | 17 | Cursor-page price baseline and change records by bounded Tehran-date range, product, option, or price dimension. Include stable event IDs, before/after amounts and discounts, actor, source, and whether effective time is known. |
+| `GET` | `/api/v1/admin/inventory/stock-items` | Manager, Developer | 12, 17 | List stock items, base units, pack conversions, packaging-material classification, tracking state, optional Manager-configured low-stock threshold in base units, and current valuation. |
+| `POST` | `/api/v1/admin/inventory/stock-items` | Manager, Developer | 12, 17 | Create a stock item with explicit base unit, optional packaging-material classification, opening quantity/value, and item-specific pack conversions; initialize the balance and opening ledger entry. |
+| `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager, Developer | 12, 17 | Version-check editable configuration, packaging-material classification, and one-time opening quantity/value initialization only while the item is untracked. |
+| `POST` | `/api/v1/admin/inventory/stock-items/:stockItemId/archive` | Manager, Developer | 12 | Archive an unused or referenced item without deleting ledger history. |
+| `GET` | `/api/v1/admin/inventory/purchases` | Manager, Developer | 12 | Cursor-page purchases with optional supplier/item search, status, and received-time filters. |
+| `POST` | `/api/v1/admin/inventory/purchases` | Manager, Developer | 12 | Create a received-purchase draft with supplier text and itemized direct costs. |
+| `PATCH` | `/api/v1/admin/inventory/purchases/:purchaseId` | Manager, Developer | 12 | Version-check edits to a draft purchase. |
+| `POST` | `/api/v1/admin/inventory/purchases/:purchaseId/post` | Manager, Developer | 12 | Post a receipt once, append movements, update moving averages, and retry eligible pending orders. |
+| `POST` | `/api/v1/admin/inventory/purchases/:purchaseId/returns` | Manager, Developer | 12 | Record a dated stock return as a compensating ledger event. |
+| `GET` | `/api/v1/admin/inventory/recipes` | Manager, Developer | 12 | List precise recipe variants, their shared ingredient names, and measured named components. |
+| `POST` | `/api/v1/admin/inventory/recipes` | Manager, Developer | 12 | Create a precise recipe variant and shared ingredient name after validating component units and cycle-free references. |
+| `PATCH` | `/api/v1/admin/inventory/recipes/:recipeId` | Manager, Developer | 12 | Version-check a precise recipe and shared ingredient name edit without changing saved order snapshots. |
+| `POST` | `/api/v1/admin/inventory/recipes/:recipeId/archive` | Manager, Developer | 12 | Archive a recipe while retaining referenced configurations and history. |
+| `GET` | `/api/v1/admin/products/:productId/costing` | Manager, Developer | 12 | Read a product's recipe or purchased-item costing configuration and option rules. |
+| `PUT` | `/api/v1/admin/products/:productId/costing` | Manager, Developer | 12 | Version-check and replace a product's costing configuration and option rules. |
+| `POST` | `/api/v1/admin/products/:productId/costing/preview` | Manager, Developer | 12 | Resolve selected options and return known ingredient quantities, cost, and incompleteness reasons. |
+| `GET` | `/api/v1/admin/inventory/counts` | Manager, Developer | 12 | Cursor-page counts with optional stock-item search, kind/status, and created-time filters. |
+| `POST` | `/api/v1/admin/inventory/counts` | Manager, Developer | 12 | Create a physical-count draft with observed quantities and values; require one shared reason if any observed quantity differs from its recorded balance. |
+| `PATCH` | `/api/v1/admin/inventory/counts/:countId` | Manager, Developer | 12 | Version-check edits to a physical-count draft and its shared discrepancy reason. |
+| `POST` | `/api/v1/admin/inventory/counts/:countId/post` | Manager, Developer | 12 | Post a count once, explicitly reconcile selected pending orders, and establish counted balances. |
+| `GET` | `/api/v1/admin/inventory/movements` | Manager, Developer | 12 | Cursor-page inventory history with date-range, stock-item, movement-type, or POS order-number filters; include the visible order number on order-related movements. |
+| `GET` | `/api/v1/admin/inventory/pending-consumption` | Manager, Developer | 12 | Read whole orders awaiting stock or count reconciliation. |
+| `GET` | `/api/v1/admin/reports/gross-profit` | Developer | 13, 17 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, compatible inventory consumption estimates, and detailed packaging recovery breakdowns. |
+| `GET` | `/api/v1/admin/reports/sales-channels` | Developer | 18 | Report bounded dine-in/takeaway revenue, order distribution, AOV, and channel origin. |
+| `GET` | `/api/v1/admin/reports/sales-analytics` | Developer | 18 | Report bounded order/item demand, contribution, and peak-hour analytics. |
+| `GET` | `/api/v1/admin/price-history` | Manager, Developer | 17 | Cursor-page price baseline and change records by bounded Tehran-date range, product, option, or price dimension. Include stable event IDs, before/after amounts and discounts, actor, source, and whether effective time is known. |
 
-## Manager Pricing Experiments (Stage 19, ADR 0013)
+## Developer Pricing Experiments (Stage 19, ADR 0013)
 
 | Method | Path | Access | Stage | Purpose |
 | ------ | ---- | ------ | ----- | ------- |
-| `GET` | `/api/v1/admin/pricing-experiments` | Manager | 19 | List bounded experiment metadata, target prices, linked Phase 1 change events, and data-quality flags. |
-| `POST` | `/api/v1/admin/pricing-experiments` | Manager | 19 | Create an analysis-only experiment with an effective timestamp, evaluation/comparison duration, target prices, and optional notes. Never write catalog prices. |
-| `GET` | `/api/v1/admin/pricing-experiments/:experimentId` | Manager | 19 | Return the pre/post analysis, product and option impact, packaging recovery, contribution decomposition, break-even volume, fixed-cost coverage, and data-quality limits. |
-| `POST` | `/api/v1/admin/reports/pricing-experiments/simulate` | Manager | 19 | Calculate a non-mutating product/category/option/packaging pricing scenario and selected volume sensitivity. |
+| `GET` | `/api/v1/admin/pricing-experiments` | Developer | 19 | List bounded experiment metadata, target prices, linked Phase 1 change events, and data-quality flags. |
+| `POST` | `/api/v1/admin/pricing-experiments` | Developer | 19 | Create an analysis-only experiment with an effective timestamp, evaluation/comparison duration, target prices, and optional notes. Never write catalog prices. |
+| `GET` | `/api/v1/admin/pricing-experiments/:experimentId` | Developer | 19 | Return the pre/post analysis, product and option impact, packaging recovery, contribution decomposition, break-even volume, fixed-cost coverage, and data-quality limits. |
+| `POST` | `/api/v1/admin/reports/pricing-experiments/simulate` | Developer | 19 | Calculate a non-mutating product/category/option/packaging pricing scenario and selected volume sensitivity. |
 
 Inventory routes declare `400`, `401`, `403`, `404`, `409`, `422`, `429`,
 `500`, and `503` error envelopes in their runtime response schemas. Validation
@@ -333,10 +342,10 @@ clients must refetch affected API resources after reconnecting.
 ## Permanent stock-turnover enablement
 
 - `GET /admin/settings` includes nullable `inventoryActivatedAt`. Null means
-  automatic order-driven stock turnover is disabled. Manager inventory routes
-  for purchases, recipes, product costing, and gross-profit reports remain
-  available after normal Manager authentication.
-- Manager-only `POST /admin/settings/inventory/activate` accepts `{}` and returns
+  automatic order-driven stock turnover is disabled. Manager and Developer
+  inventory routes for purchases, recipes, and product costing remain available
+  after normal Manager authentication; gross-profit reporting is Developer-only.
+- Manager-and-Developer `POST /admin/settings/inventory/activate` accepts `{}` and returns
   `AdminSettingsResponseSchema`. It atomically records the first turnover
   enablement time and an `ACTIVATE_INVENTORY` audit entry. Retries preserve the
   same time.
@@ -362,7 +371,7 @@ TAKEAWAY adds packaging to resolved ingredient/option requirements. Costing
 snapshots preserve the resolved quantities and original sale channel.
 Gross-profit product rows include `channel`; group by product ID and channel.
 Totals and daily figures sum each sale once. Old snapshots retain old costs
-without backfilling packaging. Cost and margin remain Manager-only.
+without backfilling packaging. Cost and margin remain Developer-only.
 
 ### Quantity rules and complete takeaway recipes
 
