@@ -720,6 +720,8 @@ describe("Manager administration", () => {
     expect(categoryResponse.statusCode, categoryResponse.body).toBe(200);
     const categoryId = categoryResponse.json().data.id;
     const packing = await app.prisma.product.findUniqueOrThrow({ where: { categoryId_systemKey: { categoryId, systemKey: "PACKING" } } });
+    const packDown = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${packing.id}`, cookies: manager, payload: { priceAmount: 15_000 } });
+    expect(packDown.statusCode, packDown.body).toBe(200);
     const packUpdate = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${packing.id}`, cookies: manager, payload: { priceAmount: 20_000 } });
     expect(packUpdate.statusCode, packUpdate.body).toBe(200);
 
@@ -789,7 +791,8 @@ describe("Manager administration", () => {
     const packagingHistory = await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&dimension=PACKAGING_CHARGE`, cookies: manager });
     expect(packagingHistory.statusCode).toBe(200);
     expect(packagingHistory.json().data.changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ productId: packing.id, dimension: "PACKAGING_CHARGE", source: "POS_PRODUCT_CREATE", previousAmount: null, newAmount: 15_000 }),
+      expect.objectContaining({ productId: packing.id, dimension: "PACKAGING_CHARGE", source: "POS_PRODUCT_CREATE", previousAmount: null, newAmount: 20_000 }),
+      expect.objectContaining({ productId: packing.id, dimension: "PACKAGING_CHARGE", source: "POS_PRODUCT_UPDATE", previousAmount: 20_000, newAmount: 15_000 }),
       expect.objectContaining({ productId: packing.id, dimension: "PACKAGING_CHARGE", source: "POS_PRODUCT_UPDATE", previousAmount: 15_000, newAmount: 20_000 }),
     ]));
     expect(optionHistory.json().data.changes.every((change: any) => change.effectiveTimeKnown && change.actor && change.requestId)).toBe(true);
