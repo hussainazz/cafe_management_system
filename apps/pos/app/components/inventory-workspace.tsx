@@ -74,10 +74,15 @@ const normalizeInventoryQuantity = (value: string) => {
 };
 
 const managerInventoryViews = new Set<View>(["purchases", "overview", "stock", "recipes", "preparations", "counts", "history"]);
+const analysisInventoryViews = new Set<View>(["sales", "analytics", "profit", "pricing-experiments"]);
+const inventoryViewLabels = [
+  ["purchases", "خریدها"], ["overview", "نمای کلی"], ["stock", "اقلام موجودی"], ["recipes", "دستور تهیه و هزینه"],
+  ["preparations", "دستورهای مشترک"], ["counts", "شمارش انبار"], ["history", "گردش موجودی"], ["sales", "فروش کانال‌ها"], ["analytics", "اوج و مشارکت"], ["profit", "سود ناخالص"], ["pricing-experiments", "آزمایش قیمت‌گذاری"],
+] as const;
 
 export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "MANAGER" }: { catalog: ManagerCatalog; turnoverEnabled?: boolean; role?: "MANAGER" | "STAFF" | "DEVELOPER" }) {
   const [view, setView] = useRecoveryState<View>("inventory-view", role === "DEVELOPER" ? "sales" : "purchases");
-  const activeView: View = role === "MANAGER" && !managerInventoryViews.has(view) ? "purchases" : view;
+  const activeView = view;
   const [stockSelection, setStockSelection] = useState<string | null>(null);
   const [costingProductSelection, setCostingProductSelection] = useState<string | undefined>(undefined);
   const [stockItems, setStockItems] = useState<InventoryStockItem[]>([]);
@@ -98,7 +103,6 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "M
   const dirtyPanel = useRef(false);
   const markDirty = useCallback((dirty: boolean) => { dirtyPanel.current = dirty; }, []);
   const navigate = (next: View) => {
-    if (role === "MANAGER" && !managerInventoryViews.has(next)) return;
     if (next === view) return;
     if (dirtyPanel.current && !window.confirm("تغییرات این بخش ذخیره نشده است. بدون ذخیره از این بخش خارج می‌شوید؟")) return;
     dirtyPanel.current = false; setError(null); setSuccess(false); setView(next);
@@ -187,11 +191,23 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "M
     <section className="inventory-workspace" dir="rtl" aria-busy={loading || busy}>
       <div className="inventory-workspace-heading"><div><h2><InventoryIcon /> انبار و موجودی</h2></div><button type="button" className="secondary-button inventory-refresh" aria-label="تازه‌سازی انبار" disabled={loading || busy} onClick={() => void reload()}><RefreshIcon /></button><span className={`inventory-status${turnoverEnabled ? " inventory-status--success" : ""}`}>{turnoverEnabled ? "گردش موجودی فعال است" : "گردش موجودی فعال نشده"}</span></div>
       {!turnoverEnabled && <details className="inventory-turnover-note"><summary>محاسبه‌ی هزینه پیش از فعال‌سازی گردش موجودی</summary><p>ثبت خرید، دستور تهیه و گزارش سود ناخالص در دسترس است. مواد سفارش‌ها تا فعال‌سازی گردش موجودی از انبار کسر نمی‌شود.</p></details>}
-      <nav className="inventory-tabs manager-tabs" aria-label="بخش‌های انبار">
-        {([
-          ["purchases", "خریدها"], ["overview", "نمای کلی"], ["stock", "اقلام موجودی"], ["recipes", "دستور تهیه و هزینه"],
-          ["preparations", "دستورهای مشترک"], ["counts", "شمارش انبار"], ["history", "گردش موجودی"], ["sales", "فروش کانال‌ها"], ["analytics", "اوج و مشارکت"], ["profit", "سود ناخالص"], ["pricing-experiments", "آزمایش قیمت‌گذاری"],
-        ] as const).filter(([id]) => role !== "MANAGER" || managerInventoryViews.has(id)).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={activeView === id ? "is-active" : ""} aria-pressed={activeView === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
+      <nav className="inventory-tabs manager-tabs" aria-label={role === "DEVELOPER" ? "گروه‌ها و بخش‌های انبار" : "بخش‌های انبار"}>
+        {role === "MANAGER" ? <>
+          <div className="inventory-view-groups inventory-view-groups--static">
+            <h3>مدیریت انبار</h3><span>۷ بخش</span>
+          </div>
+          {inventoryViewLabels.filter(([id]) => managerInventoryViews.has(id)).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={activeView === id ? "is-active" : ""} aria-pressed={activeView === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
+          <div className="inventory-view-groups inventory-view-groups--static">
+            <h3>تحلیل و گزارش</h3><span>۴ بخش</span>
+          </div>
+          {inventoryViewLabels.filter(([id]) => analysisInventoryViews.has(id)).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={activeView === id ? "is-active" : ""} aria-pressed={activeView === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
+        </> : <>
+          <div className="inventory-view-groups" role="group" aria-label="گروه‌های بخش‌های انبار">
+          <button type="button" disabled={busy || !!confirm} aria-pressed={!analysisInventoryViews.has(activeView)} onClick={() => navigate("purchases")}>مدیریت انبار <span>۷ بخش</span></button>
+          <button type="button" disabled={busy || !!confirm} aria-pressed={analysisInventoryViews.has(activeView)} onClick={() => navigate("sales")}>تحلیل و گزارش <span>۴ بخش</span></button>
+          </div>
+          {inventoryViewLabels.filter(([id]) => analysisInventoryViews.has(activeView) === analysisInventoryViews.has(id)).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={activeView === id ? "is-active" : ""} aria-pressed={activeView === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
+        </>}
       </nav>
       {success && <p className="inventory-success" role="status">تغییرات ثبت شد.</p>}
       {error && !confirm && <p className="form-error" role="alert">{error}</p>}
