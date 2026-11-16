@@ -8,7 +8,7 @@ const app = buildApp();
 beforeAll(async () => { await app.ready(); });
 afterAll(async () => { await app.close(); });
 
-async function login(role: "MANAGER" | "STAFF") {
+async function login(role: "DEVELOPER" | "STAFF") {
   const username = `${role.toLowerCase()}.${randomUUID()}`;
   const user = await app.prisma.user.create({ data: { username, role, passwordHash: await hashPassword("CafePassword2026") } });
   const response = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username, password: "CafePassword2026" } });
@@ -98,9 +98,9 @@ async function financialOrder(input: {
   return order;
 }
 
-describe("Manager pricing experiments", () => {
-  it("associates real product and option price history, enforces Manager access, and simulates all policy types without catalog writes", async () => {
-    const manager = await login("MANAGER"); const staff = await login("STAFF");
+describe("Developer pricing experiments", () => {
+  it("associates real product and option price history, enforces Developer access, and simulates all policy types without catalog writes", async () => {
+    const manager = await login("DEVELOPER"); const staff = await login("STAFF");
     const category = await app.prisma.category.create({ data: { name: `Scenario ${randomUUID()}`, displayOrder: 1 } });
     const productRow = await product(category.id, "Scenario coffee", 12_000);
     const optionGroup = await app.prisma.optionGroup.create({ data: { name: `Scenario size ${randomUUID()}` } });
@@ -181,7 +181,7 @@ describe("Manager pricing experiments", () => {
   });
 
   it("compares settled snapshots, discounts and packaging recovery while excluding reversed, deleted and staff orders", async () => {
-    const manager = await login("MANAGER"); const staff = await login("STAFF");
+    const manager = await login("DEVELOPER"); const staff = await login("STAFF");
     const category = await app.prisma.category.create({ data: { name: `Financial ${randomUUID()}`, displayOrder: 1 } });
     const coffee = await product(category.id, "Experiment coffee", 12_000);
     const tea = await product(category.id, "Unchanged tea", 5_000);
