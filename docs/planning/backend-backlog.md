@@ -44,14 +44,15 @@ This document tracks backend work. Product and business rules live in `scope.md`
 
 ## Current Backend Status
 
-Last reconciled: 15 November 2026. The prioritized sections below are the
+Last reconciled: 16 November 2026. The prioritized sections below are the
 authoritative backend acceptance criteria; this summary records whether each
 stage is implemented.
 
-- **P13 / Stage 20 — Active.** Add a restricted Developer role for inventory
-  workspace operations, assign inventory views explicitly between Developer
-  and Manager, and preserve server-side denial of all unrelated Manager
-  capabilities. See the active checklist in `../current-left.md`.
+- **P13 / Stage 20 — Active.** Give Developer every Manager POS capability,
+  then reserve inventory overview, sales-channel, peak/contribution,
+  gross-profit, and pricing-experiment views for Developer. Enforce these
+  boundaries in the interface, API routes, and service methods. See the active
+  checklist in `../current-left.md`.
 
 - **P0 / Stage 1 — Complete.** Foundation, migrations, bootstrap, isolated test
   database, contracts, health checks, and fresh-environment rehearsal are in
@@ -81,9 +82,9 @@ stage is implemented.
 - **P10 / Stage 17 — Active.** Packaging economics reporting and auditable
   catalog price-change history are implemented locally; production release
   remains.
-- **P11 / Stage 18 — Complete.** Bounded sales, contribution, and peak-hour
+- **P11 / Stage 18 — Complete.** Developer-only bounded sales, contribution, and peak-hour
   analytics are implemented and locally verified; see `docs/current-left.md`.
-- **P12 / Stage 19 — Complete.** Manager pricing experiments and strategy
+- **P12 / Stage 19 — Complete.** Developer-only pricing experiments and strategy
   evaluation are implemented and locally verified under [ADR 0013](../adr/0013-pricing-experiments-and-strategy-evaluation.md); see `docs/current-left.md`.
 
 Last recorded integrated local verification (15 November 2026, after the
@@ -138,7 +139,7 @@ and packaging attribution rules.
 
 Acceptance criteria:
 
-- Add Manager-only, bounded server-side reporting for Tehran weekday/hour and
+- Add Developer-only, bounded server-side reporting for Tehran weekday/hour and
   hourly or 30-minute intervals. Separate order/item demand time from
   financial-recognition time and disclose historical order-time fallback for
   item lines without first-entry timestamps.
@@ -182,7 +183,7 @@ costing, and recognition rules.
 
 Acceptance criteria:
 
-- Add Manager-only create/list/report workflows for analytical experiment
+- Add Developer-only create/list/report workflows for analytical experiment
   metadata and product, option, variant, and packaging targets. Associate
   matching Phase 1 price events where possible and flag missing, ambiguous, or
   mismatched history without inventing baseline prices. Experiment writes and
@@ -205,7 +206,7 @@ Acceptance criteria:
 - Calculate per-target and whole-experiment volume break-even points from
   contribution, and provide non-mutating product/category/option/packaging
   simulations with volume sensitivity controls.
-- Add Manager-only Persian RTL dashboard, daily trends, product and packaging
+- Add Developer-only Persian RTL dashboard, daily trends, product and packaging
   comparisons, strategy assessment, and CSV export.
 - Cover history association, snapshots, discounts, packaging, settlements and
   reversals, cost completeness, decomposition, break-even, substitution/mix,
