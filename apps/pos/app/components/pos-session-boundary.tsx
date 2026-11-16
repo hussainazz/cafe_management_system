@@ -223,7 +223,7 @@ export function PosSessionBoundary() {
           </span>
           <span className="drawer-operator__role">{role}</span>
         </div>
-        <nav>
+        <nav aria-label="گروه‌های فضای کاری">
           {session.user.role !== "DEVELOPER" && <>
           <h2>عملیات روزانه</h2>
           <button
