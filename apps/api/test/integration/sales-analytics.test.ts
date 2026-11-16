@@ -9,7 +9,7 @@ beforeAll(async () => { await app.ready(); });
 afterAll(async () => { await app.close(); });
 
 type Cookies = Record<string, string>;
-async function login(role: "MANAGER" | "STAFF"): Promise<Cookies> {
+async function login(role: "DEVELOPER" | "STAFF"): Promise<Cookies> {
   const username = `${role.toLowerCase()}.${randomUUID()}`;
   await app.prisma.user.create({ data: { username, role, passwordHash: await hashPassword("CafePassword2026") } });
   const response = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username, password: "CafePassword2026" } });
@@ -19,7 +19,7 @@ async function login(role: "MANAGER" | "STAFF"): Promise<Cookies> {
 
 describe("Manager sales analytics", () => {
   it("keeps order demand, first item entry, and financial recognition on their Tehran-local timestamps", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const category = await app.prisma.category.create({ data: { name: `Analytics ${randomUUID()}`, displayOrder: 1 } });
     const product = await app.prisma.product.create({ data: {
@@ -134,7 +134,7 @@ describe("Manager sales analytics", () => {
   });
 
   it("reconciles multi-settlement orders and excludes reversed, deleted, and staff-consumption orders", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const category = await app.prisma.category.create({ data: { name: `Eligibility ${randomUUID()}`, displayOrder: 1 } });
     const product = await app.prisma.product.create({ data: {
