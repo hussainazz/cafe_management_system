@@ -38,7 +38,7 @@ The product remains one café, one branch, and one authoritative API/database.
   or deduct stock for historical orders. Existing untracked items may be
   initialized once from stock-item setup; an opening balance cannot reset a
   tracked item.
-- Manager count entry is physical-count only and selects tracked stock items.
+- Manager and Developer count entry is physical-count only and selects tracked stock items.
   If any observed quantity differs from its recorded quantity, require one
   shared reason for the whole count. Physical counts append adjustments and
   retain the reason with the count; a value-only difference does not require a
