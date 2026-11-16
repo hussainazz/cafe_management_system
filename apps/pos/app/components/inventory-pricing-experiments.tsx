@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { CreatePricingExperimentRequest, PricingScenarioRequest } from "@cafe/contracts";
 import {
@@ -57,6 +57,18 @@ function defaultScenario(catalog: ManagerCatalog): ScenarioDraft {
   return { targetKind: "PRODUCT", productId: product?.id ?? "", categoryId: category?.id ?? "", optionId: "", adjustmentAmount: "" };
 }
 function numberValue(value: string) { return /^-?\d+$/.test(value) ? Number(value) : null; }
+function formatTehranPersianDate(value: string | null, includeYear = true) {
+  if (!value) return "—";
+  const date = new Date(`${value}T12:00:00+03:30`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("fa-IR", {
+    timeZone: "Asia/Tehran",
+    calendar: "persian",
+    ...(includeYear ? { year: "numeric" as const } : {}),
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
 
 function PersianDateFields({ label, date, setDate }: { label: string; date: PersianDate; setDate: (next: PersianDate) => void }) {
   return <fieldset className="pricing-date-fields"><legend>{label}</legend>
@@ -69,11 +81,12 @@ function TrendChart({ title, unit, points, valueOf, effectiveDate, moneyValue = 
   title: string; unit: string; points: PricingExperimentReport["data"]["daily"]; valueOf: (point: PricingExperimentReport["data"]["daily"][number]) => number | null;
   effectiveDate: string; moneyValue?: boolean;
 }) {
+  const gapNoteId = useId();
   const rows = points.filter((point) => point.phase !== "EFFECTIVE_DAY");
   const values = rows.map(valueOf).filter((value): value is number => value !== null);
   const min = Math.min(0, ...values); const max = Math.max(1, ...values); const span = max - min;
-  const x = (date: string) => 34 + (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${rows[0]?.date ?? date}T00:00:00Z`)) /
-    Math.max(1, Date.parse(`${rows.at(-1)?.date ?? date}T00:00:00Z`) - Date.parse(`${rows[0]?.date ?? date}T00:00:00Z`)) * 596;
+  const x = (date: string) => 84 + (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${rows[0]?.date ?? date}T00:00:00Z`)) /
+    Math.max(1, Date.parse(`${rows.at(-1)?.date ?? date}T00:00:00Z`) - Date.parse(`${rows[0]?.date ?? date}T00:00:00Z`)) * 616;
   const y = (value: number) => 120 - ((value - min) / span) * 88;
   const segments: string[] = []; let segment = "";
   rows.forEach((point) => {
@@ -82,15 +95,32 @@ function TrendChart({ title, unit, points, valueOf, effectiveDate, moneyValue = 
     segment += `${segment ? " L" : "M"}${x(point.date)},${y(value)}`;
   });
   if (segment) segments.push(segment);
+  const hasMissingData = rows.some((point) => valueOf(point) === null);
   const tick = (value: number) => moneyValue ? inventoryNumber(formatToman(Math.round(value))) : inventoryNumber(Math.round(value));
   return <article className="manager-card pricing-trend-card">
     <h3>{title}</h3><p className="pricing-trend-unit">{unit}</p>
-    <div className="pricing-trend-svg-wrap"><svg viewBox="0 0 650 160" role="img" aria-label={`روند روزانه‌ی ${title}`}>
-      {[0, 0.5, 1].map((ratio) => { const value = min + span * ratio; return <g key={ratio}><line x1="34" x2="630" y1={y(value)} y2={y(value)} className="pricing-trend-grid" /><text x="28" y={y(value) + 4} textAnchor="end">{tick(value)}</text></g>; })}
+    <div className="pricing-trend-svg-wrap" role="region" tabIndex={0} aria-label={`نمودار ${title}، پیمایش افقی`}><svg viewBox="0 0 720 160" role="img" aria-describedby={hasMissingData ? gapNoteId : undefined} aria-label={`روند روزانه‌ی ${title} از ${formatTehranPersianDate(rows[0]?.date ?? null)} تا ${formatTehranPersianDate(rows.at(-1)?.date ?? null)}`}>
+      {[0, 0.5, 1].map((ratio) => { const value = min + span * ratio; return <g key={ratio}><line x1="84" x2="700" y1={y(value)} y2={y(value)} className="pricing-trend-grid" /><text x="78" y={y(value) + 4} textAnchor="end">{tick(value)}</text></g>; })}
       {effectiveDate >= (rows[0]?.date ?? effectiveDate) && effectiveDate <= (rows.at(-1)?.date ?? effectiveDate) && <line x1={x(effectiveDate)} x2={x(effectiveDate)} y1="18" y2="132" className="pricing-trend-marker" />}
-      {segments.map((path, index) => <path key={index} d={path} fill="none" stroke={index === 0 ? "#a58cf3" : "#62cca2"} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />)}
-      {rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % Math.ceil(rows.length / 5) === 0).map((point) => <text key={point.date} x={x(point.date)} y="151" textAnchor="middle">{point.date.slice(5)}</text>)}
+      {segments.map((path, index) => <path key={index} d={path} fill="none" stroke="#a58cf3" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />)}
+      {rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % Math.ceil(rows.length / 5) === 0).map((point) => <text key={point.date} x={x(point.date)} y="151" textAnchor="middle">{formatTehranPersianDate(point.date, false)}</text>)}
     </svg></div>
+    {hasMissingData && <p id={gapNoteId} className="pricing-trend-gap-note">فاصله‌ی خط، روزی را نشان می‌دهد که برای این معیار داده‌ای ثبت نشده است.</p>}
+    <details className="pricing-chart-data">
+      <summary>جدول داده‌های روزانه</summary>
+      <div className="inventory-table-wrap pricing-chart-data-wrap" role="region" tabIndex={0} aria-label={`جدول داده‌های روزانه‌ی ${title}`}>
+        <table className="inventory-table">
+          <caption>{title} · داده‌ی روزانه</caption>
+          <thead><tr><th scope="col">تاریخ</th><th scope="col">مرحله</th><th scope="col">{unit}</th></tr></thead>
+          <tbody>{points.map((point) => {
+            const value = valueOf(point);
+            const phase = point.phase === "EFFECTIVE_DAY" ? "روز مؤثر" : point.phase === "BEFORE" ? "پیش از تغییر" : "پس از تغییر";
+            const formattedValue = value === null ? "داده‌ای ثبت نشده" : moneyValue ? `${inventoryNumber(formatToman(Math.round(value)))} تومان` : inventoryNumber(value);
+            return <tr key={point.date}><th scope="row">{formatTehranPersianDate(point.date)}</th><td>{phase}</td><td>{formattedValue}</td></tr>;
+          })}</tbody>
+        </table>
+      </div>
+    </details>
   </article>;
 }
 
@@ -306,11 +336,17 @@ function PricingExperimentDashboard({ report, onExport }: { report: PricingExper
     { label: "تغییر پوشش هزینه‌ی ثابت", value: changes.fixedCostCoveragePercent === null ? "محاسبه نشده" : `${inventoryNumber(changes.fixedCostCoveragePercent)} واحد درصد`, detail: `پیش ${percent(period.before.fixedCostCoveragePercent)} · پس ${percent(period.after.fixedCostCoveragePercent)}` },
     { label: "تغییر حاشیه‌ی ایمنی", value: signed(changes.marginOfSafetyAmount), detail: changes.marginOfSafetyPercent === null ? "درصد محاسبه نشده" : `${inventoryNumber(changes.marginOfSafetyPercent)} واحد درصد` },
   ];
+  const primaryCards = [cards[0]!, cards[1]!, cards[2]!, cards[5]!];
+  const supplementalCards = [cards[3]!, cards[4]!, cards[6]!];
   return <div className="pricing-experiment-dashboard">
     <div className={`pricing-assessment ${outcomeClass[data.assessment.outcome]}`}><div><span className="pricing-status-chip">{data.status === "IN_PROGRESS" ? "در حال ارزیابی" : data.status === "READY" ? "داده‌ها آماده‌اند" : "نیازمند داده‌ی بیشتر"}</span><h2>{outcomeLabels[data.assessment.outcome]}</h2><p>{data.assessment.summaryFa}</p></div><button type="button" className="secondary-button" onClick={onExport}>دریافت گزارش CSV</button></div>
-    <div className="pricing-period-summary"><span>پیش از تغییر: {period.before.fromDate ?? "—"} تا {period.before.toDate ?? "—"} · {inventoryNumber(period.before.includedDayCount)} روز هم‌روزِ هفته</span><span>پس از تغییر: {period.after.fromDate ?? "—"} تا {period.after.toDate ?? "—"} · {inventoryNumber(period.after.includedDayCount)} روز هم‌روزِ هفته</span><span>هزینه‌ی ثابت ماهانه: ۲۶۵٬۰۰۰٬۰۰۰ تومان · معادل ماه: ۳۰ روز</span></div>
+    <div className="pricing-period-summary"><span>پیش از تغییر: {formatTehranPersianDate(period.before.fromDate)} تا {formatTehranPersianDate(period.before.toDate)} · {inventoryNumber(period.before.includedDayCount)} روز هم‌روزِ هفته</span><span>پس از تغییر: {formatTehranPersianDate(period.after.fromDate)} تا {formatTehranPersianDate(period.after.toDate)} · {inventoryNumber(period.after.includedDayCount)} روز هم‌روزِ هفته</span><span>هزینه‌ی ثابت ماهانه: ۲۶۵٬۰۰۰٬۰۰۰ تومان · معادل ماه: ۳۰ روز</span></div>
     {!period.weekdayCompositionMatched && <p className="pricing-alert" role="status">ترکیب روزهای هفته میان دو نمونه برابر نیست؛ در بازه‌های کوتاه ممکن است روز همتا وجود نداشته باشد. این تفاوت را هنگام مقایسه در نظر بگیرید.</p>}
-    <section className="pricing-kpis" aria-label="شاخص‌های کلیدی آزمایش">{cards.map((card) => <article className="manager-card pricing-kpi" key={card.label}><h3>{card.label}</h3><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
+    <section className="pricing-kpis" aria-label="شاخص‌های اصلی آزمایش">{primaryCards.map((card) => <article className="manager-card pricing-kpi" key={card.label}><h3>{card.label}</h3><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
+    <details className="pricing-secondary-kpis">
+      <summary>میانگین سفارش، بسته‌بندی و حاشیه‌ی ایمنی</summary>
+      <section className="pricing-kpis" aria-label="شاخص‌های تکمیلی آزمایش">{supplementalCards.map((card) => <article className="manager-card pricing-kpi" key={card.label}><h3>{card.label}</h3><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
+    </details>
 
     <section className="pricing-section"><header><h2>روند روزانه</h2><p>مقیاس هر نمودار جداست. خط‌چین محل تاریخ مؤثر را نشان می‌دهد؛ همان روز از جمع‌های پیش و پس کنار گذاشته شده است.</p></header>
       <div className="pricing-trends">
