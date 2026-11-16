@@ -48,11 +48,12 @@ Last reconciled: 16 November 2026. The prioritized sections below are the
 authoritative backend acceptance criteria; this summary records whether each
 stage is implemented.
 
-- **P13 / Stage 20 — Active.** Give Developer every Manager POS capability,
+- **P13 / Stage 20 — Complete.** Give Developer every Manager POS capability,
   then reserve inventory overview, sales-channel, peak/contribution,
   gross-profit, and pricing-experiment views for Developer. Enforce these
-  boundaries in the interface, API routes, and service methods. See the active
-  checklist in `../current-left.md`.
+  boundaries in the interface and API routes. See the completion record in
+  `../current-left.md`; physical café-device acceptance remains a separate
+  operational gate.
 
 - **P0 / Stage 1 — Complete.** Foundation, migrations, bootstrap, isolated test
   database, contracts, health checks, and fresh-environment rehearsal are in
