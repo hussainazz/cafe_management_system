@@ -43,7 +43,7 @@ function draftLineAmount(item: Draft): number {
 }
 
 export function StaffConsumption({ role, onOpenMenu, menuOpen = false }: {
-  role: "STAFF" | "MANAGER";
+  role: "STAFF" | "MANAGER" | "DEVELOPER";
   onOpenMenu: () => void;
   menuOpen?: boolean;
 }) {
@@ -208,7 +208,7 @@ export function StaffConsumption({ role, onOpenMenu, menuOpen = false }: {
       {discountEntryId === entry.id
         ? <StaffDiscountForm entry={entry} busy={busy} onCancel={() => setDiscountEntryId(null)} onApply={(kind, value) => applyDiscount(entry, kind, value)} />
         : <button className="button button--quiet" type="button" disabled={busy} onClick={() => { setError(null); setDiscountEntryId(entry.id); }}>تخفیف</button>}
-      {role === "MANAGER" && (removeEntryId === entry.id
+      {role !== "STAFF" && (removeEntryId === entry.id
         ? <div className="staff-remove-confirm" role="group" aria-label={`تأیید حذف سفارش ${formatOrderNumber(entry.dailyOrderNumber)}`}>
           <p>این سفارش از فهرست حساب پرسنل خارج می‌شود؛ سابقه‌ی ثبت آن باقی می‌ماند.</p>
           <div className="modal-actions"><button className="button button--quiet" type="button" disabled={busy} onClick={() => setRemoveEntryId(null)}>انصراف</button><button className="button button--danger" type="button" disabled={busy} onClick={() => void remove(entry)}>{busy ? "در حال حذف…" : "تأیید حذف"}</button></div>
