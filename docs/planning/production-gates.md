@@ -285,6 +285,35 @@ storage remains 32 files / 5,759,237 bytes.
 The production migration and route checks are complete. Physical café-device
 acceptance remains a separate operational gate.
 
+### Developer Manager parity release — 16 November 2026
+
+Released commit `33362add26a2b1dafc32ea7a2527318f90122cc9` as
+`cafe-20261116-33362ad` after committing and pushing each changed file
+separately. The coordinated API, contracts, and POS artifact SHA-256 is
+`df8fe6dc0634ee98f9cebf3c791fc01f4427ed35594f792b51935ebfae8ada0d`. It
+contains the API runtime, matching contracts, POS production output, and
+Prisma metadata. It excludes secrets, developer-local product images, POS
+development/cache output, source maps, declarations, tests, the unused RHEL
+Prisma engine, and unchanged public assets.
+
+Production migration status was already current at all 56 migrations; this
+release contains no schema change and required no migration. The PostgreSQL
+17.11 custom-format pre-release backup passed `pg_restore --list` with 435
+entries: `/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261116-33362ad.dump`
+(SHA-256 `cf5a8b899d7f6226230f455e7b0aaa27734db07461407c0bad98b8aa75e689a6`).
+The verified rollback archive is
+`/opt/cafe-menu-release-backups/rollback-before-cafe-20261116-33362ad.tar.gz`
+(SHA-256 `02e8083dd37e591be3b1ad3f110038b6cb70e222d9edf70de1683a75f45632d4`).
+
+API liveness/readiness and public HTTPS `/pos` and `/pos/release` returned
+HTTP 200. `/pos/release` reports `cafe-20261116-33362ad` with
+`Cache-Control: no-store, max-age=0`. Gross-profit, sales-channel,
+sales-analytics, and pricing-experiment routes return 401 without
+authentication. API, POS, web, and Nginx services are active with zero
+automatic restarts. Product-image storage remains at 32 files / 5,759,237
+bytes; no environment or product-image data was transferred. Physical
+café-device acceptance remains open.
+
 ### Next.js artifact transfer rule
 
 The shared local `.next` directory can retain large Turbopack development and
@@ -426,8 +455,8 @@ Operating rules:
 | ------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Unit         | Fast tests for pure rules and state transitions | Toman arithmetic, option validation, discount allocation, settlement allocation, payment-status transitions, permission predicates                                                                                       |
 | Integration  | Real PostgreSQL constraints and transactions    | Order creation, selected-item settlement, mixed tender, card transfer, reversal, logical deletion, idempotency, stale-version conflict, table occupancy/reminder, pending waiter-call deduplication and table-opening resolution, rollback |
-| API contract | Request/response and authorization behavior     | OpenAPI schema, error envelope, Staff catalog/sale-discount/payment-history access, Manager-only daily report and reversal-policy settings, optional correction reasons, shared item/order discounts, eligible occupied-table credential boundaries, forbidden actions |
-| Browser E2E  | Small complete journeys                         | Shared POS login, order and concise bar-ticket print, selected-item mixed-tender/card-transfer settlement, QR-scan occupancy reminder, highlighted waiter-call table opening, delete/clear table, detailed receipt, Manager role-gated panels, public menu browse |
+| API contract | Request/response and authorization behavior     | OpenAPI schema, error envelope, shared Staff/Manager/Developer POS access, Manager/Developer daily report and reversal-policy settings, Developer-only inventory analysis and pricing-experiment routes, optional correction reasons, shared item/order discounts, eligible occupied-table credential boundaries, forbidden actions |
+| Browser E2E  | Small complete journeys                         | Shared POS login, order and concise bar-ticket print, selected-item mixed-tender/card-transfer settlement, QR-scan occupancy reminder, highlighted waiter-call table opening, delete/clear table, detailed receipt, role-gated Manager/Developer panels, public menu browse |
 | Operational  | Release and recovery behavior                   | Migration, health checks, restart recovery, backup restore, printer output, smoke tests                                                                                                                                  |
 
 Definition of done for a feature:
@@ -445,11 +474,11 @@ Definition of done for a feature:
 | Gate                 | Required evidence                                                                                                                                                                                        |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Business correctness | Critical open/deleted, unpaid/partially-paid/paid, settlement allocation, table timing, occupancy/reminder flow, eligible-table waiter-call, concise bar-ticket, detailed customer-receipt, and today/yesterday report scenarios pass with known Toman totals. |
-| Security             | HTTPS, secure session controls, CSRF controls, rate limits, Manager/Staff authorization review, secret handling, safe logging, dependency scan.                                                          |
+| Security             | HTTPS, secure session controls, CSRF controls, rate limits, Manager/Staff/Developer authorization review, secret handling, safe logging, dependency scan.                                                 |
 | Data safety          | Migration test, automated backup, successful clean restore, explicit full order/payment-history retention despite the two-day report window, retention policy, disk monitoring.                           |
 | Reliability          | Restart recovery, readiness checks, stale-client conflicts, idempotent retries, and café-internet-loss/manual-fallback behavior tested.                                                                  |
 | Operations           | Versioned release, rollback/forward-fix procedure, log access, alerts, Manager recovery, operator runbook.                                                                                               |
-| Hardware and UX      | Actual POS device, shared Staff/Manager dashboard, waiter-call alert, Chrome on the café's Windows POS computer, network, receipt printer, paper size, both print layouts, touch targets, and busy-hour workflow tested.                    |
+| Hardware and UX      | Actual POS device, shared Staff/Manager/Developer dashboard, waiter-call alert, Chrome on the café's Windows POS computer, network, receipt printer, paper size, both print layouts, touch targets, and busy-hour workflow tested. |
 | Pilot                | A limited live shift runs with the fallback procedure; issues are recorded and no unreconciled financial difference remains.                                                                             |
 
 ## Decisions Fixed Before Implementation
@@ -460,7 +489,7 @@ Definition of done for a feature:
 | Tax/service charge    | None. Catalog prices are final.                                                                                                                     |
 | Business day/timezone | Store UTC; display/report using `Asia/Tehran` calendar boundaries. The cafe is always open, so v1 has no configurable business-day cut-off.         |
 | Customer submission   | Not in v1. QR menu is browse-only.                                                                                                                  |
-| Roles                 | Manager and Staff only; POS uses Staff.                                                                                                             |
+| Roles                 | Manager, Staff, and Developer; POS uses one shared application with role-gated access.                                                               |
 | Deployment            | One Iranian VPS, self-hosted stack, one writable PostgreSQL database. The public menu and table QR links remain at the root domain; the shared POS is served at `/pos`. API release artifacts must include the Prisma `debian-openssl-3.0.x` engine for the current Debian-family VPS OS. |
 | Receipt integration   | Hidden same-origin iframe printing from the Windows POS browser using the shared Persian RTL thermal documents. The browser print workflow must be configured on the café POS computer; no QZ Tray, VPS-side browser, `lp`, direct USB, or raw ESC/POS integration. |
 | Table cleanup         | `DELETED` is logical deletion with an audit record; no deletion reason is required, including for paid orders. It never physically removes records. |
