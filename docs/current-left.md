@@ -15,10 +15,10 @@
   Developer account. The password is stored only as a hash; existing sessions
   were revoked.
 - [x] Verify the Developer inventory screen in the browser with all 11
-  inventory tabs available. Manager tabs are restricted to خریدها, نمای کلی,
-  اقلام موجودی, دستور تهیه و هزینه, دستورهای مشترک, شمارش انبار, and گردش
-  موجودی. Developer session/catalog/inventory reads return 200; Manager
-  settings and user administration return 403.
+  inventory tabs available. Manager inventory navigation groups its seven
+  management sections separately from the four analysis and reporting views.
+  Developer session/catalog/inventory reads return 200; Manager settings and
+  user administration return 403.
 - [x] Commit and push each changed file separately. `main` is pushed through
   `ac018ea`.
 - [x] Deploy and check the VPS: `cafe-api`, `cafe-pos`, and `cafe-web` are
@@ -146,6 +146,39 @@ acceptance was not run at this implementation checkpoint.
 Left: no Phase 3 implementation or verification items remain. The Phase 1
 catalog baseline is deployed and recorded; physical café-device acceptance
 remains open.
+
+## Completed delivery — Phase 1–3 POS finance UI critique and refinements (16 November 2026)
+
+- [x] Ran the Impeccable dual-agent critique on the Phase 1–3 inventory
+  workspace. Heuristic score: 29/40 (Good); deterministic design scan reported
+  no issues across the five targeted TSX surfaces.
+- [x] Reduced analytics filter and KPI density, grouped Developer inventory
+  navigation into seven management and four analysis sections, consolidated
+  time-basis guidance, and removed lettered report headings.
+- [x] Confirmed the role-aware POS drawer already groups Staff and Manager
+  destinations by work area; added a named navigation landmark and a visible
+  seven-section management heading to the Manager inventory navigation.
+- [x] Made pricing trend gaps retain one series color and explain missing days;
+  added Persian-calendar dates, larger scroll-contained chart labels, and
+  expandable daily data tables. Raised related controls to 44px. Set the chart
+  scroller to show its value axis at the initial phone-width position and
+  exposed keyboard focus and the missing-data note to assistive technology.
+- [x] Signed in to the local Developer POS in the browser and reviewed the
+  Phase 1 packaging economics, Phase 2 analytics, and Phase 3 pricing report.
+  A stale browser tab initially lost its local services; after restarting
+  those services, all three report views loaded with the local seeded data.
+- [x] At a 360px browser viewport, the chart area scrolls within its card and
+  the page itself has no horizontal overflow. Keyboard arrows move the chart;
+  Enter opens the daily table, and the browser accessibility tree exposes the
+  chart descriptions, table headings, and missing-day explanations.
+- [x] POS typecheck and `git diff --check` pass. Automated tests were not run.
+  The local `hosein` Developer login is stored in the git-ignored
+  `.env.developer.local` file (mode 0600).
+
+Left: standalone screen-reader output was not checked. The browser console
+showed one intermediate `useId` import error during hot reload; the import was
+fixed, the report rendered, and no newer console error appeared. No production
+data or deployment was changed.
 
 ## Production release — Inventory finance Phases 1–3 (15 November 2026)
 
