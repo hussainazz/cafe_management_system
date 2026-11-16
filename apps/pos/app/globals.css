@@ -4422,11 +4422,18 @@ svg {
   gap: 14px;
 }
 .sales-analytics-filter .inventory-profit-filter { align-items: end; }
+.sales-analytics-primary-controls { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: end; gap: 12px; min-width: 0; }
+.sales-analytics-advanced { flex: 1 1 100%; min-width: 0; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.sales-analytics-advanced > summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; min-height: 44px; cursor: pointer; font-weight: 650; }
+.sales-analytics-filter-summary { color: var(--muted); font-size: var(--text-meta); font-weight: 400; }
+.sales-analytics-advanced-content { display: grid; gap: 12px; padding-block: 4px 12px; }
+.sales-analytics-methodology { margin-block-start: 8px; color: var(--muted); font-size: var(--text-meta); line-height: 1.7; }
+.sales-analytics-methodology > summary { width: fit-content; min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--text-primary); }
+.sales-analytics-methodology p { max-width: 78ch; margin: 0; }
 .sales-analytics-multi-filter {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  grid-column: 1 / -1;
 }
 .sales-analytics-multi-filter select[multiple] { min-height: 116px; padding: 7px; }
 .sales-analytics-multi-filter small { display: block; margin-top: 4px; color: var(--muted); line-height: 1.5; }
@@ -4434,7 +4441,6 @@ svg {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
-  grid-column: 1 / -1;
   min-width: 0;
   margin: 0;
   padding: 10px 12px;
@@ -6366,6 +6372,13 @@ svg {
 .inventory-workspace .inventory-tabs { margin-block: 10px; gap: 8px; padding-block-end: 0; }
 .inventory-workspace .inventory-tabs button { background: #232725; color: #c9c7c0; border: 1px solid #454640; border-radius: 8px 8px 0 0; white-space: nowrap; }
 .inventory-workspace .inventory-tabs button.is-active { background: linear-gradient(110deg, #77542d, #493921); color: #fff6e8; border-color: #a47942; }
+.inventory-workspace .inventory-view-groups { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; padding-inline-end: 8px; border-inline-end: 1px solid var(--line); }
+.inventory-workspace .inventory-view-groups button { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; border-radius: 8px; }
+.inventory-workspace .inventory-view-groups button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); border-color: var(--accent); }
+.inventory-workspace .inventory-view-groups button span { color: var(--muted); font-size: .72rem; font-weight: 500; }
+.inventory-workspace .inventory-view-groups--static { min-height: 44px; padding-inline: 10px 16px; }
+.inventory-workspace .inventory-view-groups--static h3 { margin: 0; color: var(--text-primary); font-size: .82rem; }
+.inventory-workspace .inventory-view-groups--static span { color: var(--muted); font-size: .72rem; }
 .inventory-workspace .manager-card { background: linear-gradient(115deg, #252826, #202321); border: 1px solid var(--line); }
 .inventory-workspace .manager-card > header { margin-block-end: 16px; }
 .inventory-workspace .manager-card h2 svg { color: var(--accent); margin-inline-end: 6px; }
@@ -6538,7 +6551,7 @@ svg {
  .inventory-workspace-heading h2 svg { width: 24px; height: 24px; }
  .inventory-profit-filter { gap: 8px; }
  .inventory-profit-filter .inventory-date-fields { gap: 8px; }
- .inventory-report-filter .inventory-date-fields input { min-height: 40px; padding-block: 7px; }
+ .inventory-report-filter .inventory-date-fields input { min-height: 44px; padding-block: 7px; }
 }
 
 /* Overview: show stock content in the first desktop screen. */
@@ -6570,7 +6583,7 @@ svg {
 .pricing-create-card > summary, .pricing-scenario-card > summary { cursor: pointer; font-weight: 700; }
 .pricing-experiment-form, .pricing-scenario-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 12px; margin-block-start: 14px; }
 .pricing-experiment-form > label, .pricing-scenario-form > label, .pricing-experiment-selector > label, .pricing-target-row > label, .pricing-scenario-row > label, .pricing-date-fields > label { display: grid; gap: 5px; min-width: 0; font-size: .76rem; }
-.pricing-experiment-form :is(input, select, textarea), .pricing-scenario-form :is(input, select, textarea), .pricing-experiment-selector select, .pricing-target-row :is(input, select), .pricing-scenario-row :is(input, select), .pricing-date-fields input { min-width: 0; width: 100%; min-height: 40px; padding: 7px 9px; color: var(--text-primary); font: inherit; border: 1px solid var(--border-control); border-radius: 8px; background: var(--surface-raised); }
+.pricing-experiment-form :is(input, select, textarea), .pricing-scenario-form :is(input, select, textarea), .pricing-experiment-selector select, .pricing-target-row :is(input, select), .pricing-scenario-row :is(input, select), .pricing-date-fields input { min-width: 0; width: 100%; min-height: 44px; padding: 7px 9px; color: var(--text-primary); font: inherit; border: 1px solid var(--border-control); border-radius: 8px; background: var(--surface-raised); }
 .pricing-experiment-form textarea { resize: vertical; }
 .pricing-notes-field { grid-column: span 2; }
 .pricing-date-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; margin: 0; padding: 8px; border: 1px solid var(--line); border-radius: 9px; }
@@ -6603,7 +6616,16 @@ svg {
 .pricing-trends { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .pricing-trend-card { padding: 12px; min-width: 0; }
 .pricing-trend-card h3 { margin: 0; font-size: .82rem; }.pricing-trend-unit { margin: 3px 0; color: var(--muted); font-size: .68rem; }
-.pricing-trend-svg-wrap svg { display: block; width: 100%; height: auto; overflow: visible; }.pricing-trend-svg-wrap text { fill: var(--muted); font-size: 8px; }.pricing-trend-svg-wrap .pricing-trend-grid { stroke: var(--line); stroke-width: 1; }.pricing-trend-svg-wrap .pricing-trend-marker { stroke: #d58f62; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.pricing-trend-svg-wrap { max-width: 100%; direction: ltr; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+.pricing-trend-svg-wrap:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+.pricing-trend-svg-wrap svg { display: block; width: 100%; min-width: 620px; height: auto; overflow: visible; }.pricing-trend-svg-wrap text { fill: var(--muted); font-size: 12px; }.pricing-trend-svg-wrap .pricing-trend-grid { stroke: var(--line); stroke-width: 1; }.pricing-trend-svg-wrap .pricing-trend-marker { stroke: #d58f62; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.pricing-trend-gap-note { margin: 8px 0; color: var(--muted); font-size: .74rem; line-height: 1.7; }
+.pricing-chart-data { margin-block-start: 10px; border-block-start: 1px solid var(--line); }
+.pricing-chart-data > summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--text-primary); font-size: .76rem; }
+.pricing-chart-data-wrap { max-height: 280px; overflow: auto; }
+.pricing-secondary-kpis { padding-block-start: 4px; border-block-start: 1px solid var(--line); }
+.pricing-secondary-kpis > summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--muted); font-size: .78rem; }
+.pricing-secondary-kpis .pricing-kpis { margin-block-start: 8px; }
 .pricing-impact-table { min-width: 1120px; }.pricing-impact-table th small { display: block; font-weight: 400; color: var(--muted); white-space: normal; }
 .pricing-category-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
 .pricing-effects { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }.pricing-effects .manager-card { padding: 12px; }.pricing-effects h3 { margin: 0 0 8px; font-size: .76rem; }.pricing-effects strong { font-size: .94rem; }
