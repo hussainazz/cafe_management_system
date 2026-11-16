@@ -9,7 +9,7 @@ beforeAll(async () => { await app.ready(); });
 afterAll(async () => { await app.close(); });
 
 type Cookies = Record<string, string>;
-async function login(role: "MANAGER" | "STAFF") {
+async function login(role: "DEVELOPER" | "MANAGER" | "STAFF") {
   const username = `${role.toLowerCase()}.${randomUUID()}`;
   await app.prisma.user.create({ data: { username, role, passwordHash: await hashPassword("CafePassword2026") } });
   const response = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username, password: "CafePassword2026" } });
@@ -83,7 +83,7 @@ async function readReport(cookies: Cookies, fromDate = "2026-11-10", toDate = fr
 
 describe("Manager takeaway and dine-in sales report", () => {
   it("classifies orders by original channel and structured packaging identity, once per order", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Espresso", 10_000);
     const meal = await product("Meal", 40_000);
@@ -166,7 +166,7 @@ describe("Manager takeaway and dine-in sales report", () => {
   });
 
   it("uses the channel fallback for ordinary legacy orders without a saved origin", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Legacy fallback espresso", 10_000);
     const packing = await product("Legacy fallback packaging", 2_000, "PACKING");
@@ -190,7 +190,8 @@ describe("Manager takeaway and dine-in sales report", () => {
   });
 
   it("excludes unpaid, partially paid, fully reversed, deleted and staff-consumption records", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
+    await login("MANAGER");
     const staff = await login("STAFF");
     const espresso = await product("Eligible espresso", 10_000);
     const packing = await product("Packaging", 2_000, "PACKING");
@@ -253,7 +254,7 @@ describe("Manager takeaway and dine-in sales report", () => {
   });
 
   it("uses the final active settlement time and Tehran half-open date boundaries", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Boundary espresso", 10_000);
     const partialOrder = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }]);
@@ -280,7 +281,7 @@ describe("Manager takeaway and dine-in sales report", () => {
   });
 
   it("reports a repaid order once using its replacement settlement and final active date", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Replacement settlement espresso", 10_000);
     const order = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }]);
@@ -312,7 +313,7 @@ describe("Manager takeaway and dine-in sales report", () => {
   });
 
   it("stops classifying a table order as takeaway after its packaging line is removed", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Removable packaging espresso", 10_000);
     const packing = await product("Removable packaging item", 5_000, "PACKING");
@@ -348,7 +349,7 @@ describe("Manager takeaway and dine-in sales report", () => {
   });
 
   it("uses the saved original channel after a table order is set aside", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Deferred channel espresso", 10_000);
     const packing = await product("Deferred channel packaging", 2_000, "PACKING");
@@ -377,7 +378,7 @@ describe("Manager takeaway and dine-in sales report", () => {
   });
 
   it("surfaces legacy deferred orders whose original channel was never saved", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Legacy deferred espresso", 10_000);
     const legacy = await createOrder(staff, "TABLE", [{ productId: espresso.id, quantity: 1 }], (await table()).id);
@@ -392,7 +393,7 @@ describe("Manager takeaway and dine-in sales report", () => {
   });
 
   it("denies Staff and rejects a reversed date range", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const forbidden = await app.inject({ method: "GET", url: "/api/v1/admin/reports/sales-channels?fromDate=2026-11-10&toDate=2026-11-10", cookies: staff });
     expect(forbidden.statusCode).toBe(403);
@@ -401,7 +402,7 @@ describe("Manager takeaway and dine-in sales report", () => {
   });
 
   it("keeps the dine-in AOV and its comparison undefined when the period has only takeaway orders", async () => {
-    const manager = await login("MANAGER");
+    const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Takeaway-only espresso", 10_001);
     const discountedEspresso = await product("Takeaway-only discounted espresso", 10_000);
