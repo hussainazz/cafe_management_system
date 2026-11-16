@@ -322,7 +322,7 @@ export async function createOrder(
   staffConsumption = false,
   staffConsumptionName?: string,
 ): Promise<OrderCreationResult> {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
 
   const fingerprint = staffConsumption ? requestFingerprint({ input, staffConsumptionName: staffConsumptionName?.trim() || null }) : requestFingerprint(input);
   const operation = staffConsumption ? "CREATE_STAFF_CONSUMPTION" : CREATE_ORDER_OPERATION;
@@ -601,7 +601,7 @@ function orderDetailDto(order: OrderDetailRecord) {
 }
 
 export async function readOrder(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
   if (!order) {
     throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
@@ -630,7 +630,7 @@ function encodeCursor(order: { createdAt: Date; id: string }): string {
 }
 
 export async function listOrders(prisma: PrismaClient, actor: AuthenticatedUser, query: OrderListQuery) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   const cursor = query.cursor ? decodeCursor(query.cursor) : undefined;
   const where: Prisma.OrderWhereInput = {
     ...(query.state ? { state: query.state } : {}),
@@ -683,14 +683,14 @@ export async function listOrders(prisma: PrismaClient, actor: AuthenticatedUser,
 }
 
 export async function deferOrder(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, input: { expectedVersion: number; customerName?: string }, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (tx) => {
     const initial = await tx.order.findUnique({ where: { id: orderId }, select: { tableId: true } });
     await lockOperationalKeys(tx, [`order:${orderId}`, ...(initial?.tableId ? [`table:${initial.tableId}`] : [])]);
     await assertNoTerminalReservation(tx, orderId);
     const order = await tx.order.findUnique({ where: { id: orderId } });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-    if (order.isStaffConsumption && actor.role !== "MANAGER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager may remove staff consumption.");
+    if (order.isStaffConsumption && actor.role !== "MANAGER" && actor.role !== "DEVELOPER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager or developer may remove staff consumption.");
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     if (order.state !== OrderState.OPEN || order.balanceAmount <= 0 || order.deferredAt) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only an open unpaid order can be set aside.");
     const now = new Date();
@@ -709,7 +709,7 @@ export async function deferOrder(prisma: PrismaClient, actor: AuthenticatedUser,
 }
 
 export async function discountStaffConsumption(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, expectedVersion: number, discount: DiscountInput, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   if (!discount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A discount is required.");
   return prisma.$transaction(async (tx) => {
     await lockOperationalKeys(tx, [`order:${orderId}`]);
@@ -732,7 +732,7 @@ export async function updateOrder(
   input: UpdateOrderRequest,
   requestId: string,
 ) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (transaction) => {
     await assertNoTerminalReservation(transaction, orderId);
     await lockOperationalKeys(transaction, [`order:${orderId}`]);
@@ -925,7 +925,7 @@ export async function updateOrder(
 }
 
 export async function transferOrderTable(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, input: TransferOrderTableRequest, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (transaction) => {
     const lockKeys = [`order:${orderId}`];
     const orderForLock = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
@@ -982,12 +982,12 @@ export async function deleteOrder(
   input: DeleteOrderRequest,
   requestId: string,
 ) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (transaction) => {
     await assertNoTerminalReservation(transaction, orderId);
     const order = await transaction.order.findUnique({ where: { id: orderId } });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-    if (order.isStaffConsumption && actor.role !== "MANAGER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager may remove staff consumption.");
+    if (order.isStaffConsumption && actor.role !== "MANAGER" && actor.role !== "DEVELOPER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager or developer may remove staff consumption.");
     if (order.state !== OrderState.OPEN && order.state !== OrderState.CLOSED) {
       throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open or closed orders can be deleted.");
     }
@@ -1174,7 +1174,7 @@ export async function recordSettlement(
   idempotencyKey: string,
   requestId: string,
 ) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   const fingerprint = requestFingerprint({ orderId, ...input });
   const previous = await existingIdempotencyResult<ReturnType<typeof orderDetailDto>>(
     prisma,
@@ -1207,7 +1207,7 @@ export async function recordSettlement(
 }
 
 export async function reverseSettlement(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string, input: ReverseSettlementRequest, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (transaction) => {
     const tableAssignment = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
     await lockOperationalKeys(transaction, ["order:" + orderId, ...(tableAssignment?.channel === OrderChannel.TABLE && tableAssignment.tableId ? ["table:" + tableAssignment.tableId] : [])]);
@@ -1258,7 +1258,7 @@ export async function editSettlement(
   idempotencyKey: string,
   requestId: string,
 ) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   const fingerprint = requestFingerprint({ settlementId, ...input });
   const previous = await existingIdempotencyResult<ReturnType<typeof orderDetailDto>>(
     prisma,
@@ -1357,7 +1357,7 @@ const receiptInclude = {
 } as const satisfies Prisma.OrderInclude;
 
 export async function barTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
   return { dailyOrderNumber: order.dailyOrderNumber, context: order.channel === OrderChannel.TABLE ? `میز ${order.table!.name}` : "بیرون‌بر", items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, pricingModeSnapshot: item.pricingModeSnapshot, weightGrams: item.weightGrams, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note })) };
@@ -1365,7 +1365,7 @@ export async function barTicket(prisma: PrismaClient, actor: AuthenticatedUser, 
 
 // Serialize snapshot capture with edits and acknowledgments on the order row.
 export async function prepareBarTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw(Prisma.sql`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`);
     const order = await tx.order.findUnique({ where: { id: orderId }, include: receiptInclude });
@@ -1381,7 +1381,7 @@ export async function prepareBarTicket(prisma: PrismaClient, actor: Authenticate
 }
 
 export async function acknowledgeBarTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, preparationId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   const prepared = await prisma.barTicketPreparation.findFirst({ where: { id: preparationId, orderId } });
   if (!prepared) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested preparation was not found.");
   // A newer snapshot can never be replaced by an older or retried acknowledgment.
@@ -1391,7 +1391,7 @@ export async function acknowledgeBarTicket(prisma: PrismaClient, actor: Authenti
 }
 
 export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
   let runningSubtotal = 0;
@@ -1426,7 +1426,7 @@ export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUse
 }
 
 export async function settlementReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string) {
-  requireRole(actor, ["STAFF", "MANAGER"]);
+  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
   const settlement = order.paymentSettlements.find((candidate) => candidate.id === settlementId);
