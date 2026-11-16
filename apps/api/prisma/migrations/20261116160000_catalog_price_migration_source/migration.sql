@@ -1,0 +1,2 @@
+ALTER TYPE "CatalogPriceChangeSource"
+  ADD VALUE 'CATALOG_PRICE_MIGRATION';
