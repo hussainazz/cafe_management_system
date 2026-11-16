@@ -44,7 +44,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-describe("Manager pricing experiment workflow", () => {
+describe("Developer pricing experiment workflow", () => {
   it("retries a failed report when the Manager refreshes the same experiment", async () => {
     const report = pricingExperimentReportFixture();
     vi.mocked(api.readPricingExperiments).mockResolvedValue(ok({ data: { experiments: [report.data.experiment] }, meta: { requestId: "test" } }) as never);
