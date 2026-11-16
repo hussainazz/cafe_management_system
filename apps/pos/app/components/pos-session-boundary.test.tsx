@@ -54,3 +54,15 @@ it("never mounts Manager workspace after Manager logout and Staff login, even wi
   expect(manager).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "تنظیمات" })).toBeNull();
 });
+
+it("gives Developer the full Manager navigation", async () => {
+  sessionStorage.clear(); localStorage.setItem("pos-theme", "light");
+  api.currentSession.mockResolvedValue({ ok: true, data: { id: "developer-parity", username: "developer", role: "DEVELOPER" } });
+  render(<PosSessionBoundary />);
+  await screen.findByText("orders workspace");
+  expect(screen.getByText("توسعه‌دهنده")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "open menu" }));
+  for (const name of ["سفارش‌گیری", "سفارش‌های تسویه‌نشده", "حساب پرسنل", "تنظیمات", "حسابداری", "منو و کالاها", "انبار"]) {
+    expect(screen.getByRole("button", { name })).toBeTruthy();
+  }
+});
