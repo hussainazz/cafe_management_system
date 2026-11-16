@@ -42,9 +42,10 @@ describe("ManagerWorkspace", () => {
     api.readProductCosting.mockResolvedValue({ ok: true, data: { data: null, meta: { requestId: "test" } } });
   });
 
-  it("opens purchases, recipes and profit before turnover activation", async () => {
+  it("opens Developer purchases, recipes and profit before turnover activation", async () => {
     api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "settings", tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false, inventoryActivatedAt: null, updatedAt: new Date().toISOString() } });
-    render(<ManagerWorkspace section="inventory" menuOpen={false} onOpenMenu={vi.fn()} />);
+    render(<ManagerWorkspace section="inventory" role="DEVELOPER" menuOpen={false} onOpenMenu={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "خریدها" }));
     expect(await screen.findByRole("heading", { name: "پیش‌نویس خرید" }, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText(/تا فعال‌سازی گردش موجودی/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "دستور تهیه و هزینه" }));
@@ -69,7 +70,7 @@ describe("ManagerWorkspace", () => {
     expect(screen.queryByRole("heading", { name: "نمای کلی مالی" })).toBeNull();
   });
 
-  it("saves the Manager-only settlement reversal reason policy with café settings", async () => {
+  it("saves the settlement reversal reason policy with Manager and Developer access", async () => {
     api.saveSettings.mockResolvedValue({ ok: true });
     render(<ManagerWorkspace section="settings" menuOpen={false} onOpenMenu={vi.fn()} />);
     const required = await screen.findByRole("checkbox", { name: "الزام ثبت دلیل برای برگشت تسویه" });
@@ -96,7 +97,8 @@ describe("ManagerWorkspace", () => {
   });
 
   it("opens the Manager inventory workspace and loads its inventory data", async () => {
-    render(<ManagerWorkspace section="inventory" menuOpen={false} onOpenMenu={() => undefined} />);
+    render(<ManagerWorkspace section="inventory" role="DEVELOPER" menuOpen={false} onOpenMenu={() => undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "خریدها" }));
     expect(await screen.findByRole("heading", { name: "پیش‌نویس خرید" }, { timeout: 5000 })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "شمارش انبار" }));
     await waitFor(() => expect(api.readInventoryCounts).toHaveBeenCalledTimes(1));
@@ -108,6 +110,15 @@ describe("ManagerWorkspace", () => {
     expect(api.readInventoryMovements).not.toHaveBeenCalled();
     expect(api.readPendingInventoryConsumption).toHaveBeenCalledTimes(1);
     expect(api.readGrossProfitReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives Developer the Manager accounting summary and audit workspace", async () => {
+    render(<ManagerWorkspace section="finance" role="DEVELOPER" menuOpen={false} onOpenMenu={() => undefined} />);
+    expect(await screen.findByRole("heading", { name: "نمای کلی مالی" })).toBeTruthy();
+    await waitFor(() => {
+      expect(api.readDailyReport).toHaveBeenCalledTimes(1);
+      expect(api.readAuditLog).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("restores applied and draft finance filters and table panel from actual session storage", async () => {
@@ -140,7 +151,7 @@ describe("ManagerWorkspace", () => {
 
   it("keeps Manager on the active panel after an ordinary API response error", async () => {
     const recovery = vi.spyOn(automaticRecovery, "requestAutomaticRecovery");
-    render(<ManagerWorkspace section="inventory" menuOpen={false} onOpenMenu={() => undefined} />);
+    render(<ManagerWorkspace section="inventory" role="DEVELOPER" menuOpen={false} onOpenMenu={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "سود ناخالص" }));
     expect(await screen.findByRole("heading", { name: "بررسی سود ناخالص" })).toBeTruthy();
 
