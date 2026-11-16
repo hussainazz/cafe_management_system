@@ -1,14 +1,14 @@
-# ADR 0013: Manager pricing experiments and strategy evaluation
+# ADR 0013: Developer pricing experiments and strategy evaluation
 
 ## Status
 
 Accepted on 15 November 2026 as part of the explicit Phase 3 implementation
-request. This decision extends Manager reporting; it does not authorize a menu
+request. This decision extends Developer reporting; it does not authorize a menu
 price change or a production release.
 
 ## Decision
 
-Add Manager-only pricing experiment records and a report that compares equal
+Add Developer-only pricing experiment records and a report that compares equal
 pre-change and post-change full-day periods in `Asia/Tehran`. Preserve each
 experiment's name, effective timestamp, evaluation duration, comparison
 duration, product/option/packaging targets, before and proposed prices, and
