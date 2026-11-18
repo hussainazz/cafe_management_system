@@ -1,3 +1,118 @@
+## Active local operations fix — VPN TUN / Docker subnet collision (18 November 2026)
+
+- [x] Diagnose local POS sign-in failure: POS-to-API proxy responds, but API
+  readiness reports the database unavailable. Docker publishes PostgreSQL from
+  `172.18.0.2:5432`; v2rayN's sing-box TUN also uses `172.18.0.1/30`, and
+  `ip route get 172.18.0.2` selects `singbox_tun` instead of Docker's bridge.
+- Left: apply a non-overlapping TUN IPv4 subnet (`172.31.0.1/30`) and exclude
+  Docker's `172.18.0.0/16` in v2rayN, then verify database readiness, POS
+  authentication, and external connectivity with the tunnel enabled. Applying
+  the settings needs the user's native-app interaction; native control is
+  unavailable and passwordless administrator access is unavailable here.
+- No application/authentication code, database data, or production service changed.
+
+## Active delivery — POS packaging product assignments (18 November 2026)
+
+- Browser feedback refinement: removed the packaging type/price/quantity section;
+  new assignments default to all editable current product units. Existing assignments
+  retain saved choices. Enlarged the item area and applied Impeccable typeset/layout
+  refinements. POS typecheck, layout/type scans, and diff check pass; browser
+  confirmed all three draft products selected.
+- Follow-up browser feedback: refined the quantity stepper and back button layout,
+  removed the footer selection summary and per-row “تعداد سفارش” text. Browser
+  confirms all three rows remain selected and both requested text elements are absent.
+- Hid the browser-native number input steppers to avoid duplicate quantity controls;
+  the local POS view now shows only the custom −/+ buttons.
+- Removed PACKING products from category grids and their visible item counts; added
+  a horizontally centered toolbar button that opens the selected category’s packaging
+  assignment workspace. Browser confirms the button is visible and PACKING is absent
+  from the displayed product cards.
+- GPT-6.1-sol reviewed the latest UI follow-up; no actionable findings. No backend
+  files changed in this follow-up.
+- Removed the “اختصاص کالاها به بسته‌بندی” action from draft and saved packing
+  lines in the order summary; authenticated POS accessibility tree confirms it is absent.
+
+- [x] Add the center-panel packaging workspace without changing the surrounding
+  order summary/category navigation layout.
+- [x] Persist packaging-to-order-item links and assigned quantities through
+  order creation, supported edits, order reads, and inventory recognition.
+- [x] Preserve existing PACKING catalog prices, product identity, and stock
+  costing behavior.
+- [x] Contracts, API, and POS typechecks pass; `git diff --check` passes. No
+  tests or database migrations were run.
+- [x] Sol 6.1 reviewed the UI and backend changes; no actionable findings
+  remain. The review considered the 1024×576 layout, but did not perform
+  browser visual acceptance.
+- Left: inspect the workspace in an authenticated local POS browser at 1024×576;
+  the follow-up was visually checked at approximately 738×584.
+
+## Active fix — Base recipes and product accompaniments (18 November 2026)
+
+- [x] Give an optional menu group with no selected option its own base recipe,
+  separate from recipes configured for actual options.
+- [x] Add optional product-level served-alongside stock items/reusable recipes;
+  apply them to all options, previews, saved costing snapshots, and channels.
+- [x] Keep served-alongside rows out of reusable recipe components so choosing
+  an existing recipe inherits only its main ingredients.
+- [x] Add focused UI/API/contracts coverage. API packaging tests pass 25/25;
+  POS inventory workspace tests pass 44/44; contracts pass 32/32. API, POS,
+  and contracts typechecks pass; the isolated `cafe_management_test` reset
+  applied the additive served-alongside migration. The local development
+  database has 58 migrations and none pending.
+- Full POS suite: 239/260 tests pass; 21 fail in inventory-reference,
+  pricing-experiment, Manager workspace, and sales-analytics tests. None fail
+  in the inventory workspace feature tests. The Manager workspace also emits
+  uncaught errors because concurrent local code references undefined
+  `canViewAccountingReport`.
+- [x] GPT-6.1-sol reviewed the final implementation and regression tests; no
+  actionable findings remain.
+- Left: browser visual acceptance is not verified because the open POS tab
+  shows the sign-in screen.
+
+## Completed delivery — Inventory management onboarding (18 November 2026)
+
+- [x] Visit all six management tabs in the attached local POS: purchases,
+  stock items, product recipes/costs, shared recipes, physical counts, and
+  stock movement history. Keep analysis/report views outside this change.
+- [x] Add short, optional, keyboard-accessible Persian workflow guides and
+  navigation to prerequisites through the existing unsaved-draft guard.
+- [x] Distinguish first use, empty filtered results, and failed prerequisite
+  reads. Add stock-form focus, prerequisite navigation, and filter recovery.
+- [x] Explain purchase row totals, recipe batch output, count prefilled values,
+  and draft versus posted stock effects. Clarify shared-recipe field layout.
+- [x] Verify all six guides at 1280×900 and 390×844 without document overflow;
+  exercise purchase no-result recovery and count first use in the local browser.
+- [x] POS typecheck, 39 inventory workspace tests, and `git diff --check` pass.
+  An additional reference/chart run passed 4 tests and failed 1 existing chart
+  assertion expecting `سود محاسبه نشده` while the current chart renders
+  `سود ناخالص محاسبه نشده`; that analysis-only mismatch remains outside scope.
+- Left: physical café-device and operator acceptance. No business data,
+  backend, production service, commit, or deployment changed in this stage.
+
+## Active fix — Pricing experiment usability and chart rendering (17 November 2026)
+
+- [x] Fix chart sizing, guard experiment and scenario drafts on inventory
+  navigation, accept Persian and Arabic numerals in prices and dates, and show
+  category and catalog price in explicit product choices.
+- [x] Split Developer inventory navigation into management and analysis groups;
+  add searchable, contextual product choices, recoverable row-validated form
+  drafts, Persian numeral support, focused errors, validated/debounced custom
+  comparison requests, and concise readiness guidance for inconclusive reports.
+- [x] POS typecheck and `git diff --check` pass.
+- Focused POS run before the final refinements: 63 passed, 5 failed. Updated
+  selectors and navigation assertions for the new UI; the focused run was not
+  repeated after those changes.
+- Left: manually verify draft recovery, chart geometry, and narrowed layouts in
+  the local browser; rerun the focused POS suite after the final refinements.
+
+## Completed delivery — Inventory overview trend filters (17 November 2026)
+
+- [x] Keep the combined net-sales, cost-of-goods, and gross-profit chart and
+  remove the duplicate standalone gross-profit chart.
+- [x] Add accessible per-series filters, keeping at least one series visible,
+  while retaining the cost-coverage summary and existing date controls.
+- [x] POS typecheck and `git diff --check` pass. Automated tests were not run.
+
 ## Completed delivery — Developer Manager parity and exclusive analysis views (16 November 2026)
 
 - [x] Record the updated scope: Developer receives all Manager capabilities;
@@ -2361,3 +2476,15 @@ or full Stage 10 exit gate.
   unauthenticated `/auth/me` returns 401 and empty login validation returns
   400 through both the API and POS proxy, confirming the routes are reachable.
   The local API remains running; no production service was touched.
+## Active Follow-up — Cashier role and local account (18 November 2026)
+
+- [x] Add a Cashier role inheriting Manager routes and POS panels, while keeping
+  Developer-only analysis views unavailable. The recipe editor hides cost
+  previews and the API rejects Cashier cost-preview requests.
+- [x] Provision the local account `cashier-884839`; local development migration
+  and API/POS typechecks completed. Focused role regression tests remain open.
+- [x] Hide the accounting total-sales report from Cashier and deny direct API
+  access. Gross-margin, sales-channel, and sales-analytics reports remain
+  Developer-only.
+- [x] Keep the Finance payment-history section and receipt actions available
+  to Cashier while hiding only the accounting report card.
