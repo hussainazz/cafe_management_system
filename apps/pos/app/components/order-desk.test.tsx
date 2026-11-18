@@ -83,7 +83,7 @@ describe("OrderDesk order workflow", () => {
 
     await waitFor(() => expect(api.createOpenOrder).toHaveBeenCalledOnce());
     await waitFor(() => expect(printing.printDocument).toHaveBeenCalledOnce());
-    expect(api.createOpenOrder.mock.calls[0]![0].items).toEqual([{ productId: "product", quantity: 1, options: [] }]);
+    expect(api.createOpenOrder.mock.calls[0]![0].items).toEqual([{ clientRef: expect.any(String), productId: "product", quantity: 1, options: [] }]);
     expect(onOrder).toHaveBeenCalledOnce();
     expect(printing.printRoute).toHaveBeenCalledWith("saved-order", kind);
     expect(printing.printDocument).toHaveBeenCalledWith(`/pos/print/saved-order/${kind}`);
