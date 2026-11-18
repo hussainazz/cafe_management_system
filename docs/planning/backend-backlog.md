@@ -935,3 +935,24 @@ Provide Manager create/edit for standalone nested recipes and complete takeaway
 base/option recipe overrides. Use normal recipes when overrides are absent;
 validate active references, compatible output units, cycles and optimistic
 versions. Preserve full-payment snapshots and existing inventory lifecycle.
+
+### Product accompaniments and no-option recipes — approved 18 November 2026
+
+Keep the recipe used when an optional option group has no selection distinct
+from every configured option recipe. Add an optional product-level list of
+stock items or reusable recipes served alongside the product. Apply it to every
+option selection and sale channel in cost previews and order costing snapshots,
+with active-reference and positive-quantity validation. Keep the list separate
+from reusable recipe components so selecting an existing recipe for another
+product inherits only the main ingredients.
+
+### POS packaging product assignments — approved 18 November 2026
+
+Persist links from existing `PACKING` order items to non-packaging order items,
+including the assigned quantity. Keep catalog price and product identity
+authoritative, expose the relationships in order details and recognized
+inventory snapshots, and preserve them through supported order edits. Validate
+that both references belong to the same order and that assigned quantity does
+not exceed the referenced product line quantity. Keep these attribution links
+independent of product-level `takeawayPackaging` stock consumption and order
+price calculation.
