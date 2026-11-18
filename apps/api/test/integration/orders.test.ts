@@ -279,7 +279,7 @@ describe("Staff order creation", () => {
       items: [{ productName: "Latte", options: [{ name: "Oat milk" }] }],
     });
     expect(barTicket.json().data).not.toHaveProperty("orderNumber");
-    expect(barTicket.json().data).not.toHaveProperty("displayTime");
+    expect(barTicket.json().data.displayTime).toMatch(/^[۰-۹]{2}:[۰-۹]{2}$/u);
     expect(barTicket.json().data).not.toHaveProperty("estimatedPreparationMinutes");
 
     const receipt = await app.inject({
