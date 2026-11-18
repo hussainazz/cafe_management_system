@@ -18,6 +18,9 @@ import {
   RecordSettlementRequestSchema,
   StaffConsumptionCreateRequestSchema,
   RecordSettlementResponseSchema,
+  PersonnelProfileCreateRequestSchema,
+  PersonnelProfileResponseSchema,
+  PersonnelProfilesResponseSchema,
   ReverseSettlementRequestSchema,
   ReverseSettlementResponseSchema,
   BarTicketResponseSchema,
@@ -41,7 +44,7 @@ import {
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { requireStaff } from "../auth/authorization.js";
 import { ApplicationError } from "../../errors/application-error.js";
-import { prepareBarTicket, acknowledgeBarTicket, barTicket, createOrder, deferOrder, deleteOrder, discountStaffConsumption, editSettlement, listOrders, orderReceipt, readOrder, recordSettlement, reverseSettlementById, settlementReceipt, transferOrderTable, updateOrder } from "./orders.service.js";
+import { prepareBarTicket, acknowledgeBarTicket, barTicket, createOrder, createPersonnelProfile, createStaffConsumption, deferOrder, deleteOrder, discountStaffConsumption, editSettlement, listOrders, listPersonnelProfiles, orderReceipt, readOrder, recordSettlement, reverseSettlementById, settlementReceipt, transferOrderTable, updateOrder } from "./orders.service.js";
 
 const StaffConsumptionListResponseSchema = z.object({
   data: z.array(z.object({
@@ -68,16 +71,25 @@ export const ordersRoutes: FastifyPluginAsync = async (app) => {
   const settlementParams = zodToJsonSchema(SettlementIdPathSchema);
   const settlementOnlyParams = zodToJsonSchema(SettlementPathSchema);
   const errors = { 400: zodToJsonSchema(ErrorResponseSchema), 401: zodToJsonSchema(ErrorResponseSchema), 403: zodToJsonSchema(ErrorResponseSchema), 404: zodToJsonSchema(ErrorResponseSchema), 409: zodToJsonSchema(ErrorResponseSchema), 422: zodToJsonSchema(ErrorResponseSchema) };
+  app.get("/staff-consumption/personnel-profiles", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "List personnel profiles", headers, response: { 200: zodToJsonSchema(PersonnelProfilesResponseSchema), ...errors } } }, async (request) => {
+    const profiles = await listPersonnelProfiles(app.prisma);
+    return { data: profiles.map((profile) => ({ ...profile, createdAt: profile.createdAt.toISOString() })), meta: { requestId: request.id } };
+  });
+  app.post<{ Body: { name: string } }>("/staff-consumption/personnel-profiles", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Create a personnel profile", headers, body: zodToJsonSchema(PersonnelProfileCreateRequestSchema), response: { 201: zodToJsonSchema(PersonnelProfileResponseSchema), ...errors } } }, async (request, reply) => {
+    const input = PersonnelProfileCreateRequestSchema.parse(request.body);
+    const profile = await createPersonnelProfile(app.prisma, request.authenticatedUser!, input.name, request.id);
+    return reply.status(201).send({ data: { ...profile, createdAt: profile.createdAt.toISOString() }, meta: { requestId: request.id } });
+  });
   app.get<{ Querystring: { cursor?: string } }>("/staff-consumption", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "List staff consumption entries", headers, querystring: { type: "object", additionalProperties: false, properties: { cursor: { type: "string", format: "uuid" } } }, response: { 200: zodToJsonSchema(StaffConsumptionListResponseSchema), ...errors } } }, async (request) => {
     const entries = await app.prisma.order.findMany({ where: { isStaffConsumption: true, state: "CLOSED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 101, ...(request.query.cursor ? { cursor: { id: request.query.cursor }, skip: 1 } : {}), include: { createdBy: { select: { username: true } }, items: { select: { productNameSnapshot: true, quantity: true } } } });
     const page = entries.slice(0, 100);
     return { data: page.map((entry) => ({ id: entry.id, version: entry.version, dailyOrderNumber: entry.dailyOrderNumber, createdAt: entry.createdAt.toISOString(), username: entry.createdBy.username, staffName: entry.staffConsumptionName, totalAmount: entry.totalAmount, discountAmount: entry.discountAmount, items: entry.items })), meta: { nextCursor: entries.length > 100 ? page[page.length - 1]!.id : null } };
   });
   app.post("/staff-consumption", { preHandler: requireStaff, schema: { tags: ["Orders"], summary: "Create staff consumption entry", headers: zodToJsonSchema(IdempotencyRequestHeadersSchema), body: zodToJsonSchema(StaffConsumptionCreateRequestSchema), response: { 201: zodToJsonSchema(StaffConsumptionCreateResponseSchema), ...errors } } }, async (request, reply) => {
-    const { staffName, ...orderInput } = StaffConsumptionCreateRequestSchema.parse(request.body);
+    const { staffName, personnelProfileId, ...orderInput } = StaffConsumptionCreateRequestSchema.parse(request.body);
     const input = CreateOrderRequestSchema.parse(orderInput) as CreateOrderRequest;
     const key = request.headers["idempotency-key"];
-    const result = await createOrder(app.prisma, request.authenticatedUser!, input, typeof key === "string" ? key : "", request.id, undefined, true, staffName);
+    const result = await createStaffConsumption(app.prisma, request.authenticatedUser!, input, typeof key === "string" ? key : "", request.id, personnelProfileId, staffName);
     return reply.status(201).send({ data: { id: result.order.id }, meta: { requestId: request.id } });
   });
   app.post<{ Params: { orderId: string }; Body: { expectedVersion: number; discount: unknown } }>("/staff-consumption/:orderId/discount", { preHandler: requireStaff, schema: { headers, params: orderParams, body: { type: "object", additionalProperties: false, required: ["expectedVersion", "discount"], properties: { expectedVersion: { type: "integer", minimum: 1 }, discount: zodToJsonSchema(DiscountInputSchema) } }, response: { 200: zodToJsonSchema(OrderDetailResponseSchema), ...errors } } }, async (request) => ({ data: await discountStaffConsumption(app.prisma, request.authenticatedUser!, request.params.orderId, request.body.expectedVersion, DiscountInputSchema.parse(request.body.discount), request.id), meta: { requestId: request.id } }));
