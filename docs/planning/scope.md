@@ -45,8 +45,9 @@ pending-consumption work. Only orders created after turnover is enabled are
 eligible for stock deductions; earlier orders are never backfilled. Details are
 in `inventory-costing.md`.
 Packaging stock can be mapped per product to takeaway sales. Cost previews and
-gross-profit reports distinguish dine-in and takeaway, including packaging only
-for takeaway. Packaging can depend on the product quantity in an order; separate
+gross-profit reports include packaging cost only for takeaway. The café does not
+charge a separate packaging fee, so the system must not report packaging revenue
+or recovery. Packaging can depend on the product quantity in an order; separate
 takeaway ingredient recipes can include named reusable preparations such as a
 wrapped cookie.
 
@@ -365,7 +366,7 @@ Reporting and audit:
 - The daily report distinguishes gross item totals, discounts, active settled/paid amounts by payment method, reversed settlements, and logically deleted orders. There are no tax or service-charge fields.
 - Gross-profit reporting uses whole-order full-payment recognition, persisted net selling amounts, theoretical COGS snapshots, explicit cost coverage, and inventory-based consumption estimates. Incomplete cost coverage never produces a fabricated full margin.
 - Developer sales analytics separates operational order/item-entry time from financial recognition time. New order-item lines record their first entry time; older lines without that value use order creation time and are identified as an approximation. Financial contribution and margin follow the existing recognized-consumption and costing snapshots, with incomplete cost coverage shown explicitly. Reports use `Asia/Tehran` buckets and bounded date ranges. The scheduled opening window is daily 08:00–00:00: hours from 00:00 up to 08:00 are known scheduled closures, and contribution per operating hour uses 16 scheduled hours per matching report date and selected weekday. Recorded sales outside that window remain in the report and are identified as outside scheduled hours.
-- Developer pricing experiments compare recorded prices and realized sales using historical order snapshots, recognized costs, and Phase 1 packaging attribution. They report observational changes and clearly labeled hypothetical price/volume sensitivities. They do not change catalog prices, forecast demand, prove causation, or provide automatic price recommendations. Current RUN Café fixed-cost coverage uses the confirmed monthly amount of 265,000,000 Toman as an explicit assumption. Incomplete variable-cost coverage cannot produce a full contribution, margin, or operating surplus.
+- Developer pricing experiments compare recorded product/option prices and realized sales using historical order snapshots and recognized costs. They report observational changes and clearly labeled hypothetical price/volume sensitivities. They do not attribute a separate packaging fee, change catalog prices, forecast demand, prove causation, or provide automatic price recommendations. Current RUN Café fixed-cost coverage uses the confirmed monthly amount of 265,000,000 Toman as an explicit assumption. Incomplete variable-cost coverage cannot produce a full contribution, margin, or operating surplus.
 - Staff, Manager, and Developer payment history is a separate cursor-paginated operational view over retained settlements and receipts. All three roles may also open and print an individual whole-order or payer-settlement receipt through authorized POS order workflows.
 - The applied report window is never a retention policy. Orders, order items, settlements, tenders, reversals, receipts derived from snapshots, and audit records remain in PostgreSQL regardless of age.
 - The accounting summary queries transactional tables, is verified against known fixtures, and receives supporting indexes based on measured query plans. Required applied date bounds keep reporting bounded so it cannot degrade POS work.
@@ -402,16 +403,12 @@ The guiding principle is simple: finish and verify the authoritative backend fir
 
 [ADR 0012](../adr/0012-sep-ssp1126-local-bridge.md) approves the optional single-terminal Windows bridge, authenticated attempts/results, durable recovery, and audited reconciliation. It remains disabled until browser and financial safety gates pass. Pending or unknown dispatched attempts cannot trigger another charge, post an unverified settlement, close an order, or release its table. Manual/cash/split workflows remain available subject to unresolved-attempt guards. Deployment and real payments require separate explicit authorization.
 
-## POS packaging product assignments — approved 18 November 2026
+## POS packaging product assignments — withdrawn 18 November 2026
 
-When Staff selects an existing `PACKING` catalog product during order entry,
-replace the center product grid with a packaging assignment workspace while
-keeping the order summary and category navigation in place. Staff can assign
-quantities of ordered products to that packaging item. Persist the relationship
-between the packaging order item and each non-packaging order item, and expose
-it for order editing and inventory/financial analysis. Packaging items retain
-their catalog identity, price snapshots, and normal inventory behavior. These
-links provide attribution only: they do not replace or add to the existing
-product `takeawayPackaging` stock-consumption configuration or change order
-totals. A product unit may have more than one kind of packaging, such as a cup
-and a lid.
+The 18 November 2026 follow-up established that the café does not charge a
+separate packaging fee. The assignment workspace, order-level assignment data,
+fee revenue attribution, recovery report, and packaging price experiment targets
+are therefore retired. Existing `PACKING` catalog records and historical orders
+remain for audit, while those products are archived from new sales. Takeaway
+packaging material remains part of the affected product's COGS and inventory
+recipe configuration.
