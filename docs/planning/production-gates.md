@@ -481,6 +481,39 @@ Definition of done for a feature:
 | Hardware and UX      | Actual POS device, shared Staff/Manager/Developer dashboard, waiter-call alert, Chrome on the café's Windows POS computer, network, receipt printer, paper size, both print layouts, touch targets, and busy-hour workflow tested. |
 | Pilot                | A limited live shift runs with the fallback procedure; issues are recorded and no unreconciled financial difference remains.                                                                             |
 
+## Recent Release Evidence
+
+### POS packaging, Cashier, and inventory report release — 18 November 2026
+
+- Released `cafe-20261118-4666e31` to the VPS from runtime implementation
+  commit `4666e3119518480f7b392ce75194dbe8bbbc2268`. Test-only follow-up commits
+  were pushed separately; final `main` head is
+  `4bfdc441ffdf3edca8febf8cc0d0ed0a93c975b6`.
+- The versioned artifact SHA-256 is
+  `8e4796db052e1dbcf4b3b86ff137c90fb0eaf3a6e36e0a7ce18244ccce293795`.
+  It contains the API runtime, contracts build, POS production build, Prisma
+  schema/config and migrations, including the Debian Prisma engine. It excludes
+  environment files, uploaded product images, POS development/cache output,
+  standalone output, source maps, declarations, and unchanged POS public assets.
+- The PostgreSQL 17.11 pre-release custom-format backup is
+  `/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261118-4666e31.dump`
+  (SHA-256 `b8816948df3c55573bf30954ca15ce28342ae35eb39a5225ab14856377dde000`);
+  `pg_restore --list` validated it. The coordinated rollback archive is
+  `/opt/cafe-menu-release-backups/rollback-before-cafe-20261118-4666e31.tar.gz`
+  (SHA-256 `03f74c06c98217c2a6f128b2877a0bd324b48d308ea4d8b17dee105d4c8d8ea2`);
+  its contents and exclusions were checked. After both replacements validated,
+  the older release's backup pair and temporary runtime copies were removed.
+- Production applied `20261118120000_product_served_alongside`,
+  `20261118130000_add_cashier_role`, and
+  `20261118140000_order_packaging_assignments`. Prisma reports all 59 migrations
+  current. API readiness reports the database connected; API, POS, and web
+  services are active with zero restarts. Public `/pos/release` returns HTTP 200,
+  the new release ID, and `Cache-Control: no-store, max-age=0`; `/pos` and `/menu`
+  return HTTP 200.
+- The VPS product-image directory remains at 32 files / 5,759,237 bytes. No
+  product-image data or environment file was transferred. Café-device browser,
+  touch, and receipt-printer acceptance remains open.
+
 ## Decisions Fixed Before Implementation
 
 | Decision              | Fixed default                                                                                                                                       |
