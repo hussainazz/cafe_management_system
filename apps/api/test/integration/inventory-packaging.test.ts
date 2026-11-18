@@ -82,6 +82,87 @@ describe("takeaway packaging", () => {
     expect(await preview(f, "TAKEAWAY", 1, undefined, [option.id])).toMatchObject({ isComplete: true, knownCostAmount: 400 });
   });
 
+  it("keeps the empty option selection on the product base recipe", async () => {
+    const f = await fixture();
+    const group = await app.prisma.optionGroup.create({ data: { name: "Optional extra" } });
+    const option = await app.prisma.option.create({ data: { optionGroupId: group.id, name: "Double", displayOrder: 1, priceAmount: 0 } });
+    await app.prisma.productOptionGroup.create({ data: { productId: f.product.id, optionGroupId: group.id, minSelections: 0, maxSelections: 1, displayOrder: 1, allowedOptions: { create: { optionId: option.id, displayOrder: 1 } } } });
+    const optionRecipe = await request(f.manager, "POST", "/admin/inventory/recipes", { name: `Double recipe ${randomUUID()}`, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", sourceKind: "STOCK_ITEM", stockItemId: f.beans.id, quantity: "20", displayOrder: 0 }] }, 201);
+    await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...f.input, optionRecipes: [{ optionId: option.id, recipeId: optionRecipe.id, recipeQuantity: "1" }], expectedVersion: 1 });
+    expect(await preview(f, "TABLE", 1, undefined, [])).toMatchObject({ isComplete: true, knownCostAmount: 100 });
+    expect(await preview(f, "TABLE", 1, undefined, [option.id])).toMatchObject({ isComplete: true, knownCostAmount: 200 });
+  });
+
+  it("adds served-alongside recipes to every selection and channel and snapshots them", async () => {
+    const f = await fixture();
+    const cookie = await request(f.manager, "POST", "/admin/inventory/stock-items", { name: `Cookie stock ${randomUUID()}`, category: "Stock", baseUnit: "PIECE", openingQuantity: "10", openingValueAmount: 1000, conversions: [] }, 201);
+    const cookieRecipe = await request(f.manager, "POST", "/admin/inventory/recipes", { name: `Served cookie ${randomUUID()}`, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "cookie", sourceKind: "STOCK_ITEM", stockItemId: cookie.id, quantity: "1", displayOrder: 0 }] }, 201);
+    const group = await app.prisma.optionGroup.create({ data: { name: "Served recipe option" } });
+    const option = await app.prisma.option.create({ data: { optionGroupId: group.id, name: "Double coffee", displayOrder: 1, priceAmount: 0 } });
+    await app.prisma.productOptionGroup.create({ data: { productId: f.product.id, optionGroupId: group.id, minSelections: 0, maxSelections: 1, displayOrder: 1, allowedOptions: { create: { optionId: option.id, displayOrder: 1 } } } });
+    const optionRecipe = await request(f.manager, "POST", "/admin/inventory/recipes", { name: `Double coffee recipe ${randomUUID()}`, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", sourceKind: "STOCK_ITEM", stockItemId: f.beans.id, quantity: "20", displayOrder: 0 }] }, 201);
+    const servedAlongside = [{ sourceKind: "RECIPE", recipeId: cookieRecipe.id, quantity: "1" }];
+    const saved = await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...f.input, servedAlongside, optionRecipes: [{ optionId: option.id, recipeId: optionRecipe.id, recipeQuantity: "1" }], expectedVersion: 1 });
+    ProductCostingConfigurationResponseSchema.parse({ data: saved, meta: { requestId: "test" } });
+    expect(saved.servedAlongside).toEqual(servedAlongside);
+    expect(await preview(f, "TABLE", 1)).toMatchObject({ isComplete: true, knownCostAmount: 200 });
+    expect(await preview(f, "TABLE", 1, undefined, [option.id])).toMatchObject({ isComplete: true, knownCostAmount: 300 });
+    expect(await preview(f, "TAKEAWAY", 1)).toMatchObject({ isComplete: true, knownCostAmount: 400 });
+    expect(componentQuantity(await preview(f, "TABLE", 2), cookie.id)).toBe("2");
+
+    const created = await order(f, "TAKEAWAY", 2);
+    const snapshot = await app.prisma.orderItemCostingSnapshot.findUniqueOrThrow({ where: { orderItemId: created.items[0].id } });
+    expect(componentQuantity(snapshot.snapshot, cookie.id)).toBe("2");
+
+    const withoutServedAlongside = { ...f.input, optionRecipes: [{ optionId: option.id, recipeId: optionRecipe.id, recipeQuantity: "1" }] };
+    const preserved = await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...withoutServedAlongside, expectedVersion: 2 });
+    expect(preserved.servedAlongside).toEqual(servedAlongside);
+    const cleared = await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...withoutServedAlongside, servedAlongside: [], expectedVersion: 3 });
+    expect(cleared.servedAlongside).toEqual([]);
+    const unchangedSnapshot = await app.prisma.orderItemCostingSnapshot.findUniqueOrThrow({ where: { orderItemId: created.items[0].id } });
+    expect(unchangedSnapshot).toEqual(snapshot);
+    expect(componentQuantity(unchangedSnapshot.snapshot, cookie.id)).toBe("2");
+    expect(await preview(f, "TABLE", 1)).toMatchObject({ knownCostAmount: 100 });
+  });
+
+  it("does not inherit another product's served-alongside items through a reusable main recipe", async () => {
+    const f = await fixture();
+    const cookie = await request(f.manager, "POST", "/admin/inventory/stock-items", { name: `Inherited cookie ${randomUUID()}`, category: "Stock", baseUnit: "PIECE", openingQuantity: "10", openingValueAmount: 1000, conversions: [] }, 201);
+    const cookieRecipe = await request(f.manager, "POST", "/admin/inventory/recipes", { name: `Reusable served cookie ${randomUUID()}`, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "cookie", sourceKind: "STOCK_ITEM", stockItemId: cookie.id, quantity: "1", displayOrder: 0 }] }, 201);
+    await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...f.input, servedAlongside: [{ sourceKind: "RECIPE", recipeId: cookieRecipe.id, quantity: "1" }], expectedVersion: 1 });
+
+    const otherProduct = await app.prisma.product.create({ data: { name: `Recipe inheritor ${randomUUID()}`, categoryId: f.product.categoryId, priceAmount: 10000, preparationDeadlineMinutes: 1, displayOrder: 2, pricingMode: "FIXED" } });
+    await request(f.manager, "PUT", `/admin/products/${otherProduct.id}/costing`, { ...f.input, takeawayPackaging: [], expectedVersion: 1 });
+    const result = await preview({ ...f, product: otherProduct }, "TABLE");
+
+    expect(result).toMatchObject({ isComplete: true, knownCostAmount: 100 });
+    expect(result.components).toEqual(expect.arrayContaining([expect.objectContaining({ stockItemId: f.beans.id, quantity: "10" })]));
+    expect(result.components).not.toEqual(expect.arrayContaining([expect.objectContaining({ stockItemId: cookie.id })]));
+  });
+
+  it.each(["RECIPE", "PURCHASED_ITEM"] as const)("supports stock accompaniments for %s costing configurations", async (mode) => {
+    const f = await fixture(false, mode);
+    const cookie = await request(f.manager, "POST", "/admin/inventory/stock-items", { name: `Direct cookie ${randomUUID()}`, category: "Stock", baseUnit: "PIECE", openingQuantity: "10", openingValueAmount: 1000, conversions: [] }, 201);
+    const saved = await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...f.input, servedAlongside: [{ sourceKind: "STOCK_ITEM", stockItemId: cookie.id, quantity: "2" }], expectedVersion: 1 });
+    expect(saved.servedAlongside).toEqual([{ sourceKind: "STOCK_ITEM", stockItemId: cookie.id, quantity: "2" }]);
+    const result = await preview(f, "TABLE", 2);
+    expect(result.components).toEqual(expect.arrayContaining([expect.objectContaining({ stockItemId: cookie.id, quantity: "4" })]));
+    expect(result.isComplete).toBe(true);
+  });
+
+  it("rejects inactive stock and reusable recipes as served-alongside sources", async () => {
+    const f = await fixture();
+    const inactiveStock = await request(f.manager, "POST", "/admin/inventory/stock-items", { name: `Inactive accompaniment ${randomUUID()}`, category: "Stock", baseUnit: "PIECE", openingQuantity: "1", openingValueAmount: 100, conversions: [] }, 201);
+    await app.prisma.stockItem.update({ where: { id: inactiveStock.id }, data: { isActive: false } });
+    const inactiveRecipe = await request(f.manager, "POST", "/admin/inventory/recipes", { name: `Inactive accompaniment recipe ${randomUUID()}`, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", sourceKind: "STOCK_ITEM", stockItemId: f.beans.id, quantity: "1", displayOrder: 0 }] }, 201);
+    await app.prisma.recipe.update({ where: { id: inactiveRecipe.id }, data: { isActive: false } });
+
+    await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...f.input, servedAlongside: [{ sourceKind: "STOCK_ITEM", stockItemId: inactiveStock.id, quantity: "1" }], expectedVersion: 1 }, 422);
+    await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...f.input, servedAlongside: [{ sourceKind: "RECIPE", recipeId: inactiveRecipe.id, quantity: "1" }], expectedVersion: 1 }, 422);
+    const unchanged = await request(f.manager, "GET", `/admin/products/${f.product.id}/costing`);
+    expect(unchanged).toMatchObject({ version: 1, servedAlongside: [] });
+  });
+
   it("validates quantities, duplicates, active references, authorization and stale edits; omission preserves mappings and empty clears", async () => {
     const f = await fixture();
     const staff = await login("STAFF");
