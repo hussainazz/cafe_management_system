@@ -33,10 +33,6 @@ export function pricingExperimentCsv(report: PricingExperimentReport) {
     add("ثابت", "درصد پوشش هزینه‌ی ثابت", label, period.fixedCostCoveragePercent, "%");
     add("ثابت", "حاشیه‌ی ایمنی درآمد ماهانه", label, period.marginOfSafetyAmount, "تومان");
     add("ثابت", "درصد حاشیه‌ی ایمنی", label, period.marginOfSafetyPercent, "%");
-    add("بسته‌بندی", "درآمد بسته‌بندی", label, period.packagingChargeRevenueAmount, "تومان");
-    add("بسته‌بندی", "هزینه‌ی معلوم مواد", label, period.packagingMaterialCostAmount, "تومان");
-    add("بسته‌بندی", "کسری بسته‌بندی", label, period.packagingDeficitAmount, "تومان");
-    add("بسته‌بندی", "نرخ بازیافت", label, period.packagingRecoveryRatePercent, "%");
     add("کانال", "سهم سفارش بیرون‌بر", label, period.takeawayMixPercent, "%");
   }
   for (const product of report.data.products) {
