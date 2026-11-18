@@ -39,6 +39,7 @@ import { currentPersianDateInput, persianDateToGregorianDate } from "../lib/tehr
 import { formatToman } from "../lib/pos-utils";
 import { inventoryErrorMessage } from "../lib/inventory-errors";
 import { InventoryStockDetail } from "./inventory-stock-detail";
+import { InventoryEmptyState, InventoryOnboarding, type InventoryManagementView } from "./inventory-onboarding";
 import { InventoryIcon, RefreshIcon } from "./icons";
 import { InventoryProfitPanel } from "./inventory-profit";
 import { InventorySalesChannelsPanel } from "./inventory-sales-channels";
@@ -80,9 +81,9 @@ const inventoryViewLabels = [
   ["preparations", "دستورهای مشترک"], ["counts", "شمارش انبار"], ["history", "گردش موجودی"], ["sales", "فروش کانال‌ها"], ["analytics", "اوج و مشارکت"], ["profit", "سود ناخالص"], ["pricing-experiments", "آزمایش قیمت‌گذاری"],
 ] as const;
 
-export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "MANAGER" }: { catalog: ManagerCatalog; turnoverEnabled?: boolean; role?: "MANAGER" | "STAFF" | "DEVELOPER" }) {
+export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "MANAGER" }: { catalog: ManagerCatalog; turnoverEnabled?: boolean; role?: "MANAGER" | "CASHIER" | "STAFF" | "DEVELOPER" }) {
   const [view, setView] = useRecoveryState<View>("inventory-view", role === "DEVELOPER" ? "sales" : "purchases");
-  const activeView = role === "MANAGER" && analysisInventoryViews.has(view) ? "purchases" : view;
+  const activeView = role !== "DEVELOPER" && analysisInventoryViews.has(view) ? "purchases" : view;
   const [stockSelection, setStockSelection] = useState<string | null>(null);
   const [costingProductSelection, setCostingProductSelection] = useState<string | undefined>(undefined);
   const [stockItems, setStockItems] = useState<InventoryStockItem[]>([]);
@@ -192,37 +193,28 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "M
       <div className="inventory-workspace-heading"><div><h2><InventoryIcon /> انبار و موجودی</h2></div><button type="button" className="secondary-button inventory-refresh" aria-label="تازه‌سازی انبار" disabled={loading || busy} onClick={() => void reload()}><RefreshIcon /></button><span className={`inventory-status${turnoverEnabled ? " inventory-status--success" : ""}`}>{turnoverEnabled ? "گردش موجودی فعال است" : "گردش موجودی فعال نشده"}</span></div>
       {!turnoverEnabled && <details className="inventory-turnover-note"><summary>محاسبه‌ی هزینه پیش از فعال‌سازی گردش موجودی</summary><p>ثبت خرید و دستور تهیه در دسترس است{role === "DEVELOPER" ? "؛ گزارش سود ناخالص نیز قابل مشاهده است" : ""}. مواد سفارش‌ها تا فعال‌سازی گردش موجودی از انبار کسر نمی‌شود.</p></details>}
       <nav className="inventory-tabs manager-tabs" aria-label={role === "DEVELOPER" ? "گروه‌ها و بخش‌های انبار" : "بخش‌های انبار"}>
-        {role === "MANAGER" ? <>
-          <div className="inventory-view-groups inventory-view-groups--static">
-            <h3>مدیریت انبار</h3><span>۶ بخش</span>
-          </div>
-          {inventoryViewLabels.filter(([id]) => managerInventoryViews.has(id)).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={activeView === id ? "is-active" : ""} aria-pressed={activeView === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
-        </> : role === "DEVELOPER" ? <>
-          <div className="inventory-view-groups inventory-view-groups--static">
-            <h3>مدیریت انبار</h3><span>۶ بخش</span>
-          </div>
-          {inventoryViewLabels.filter(([id]) => managerInventoryViews.has(id)).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={activeView === id ? "is-active" : ""} aria-pressed={activeView === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
-          <div className="inventory-view-groups inventory-view-groups--static">
-            <h3>تحلیل و گزارش</h3><span>۵ بخش</span>
-          </div>
-          {inventoryViewLabels.filter(([id]) => analysisInventoryViews.has(id)).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={activeView === id ? "is-active" : ""} aria-pressed={activeView === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
-        </> : null}
+        {role === "DEVELOPER" && <div className="inventory-tab-groups" aria-label="گروه‌های انبار">
+          <button type="button" disabled={busy || !!confirm} aria-pressed={!analysisInventoryViews.has(activeView)} onClick={() => navigate("purchases")}>مدیریت انبار</button>
+          <button type="button" disabled={busy || !!confirm} aria-pressed={analysisInventoryViews.has(activeView)} onClick={() => navigate("overview")}>تحلیل و گزارش</button>
+        </div>}
+        {inventoryViewLabels.filter(([id]) => (analysisInventoryViews.has(activeView) ? analysisInventoryViews.has(id) : managerInventoryViews.has(id)) && (role === "DEVELOPER" || managerInventoryViews.has(id))).map(([id, label]) => <button key={id} id={`inventory-view-${id}`} type="button" disabled={busy || !!confirm} className={activeView === id ? "is-active" : ""} aria-pressed={activeView === id} aria-controls="inventory-active-panel" onClick={() => navigate(id)}>{label}</button>)}
       </nav>
       {success && <p className="inventory-success" role="status">تغییرات ثبت شد.</p>}
       {error && !confirm && <p className="form-error" role="alert">{error}</p>}
       {readErrors[activeView] && !error && !confirm && <p className="form-error" role="alert">{readErrors[activeView]} <button type="button" disabled={loading || busy} onClick={() => void reload()}>بارگذاری دوباره</button></p>}
       {loading ? <div className="inventory-loading" role="status"><span>در حال دریافت اطلاعات موجودی…</span><div aria-hidden="true" /></div> : <div id="inventory-active-panel" role="region" aria-labelledby={`inventory-view-${activeView}`}>
+        {managerInventoryViews.has(activeView) && <InventoryOnboarding key={activeView} view={activeView as InventoryManagementView} onNavigate={navigate} />}
         {activeView === "overview" && !readErrors.overview && <InventoryOverview items={stockItems} pending={pending} pendingHasMore={pendingHasMore} onNavigate={navigate} onOpenStock={id => { setStockSelection(id || null); navigate("stock"); }} />}
         {activeView === "profit" && <InventoryProfitPanel catalog={catalog} onInspectProduct={(productId) => { setCostingProductSelection(productId); navigate("recipes"); }} />}
         {activeView === "sales" && <InventorySalesChannelsPanel />}
         {activeView === "analytics" && <InventorySalesAnalytics catalog={catalog} />}
-        {activeView === "pricing-experiments" && <InventoryPricingExperiments catalog={catalog} />}
-        {activeView === "stock" && <StockPanel initialSelectedId={stockSelection} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} />}
-        {activeView === "purchases" && !readErrors.purchases && <PurchasePanel onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
-        {activeView === "preparations" && !readErrors.preparations && <InventoryPreparations items={stockItems} recipes={recipes} mutate={mutate} onDirtyChange={markDirty} />}
-        {activeView === "recipes" && <ProductOptionRecipePanel {...(costingProductSelection ? { initialProductId: costingProductSelection } : {})} onDirtyChange={markDirty} catalog={catalog} items={stockItems} recipes={recipes} mutate={mutate} />}
-        {activeView === "counts" && <CountPanel onDirtyChange={markDirty} items={stockItems} pending={pending} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
-        {activeView === "history" && <HistoryPanel pending={pending} items={stockItems} refreshVersion={historyRefreshVersion} />}
+        {activeView === "pricing-experiments" && <InventoryPricingExperiments catalog={catalog} onDirtyChange={markDirty} />}
+        {activeView === "stock" && !readErrors.stock && <StockPanel initialSelectedId={stockSelection} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} />}
+        {activeView === "purchases" && !readErrors.purchases && <PurchasePanel onNavigate={navigate} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
+        {activeView === "preparations" && !readErrors.preparations && <InventoryPreparations onOpenStock={() => navigate("stock")} items={stockItems} recipes={recipes} mutate={mutate} onDirtyChange={markDirty} />}
+        {activeView === "recipes" && !readErrors.recipes && <ProductOptionRecipePanel canViewCosts={role !== "CASHIER"} onOpenStock={() => navigate("stock")} {...(costingProductSelection ? { initialProductId: costingProductSelection } : {})} onDirtyChange={markDirty} catalog={catalog} items={stockItems} recipes={recipes} mutate={mutate} />}
+        {activeView === "counts" && !readErrors.counts && <CountPanel onOpenStock={() => navigate("stock")} onDirtyChange={markDirty} items={stockItems} pending={pending} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
+        {activeView === "history" && !readErrors.history && <HistoryPanel pending={pending} items={stockItems} refreshVersion={historyRefreshVersion} />}
       </div>}
       {confirm && <div className="manager-dialog-backdrop" role="presentation"><section className="manager-dialog" role="alertdialog" aria-modal="true" aria-labelledby="inventory-confirm-title" aria-describedby="inventory-confirm-detail" onKeyDown={handleConfirmKeyDown}><h2 id="inventory-confirm-title">{confirm.title}</h2><p id="inventory-confirm-detail">{confirm.detail}</p>{confirm.summary && <ul className="inventory-confirm-summary">{confirm.summary.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)}</ul>}{error && <p className="form-error" role="alert">{error}</p>}<div className="inventory-actions"><button className={confirm.danger ? "danger-button" : undefined} type="button" disabled={busy} onClick={() => { void confirm.run().then((ok) => { if (ok) closeConfirm(); }); }}>{confirm.actionLabel}</button><button ref={confirmCancelRef} className="secondary-button" type="button" disabled={busy} onClick={closeConfirm}>بازگشت</button></div></section></div>}
     </section>
@@ -310,12 +302,13 @@ function StockPanel({ initialSelectedId, onDirtyChange, items, mutate, confirm }
         <td><bdi>{item.balance.carryingValueAmount === null ? "ارزش‌گذاری نشده" : inventoryNumber(formatToman(item.balance.carryingValueAmount))}</bdi></td>
         <td><span className={`inventory-status${(emptyInventoryItem(item) || lowInventoryItem(item)) ? " inventory-status--warning" : " inventory-status--success"}`}>{!item.balance.trackingStartedAt ? "مقدار آغازین ثبت نشده" : emptyInventoryItem(item) ? "موجودی صفر" : lowInventoryItem(item) ? "کمبود موجودی" : "دارای موجودی"}</span></td>
         <td><div className="inventory-actions"><button className="secondary-button" type="button" aria-label={`ویرایش ${item.name}`} onClick={() => startEdit(item)}>ویرایش</button><button className="text-button" type="button" aria-label={`بایگانی ${item.name}`} onClick={() => confirm({ title: "بایگانی کالای انبار", detail: `قلم «${item.name}» از فهرست فعال خارج می‌شود. سابقه‌ی خرید و گردش آن حفظ می‌شود.`, actionLabel: "بایگانی کالا", danger: true, run: () => mutate(() => archiveInventoryStockItem(item.id, item.version)) })}>بایگانی</button></div></td>
-      </tr>)}{shownItems.length === 0 && <tr><td colSpan={5}>{activeItems.length === 0 ? "هنوز کالای فعالی ثبت نشده است." : "کالایی با این فیلترها پیدا نشد."}</td></tr>}</tbody></table></div>
+      </tr>)}</tbody></table></div>
+      {shownItems.length === 0 && <InventoryEmptyState title={activeItems.length === 0 ? "هنوز کالای فعالی ثبت نشده است." : "کالایی با این فیلترها پیدا نشد."} detail={activeItems.length === 0 ? "اولین ماده‌ی اولیه یا بسته‌بندی را با واحد مبنا و موجودی آغازین ثبت کنید؛ سپس می‌توانید برای آن خرید و دستور تهیه تعریف کنید." : "نام کالا، واحد یا وضعیت موجودی را تغییر دهید تا اقلام دیگر را ببینید."} action={activeItems.length === 0 ? "تعریف اولین کالای انبار" : "نمایش همه‌ی کالاها"} onAction={() => { if (activeItems.length === 0) nameInputRef.current?.focus(); else { setSearch(""); setUnit(""); setStockStatus(""); } }} />}
     </ManagerCard>
   </div>;
 }
 
-function PurchasePanel({ onDirtyChange, items, mutate, confirm, keyFor, clearKey }: { items: InventoryStockItem[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void; keyFor: (name: string) => string; clearKey: (name: string) => void } & DraftGuardProps) {
+function PurchasePanel({ onNavigate, onDirtyChange, items, mutate, confirm, keyFor, clearKey }: { onNavigate: (view: InventoryManagementView) => void; items: InventoryStockItem[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void; keyFor: (name: string) => string; clearKey: (name: string) => void } & DraftGuardProps) {
   const [returnDirty, setReturnDirty] = useState(false);
   const [dirty, setDirty] = useInventoryDraftGuard(onDirtyChange, returnDirty);
   const activeItems = items.filter((item) => item.isActive && !item.archivedAt);
@@ -331,6 +324,9 @@ function PurchasePanel({ onDirtyChange, items, mutate, confirm, keyFor, clearKey
   const [appliedFilters, setAppliedFilters] = useState({ search: "", from: "", to: "", status: "" });
   const [filterError, setFilterError] = useState<string | null>(null);
   const emptyLine = (): PurchaseLineDraft => { const item = activeItems[0]; return { stockItemId: item?.id ?? "", conversionId: "", purchaseUnitLabel: item?.baseUnit ?? "", purchaseQuantity: "1", directCostAmount: "0" }; };
+  const purchaseFormRef = useRef<HTMLFormElement>(null);
+  const hasFilters = !!(appliedFilters.search || appliedFilters.from || appliedFilters.to || appliedFilters.status || cursor);
+  const clearFilters = () => { setFilters({ search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" }); setAppliedFilters({ search: "", from: "", to: "", status: "" }); setFilterError(null); setCursor(null); setPreviousCursors([]); };
   const [lines, setLines] = useState<PurchaseLineDraft[]>([emptyLine()]);
   const [receivedAt, setReceivedAt] = useState(localDateTime());
   const [supplier, setSupplier] = useState("");
@@ -393,16 +389,17 @@ function PurchasePanel({ onDirtyChange, items, mutate, confirm, keyFor, clearKey
   };
   return <div className="manager-grid inventory-purchase-layout">
     <ManagerCard title={editingPurchase ? "ویرایش پیش‌نویس خرید" : "پیش‌نویس خرید"} hint="ابتدا خرید را به‌صورت پیش‌نویس ذخیره کنید. پس از بررسی ردیف‌ها، «ثبت رسید در موجودی» مقدار و ارزش موجودی را به‌روز می‌کند.">
-      {activeItems.length === 0 ? <p className="inventory-note">برای ثبت خرید، ابتدا یک قلم فعال به موجودی اضافه کنید.</p> : <form className="manager-form" onChangeCapture={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
+      {activeItems.length === 0 ? <InventoryEmptyState title="ابتدا کالای خرید را تعریف کنید" detail="برای ثبت خرید، ابتدا یک قلم فعال به موجودی اضافه کنید." action="تعریف کالای خرید" onAction={() => onNavigate("stock")} /> : <form ref={purchaseFormRef} className="manager-form" onChangeCapture={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
         {localError && <p className="form-error" role="alert">{localError}</p>}
         <div className="manager-fields"><label><span>زمان دریافت</span><input type="datetime-local" value={receivedAt} onChange={(event) => setReceivedAt(event.target.value)} required /></label><label><span>تأمین‌کننده (اختیاری)</span><input value={supplier} onChange={(event) => setSupplier(event.target.value)} /></label></div>
         {lines.map((line, index) => <div className="inventory-entry-row inventory-purchase-line" key={index}>
           <label><span>کالا</span><select value={line.stockItemId} onChange={(event) => changeStock(index, event.target.value)}>{activeItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label><span>واحد خرید</span><select value={line.conversionId} onChange={(event) => { const selected = unitsFor(line).find((unit) => unit.id === event.target.value); setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, conversionId: selected?.id ?? "", purchaseUnitLabel: selected?.label ?? "" } : row)); }}>{unitsFor(line).map((unit) => <option key={`${unit.id}-${unit.label}`} value={unit.id}>{unit.title}</option>)}</select></label>
           <label><span>مقدار خرید ({unitsFor(line).find((unit) => unit.id === line.conversionId)?.title ?? "واحد انتخابی"})</span><input required inputMode="decimal" value={line.purchaseQuantity} onChange={(event) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, purchaseQuantity: event.target.value } : row))} /></label>
-          <label><span>هزینه‌ی مستقیم (تومان)</span><input required type="number" min="0" value={line.directCostAmount} onChange={(event) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, directCostAmount: event.target.value } : row))} /></label>
+          <label><span>هزینه‌ی مستقیم (تومان)</span><input required type="number" min="0" aria-describedby="purchase-cost-help" value={line.directCostAmount} onChange={(event) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, directCostAmount: event.target.value } : row))} /></label>
           {lines.length > 1 && <button className="text-button" type="button" onClick={() => { setDirty(true); setLines((current) => current.filter((_, rowIndex) => rowIndex !== index)); }}>حذف ردیف</button>}
         </div>)}
+        <p className="inventory-note" id="purchase-cost-help">هزینه‌ی مستقیم، مبلغ کل همان ردیف است؛ مثلاً برای ۲ کیلوگرم قهوه، هزینه‌ی هر ۲ کیلوگرم را وارد کنید.</p>
         <p className="inventory-invoice-total"><span>جمع هزینه‌ی مستقیم (تومان)</span><strong>{draftTotal === null ? "مبلغ ردیف‌ها را بررسی کنید" : inventoryNumber(formatToman(draftTotal))}</strong></p>
         <div className="inventory-actions"><button className="secondary-button" type="button" onClick={() => { setDirty(true); setLines((current) => [...current, emptyLine()]); }}>افزودن ردیف کالا</button><button type="submit">{editingPurchase ? "ذخیره پیش‌نویس" : "ایجاد پیش‌نویس خرید"}</button>{editingPurchase && <button className="secondary-button" type="button" onClick={resetPurchase}>انصراف از ویرایش</button>}</div>
       </form>}
@@ -418,7 +415,7 @@ function PurchasePanel({ onDirtyChange, items, mutate, confirm, keyFor, clearKey
           <label><span>وضعیت خرید</span><select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">همه‌ی وضعیت‌ها</option><option value="DRAFT">پیش‌نویس</option><option value="POSTED">رسید ثبت‌شده</option></select></label>
         </div>
         {filterError && <p className="form-error" role="alert">{filterError}</p>}
-        <div className="inventory-actions"><button type="submit">اعمال فیلترها</button><button className="secondary-button" type="button" onClick={() => { const empty = { search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" }; setFilters(empty); setAppliedFilters({ search: "", from: "", to: "", status: "" }); setFilterError(null); setCursor(null); setPreviousCursors([]); }}>پاک‌کردن فیلترها</button></div>
+        <div className="inventory-actions"><button type="submit">اعمال فیلترها</button><button className="secondary-button" type="button" onClick={clearFilters}>پاک‌کردن فیلترها</button></div>
       </form>
       <p className="inventory-table-hint">برای دیدن همه‌ی ستون‌ها، جدول را به طرفین بکشید.</p>
       {pageError && <p className="form-error" role="alert">{pageError}</p>}
@@ -428,7 +425,8 @@ function PurchasePanel({ onDirtyChange, items, mutate, confirm, keyFor, clearKey
         <td><details className="inventory-purchase-details" open={returning?.purchase.id === purchase.id || undefined}><summary>اقلام خرید</summary><ul>{purchase.lines.map((line) => <li key={line.id}>{items.find((item) => item.id === line.stockItemId)?.name ?? "قلم بایگانی‌شده"}: {inventoryQuantity(line.baseQuantityReceived)} {unitLabels[(items.find((item) => item.id === line.stockItemId)?.baseUnit ?? "PIECE") as Unit]}، {inventoryNumber(formatToman(line.directCostAmount))} تومان</li>)}</ul></details>
         <div className="inventory-actions">{purchase.status === "DRAFT" ? <><button className="secondary-button" type="button" onClick={() => startEditPurchase(purchase)}>ویرایش پیش‌نویس</button><button type="button" onClick={() => confirm({ title: "بررسی رسید خرید", detail: "با ثبت رسید، مقدار و ارزش موجودی بر اساس این ردیف‌ها به‌روز می‌شود.", summary: [...purchase.lines.map((line) => { const item = items.find((entry) => entry.id === line.stockItemId); return `${item?.name ?? "قلم بایگانی‌شده"}: ${line.baseQuantityReceived} ${unitLabels[(item?.baseUnit ?? "PIECE") as Unit]}، ${formatToman(line.directCostAmount)}`; }), `جمع هزینه‌ی مستقیم: ${formatToman(purchase.lines.reduce((total, line) => total + line.directCostAmount, 0))}`], actionLabel: "ثبت رسید در موجودی", run: () => { const key = `purchase:post:${purchase.id}`; return mutateAndReload(async () => { const result = await postInventoryPurchase(purchase.id, purchase.version, keyFor(key)); if (result.ok) clearKey(key); return result; }); } })}>ثبت رسید در موجودی</button></> : <button className="secondary-button" type="button" onClick={() => { const line = purchase.lines[0]; if (line) { setReturning({ purchase, lineId: line.id }); setReturnQuantity(""); setReturnReason(""); } }}>ثبت برگشت خرید</button>}</div>
         {returning?.purchase.id === purchase.id && <form className="inventory-return-form" onChangeCapture={() => setReturnDirty(true)} onSubmit={(event) => { event.preventDefault(); const key = `purchase:return:${purchase.id}:${returning.lineId}`; void mutateAndReload(async () => { const result = await returnInventoryPurchase(purchase.id, { purchaseLineId: returning.lineId, baseQuantity: returnQuantity, occurredAt: new Date().toISOString(), reason: returnReason }, keyFor(key)); if (result.ok) { clearKey(key); setReturning(null); setReturnDirty(false); } return result; }); }}><label><span>ردیف خرید</span><select value={returning.lineId} onChange={(event) => { setReturning({ purchase, lineId: event.target.value }); setReturnQuantity(""); }}>{purchase.lines.map((line) => <option key={line.id} value={line.id}>{items.find((item) => item.id === line.stockItemId)?.name ?? "کالا"} · {line.baseQuantityReceived} {unitLabels[(items.find((item) => item.id === line.stockItemId)?.baseUnit ?? "PIECE") as Unit]}</option>)}</select></label><p>مقدار مرجوعی را با واحد مبنا وارد کنید.</p><label><span>مقدار برگشتی</span><input required inputMode="decimal" value={returnQuantity} onChange={(event) => setReturnQuantity(event.target.value)} /></label><label><span>دلیل</span><input required value={returnReason} onChange={(event) => setReturnReason(event.target.value)} /></label><div className="inventory-actions"><button type="submit">ثبت مرجوعی</button><button className="secondary-button" type="button" onClick={() => { setReturning(null); setReturnDirty(false); }}>انصراف</button></div></form>}
-      </td></tr>)}{purchases.length === 0 && <tr><td colSpan={5}>خریدی با این فیلترها پیدا نشد.</td></tr>}</tbody></table></div>}
+      </td></tr>)}</tbody></table></div>}
+      {!pageLoading && !pageError && purchases.length === 0 && <InventoryEmptyState title={hasFilters ? "خریدی با این فیلترها پیدا نشد." : "هنوز خریدی ثبت نشده است"} detail={hasFilters ? "فیلترها را پاک کنید تا همه‌ی خریدها و پیش‌نویس‌ها نمایش داده شوند." : "اولین خرید را پیش‌نویس کنید. پس از بررسی ردیف‌ها، با ثبت رسید، موجودی به‌روز می‌شود."} action={hasFilters ? "نمایش همه‌ی خریدها" : activeItems.length ? "شروع پیش‌نویس خرید" : "افزودن کالا برای اولین خرید"} onAction={() => { if (hasFilters) clearFilters(); else if (!activeItems.length) onNavigate("stock"); else purchaseFormRef.current?.querySelector<HTMLInputElement>("input")?.focus(); }} />}
       <div className="inventory-actions inventory-history-pagination">
         <button className="secondary-button" type="button" disabled={pageLoading || previousCursors.length === 0} onClick={() => { const previous = previousCursors[previousCursors.length - 1] ?? null; setPreviousCursors((current) => current.slice(0, -1)); setCursor(previous); }}>صفحه‌ی قبل</button>
         <span>صفحه‌ی {previousCursors.length + 1}</span>
@@ -440,8 +438,9 @@ function PurchasePanel({ onDirtyChange, items, mutate, confirm, keyFor, clearKey
 
 type OptionIngredientDraft = { componentKey: string; sourceKind: "STOCK_ITEM" | "RECIPE"; sourceId: string; quantity: string };
 type MenuOptionRecipeDraft = { channel?: "TABLE" | "TAKEAWAY"; optionId: string; optionName: string; groupName: string; recipeId: string; components: OptionIngredientDraft[] };
+type ServedAlongsideDraft = { key: string; sourceKind: "STOCK_ITEM" | "RECIPE"; sourceId: string; quantity: string };
 
-function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, mutate, initialProductId }: { catalog: ManagerCatalog; items: InventoryStockItem[]; recipes: InventoryRecipe[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; initialProductId?: string } & DraftGuardProps) {
+function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, recipes, mutate, initialProductId, canViewCosts = true }: { onOpenStock: () => void; catalog: ManagerCatalog; items: InventoryStockItem[]; recipes: InventoryRecipe[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; initialProductId?: string; canViewCosts?: boolean } & DraftGuardProps) {
   const activeProducts = catalog.products.filter((product) => product.isActive && !product.archivedAt);
   const [productSearch, setProductSearch] = useState("");
   const [dirty, setDirty] = useInventoryDraftGuard(onDirtyChange);
@@ -453,6 +452,7 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
   const [configuration, setConfiguration] = useState<ProductCostingConfiguration>(null);
   const [entries, setEntries] = useState<MenuOptionRecipeDraft[]>([]);
   const [packaging, setPackaging] = useState<NonNullable<NonNullable<ProductCostingConfiguration>["takeawayPackaging"]>>([]);
+  const [servedAlongside, setServedAlongside] = useState<ServedAlongsideDraft[]>([]);
   const [takeawayEntries, setTakeawayEntries] = useState<MenuOptionRecipeDraft[]>([]);
   const savedRecipes = useRef(new Map<string, InventoryRecipe>());
   const [previewChannel, setPreviewChannel] = useState<"TABLE" | "TAKEAWAY">("TABLE");
@@ -479,6 +479,7 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
     setConfiguration(null);
     setEntries([]);
     setPackaging([]);
+    setServedAlongside([]);
     setTakeawayEntries([]);
     savedRecipes.current.clear();
     setPreviews({});
@@ -489,19 +490,32 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
       const value = result.data.data;
       setConfiguration(value);
       setPackaging(value?.takeawayPackaging ?? []);
+      setServedAlongside((value?.servedAlongside ?? []).map((entry) => ({ key: crypto.randomUUID(), sourceKind: entry.sourceKind, sourceId: entry.sourceKind === "STOCK_ITEM" ? entry.stockItemId : entry.recipeId, quantity: entry.quantity })));
       const optionRecipes = value?.optionRecipes ?? [];
-      const allowed = catalog.products.find((item) => item.id === productId)?.optionGroups.flatMap((group) => group.options.map((entry) => entry.optionId)) ?? [];
+      const activeOptionGroupIds = new Set(catalog.optionGroups.map((group) => group.id));
+      const productOptionGroups = (catalog.products.find((item) => item.id === productId)?.optionGroups ?? []).filter((group) => activeOptionGroupIds.has(group.optionGroupId));
+      const allowed = productOptionGroups.flatMap((group) => group.options.map((entry) => entry.optionId));
       const options = catalog.optionGroups.flatMap((group) => group.options.filter((option) => allowed.includes(option.id) && option.isActive && !option.archivedAt).map((option) => ({ id: option.id, name: option.name, group: group.name })));
-      const normalEntries = (options.length ? options : [{ id: "", name: "مواد اصلی محصول", group: "بدون گزینه" }]).map((option) => {
-        const configured = optionRecipes.find((entry) => entry.optionId === option.id) ?? (!option.id && value?.mode === "RECIPE" ? { recipeId: value.recipeId } : undefined);
-        const recipe = recipes.find((candidate) => candidate.id === configured?.recipeId);
-        return { optionId: option.id, optionName: option.name, groupName: option.group, recipeId: configured?.recipeId ?? "", components: recipe?.components.map((component) => ({ componentKey: component.componentKey, sourceKind: component.sourceKind, sourceId: component.sourceKind === "STOCK_ITEM" ? component.stockItemId : component.nestedRecipeId, quantity: component.quantity })) ?? [{ componentKey: crypto.randomUUID(), sourceKind: "STOCK_ITEM", sourceId: items.find((item) => item.isActive && !item.archivedAt)?.id ?? "", quantity: "" }] };
+      const includesNoOption = productOptionGroups.length === 0 || productOptionGroups.every((group) => group.minSelections === 0);
+      const baseRecipeIsSharedWithOption = value?.mode === "RECIPE" && optionRecipes.some((entry) => entry.recipeId === value.recipeId);
+      const displayOptions = [...(includesNoOption ? [{ id: "", name: options.length ? "بدون افزودنی" : "مواد اصلی محصول", group: options.length ? "مواد اصلی محصول" : "بدون گزینه" }] : []), ...options];
+      const normalEntries = displayOptions.map((option) => {
+        const isBase = !option.id;
+        const optionRecipe = optionRecipes.find((entry) => entry.optionId === option.id);
+        const configuredRecipeId = isBase
+          ? baseRecipeIsSharedWithOption ? undefined : value?.mode === "RECIPE" ? value.recipeId : undefined
+          : optionRecipe?.recipeId;
+        const recipeForComponents = recipes.find((candidate) => candidate.id === configuredRecipeId)
+          ?? (isBase && baseRecipeIsSharedWithOption ? recipes.find((candidate) => candidate.id === value?.recipeId) : undefined);
+        return { optionId: option.id, optionName: option.name, groupName: option.group, recipeId: configuredRecipeId ?? "", components: recipeForComponents?.components.map((component) => ({ componentKey: component.componentKey, sourceKind: component.sourceKind, sourceId: component.sourceKind === "STOCK_ITEM" ? component.stockItemId : component.nestedRecipeId, quantity: component.quantity })) ?? [{ componentKey: crypto.randomUUID(), sourceKind: "STOCK_ITEM", sourceId: items.find((item) => item.isActive && !item.archivedAt)?.id ?? "", quantity: "" }] };
       });
       setEntries(normalEntries);
       if (value?.takeawayRecipeId || value?.takeawayOptionRecipes?.length) {
         setTakeawayEntries(normalEntries.map((entry) => {
-          const configuredId = entry.optionId ? value.takeawayOptionRecipes?.find((row) => row.optionId === entry.optionId)?.recipeId : value.takeawayRecipeId;
-          const recipe = recipes.find((row) => row.id === configuredId);
+          const optionRecipe = entry.optionId ? value.takeawayOptionRecipes?.find((row) => row.optionId === entry.optionId) : undefined;
+          const baseRecipeIsShared = !entry.optionId && !!value.takeawayRecipeId && value.takeawayOptionRecipes?.some((row) => row.recipeId === value.takeawayRecipeId);
+          const configuredId = entry.optionId ? optionRecipe?.recipeId : baseRecipeIsShared ? undefined : value.takeawayRecipeId;
+          const recipe = recipes.find((row) => row.id === configuredId) ?? (baseRecipeIsShared ? recipes.find((row) => row.id === value.takeawayRecipeId) : undefined);
           return { ...entry, channel: "TAKEAWAY", recipeId: configuredId ?? "", components: recipe?.components.map((row) => ({ componentKey: row.componentKey, sourceKind: row.sourceKind, sourceId: row.sourceKind === "STOCK_ITEM" ? row.stockItemId : row.nestedRecipeId, quantity: row.quantity })) ?? entry.components.map((row) => ({ ...row })) };
         }));
       }
@@ -512,6 +526,7 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
 
   const changeEntry = (optionId: string, patch: Partial<MenuOptionRecipeDraft>, channel = "TABLE") => { setDirty(true); setSaved(false); invalidatePreview(); (channel === "TAKEAWAY" ? setTakeawayEntries : setEntries)((current) => current.map((entry) => entry.optionId === optionId ? { ...entry, ...patch } : entry)); };
   const changeIngredient = (optionId: string, index: number, patch: Partial<OptionIngredientDraft>, channel = "TABLE") => { setDirty(true); setSaved(false); invalidatePreview(); (channel === "TAKEAWAY" ? setTakeawayEntries : setEntries)((current) => current.map((entry) => entry.optionId === optionId ? { ...entry, components: entry.components.map((component, i) => i === index ? { ...component, ...patch } : component) } : entry)); };
+  const changeServedAlongside = (index: number, patch: Partial<ServedAlongsideDraft>) => { setDirty(true); setSaved(false); invalidatePreview(); setServedAlongside((current) => current.map((entry, i) => i === index ? { ...entry, ...patch } : entry)); };
   const runOptionPreview = async (entry: MenuOptionRecipeDraft) => {
     if (!product || previewInFlight.current || dirty) return;
     const version = ++previewVersion.current;
@@ -533,6 +548,7 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
     event.preventDefault();
     if (!product || !entries.length) { setError("این محصول منویی گزینه‌ای برای تنظیم ندارد."); return; }
     if ([...entries, ...takeawayEntries].some((entry) => !entry.components.length || entry.components.some((component) => !component.sourceId || !/^\d+(?:\.\d{1,6})?$/.test(component.quantity)))) { setError("برای هر گزینه، قلم یا دستور تهیه و مقدار آن را کامل کنید."); return; }
+    if (servedAlongside.some((entry) => !entry.sourceId || !/^\d+(?:\.\d{1,6})?$/.test(entry.quantity) || Number(entry.quantity) <= 0)) { setError("قلم یا دستور و مقدار افزودنی کنار محصول را کامل کنید."); return; }
     if (packaging.some((entry) => !entry.stockItemId || !/^\d+(?:\.\d{1,6})?$/.test(entry.quantity) || Number(entry.quantity) <= 0) || new Set(packaging.map((entry) => entry.stockItemId)).size !== packaging.length) { setError("قلم و مقدار بسته‌بندی را کامل کنید؛ هر قلم را فقط یک بار وارد کنید."); return; }
     if (packaging.some((entry) => (entry.mode === "PER_GROUP" && (!Number.isInteger(entry.groupSize) || entry.groupSize! < 2 || entry.groupSize! > 10000)) || (entry.minQuantity !== undefined && (!Number.isInteger(entry.minQuantity) || entry.minQuantity < 1)) || (entry.maxQuantity !== undefined && (!Number.isInteger(entry.maxQuantity) || entry.maxQuantity < (entry.minQuantity ?? 1))))) { setError("شرط تعداد بسته‌بندی را بررسی کنید؛ تعداد گروه و بازه باید معتبر باشند."); return; }
     setError(null);
@@ -540,10 +556,10 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
       const optionRecipes: Array<{ optionId: string; recipeId: string; recipeQuantity: string }> = [];
       const takeawayOptionRecipes: typeof optionRecipes = [];
       let takeawayRecipeId: string | null = null;
-      let fallbackRecipeId: string | undefined;
+      let baseRecipeId: string | undefined;
       for (const entry of [...entries, ...takeawayEntries]) {
         const weighted = product.pricingMode === "WEIGHTED_PER_KG";
-        const name = `${product.name} ${entry.optionName} ${entry.optionId.slice(0, 6)}${entry.channel === "TAKEAWAY" ? " بیرون‌بر" : ""}`;
+        const name = `${product.name} ${entry.optionName} ${entry.optionId ? entry.optionId.slice(0, 6) : "base"}${entry.channel === "TAKEAWAY" ? " بیرون‌بر" : ""}`;
         const existing = savedRecipes.current.get(entry.recipeId) ?? recipes.find((recipe) => recipe.id === entry.recipeId) ?? recipes.find((recipe) => recipe.name === name && recipe.isActive && !recipe.archivedAt);
         const recipeResult = await saveInventoryRecipe(existing?.id ?? null, {
           name,
@@ -559,20 +575,21 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
         changeEntry(entry.optionId, { recipeId: savedRecipe.id }, entry.channel);
         if (entry.optionId) (entry.channel === "TAKEAWAY" ? takeawayOptionRecipes : optionRecipes).push({ optionId: entry.optionId, recipeId: savedRecipe.id, recipeQuantity: weighted ? "1000" : "1" });
         else if (entry.channel === "TAKEAWAY") takeawayRecipeId = savedRecipe.id;
-        else fallbackRecipeId = savedRecipe.id;
+        else baseRecipeId = savedRecipe.id;
       }
       const firstRecipe = optionRecipes[0];
-      const baseRecipeId = firstRecipe?.recipeId ?? fallbackRecipeId ?? (configuration?.mode === "RECIPE" ? configuration.recipeId : undefined);
-      if (!baseRecipeId) { setError("برای محاسبه‌ی هزینه، یک دستور تهیه به محصول منو وصل کنید."); return { ok: false as const, error: { kind: "response" as const, status: 422, code: "BUSINESS_RULE_VIOLATION", message: "یک گزینه برای این محصول تنظیم نشده است." } }; }
-      const result = await saveProductCosting(product.id, { mode: "RECIPE", recipeId: baseRecipeId, recipeQuantity: product.pricingMode === "WEIGHTED_PER_KG" ? "1000" : "1", extrasRecipeId: configuration?.extrasRecipeId ?? null, takeawayPackaging: packaging, takeawayRecipeId, takeawayOptionRecipes, optionRules: configuration?.optionRules ?? [], optionRecipes, combinations: configuration?.combinations.map(({ name, optionIds, rules }) => ({ name, optionIds, rules })) ?? [], expectedVersion: configuration?.version ?? 1 });
+      const resolvedBaseRecipeId = baseRecipeId ?? firstRecipe?.recipeId ?? (configuration?.mode === "RECIPE" ? configuration.recipeId : undefined);
+      if (!resolvedBaseRecipeId) { setError("برای محاسبه‌ی هزینه، یک دستور تهیه به محصول منو وصل کنید."); return { ok: false as const, error: { kind: "response" as const, status: 422, code: "BUSINESS_RULE_VIOLATION", message: "یک گزینه برای این محصول تنظیم نشده است." } }; }
+      const result = await saveProductCosting(product.id, { mode: "RECIPE", recipeId: resolvedBaseRecipeId, recipeQuantity: product.pricingMode === "WEIGHTED_PER_KG" ? "1000" : "1", extrasRecipeId: configuration?.extrasRecipeId ?? null, servedAlongside: servedAlongside.map((entry) => ({ sourceKind: entry.sourceKind, ...(entry.sourceKind === "STOCK_ITEM" ? { stockItemId: entry.sourceId } : { recipeId: entry.sourceId }), quantity: entry.quantity })), takeawayPackaging: packaging, takeawayRecipeId, takeawayOptionRecipes, optionRules: configuration?.optionRules ?? [], optionRecipes, combinations: configuration?.combinations.map(({ name, optionIds, rules }) => ({ name, optionIds, rules })) ?? [], expectedVersion: configuration?.version ?? 1 });
       if (result.ok) { setConfiguration(result.data.data); setDirty(false); setSaved(true); setPreviews({}); }
       return result;
     });
   };
 
   return <div className="inventory-recipe-layout"><aside className="manager-card inventory-product-picker" aria-label="انتخاب محصول برای دستور تهیه"><header><h2>محصولات منو</h2><p>محصول را انتخاب کنید و مواد هر گزینه را تنظیم کنید.</p></header><label><span>جست‌وجوی محصول منو</span><input type="search" value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="نام محصول" /></label><div className="inventory-product-list">{activeProducts.filter((item) => item.name.includes(productSearch.trim())).map((item) => <button className="secondary-button" type="button" key={item.id} aria-pressed={item.id === productId} onClick={() => selectProduct(item.id)}>{item.name}<small>{item.pricingMode === "WEIGHTED_PER_KG" ? "وزنی" : "واحدی"}</small></button>)}{activeProducts.length > 0 && !activeProducts.some((item) => item.name.includes(productSearch.trim())) && <p className="inventory-empty">محصولی با این نام پیدا نشد.</p>}</div></aside><ManagerCard title="دستور تهیه و هزینه" hint="محصول منو را انتخاب کنید و مواد لازم برای هر گزینه‌ی منو را ثبت کنید.">
-    {activeProducts.length === 0 ? <p className="inventory-note">برای شروع، ابتدا یک محصول فعال در منو بسازید.</p> : !product && initialProductId ? <p className="inventory-note" role="status">محصول تاریخی انتخاب‌شده دیگر فعال نیست؛ برای دیدن هزینه‌ی فعلی، محصول فعالی را از فهرست انتخاب کنید.</p> : <>
+    {activeProducts.length === 0 ? <InventoryEmptyState title="محصول فعالی برای دستور تهیه وجود ندارد" detail="برای شروع، ابتدا یک محصول فعال در بخش مدیریت منو بسازید. سپس به این صفحه برگردید و مواد مصرفی آن را مشخص کنید." /> : !product && initialProductId ? <p className="inventory-note" role="status">محصول تاریخی انتخاب‌شده دیگر فعال نیست؛ برای دیدن هزینه‌ی فعلی، محصول فعالی را از فهرست انتخاب کنید.</p> : <>
       <div className="manager-fields inventory-compact-product-picker"><label><span>محصول منو</span><select value={productId} onChange={(event) => selectProduct(event.target.value)}>{activeProducts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
+      {!items.some((item) => item.isActive && !item.archivedAt) && <InventoryEmptyState title="کالای فعالی در انبار نیست" detail="برای افزودن ماده‌ی اولیه، آن را در اقلام موجودی تعریف کنید. دستورهای مشترک ذخیره‌شده نیز از فهرست نوع ماده قابل انتخاب‌اند." action="تعریف مواد اولیه در انبار" onAction={onOpenStock} />}
       {dirty && <p className="inventory-note" role="status">تغییرات ذخیره نشده است. پس از تکمیل مواد، دستور تهیه را ذخیره کنید.</p>}{saved && <p className="inventory-success" role="status">دستور تهیه ذخیره شد.</p>}
       {loadingConfig ? <p className="manager-empty">در حال بارگذاری گزینه‌های منو…</p> : <>
       {error && <p className="form-error" role="alert">{error} {loadFailed && <button type="button" disabled={loadingConfig} onClick={() => setConfigRetryVersion((current) => current + 1)}>بارگذاری تنظیم هزینه</button>}</p>}
@@ -595,6 +612,35 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
           <button className="secondary-button" type="button" onClick={() => changeEntry(entry.optionId, { components: [...entry.components, { componentKey: crypto.randomUUID(), sourceKind: "STOCK_ITEM", sourceId: items.find((item) => item.isActive && !item.archivedAt)?.id ?? "", quantity: "" }] }, entry.channel)}>افزودن ماده به {entry.optionName}</button>
         </fieldset>)}
         <fieldset className="inventory-option-recipe">
+          <legend>افزودنی کنار محصول <small>· اختیاری</small></legend>
+          <p className="inventory-note">چیزهایی را که همراه هر واحد محصول سرو می‌شوند اضافه کنید؛ مثلاً یک کوکی کنار اسپرسو. این افزودنی برای همه‌ی گزینه‌ها و سفارش‌های داخل کافه و بیرون‌بر محاسبه می‌شود و در دستور مشترک محصول دیگری کپی نمی‌شود.</p>
+          {servedAlongside.map((entry, index) => {
+            const sources = entry.sourceKind === "STOCK_ITEM"
+              ? items.filter((item) => item.isActive && !item.archivedAt)
+              : recipes.filter((recipe) => recipe.isActive && !recipe.archivedAt);
+            const sourceUnit = entry.sourceKind === "STOCK_ITEM"
+              ? items.find((item) => item.id === entry.sourceId)?.baseUnit
+              : recipes.find((recipe) => recipe.id === entry.sourceId)?.outputUnit;
+            return <div className="inventory-entry-row" key={entry.key}>
+              <label><span>نوع افزودنی {index + 1}</span><select value={entry.sourceKind} onChange={(event) => {
+                const sourceKind = event.target.value as ServedAlongsideDraft["sourceKind"];
+                const sourceId = sourceKind === "STOCK_ITEM"
+                  ? items.find((item) => item.isActive && !item.archivedAt)?.id ?? ""
+                  : recipes.find((recipe) => recipe.isActive && !recipe.archivedAt)?.id ?? "";
+                changeServedAlongside(index, { sourceKind, sourceId });
+              }}><option value="STOCK_ITEM">قلم موجودی</option><option value="RECIPE">دستور تهیه‌ی موجود</option></select></label>
+              <label><span>{entry.sourceKind === "STOCK_ITEM" ? "قلم افزودنی" : "دستور افزودنی"}</span><SearchableSourcePicker options={sources.map((source) => ({ id: source.id, name: source.name }))} value={entry.sourceId} onChange={(sourceId) => changeServedAlongside(index, { sourceId })} placeholder={entry.sourceKind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور تهیه"} /></label>
+              <label><span>مقدار برای هر واحد{sourceUnit ? ` (${unitLabels[sourceUnit as Unit]})` : ""}</span><input required inputMode="decimal" value={entry.quantity} placeholder={sourceUnit ? `مقدار به ${unitLabels[sourceUnit as Unit]}` : "مقدار"} onChange={(event) => changeServedAlongside(index, { quantity: event.target.value })} /></label>
+              <button className="text-button" type="button" onClick={() => { setServedAlongside((current) => current.filter((_, i) => i !== index)); setDirty(true); setSaved(false); invalidatePreview(); }}>حذف افزودنی {index + 1}</button>
+            </div>;
+          })}
+          <button className="secondary-button" type="button" onClick={() => {
+            const sourceId = items.find((item) => item.isActive && !item.archivedAt)?.id ?? "";
+            setServedAlongside((current) => [...current, { key: crypto.randomUUID(), sourceKind: "STOCK_ITEM", sourceId, quantity: "1" }]);
+            setDirty(true); setSaved(false); invalidatePreview();
+          }}>افزودن مورد سرو در کنار محصول</button>
+        </fieldset>
+        <fieldset className="inventory-option-recipe">
           <legend>بسته‌بندی بیرون‌بر</legend>
           <p className="inventory-note">لیوان، ظرف یا هولدر را ابتدا در اقلام موجودی ثبت کنید. مقدار هر قلم برای یک واحد فروش است؛ برای محصول وزنی هم به تعداد واحدها محاسبه می‌شود. این هزینه فقط به سفارش بیرون‌بر اضافه می‌شود. گروه کامل با جمع تعداد همین محصول در سفارش محاسبه می‌شود؛ گروه ناقص بسته‌بندی نمی‌گیرد. حداقل و حداکثر اختیاری هستند.</p>
           {packaging.map((entry, index) => <div className="inventory-entry-row" key={index}>
@@ -613,7 +659,7 @@ function ProductOptionRecipePanel({ onDirtyChange, catalog, items, recipes, muta
         </fieldset>
         <button type="submit" disabled={loadingConfig || loadFailed}>ذخیره‌ی دستورهای تهیه</button>
       </form>}
-      {configuration && <section className="inventory-option-previews">
+      {configuration && canViewCosts && <section className="inventory-option-previews">
         <label><span>نوع سفارش برای محاسبه‌ی هزینه</span><select value={previewChannel} disabled={previewing} onChange={(event) => { invalidatePreview(); setPreviewChannel(event.target.value as "TABLE" | "TAKEAWAY"); }}><option value="TABLE">داخل کافه</option><option value="TAKEAWAY">بیرون‌بر</option></select></label>
         <h3>هزینه‌ی دستور ذخیره‌شده</h3><p className="inventory-cell-note">این محاسبه از دستور ذخیره‌شده انجام می‌شود؛ تغییرات فرم را ابتدا ذخیره کنید.</p>
         <div className="manager-fields">
@@ -675,7 +721,7 @@ function prettyMissingReason(reason: string) {
   return "برای تکمیل محاسبه، بخشی از اطلاعات لازم است";
 }
 
-function CountPanel({ onDirtyChange, items, pending, mutate, confirm, keyFor, clearKey }: { items: InventoryStockItem[]; pending: PendingInventoryConsumption[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void; keyFor: (name: string) => string; clearKey: (name: string) => void } & DraftGuardProps) {
+function CountPanel({ onOpenStock, onDirtyChange, items, pending, mutate, confirm, keyFor, clearKey }: { onOpenStock: () => void; items: InventoryStockItem[]; pending: PendingInventoryConsumption[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void; keyFor: (name: string) => string; clearKey: (name: string) => void } & DraftGuardProps) {
   const [dirty, setDirty] = useInventoryDraftGuard(onDirtyChange);
   const activeItems = items.filter((item) => item.isActive && !item.archivedAt);
   const [counts, setCounts] = useState<InventoryCount[]>([]);
@@ -691,6 +737,9 @@ function CountPanel({ onDirtyChange, items, pending, mutate, confirm, keyFor, cl
   const [filterError, setFilterError] = useState<string | null>(null);
   const [editingCount, setEditingCount] = useState<InventoryCount | null>(null);
   const [lines, setLines] = useState<Array<{ stockItemId: string; expectedQuantity: string; observedQuantity: string; observedValueAmount: string }>>([]);
+  const countFormRef = useRef<HTMLFormElement>(null);
+  const hasFilters = !!(appliedFilters.search || appliedFilters.from || appliedFilters.to || appliedFilters.status || cursor);
+  const clearFilters = () => { setFilters({ search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" }); setAppliedFilters({ search: "", from: "", to: "", status: "" }); setFilterError(null); setCursor(null); setPreviousCursors([]); };
   const [reason, setReason] = useState("");
   const [reconcile, setReconcile] = useState<string[]>([]);
   const eligibleLines = () => activeItems.filter((item) => !!item.balance.trackingStartedAt).map((item) => ({ stockItemId: item.id, expectedQuantity: item.balance.quantityOnHand ?? "0", observedQuantity: item.balance.quantityOnHand ?? "0", observedValueAmount: String(item.balance.carryingValueAmount ?? 0) }));
@@ -733,10 +782,11 @@ function CountPanel({ onDirtyChange, items, pending, mutate, confirm, keyFor, cl
   const submit = async (event: FormEvent) => { event.preventDefault(); const countLines = lines.map((line) => ({ stockItemId: line.stockItemId, observedQuantity: line.observedQuantity, observedValueAmount: Number(line.observedValueAmount) })); const countInput = { lines: countLines, ...(reason.trim() ? { reason: reason.trim() } : {}) }; const result = await mutateAndReload(() => editingCount ? updateInventoryCount(editingCount.id, { ...countInput, expectedVersion: editingCount.version }) : createInventoryCount({ ...countInput, kind: "PHYSICAL" })); if (result) resetCountDraft(); };
   return <div className="manager-grid">
     <ManagerCard title="شمارش فیزیکی موجودی" hint="مقدار و ارزش ثبت‌شده را با شمارش واقعی جایگزین کنید. اگر سفارشی هنوز از موجودی کم نشده، پیش از ثبت شمارش آن را انتخاب کنید.">
-      <form className="manager-form inventory-count-form" onChangeCapture={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
+      <p className="inventory-note">مقدارها با موجودی ثبت‌شده پر شده‌اند. مقدار واقعی هر قلم و ارزش کل آن را بررسی کنید؛ ذخیره‌ی پیش‌نویس، موجودی را تغییر نمی‌دهد.</p>
+      <form ref={countFormRef} className="manager-form inventory-count-form" onChangeCapture={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
         <fieldset className="inventory-option-choices"><legend>اقلام این شمارش</legend>{eligibleLines().map((eligible) => <label key={eligible.stockItemId}><input type="checkbox" checked={lines.some((line) => line.stockItemId === eligible.stockItemId)} onChange={(event) => setLines((current) => event.target.checked ? [...current, eligible] : current.filter((line) => line.stockItemId !== eligible.stockItemId))} />شمارش {activeItems.find((item) => item.id === eligible.stockItemId)?.name}</label>)}</fieldset>
         {lines.map((line, index) => { const item = activeItems.find((entry) => entry.id === line.stockItemId); return <div className="inventory-count-line" role="group" aria-label={item?.name ?? "کالا"} key={line.stockItemId}><strong>{item?.name ?? "کالا"}</strong><label><span>مقدار {item ? unitLabels[item.baseUnit as Unit] : ""}</span><input required inputMode="decimal" value={line.observedQuantity} onChange={(event) => setLines((current) => current.map((row, i) => i === index ? { ...row, observedQuantity: event.target.value } : row))} /></label><label><span>ارزش موجودی (تومان)</span><input required type="number" min="0" value={line.observedValueAmount} onChange={(event) => setLines((current) => current.map((row, i) => i === index ? { ...row, observedValueAmount: event.target.value } : row))} /></label></div>; })}
-        {lines.length === 0 && <p className="inventory-note">برای ثبت شمارش، حداقل یک قلم واجد شرایط انتخاب کنید.</p>}
+        {lines.length === 0 && (eligibleLines().length === 0 ? <InventoryEmptyState title="هنوز کالایی آماده‌ی شمارش نیست" detail="ابتدا مقدار و ارزش آغازین یک کالای فعال را در اقلام موجودی ثبت کنید؛ سپس آن را اینجا بشمارید." action="تکمیل موجودی آغازین" onAction={onOpenStock} /> : <p className="inventory-note">برای ثبت شمارش، حداقل یک قلم را از فهرست «اقلام این شمارش» انتخاب کنید.</p>)}
         {hasQuantityDifference && <label><span>دلیل اختلاف موجودی (برای کل شمارش)</span><textarea required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="علت تفاوت مقدار شمارش‌شده با موجودی ثبت‌شده را بنویسید" /></label>}
         <div className="inventory-actions"><button type="submit" disabled={!lines.length || (hasQuantityDifference && !reason.trim())}>{editingCount ? "ذخیره پیش‌نویس شمارش" : "ایجاد پیش‌نویس شمارش"}</button>{editingCount && <button className="secondary-button" type="button" onClick={resetCountDraft}>انصراف از ویرایش</button>}</div>
       </form>
@@ -750,7 +800,7 @@ function CountPanel({ onDirtyChange, items, pending, mutate, confirm, keyFor, cl
           <label><span>تا تاریخ شمسی</span><div className="inventory-date-input"><input inputMode="numeric" value={filters.toValue} onChange={(event) => setFilters((current) => ({ ...current, toValue: event.target.value }))} placeholder="ماه/روز" /><input inputMode="numeric" aria-label="سال پایان" value={filters.toYear} onChange={(event) => setFilters((current) => ({ ...current, toYear: event.target.value }))} /></div></label>
         </div>
         {filterError && <p className="form-error" role="alert">{filterError}</p>}
-        <div className="inventory-actions"><button type="submit">اعمال فیلترها</button><button className="secondary-button" type="button" onClick={() => { const empty = { search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" }; setFilters(empty); setAppliedFilters({ search: "", from: "", to: "", status: "" }); setFilterError(null); setCursor(null); setPreviousCursors([]); }}>پاک‌کردن فیلترها</button></div>
+        <div className="inventory-actions"><button type="submit">اعمال فیلترها</button><button className="secondary-button" type="button" onClick={clearFilters}>پاک‌کردن فیلترها</button></div>
       </form>
       {pageError && <p className="form-error" role="alert">{pageError}</p>}
       {pageLoading ? <p className="manager-empty">در حال بارگذاری شمارش‌ها…</p> : <ul className="inventory-list">{counts.map((count) => <li key={count.id}><div><strong>شمارش فیزیکی · {count.status === "POSTED" ? "ثبت‌شده" : "پیش‌نویس"}</strong><small>{new Date(count.createdAt).toLocaleString("fa-IR-u-nu-latn")}</small><small>{count.lines.map((line) => { const item = items.find((entry) => entry.id === line.stockItemId); return `${item?.name ?? "کالا"}: ${line.observedQuantity}${line.differenceQuantity === null ? "" : ` (اختلاف ${line.differenceQuantity})`}`; }).join("، ")}</small>{count.reason && <small>دلیل اختلاف: {count.reason}</small>}</div>
@@ -759,7 +809,8 @@ function CountPanel({ onDirtyChange, items, pending, mutate, confirm, keyFor, cl
           {count.kind === "PHYSICAL" && pending.length > 0 && <fieldset><legend>سفارش‌هایی که هنوز از موجودی کم نشده‌اند</legend>{pending.map((entry) => <label key={entry.id}><input type="checkbox" checked={reconcile.includes(entry.id)} onChange={(event) => setReconcile((current) => event.target.checked ? [...current, entry.id] : current.filter((id) => id !== entry.id))} />سفارش {entry.orderNumber} · هزینه‌ی محاسبه‌شده {formatToman(entry.knownCogsAmount)}</label>)}</fieldset>}
           <button type="button" onClick={() => { const absorbedIds = count.kind === "PHYSICAL" ? reconcile.filter((id) => pending.some((entry) => entry.id === id)) : []; const absorbed = pending.filter((entry) => absorbedIds.includes(entry.id)); confirm({ title: "بررسی ثبت شمارش", detail: count.kind === "OPENING" ? "با ثبت موجودی آغازین، مقدار و ارزش این کالاها مبنای موجودی می‌شود." : "با ثبت شمارش فیزیکی، مقدار و ارزش ثبت‌شده با مقدار مشاهده‌شده جایگزین می‌شود.", summary: [...count.lines.map((line) => { const item = items.find((entry) => entry.id === line.stockItemId); return `${item?.name ?? "کالا"}: ${line.observedQuantity} ${unitLabels[(item?.baseUnit ?? "PIECE") as Unit]}، ارزش ${formatToman(line.observedValueAmount)}${line.differenceQuantity === null ? "" : `، اختلاف ${line.differenceQuantity}`}`; }), ...(count.kind === "PHYSICAL" ? [absorbed.length ? `سفارش‌های در انتظار کسر که در این شمارش لحاظ می‌شوند: ${absorbed.map((entry) => entry.orderNumber).join("، ")}` : "هیچ سفارش در انتظار کسر در این شمارش انتخاب نشده است."] : [])], actionLabel: "ثبت شمارش در موجودی", run: () => { const key = `count:post:${count.id}`; return mutateAndReload(async () => { const result = await postInventoryCount(count.id, { expectedVersion: count.version, absorbedOrderConsumptionIds: absorbedIds }, keyFor(key)); if (result.ok) { clearKey(key); setReconcile([]); } return result; }); } }); }}>ثبت شمارش</button>
         </div>}
-      </li>)}{counts.length === 0 && <li>شمارشی با این فیلترها پیدا نشد.</li>}</ul>}
+      </li>)}</ul>}
+      {!pageLoading && !pageError && counts.length === 0 && <InventoryEmptyState title={hasFilters ? "شمارشی با این فیلترها پیدا نشد." : "هنوز شمارش فیزیکی ثبت نشده است"} detail={hasFilters ? "فیلترها را پاک کنید تا پیش‌نویس‌ها و شمارش‌های ثبت‌شده را ببینید." : "کالاهای شمرده‌شده را در فرم انتخاب کنید و مقدار واقعی را وارد کنید. پیش‌نویس پس از ذخیره در این فهرست می‌آید."} action={hasFilters ? "نمایش همه‌ی شمارش‌ها" : "شروع شمارش"} onAction={() => { if (hasFilters) clearFilters(); else countFormRef.current?.querySelector<HTMLInputElement | HTMLButtonElement>("input, button")?.focus(); }} />}
       <div className="inventory-actions inventory-history-pagination"><button className="secondary-button" type="button" disabled={pageLoading || previousCursors.length === 0} onClick={() => { const previous = previousCursors[previousCursors.length - 1] ?? null; setPreviousCursors((current) => current.slice(0, -1)); setCursor(previous); }}>صفحه‌ی قبل</button><span>صفحه‌ی {previousCursors.length + 1}</span><button className="secondary-button" type="button" disabled={pageLoading || !page.hasMore || !page.nextCursor} onClick={() => { if (!page.nextCursor) return; setPreviousCursors((current) => [...current, cursor]); setCursor(page.nextCursor); }}>صفحه‌ی بعد</button></div>
     </ManagerCard>
   </div>;
@@ -817,6 +868,7 @@ function HistoryPanel({ pending, items, refreshVersion }: { pending: PendingInve
     setPreviousCursors([]);
   };
 
+  const hasFilters = !!(applied.search || applied.kind || applied.from || applied.to || cursor);
   return <div className="manager-grid">
     <ManagerCard title="گردش موجودی" hint="شماره‌ی سفارش در تغییرهای ناشی از سفارش نمایش داده می‌شود. جست‌وجو را بر اساس کالا، شماره‌ی سفارش یا نوع تغییر انتخاب کنید.">
       <form className="manager-form inventory-history-filter" onSubmit={applyFilters}>
@@ -830,7 +882,8 @@ function HistoryPanel({ pending, items, refreshVersion }: { pending: PendingInve
         <div className="inventory-actions"><button type="submit">اعمال فیلترها</button><button className="secondary-button" type="button" onClick={clearFilters}>پاک‌کردن فیلترها</button></div>
       </form>
       {error && <p className="form-error" role="alert">{error} <button type="button" disabled={loading} onClick={() => setRetryVersion((current) => current + 1)}>بارگذاری دوباره</button></p>}
-      <p className="inventory-table-hint">برای دیدن همه‌ی ستون‌ها، جدول را به طرفین بکشید.</p><div className="inventory-table-wrap" role="region" aria-label="جدول گردش موجودی" tabIndex={0}><table className="inventory-table"><thead><tr><th scope="col">زمان تغییر</th><th scope="col">کالا</th><th scope="col">شماره‌ی سفارش</th><th scope="col">نوع تغییر</th><th scope="col">مقدار</th><th scope="col">تغییر ارزش موجودی</th></tr></thead><tbody>{movements.map((movement) => <tr key={movement.id}><td>{new Date(movement.occurredAt).toLocaleString("fa-IR-u-nu-latn")}</td><td>{items.find((item) => item.id === movement.stockItemId)?.name ?? "قلم بایگانی‌شده"}</td><td>{movement.orderNumber ? `#${movement.orderNumber}` : "—"}</td><td>{movementLabels[movement.kind] ?? movement.kind}</td><td>{movement.quantityDelta}</td><td>{movement.valueDeltaAmount < 0 ? `−${formatToman(-movement.valueDeltaAmount)}` : formatToman(movement.valueDeltaAmount)}</td></tr>)}{!loading && movements.length === 0 && <tr><td colSpan={6}>تغییری با این فیلترها پیدا نشد.</td></tr>}{loading && <tr><td colSpan={6}>در حال بارگذاری گردش موجودی…</td></tr>}</tbody></table></div>
+      <p className="inventory-table-hint">برای دیدن همه‌ی ستون‌ها، جدول را به طرفین بکشید.</p><div className="inventory-table-wrap" role="region" aria-label="جدول گردش موجودی" tabIndex={0}><table className="inventory-table"><thead><tr><th scope="col">زمان تغییر</th><th scope="col">کالا</th><th scope="col">شماره‌ی سفارش</th><th scope="col">نوع تغییر</th><th scope="col">مقدار</th><th scope="col">تغییر ارزش موجودی</th></tr></thead><tbody>{movements.map((movement) => <tr key={movement.id}><td>{new Date(movement.occurredAt).toLocaleString("fa-IR-u-nu-latn")}</td><td>{items.find((item) => item.id === movement.stockItemId)?.name ?? "قلم بایگانی‌شده"}</td><td>{movement.orderNumber ? `#${movement.orderNumber}` : "—"}</td><td>{movementLabels[movement.kind] ?? movement.kind}</td><td>{movement.quantityDelta}</td><td>{movement.valueDeltaAmount < 0 ? `−${formatToman(-movement.valueDeltaAmount)}` : formatToman(movement.valueDeltaAmount)}</td></tr>)}{loading && <tr><td colSpan={6}>در حال بارگذاری گردش موجودی…</td></tr>}</tbody></table></div>
+      {!loading && !error && movements.length === 0 && <InventoryEmptyState title={hasFilters ? "تغییری با این فیلترها پیدا نشد." : "هنوز گردشی ثبت نشده است"} detail={hasFilters ? "جست‌وجو یا بازه‌ی زمانی را تغییر دهید، یا فیلترها را پاک کنید." : "ثبت موجودی آغازین، رسید خرید، شمارش نهایی و مصرف سفارش‌ها در این جدول سابقه ایجاد می‌کند. پیش‌نویس‌ها تغییری در موجودی نمی‌دهند."} {...(hasFilters ? { action: "نمایش همه‌ی گردش‌ها", onAction: clearFilters } : {})} />}
       <div className="inventory-actions inventory-history-pagination"><button className="secondary-button" type="button" disabled={loading || previousCursors.length === 0} onClick={() => { const previous = previousCursors[previousCursors.length - 1] ?? null; setPreviousCursors((current) => current.slice(0, -1)); setCursor(previous); }}>صفحه‌ی قبل</button><span>صفحه‌ی {previousCursors.length + 1}</span><button className="secondary-button" type="button" disabled={loading || !page.hasMore || !page.nextCursor} onClick={() => { if (!page.nextCursor) return; setPreviousCursors((current) => [...current, cursor]); setCursor(page.nextCursor); }}>صفحه‌ی بعد</button></div>
     </ManagerCard>
     <ManagerCard title="سفارش‌های در انتظار کسر از موجودی" hint="هزینه‌ی سفارش تسویه‌شده فقط وقتی از موجودی کم می‌شود که همه‌ی مواد لازم موجود باشند.">
