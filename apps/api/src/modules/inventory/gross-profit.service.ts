@@ -370,6 +370,7 @@ export function buildPackagingEconomics(consumptions: any[], fromDate: string, t
     productId: string; productName: string; categoryId: string | null; categoryName: string | null; channel: "TABLE" | "TAKEAWAY"; options: PackagingOption[];
     soldQuantity: number; soldWeightGrams: number; productNetSalesAmount: bigint; packagingChargeRevenueAmount: bigint;
     nonPackagingKnownCostAmount: number; packagingKnownCostAmount: number; unclassifiedKnownCostAmount: number;
+    assignedPackaging: Map<string, { packagingProductId: string; packagingProductName: string; quantity: number }>;
     isCostComplete: boolean; isPackagingAttributionComplete: boolean; relevant: boolean;
   };
   type Daily = { date: string; packagingChargeRevenueAmount: bigint; knownMaterialCostAmount: number; unclassifiedKnownCostAmount: number; incompleteOrderItemCount: number; isCostComplete: boolean };
@@ -400,17 +401,42 @@ export function buildPackagingEconomics(consumptions: any[], fromDate: string, t
     chargeRevenue += orderCharge;
     day.packagingChargeRevenueAmount += orderCharge;
     if (!menuItems.length && orderCharge > 0n) allCostsComplete = false;
-    const distinctProductIds = [...new Set(menuItems.map((item: any) => item.orderItem.productId))] as string[];
-    const allocatedProductId = distinctProductIds.length === 1 ? distinctProductIds[0]! : null;
     const variantWeights = new Map<string, bigint>();
-    if (allocatedProductId) for (const item of menuItems) {
-      const snapshot = item.costSnapshot as any;
-      const channel = (snapshot?.orderChannel ?? consumption.order.channel) as "TABLE" | "TAKEAWAY";
-      const variantKey = packagingVariantKey(item.orderItem.productId, channel, packagingOptions(item));
-      variantWeights.set(variantKey, (variantWeights.get(variantKey) ?? 0n) + activeRevenue(item.orderItem.settlementAllocations));
+    let explicitAssignmentCharge = 0n;
+    for (const packingItem of packingItems) {
+      const assignmentWeights = new Map<string, bigint>();
+      for (const item of menuItems) {
+        const snapshot = item.costSnapshot as any;
+        for (const assignment of snapshot?.packagingAssignments ?? []) {
+          if (assignment.packagingOrderItemId !== packingItem.orderItem.id) continue;
+          const channel = (snapshot?.orderChannel ?? consumption.order.channel) as "TABLE" | "TAKEAWAY";
+          const key = packagingVariantKey(item.orderItem.productId, channel, packagingOptions(item));
+          assignmentWeights.set(key, (assignmentWeights.get(key) ?? 0n) + BigInt(assignment.quantity));
+        }
+      }
+      const itemCharge = activeRevenue(packingItem.orderItem.settlementAllocations);
+      const assigned = allocateOrderCharge(itemCharge, assignmentWeights);
+      if (assigned) {
+        explicitAssignmentCharge += itemCharge;
+        for (const [key, value] of assigned) variantWeights.set(key, (variantWeights.get(key) ?? 0n) + value);
+      }
     }
-    const allocatedChargeByVariant = allocatedProductId ? allocateOrderCharge(orderCharge, variantWeights) : null;
-    if (orderCharge > 0n && !allocatedChargeByVariant) unattributedCharge += orderCharge;
+    const hasExplicitAssignments = explicitAssignmentCharge > 0n;
+    const unassignedCharge = orderCharge - explicitAssignmentCharge;
+    if (unassignedCharge > 0n && !hasExplicitAssignments) {
+      const productWeights = new Map<string, bigint>();
+      for (const item of menuItems) {
+        const snapshot = item.costSnapshot as any;
+        const channel = (snapshot?.orderChannel ?? consumption.order.channel) as "TABLE" | "TAKEAWAY";
+        const key = packagingVariantKey(item.orderItem.productId, channel, packagingOptions(item));
+        productWeights.set(key, (productWeights.get(key) ?? 0n) + activeRevenue(item.orderItem.settlementAllocations));
+      }
+      const legacyAllocation = productWeights.size && new Set(menuItems.map((item: any) => item.orderItem.productId)).size === 1
+        ? allocateOrderCharge(unassignedCharge, productWeights) : null;
+      if (legacyAllocation) for (const [key, value] of legacyAllocation) variantWeights.set(key, (variantWeights.get(key) ?? 0n) + value);
+      else unattributedCharge += unassignedCharge;
+    } else if (unassignedCharge > 0n) unattributedCharge += unassignedCharge;
+    const allocatedChargeByVariant = variantWeights.size ? variantWeights : null;
     const allocatedVariantsApplied = new Set<string>();
 
     for (const item of menuItems) {
@@ -448,8 +474,14 @@ export function buildPackagingEconomics(consumptions: any[], fromDate: string, t
       const product = products.get(key) ?? {
         productId, productName: item.productNameSnapshot, categoryId, categoryName, channel, options, soldQuantity: 0, soldWeightGrams: 0,
         productNetSalesAmount: 0n, packagingChargeRevenueAmount: 0n, nonPackagingKnownCostAmount: 0, packagingKnownCostAmount: 0,
-        unclassifiedKnownCostAmount: 0, isCostComplete: true, isPackagingAttributionComplete: true, relevant: true,
+        unclassifiedKnownCostAmount: 0, assignedPackaging: new Map(), isCostComplete: true, isPackagingAttributionComplete: true, relevant: true,
       };
+      for (const assignment of snapshot?.packagingAssignments ?? []) {
+        const assignmentKey = `${assignment.packagingProductId}:${assignment.packagingProductNameSnapshot}`;
+        const assigned = product.assignedPackaging.get(assignmentKey) ?? { packagingProductId: assignment.packagingProductId, packagingProductName: assignment.packagingProductNameSnapshot, quantity: 0 };
+        assigned.quantity += assignment.quantity;
+        product.assignedPackaging.set(assignmentKey, assigned);
+      }
       product.soldQuantity += item.quantity;
       product.soldWeightGrams += (item.weightGrams ?? 0) * item.quantity;
       product.productNetSalesAmount += revenue;
@@ -542,6 +574,7 @@ export function buildPackagingEconomics(consumptions: any[], fromDate: string, t
       return {
         productId: product.productId, productName: product.productName, categoryId: product.categoryId, categoryName: product.categoryName,
         channel: product.channel, options: product.options, soldQuantity: product.soldQuantity, soldWeightGrams: product.soldWeightGrams,
+        assignedPackaging: [...product.assignedPackaging.values()],
         productNetSalesAmount: amount(product.productNetSalesAmount), packagingChargeRevenueAmount: amount(product.packagingChargeRevenueAmount),
         nonPackagingKnownCostAmount: product.nonPackagingKnownCostAmount, packagingKnownCostAmount: product.packagingKnownCostAmount,
         unclassifiedKnownCostAmount: product.unclassifiedKnownCostAmount, netRecoveryAmount: productRecovery(product),
