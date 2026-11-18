@@ -514,6 +514,45 @@ Definition of done for a feature:
   product-image data or environment file was transferred. Café-device browser,
   touch, and receipt-printer acceptance remains open.
 
+### Full API, contracts, and POS release — 18 November 2026
+
+Released `cafe-20261118-f66d791` from `main` commit
+`f66d791cec5b3e3e1185f5e6802b5208df37de76`. The coordinated artifact SHA-256
+is `a90a9864ae8240d41ee77dfd329a1623d6fc8a86c579e236593cab58b00bf819`.
+It contains the API runtime, matching contracts, POS production build, Prisma
+schema/configuration, and all migrations, including the Debian Prisma engine.
+It excludes environment files, product images, Next.js development/cache/
+standalone/types/diagnostics/Turbopack output, API test/seed output, source maps,
+declarations, the unused RHEL engine, and unchanged POS public assets.
+
+The PostgreSQL 17.11 custom-format pre-release backup
+`/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261118-f66d791.dump`
+passed `pg_restore --list` with 430 entries (SHA-256
+`f09f386bfb81c6907f4fd86a865453dc9eb3b644636b9376e4e91ccabe36d6be`). The
+coordinated runtime rollback archive
+`/opt/cafe-menu-release-backups/rollback-before-cafe-20261118-f66d791.tar.gz`
+passed archive validation (SHA-256
+`c3e7d97775e6c85e50f4e5f790ece484fc4ae66c39f84af40f16138b07a4c071`). The
+previous verified backup/rollback pair was removed only after both replacements
+validated. Production applied `20261118150000_personnel_profiles` and
+`20261118160000_retire_packaging_fee_sales`; Prisma reports all 61 migrations
+current.
+
+API (30 files / 270 tests), POS (35 files / 259 tests), and contracts (10 files
+/ 32 tests) suites passed. All three typechecks and production builds passed.
+After activation at `2026-11-18T17:52:09Z`, direct API liveness/readiness and
+public-menu API, public `/api/public-menu`, `/menu`, and direct/public `/pos`
+returned HTTP 200. Direct and public `/pos/release` report
+`cafe-20261118-f66d791` with `Cache-Control: no-store, max-age=0`. API, POS,
+and web services are active with zero restarts; web and Nginx were not changed.
+Product-image storage remains 32 files / 5,759,237 bytes; no image or
+environment data was transferred.
+
+The existing POS systemd command starts the release successfully but Next.js
+logs advisory warnings for `output: standalone` and the deprecated `static`
+directory. Direct and public POS smoke routes pass. Authenticated POS-browser,
+café-device, touch, and printer acceptance remains open.
+
 ## Decisions Fixed Before Implementation
 
 | Decision              | Fixed default                                                                                                                                       |
