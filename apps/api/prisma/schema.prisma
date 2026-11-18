@@ -597,7 +597,6 @@ model Order {
   createdBy             User                   @relation("OrderCreatedBy", fields: [createdById], references: [id])
   deletedBy             User?                  @relation("OrderDeletedBy", fields: [deletedById], references: [id])
   items                 OrderItem[]
-  packagingAssignments  OrderItemPackagingAssignment[]
   paymentSettlements    PaymentSettlement[]
   barTicketSnapshot     Json?
   barTicketSequence     Int                    @default(0)
@@ -619,6 +618,14 @@ model DailyOrderSequence {
   lastNumber   Int    @default(0)
 
   @@map("daily_order_sequences")
+}
+
+model PersonnelProfile {
+  id        String   @id @default(uuid())
+  name      String   @unique @db.VarChar(120)
+  createdAt DateTime @default(now())
+
+  @@map("personnel_profiles")
 }
 
 model OrderItem {
@@ -645,31 +652,12 @@ model OrderItem {
   settlementAllocations SettlementAllocation[]
   costingSnapshot       OrderItemCostingSnapshot?
   consumptionItems      OrderConsumptionItem[]
-  packagingAssignments  OrderItemPackagingAssignment[] @relation("PackagingAssignmentContainer")
-  assignedPackaging     OrderItemPackagingAssignment[] @relation("PackagingAssignmentProduct")
 
   @@unique([id, orderId])
   @@index([orderId, displayOrder])
   @@index([productId])
   @@index([enteredAt])
   @@map("order_items")
-}
-
-model OrderItemPackagingAssignment {
-  id                    String @id @default(uuid())
-  orderId               String
-  packagingItemId       String
-  productItemId         String
-  quantity              Int
-
-  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  packagingItem OrderItem @relation("PackagingAssignmentContainer", fields: [packagingItemId, orderId], references: [id, orderId], onDelete: Cascade)
-  productItem   OrderItem @relation("PackagingAssignmentProduct", fields: [productItemId, orderId], references: [id, orderId], onDelete: Cascade)
-
-  @@unique([packagingItemId, productItemId])
-  @@index([orderId])
-  @@index([productItemId, orderId])
-  @@map("order_item_packaging_assignments")
 }
 
 model OrderItemOption {
