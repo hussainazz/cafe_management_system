@@ -44,7 +44,7 @@ export async function paidFinanceOrder(prisma: PrismaClient, input: {
       return {
         orderItemId: item.id, productNameSnapshot: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams,
         theoreticalCogsAmount: line.cost, knownCogsAmount: line.cost ?? line.knownCost ?? 0, isCostComplete: line.cost !== null,
-        costSnapshot: { orderChannel: channel, packagingAttributionComplete: true, components: [{
+        costSnapshot: { orderChannel: channel, components: [{
           quantity: "1", packagingQuantity: packingCost ? "1" : "0", packagingKnownCostAmount: packingCost,
           nonPackagingKnownCostAmount: line.cost === null ? null : line.cost - packingCost,
         }] },
