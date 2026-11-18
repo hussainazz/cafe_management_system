@@ -45,8 +45,8 @@ export function recognizedContribution(revenue: bigint, theoreticalCogsAmount: n
   return revenue - BigInt(theoreticalCogsAmount);
 }
 
-type PackagingOption = { optionId: string; optionName: string; quantity: number };
-export function packagingOptions(item: any): PackagingOption[] {
+type SaleOption = { optionId: string; optionName: string; quantity: number };
+export function saleOptions(item: any): SaleOption[] {
   const row = item.orderItem ?? item;
   // Fixed-price option counts belong to the entire line. A variant describes
   // its per-unit selection, independent of how many units share that line.
@@ -55,23 +55,9 @@ export function packagingOptions(item: any): PackagingOption[] {
     .map((option: any) => ({ optionId: option.optionId, optionName: option.optionNameSnapshot, quantity: option.quantity / divisor }))
     .sort((a, b) => a.optionId.localeCompare(b.optionId));
 }
-export function packagingVariantKey(productId: string, channel: "TABLE" | "TAKEAWAY", options: PackagingOption[]) {
+export function salesVariantKey(productId: string, channel: "TABLE" | "TAKEAWAY", options: SaleOption[]) {
   return `${productId}:${channel}:${options.map((option) => `${option.optionId}=${option.quantity}`).join(",")}`;
 }
-function allocateOrderCharge(charge: bigint, weights: Map<string, bigint>) {
-  const positiveWeights = [...weights].filter(([, weight]) => weight > 0n).sort(([a], [b]) => a.localeCompare(b));
-  const totalWeight = positiveWeights.reduce((sum, [, weight]) => sum + weight, 0n);
-  if (charge <= 0n || totalWeight <= 0n) return null;
-  const allocations = positiveWeights.map(([key, weight]) => {
-    const weightedCharge = charge * weight;
-    return { key, amount: weightedCharge / totalWeight, remainder: weightedCharge % totalWeight };
-  });
-  let leftover = charge - allocations.reduce((sum, item) => sum + item.amount, 0n);
-  const remainderOrder = [...allocations].sort((a, b) => a.remainder === b.remainder ? a.key.localeCompare(b.key) : a.remainder > b.remainder ? -1 : 1);
-  for (let index = 0; leftover > 0n; index += 1, leftover -= 1n) remainderOrder[index]!.amount += 1n;
-  return new Map(allocations.map((item) => [item.key, item.amount]));
-}
-
 export async function grossProfitReport(prisma: PrismaClient, query: GrossProfitReportQuery) {
   const activatedAt = await inventoryActivation(prisma);
   const now = new Date();
@@ -201,8 +187,6 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
     ? products.reduce((sum, product) => sum + product.theoreticalCogsAmount, 0)
     : null;
   const grossProfitAmount = theoreticalCogsAmount === null ? null : Number(recognizedContribution(netSalesRevenue, theoreticalCogsAmount));
-  const packagingEconomics = buildPackagingEconomics(consumptions, query.fromDate, query.toDate);
-
   const stockItems = await prisma.stockItem.findMany({
     select: { id: true, createdAt: true, balance: { select: { carryingValueAmount: true, trackingStartedAt: true } } },
   });
@@ -321,7 +305,6 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
           : null,
         missingValuationCount,
       },
-      packagingEconomics,
     },
     range,
   };
@@ -363,236 +346,6 @@ export async function loadRecognizedConsumptions(prisma: PrismaClient, range: { 
       },
     },
   });
-}
-
-export function buildPackagingEconomics(consumptions: any[], fromDate: string, toDate: string) {
-  type ProductTotals = {
-    productId: string; productName: string; categoryId: string | null; categoryName: string | null; channel: "TABLE" | "TAKEAWAY"; options: PackagingOption[];
-    soldQuantity: number; soldWeightGrams: number; productNetSalesAmount: bigint; packagingChargeRevenueAmount: bigint;
-    nonPackagingKnownCostAmount: number; packagingKnownCostAmount: number; unclassifiedKnownCostAmount: number;
-    assignedPackaging: Map<string, { packagingProductId: string; packagingProductName: string; quantity: number }>;
-    isCostComplete: boolean; isPackagingAttributionComplete: boolean; relevant: boolean;
-  };
-  type Daily = { date: string; packagingChargeRevenueAmount: bigint; knownMaterialCostAmount: number; unclassifiedKnownCostAmount: number; incompleteOrderItemCount: number; isCostComplete: boolean };
-  const products = new Map<string, ProductTotals>();
-  const days = new Map<string, Daily>();
-  for (let day = Date.parse(`${fromDate}T00:00:00Z`); day <= Date.parse(`${toDate}T00:00:00Z`); day += 86_400_000) {
-    const date = new Date(day).toISOString().slice(0, 10);
-    days.set(date, { date, packagingChargeRevenueAmount: 0n, knownMaterialCostAmount: 0, unclassifiedKnownCostAmount: 0, incompleteOrderItemCount: 0, isCostComplete: true });
-  }
-  let chargeRevenue = 0n;
-  let knownMaterialCost = 0;
-  let unclassifiedKnownCost = 0;
-  let unattributedCharge = 0n;
-  let relevantRevenue = 0n;
-  let completeRevenue = 0n;
-  let incompleteRevenue = 0n;
-  let completeItemCount = 0;
-  let incompleteItemCount = 0;
-  let ambiguousItemCount = 0;
-  let missingMaterialValuationCount = 0;
-  let allCostsComplete = true;
-
-  for (const consumption of consumptions) {
-    const day = days.get(todayInTehran.format(consumption.recognizedAt))!;
-    const menuItems = consumption.items.filter((item: any) => item.orderItem.product.systemKey !== "PACKING");
-    const packingItems = consumption.items.filter((item: any) => item.orderItem.product.systemKey === "PACKING");
-    const orderCharge = packingItems.reduce((sum: bigint, item: any) => sum + activeRevenue(item.orderItem.settlementAllocations), 0n);
-    chargeRevenue += orderCharge;
-    day.packagingChargeRevenueAmount += orderCharge;
-    if (!menuItems.length && orderCharge > 0n) allCostsComplete = false;
-    const variantWeights = new Map<string, bigint>();
-    let explicitAssignmentCharge = 0n;
-    for (const packingItem of packingItems) {
-      const assignmentWeights = new Map<string, bigint>();
-      for (const item of menuItems) {
-        const snapshot = item.costSnapshot as any;
-        for (const assignment of snapshot?.packagingAssignments ?? []) {
-          if (assignment.packagingOrderItemId !== packingItem.orderItem.id) continue;
-          const channel = (snapshot?.orderChannel ?? consumption.order.channel) as "TABLE" | "TAKEAWAY";
-          const key = packagingVariantKey(item.orderItem.productId, channel, packagingOptions(item));
-          assignmentWeights.set(key, (assignmentWeights.get(key) ?? 0n) + BigInt(assignment.quantity));
-        }
-      }
-      const itemCharge = activeRevenue(packingItem.orderItem.settlementAllocations);
-      const assigned = allocateOrderCharge(itemCharge, assignmentWeights);
-      if (assigned) {
-        explicitAssignmentCharge += itemCharge;
-        for (const [key, value] of assigned) variantWeights.set(key, (variantWeights.get(key) ?? 0n) + value);
-      }
-    }
-    const hasExplicitAssignments = explicitAssignmentCharge > 0n;
-    const unassignedCharge = orderCharge - explicitAssignmentCharge;
-    if (unassignedCharge > 0n && !hasExplicitAssignments) {
-      const productWeights = new Map<string, bigint>();
-      for (const item of menuItems) {
-        const snapshot = item.costSnapshot as any;
-        const channel = (snapshot?.orderChannel ?? consumption.order.channel) as "TABLE" | "TAKEAWAY";
-        const key = packagingVariantKey(item.orderItem.productId, channel, packagingOptions(item));
-        productWeights.set(key, (productWeights.get(key) ?? 0n) + activeRevenue(item.orderItem.settlementAllocations));
-      }
-      const legacyAllocation = productWeights.size && new Set(menuItems.map((item: any) => item.orderItem.productId)).size === 1
-        ? allocateOrderCharge(unassignedCharge, productWeights) : null;
-      if (legacyAllocation) for (const [key, value] of legacyAllocation) variantWeights.set(key, (variantWeights.get(key) ?? 0n) + value);
-      else unattributedCharge += unassignedCharge;
-    } else if (unassignedCharge > 0n) unattributedCharge += unassignedCharge;
-    const allocatedChargeByVariant = variantWeights.size ? variantWeights : null;
-    const allocatedVariantsApplied = new Set<string>();
-
-    for (const item of menuItems) {
-      const snapshot = item.costSnapshot as any;
-      const channel = (snapshot?.orderChannel ?? consumption.order.channel) as "TABLE" | "TAKEAWAY";
-      const revenue = activeRevenue(item.orderItem.settlementAllocations);
-      let packageCost = 0;
-      let nonPackageCost = 0;
-      let unclassifiedCost = 0;
-      let hasPackageComponent = false;
-      let itemHasMissingPackageValuation = false;
-      const components = Array.isArray(snapshot?.components) ? snapshot.components : [];
-      const hasStructuredAttribution = snapshot?.packagingAttributionComplete !== undefined && components.every((component: any) => component.packagingQuantity !== undefined || component.packagingKnownCostAmount !== undefined);
-      if (hasStructuredAttribution) {
-        for (const component of components) {
-          const packageQuantity = Number(component.packagingQuantity ?? (component.isPackagingMaterial ? component.quantity : 0));
-          if (packageQuantity > 0) hasPackageComponent = true;
-          if (component.packagingKnownCostAmount === null && packageQuantity > 0) itemHasMissingPackageValuation = true;
-          if (typeof component.packagingKnownCostAmount === "number") packageCost += component.packagingKnownCostAmount;
-          if (typeof component.nonPackagingKnownCostAmount === "number") nonPackageCost += component.nonPackagingKnownCostAmount;
-        }
-      } else {
-        // Older snapshots did not preserve component roles, so their known COGS stays visibly unclassified.
-        unclassifiedCost = item.knownCogsAmount;
-      }
-      const attributionComplete = snapshot?.packagingAttributionComplete === true;
-      const relevant = channel === "TAKEAWAY" || packingItems.length > 0 || hasPackageComponent;
-      if (!relevant) continue;
-
-      const productId = item.orderItem.productId;
-      const options = packagingOptions(item);
-      const categoryId = item.orderItem.product.categoryId ?? null;
-      const categoryName = item.orderItem.product.category?.name ?? null;
-      const key = packagingVariantKey(productId, channel, options);
-      const product = products.get(key) ?? {
-        productId, productName: item.productNameSnapshot, categoryId, categoryName, channel, options, soldQuantity: 0, soldWeightGrams: 0,
-        productNetSalesAmount: 0n, packagingChargeRevenueAmount: 0n, nonPackagingKnownCostAmount: 0, packagingKnownCostAmount: 0,
-        unclassifiedKnownCostAmount: 0, assignedPackaging: new Map(), isCostComplete: true, isPackagingAttributionComplete: true, relevant: true,
-      };
-      for (const assignment of snapshot?.packagingAssignments ?? []) {
-        const assignmentKey = `${assignment.packagingProductId}:${assignment.packagingProductNameSnapshot}`;
-        const assigned = product.assignedPackaging.get(assignmentKey) ?? { packagingProductId: assignment.packagingProductId, packagingProductName: assignment.packagingProductNameSnapshot, quantity: 0 };
-        assigned.quantity += assignment.quantity;
-        product.assignedPackaging.set(assignmentKey, assigned);
-      }
-      product.soldQuantity += item.quantity;
-      product.soldWeightGrams += (item.weightGrams ?? 0) * item.quantity;
-      product.productNetSalesAmount += revenue;
-      product.packagingKnownCostAmount += packageCost;
-      product.nonPackagingKnownCostAmount += nonPackageCost;
-      product.unclassifiedKnownCostAmount += unclassifiedCost;
-      product.isCostComplete &&= item.isCostComplete;
-      product.isPackagingAttributionComplete &&= attributionComplete && !itemHasMissingPackageValuation;
-      if (allocatedChargeByVariant?.has(key) && !allocatedVariantsApplied.has(key)) {
-        product.packagingChargeRevenueAmount += allocatedChargeByVariant.get(key)!;
-        allocatedVariantsApplied.add(key);
-      }
-      products.set(key, product);
-
-      packageCost && (knownMaterialCost += packageCost);
-      unclassifiedCost && (unclassifiedKnownCost += unclassifiedCost);
-      day.knownMaterialCostAmount += packageCost;
-      day.unclassifiedKnownCostAmount += unclassifiedCost;
-      const completeAttribution = attributionComplete && !itemHasMissingPackageValuation;
-      relevantRevenue += revenue;
-      if (completeAttribution) {
-        completeRevenue += revenue;
-        completeItemCount += 1;
-      } else {
-        incompleteRevenue += revenue;
-        incompleteItemCount += 1;
-        day.incompleteOrderItemCount += 1;
-        day.isCostComplete = false;
-        allCostsComplete = false;
-      }
-      if (!attributionComplete) ambiguousItemCount += 1;
-      if (itemHasMissingPackageValuation) missingMaterialValuationCount += 1;
-    }
-  }
-
-  const packageRecoveryAvailable = allCostsComplete;
-  const productRows = [...products.values()].filter((row) => row.relevant).sort((a, b) => a.productName.localeCompare(b.productName, "fa") || a.channel.localeCompare(b.channel) || a.options.map((option) => option.optionName).join(",").localeCompare(b.options.map((option) => option.optionName).join(","), "fa"));
-  const productRecovery = (row: ProductTotals) => row.isPackagingAttributionComplete
-    ? signedAmountNumber(row.packagingChargeRevenueAmount - BigInt(row.packagingKnownCostAmount))
-    : null;
-  const categoryMap = new Map<string, { categoryId: string | null; categoryName: string; channel: "TABLE" | "TAKEAWAY"; productNetSalesAmount: bigint; packagingChargeRevenueAmount: bigint; knownMaterialCostAmount: number; unclassifiedKnownCostAmount: number; isCostComplete: boolean }>();
-  for (const product of productRows) {
-    const key = `${product.categoryId ?? "unclassified"}:${product.channel}`;
-    const category = categoryMap.get(key) ?? { categoryId: product.categoryId, categoryName: product.categoryName ?? "دسته‌بندی نامشخص", channel: product.channel, productNetSalesAmount: 0n, packagingChargeRevenueAmount: 0n, knownMaterialCostAmount: 0, unclassifiedKnownCostAmount: 0, isCostComplete: true };
-    category.productNetSalesAmount += product.productNetSalesAmount;
-    category.packagingChargeRevenueAmount += product.packagingChargeRevenueAmount;
-    category.knownMaterialCostAmount += product.packagingKnownCostAmount;
-    category.unclassifiedKnownCostAmount += product.unclassifiedKnownCostAmount;
-    category.isCostComplete &&= product.isPackagingAttributionComplete;
-    categoryMap.set(key, category);
-  }
-
-  const totalNetRecovery = packageRecoveryAvailable ? signedAmountNumber(chargeRevenue - BigInt(knownMaterialCost)) : null;
-  const amount = (value: bigint) => amountNumber(value);
-  const dailyRows = [...days.values()].map((day) => ({
-    date: day.date,
-    packagingChargeRevenueAmount: amount(day.packagingChargeRevenueAmount),
-    knownMaterialCostAmount: day.knownMaterialCostAmount,
-    unclassifiedKnownCostAmount: day.unclassifiedKnownCostAmount,
-    netRecoveryAmount: day.isCostComplete ? signedAmountNumber(day.packagingChargeRevenueAmount - BigInt(day.knownMaterialCostAmount)) : null,
-    isCostComplete: day.isCostComplete,
-    incompleteOrderItemCount: day.incompleteOrderItemCount,
-  }));
-  return {
-    totals: {
-      packagingChargeRevenueAmount: amount(chargeRevenue),
-      knownMaterialCostAmount: knownMaterialCost,
-      unclassifiedKnownCostAmount: unclassifiedKnownCost,
-      netRecoveryAmount: totalNetRecovery,
-      recoveryRatePercent: packageRecoveryAvailable && knownMaterialCost > 0 ? percentage(amount(chargeRevenue), knownMaterialCost) : null,
-      unattributedOrderLevelChargeRevenueAmount: amount(unattributedCharge),
-      packagingRelevantProductRevenueAmount: amount(relevantRevenue),
-      completeAttributionRevenueAmount: amount(completeRevenue),
-      incompleteAttributionRevenueAmount: amount(incompleteRevenue),
-      attributionCoveragePercent: revenuePercentage(completeRevenue, relevantRevenue),
-      completeOrderItemCount: completeItemCount,
-      incompleteOrderItemCount: incompleteItemCount,
-      ambiguousOrderItemCount: ambiguousItemCount,
-      missingMaterialValuationCount,
-      theoreticalPackagingCostAmount: packageRecoveryAvailable ? knownMaterialCost : null,
-      postedPackagingMovementAmount: null,
-      packagingMovementVarianceAmount: null,
-      packagingMovementReconciliationAvailable: false,
-      isCostComplete: packageRecoveryAvailable,
-    },
-    products: productRows.map((product) => {
-      const contributionAvailable = product.isPackagingAttributionComplete && product.isCostComplete;
-      const before = contributionAvailable ? signedAmountNumber(recognizedContribution(product.productNetSalesAmount, product.nonPackagingKnownCostAmount)) : null;
-      const after = contributionAvailable ? signedAmountNumber(recognizedContribution(product.productNetSalesAmount + product.packagingChargeRevenueAmount, product.nonPackagingKnownCostAmount + product.packagingKnownCostAmount)) : null;
-      return {
-        productId: product.productId, productName: product.productName, categoryId: product.categoryId, categoryName: product.categoryName,
-        channel: product.channel, options: product.options, soldQuantity: product.soldQuantity, soldWeightGrams: product.soldWeightGrams,
-        assignedPackaging: [...product.assignedPackaging.values()],
-        productNetSalesAmount: amount(product.productNetSalesAmount), packagingChargeRevenueAmount: amount(product.packagingChargeRevenueAmount),
-        nonPackagingKnownCostAmount: product.nonPackagingKnownCostAmount, packagingKnownCostAmount: product.packagingKnownCostAmount,
-        unclassifiedKnownCostAmount: product.unclassifiedKnownCostAmount, netRecoveryAmount: productRecovery(product),
-        packagingRecoveryRatePercent: product.packagingKnownCostAmount > 0 && product.isPackagingAttributionComplete ? percentage(amount(product.packagingChargeRevenueAmount), product.packagingKnownCostAmount) : null,
-        productContributionBeforePackagingAmount: before, combinedContributionAfterPackagingAmount: after,
-        isCostComplete: product.isCostComplete, isPackagingAttributionComplete: product.isPackagingAttributionComplete,
-      };
-    }),
-    categories: [...categoryMap.values()].map((category) => ({
-      categoryId: category.categoryId, categoryName: category.categoryName, channel: category.channel,
-      productNetSalesAmount: amount(category.productNetSalesAmount), packagingChargeRevenueAmount: amount(category.packagingChargeRevenueAmount),
-      knownMaterialCostAmount: category.knownMaterialCostAmount, unclassifiedKnownCostAmount: category.unclassifiedKnownCostAmount,
-      netRecoveryAmount: category.isCostComplete ? signedAmountNumber(category.packagingChargeRevenueAmount - BigInt(category.knownMaterialCostAmount)) : null,
-      recoveryRatePercent: category.isCostComplete && category.knownMaterialCostAmount > 0 ? percentage(amount(category.packagingChargeRevenueAmount), category.knownMaterialCostAmount) : null,
-      isCostComplete: category.isCostComplete,
-    })).sort((a, b) => a.categoryName.localeCompare(b.categoryName, "fa") || a.channel.localeCompare(b.channel)),
-    daily: dailyRows,
-  };
 }
 
 export function activeRevenue(allocations: Array<{ amount: number; settlement: { reversal: unknown } }>) {
