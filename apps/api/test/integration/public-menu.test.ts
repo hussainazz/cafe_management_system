@@ -82,7 +82,7 @@ describe("public QR menu", () => {
 
   it("hides POS-only products from menu, search, category reads, and direct lookup", async () => {
     const category = await app.prisma.category.create({ data: { name: "پک", displayOrder: 1 } });
-    const packing = await app.prisma.product.create({ data: { categoryId: category.id, name: "بسته‌بندی", priceAmount: 0, isPublic: false, systemKey: "PACKING", preparationDeadlineMinutes: 1, displayOrder: 1 } });
+    const packing = await app.prisma.product.create({ data: { categoryId: category.id, name: "بسته‌بندی", priceAmount: 0, isPublic: false, systemKey: "PACKING", isActive: false, isAvailable: false, archivedAt: new Date(), preparationDeadlineMinutes: 1, displayOrder: 1 } });
 
     const menu = await app.inject({ method: "GET", url: "/api/v1/public/menu" });
     const search = await app.inject({ method: "GET", url: "/api/v1/public/menu?q=بسته" });
