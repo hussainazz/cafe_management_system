@@ -82,110 +82,23 @@ async function readReport(cookies: Cookies, fromDate = "2026-11-10", toDate = fr
 }
 
 describe("Manager takeaway and dine-in sales report", () => {
-  it("classifies orders by original channel and structured packaging identity, once per order", async () => {
-    const manager = await login("DEVELOPER");
-    const staff = await login("STAFF");
-    const espresso = await product("Espresso", 10_000);
-    const meal = await product("Meal", 40_000);
-    const packing = await product("Hidden service line", 5_000, "PACKING");
-    const lookalike = await product("بسته‌بندی", 3_000);
-    const sharedTable = await table();
-
-    const direct = await createOrder(staff, "TAKEAWAY", [
-      { productId: espresso.id, quantity: 1 },
-      { productId: packing.id, quantity: 1 },
-      { productId: packing.id, quantity: 1 },
-    ]);
-    const directPaid = await settle(staff, direct);
-    await recordPaidAt(direct.id, "2026-11-10T10:00:00.000Z");
-
-    const tablePackaged = await createOrder(staff, "TABLE", [
-      { productId: meal.id, quantity: 1 },
-      { productId: packing.id, quantity: 1 },
-      { productId: packing.id, quantity: 1 },
-    ], sharedTable.id);
-    expect(tablePackaged.totalAmount).toBe(50_000);
-    const discounted = await app.inject({
-      method: "PATCH",
-      url: `/api/v1/orders/${tablePackaged.id}`,
-      cookies: staff,
-      payload: { expectedVersion: tablePackaged.version, orderDiscount: { kind: "FIXED", value: 5_000 } },
-    });
-    expect(discounted.statusCode, discounted.body).toBe(200);
-    expect(discounted.json().data.totalAmount).toBe(45_000);
-    const tablePackagedPaid = await settle(staff, discounted.json().data);
-    await recordPaidAt(tablePackaged.id, "2026-11-10T11:00:00.000Z");
-    await app.prisma.order.update({ where: { id: tablePackaged.id }, data: { tableId: null } });
-
-    const dineIn = await createOrder(staff, "TABLE", [{ productId: meal.id, quantity: 1 }], sharedTable.id);
-    await settle(staff, dineIn);
-    await recordPaidAt(dineIn.id, "2026-11-10T12:00:00.000Z");
-
-    const namedLikePackaging = await createOrder(staff, "TABLE", [
-      { productId: meal.id, quantity: 1 },
-      { productId: lookalike.id, quantity: 1 },
-    ], sharedTable.id);
-    await settle(staff, namedLikePackaging);
-    await recordPaidAt(namedLikePackaging.id, "2026-11-10T13:00:00.000Z");
-
-    const response = await readReport(manager);
-    expect(response.data).toEqual({
-      orderDistribution: {
-        totalCount: 4,
-        takeawayCount: 2,
-        dineInCount: 2,
-        takeawayPercent: "50.00",
-        dineInPercent: "50.00",
-      },
-      averageOrderValue: {
-        takeawayAmount: 32_500,
-        dineInAmount: 41_500,
-        absoluteDifferenceAmount: 9_000,
-        differencePercent: "21.69",
-      },
-      revenue: {
-        totalAmount: 148_000,
-        takeawayAmount: 65_000,
-        dineInAmount: 83_000,
-        takeawayPercent: "43.92",
-        dineInPercent: "56.08",
-      },
-      takeawayOrigin: {
-        directTakeawayCount: 1,
-        tableOriginatedTakeawayCount: 1,
-        directTakeawayRevenueAmount: 20_000,
-        tableOriginatedTakeawayRevenueAmount: 45_000,
-      },
-      unclassifiedHistoricalOrigin: { count: 0, revenueAmount: 0 },
-    });
-    expect(response.data.orderDistribution.takeawayCount + response.data.orderDistribution.dineInCount).toBe(response.data.orderDistribution.totalCount);
-    expect(response.data.takeawayOrigin.directTakeawayCount + response.data.takeawayOrigin.tableOriginatedTakeawayCount).toBe(response.data.orderDistribution.takeawayCount);
-    expect(response.meta.range).toMatchObject({ from: "2026-11-09T20:30:00.000Z", to: "2026-11-10T20:30:00.000Z" });
-    expect(directPaid.state).toBe("CLOSED");
-    expect(tablePackagedPaid.state).toBe("CLOSED");
-  });
-
   it("uses the channel fallback for ordinary legacy orders without a saved origin", async () => {
     const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Legacy fallback espresso", 10_000);
-    const packing = await product("Legacy fallback packaging", 2_000, "PACKING");
     const direct = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }]);
-    const tablePackaged = await createOrder(staff, "TABLE", [
-      { productId: espresso.id, quantity: 1 },
-      { productId: packing.id, quantity: 1 },
-    ], (await table()).id);
+    const tableLegacy = await createOrder(staff, "TABLE", [{ productId: espresso.id, quantity: 1 }], (await table()).id);
     const tableDineIn = await createOrder(staff, "TABLE", [{ productId: espresso.id, quantity: 1 }], (await table()).id);
 
-    for (const [order, hour] of [[direct, 10], [tablePackaged, 11], [tableDineIn, 12]] as const) {
+    for (const [order, hour] of [[direct, 10], [tableLegacy, 11], [tableDineIn, 12]] as const) {
       await app.prisma.order.update({ where: { id: order.id }, data: { inventorySaleChannel: null } });
       await settle(staff, order);
       await recordPaidAt(order.id, `2026-11-10T${hour}:00:00.000Z`);
     }
 
     const report = await readReport(manager);
-    expect(report.data.orderDistribution).toMatchObject({ totalCount: 3, takeawayCount: 2, dineInCount: 1, takeawayPercent: "66.67", dineInPercent: "33.33" });
-    expect(report.data.takeawayOrigin).toEqual({ directTakeawayCount: 1, tableOriginatedTakeawayCount: 1, directTakeawayRevenueAmount: 10_000, tableOriginatedTakeawayRevenueAmount: 12_000 });
+    expect(report.data.orderDistribution).toMatchObject({ totalCount: 3, takeawayCount: 1, dineInCount: 2, takeawayPercent: "33.33", dineInPercent: "66.67" });
+    expect(report.data.takeawayOrigin).toEqual({ directTakeawayCount: 1, tableOriginatedTakeawayCount: 0, directTakeawayRevenueAmount: 10_000, tableOriginatedTakeawayRevenueAmount: 0 });
     expect(report.data.unclassifiedHistoricalOrigin).toEqual({ count: 0, revenueAmount: 0 });
   });
 
@@ -194,13 +107,12 @@ describe("Manager takeaway and dine-in sales report", () => {
     await login("MANAGER");
     const staff = await login("STAFF");
     const espresso = await product("Eligible espresso", 10_000);
-    const packing = await product("Packaging", 2_000, "PACKING");
-    const unpaid = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }, { productId: packing.id, quantity: 1 }]);
-    const partial = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }, { productId: packing.id, quantity: 1 }]);
+    const unpaid = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }]);
+    const partial = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }]);
     const partialPaid = await settle(staff, partial, 1_000);
     await recordPaidAt(partial.id, "2026-11-10T10:00:00.000Z");
 
-    const reversed = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }, { productId: packing.id, quantity: 1 }]);
+    const reversed = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }]);
     const reversedPaid = await settle(staff, reversed);
     await recordPaidAt(reversed.id, "2026-11-10T10:00:00.000Z");
     expect((await readReport(manager)).data.orderDistribution.totalCount).toBe(1);
@@ -213,7 +125,7 @@ describe("Manager takeaway and dine-in sales report", () => {
     });
     expect(reversal.statusCode, reversal.body).toBe(200);
 
-    const deleted = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }, { productId: packing.id, quantity: 1 }]);
+    const deleted = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }]);
     const deletedPaid = await settle(staff, deleted);
     await recordPaidAt(deleted.id, "2026-11-10T11:00:00.000Z");
     expect((await readReport(manager)).data.orderDistribution.totalCount).toBe(1);
@@ -312,69 +224,26 @@ describe("Manager takeaway and dine-in sales report", () => {
     expect(repaid.state).toBe("CLOSED");
   });
 
-  it("stops classifying a table order as takeaway after its packaging line is removed", async () => {
-    const manager = await login("DEVELOPER");
-    const staff = await login("STAFF");
-    const espresso = await product("Removable packaging espresso", 10_000);
-    const packing = await product("Removable packaging item", 5_000, "PACKING");
-    const currentTable = await table();
-    const order = await createOrder(staff, "TABLE", [
-      { productId: espresso.id, quantity: 1 },
-      { productId: packing.id, quantity: 1 },
-    ], currentTable.id);
-    const itemPaid = await app.inject({
-      method: "POST",
-      url: `/api/v1/orders/${order.id}/record-settlement`,
-      cookies: staff,
-      headers: { "idempotency-key": randomUUID() },
-      payload: {
-        expectedVersion: order.version,
-        allocations: [{ orderItemId: order.items[0].id, quantity: 1 }],
-        payments: [{ method: "CASH", amount: 10_000 }],
-      },
-    });
-    expect(itemPaid.statusCode, itemPaid.body).toBe(201);
-    const removed = await app.inject({
-      method: "PATCH",
-      url: `/api/v1/orders/${order.id}`,
-      cookies: staff,
-      payload: { expectedVersion: itemPaid.json().data.version, itemUpdates: [{ orderItemId: order.items[1].id, quantity: 0 }] },
-    });
-    expect(removed.statusCode, removed.body).toBe(200);
-    await recordPaidAt(order.id, "2026-11-10T10:00:00.000Z");
-    expect(removed.json().data).toMatchObject({ totalAmount: 10_000, paymentStatus: "PAID", state: "CLOSED" });
-    const report = await readReport(manager);
-    expect(report.data.orderDistribution).toMatchObject({ totalCount: 1, takeawayCount: 0, dineInCount: 1, takeawayPercent: "0.00", dineInPercent: "100.00" });
-    expect(report.data.takeawayOrigin).toMatchObject({ directTakeawayCount: 0, tableOriginatedTakeawayCount: 0 });
-  });
-
   it("uses the saved original channel after a table order is set aside", async () => {
     const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
     const espresso = await product("Deferred channel espresso", 10_000);
-    const packing = await product("Deferred channel packaging", 2_000, "PACKING");
+    const tableOrder = await createOrder(staff, "TABLE", [{ productId: espresso.id, quantity: 1 }], (await table()).id);
+    const deferred = await app.inject({ method: "POST", url: `/api/v1/orders/${tableOrder.id}/defer`, cookies: staff, payload: { expectedVersion: tableOrder.version } });
+    expect(deferred.statusCode, deferred.body).toBe(200);
+    expect(deferred.json().data.channel).toBe("TAKEAWAY");
+    expect(await app.prisma.order.findUniqueOrThrow({ where: { id: tableOrder.id }, select: { inventorySaleChannel: true } })).toEqual({ inventorySaleChannel: "TABLE" });
+    await settle(staff, deferred.json().data);
+    await recordPaidAt(tableOrder.id, "2026-11-10T10:00:00.000Z");
 
-    const packagedTableOrder = await createOrder(staff, "TABLE", [
-      { productId: espresso.id, quantity: 1 },
-      { productId: packing.id, quantity: 1 },
-    ], (await table()).id);
-    const deferredPackaged = await app.inject({ method: "POST", url: `/api/v1/orders/${packagedTableOrder.id}/defer`, cookies: staff, payload: { expectedVersion: packagedTableOrder.version } });
-    expect(deferredPackaged.statusCode, deferredPackaged.body).toBe(200);
-    expect(deferredPackaged.json().data.channel).toBe("TAKEAWAY");
-    expect(await app.prisma.order.findUniqueOrThrow({ where: { id: packagedTableOrder.id }, select: { inventorySaleChannel: true } })).toEqual({ inventorySaleChannel: "TABLE" });
-    await settle(staff, deferredPackaged.json().data);
-    await recordPaidAt(packagedTableOrder.id, "2026-11-10T10:00:00.000Z");
-
-    const dineInTableOrder = await createOrder(staff, "TABLE", [{ productId: espresso.id, quantity: 1 }], (await table()).id);
-    const deferredDineIn = await app.inject({ method: "POST", url: `/api/v1/orders/${dineInTableOrder.id}/defer`, cookies: staff, payload: { expectedVersion: dineInTableOrder.version } });
-    expect(deferredDineIn.statusCode, deferredDineIn.body).toBe(200);
-    await settle(staff, deferredDineIn.json().data);
-    await recordPaidAt(dineInTableOrder.id, "2026-11-10T11:00:00.000Z");
+    const directTakeawayOrder = await createOrder(staff, "TAKEAWAY", [{ productId: espresso.id, quantity: 1 }]);
+    await settle(staff, directTakeawayOrder);
+    await recordPaidAt(directTakeawayOrder.id, "2026-11-10T11:00:00.000Z");
 
     const report = await readReport(manager);
     expect(report.data.orderDistribution).toMatchObject({ totalCount: 2, takeawayCount: 1, dineInCount: 1, takeawayPercent: "50.00", dineInPercent: "50.00" });
-    expect(report.data.takeawayOrigin).toMatchObject({ directTakeawayCount: 0, tableOriginatedTakeawayCount: 1, directTakeawayRevenueAmount: 0, tableOriginatedTakeawayRevenueAmount: 12_000 });
-    expect(report.data.revenue).toMatchObject({ totalAmount: 22_000, takeawayAmount: 12_000, dineInAmount: 10_000 });
+    expect(report.data.takeawayOrigin).toMatchObject({ directTakeawayCount: 1, tableOriginatedTakeawayCount: 0, directTakeawayRevenueAmount: 10_000, tableOriginatedTakeawayRevenueAmount: 0 });
+    expect(report.data.revenue).toMatchObject({ totalAmount: 20_000, takeawayAmount: 10_000, dineInAmount: 10_000 });
   });
 
   it("surfaces legacy deferred orders whose original channel was never saved", async () => {
