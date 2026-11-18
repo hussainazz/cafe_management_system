@@ -3,25 +3,29 @@
 ## Finance analytics response units
 
 Reporting option `quantity` is a per-product-unit selection ratio for
-fixed-price products and can be fractional. This applies to packaging economics,
-sales analytics, and pricing experiment impact rows. It is not an order-entry
+fixed-price products and can be fractional. This applies to sales analytics and
+pricing experiment impact rows. It is not an order-entry
 count; order request quantities remain positive integers. Reporting variant
 identity is independent of order-line size.
 
-Unfiltered operational and financial net sales both include separate PACKING
-charges. Product/category/option filters use the same fee-exclusion rule in
-both reports. Their operational and recognition timestamps remain distinct.
+Legacy orders may contain separate `PACKING` lines. They remain in historical
+order totals and unfiltered sales for reconciliation, but the system packaging
+product is archived and cannot be added to new orders. Product-level analytics
+exclude those legacy fee lines. The API no longer attributes packaging revenue
+or reports a packaging recovery calculation.
 
 Pricing experiment history uses product-scoped effective price events.
 Simulations apply the recorded line's pricing mode, grams, and option counts;
-packaging targets identify a category-specific PACKING product. Observed
-experiment break-even uses earlier and later unit contribution, including cost
-changes, with overlapping targets counted once. Hypothetical scenario break-even
-requires complete costs for the affected cohort. Café-wide contribution and
-surplus remain unavailable if any relevant source costs are incomplete.
+targets can identify products or options. Observed experiment break-even uses
+earlier and later unit contribution, including cost changes, with overlapping
+targets counted once. Hypothetical scenario break-even requires complete costs
+for the affected cohort. Café-wide contribution and surplus remain unavailable
+if any relevant source costs are incomplete. Historical packaging target rows
+remain readable, but new packaging targets and simulations are rejected.
 
-These are clarifications of the approved Stage 18–19 reporting contracts; they
-do not add order writes, catalog-price writes, or deployment authority.
+These clarifications supersede the earlier packaging-fee reporting and target
+rules in the approved Stage 17–19 contracts. They do not add order writes,
+catalog-price writes, or deployment authority.
 
 In route access labels below, Staff access includes Manager and Developer for
 shared POS workflows; Manager access also includes Developer, except where a
@@ -136,6 +140,11 @@ requires an idempotency key and the current order version.
 | `GET`   | `/api/v1/orders/:orderId`                                   | Staff  | 2     | Read an order with item/option/timing snapshots, payment status, settlement allocations/tenders, totals, estimated preparation minutes, estimated table release time where applicable, and permitted operational metadata.                                                                            |
 | `PATCH` | `/api/v1/orders/:orderId`                                   | Staff  | 2     | Apply a controlled edit, including an item/order discount with an optional reason, to an `OPEN` order; requires the current version. After settlement, edits may affect only additions/unsettled quantities; settled quantities, posted allocations, tenders, discounts affecting them, and receipts are immutable. |
 | `POST`  | `/api/v1/orders/:orderId/transfer-table`                    | Staff  | 2     | Move an `OPEN` table order to another active table; requires the current order version.                                                                                                                                                                                                               |
+| `GET`   | `/api/v1/staff-consumption/personnel-profiles`               | Staff  | 2     | List saved personnel profiles by name for attributing staff-consumption orders.                                                                                                                                                                                                                       |
+| `POST`  | `/api/v1/staff-consumption/personnel-profiles`               | Staff  | 2     | Create a name-only personnel profile; duplicate names are rejected and creation is audited to the signed-in user.                                                                                                                                                                                     |
+| `GET`   | `/api/v1/staff-consumption`                                  | Staff  | 2     | Cursor-page closed staff-consumption entries, including the selected personnel name and the signed-in creator.                                                                                                                                                                                       |
+| `POST`  | `/api/v1/staff-consumption`                                  | Staff  | 2     | Create a takeaway-channel staff-benefit entry from item snapshots and a selected personnel profile; requires an idempotency key and records no cash, card, or transfer tender.                                                                                                                                 |
+| `POST`  | `/api/v1/staff-consumption/:orderId/discount`                | Staff  | 2     | Apply a fixed or percentage discount to a closed staff-consumption entry, with server-calculated totals and version checking.                                                                                                                                                                         |
 | `PATCH` | `/api/v1/admin/products/:productId/sale-discount`           | Staff   | 2     | Configure or remove a fixed/percentage product sale discount. It applies only to newly-created item snapshots.                                                                                                                                                                                        |
 | `POST`  | `/api/v1/orders/:orderId/record-settlement`                 | Staff  | 2     | Atomically settle selected unallocated item quantities with one or more cash, card-terminal, or card-to-card transfer tenders; requires an idempotency key and current order version.                                                                                                                 |
 | `POST`  | `/api/v1/orders/:orderId/delete`                            | Staff  | 2     | Logically delete an order while retaining items, settlements, tenders, reversals, and audit history; requires the current order version and accepts an optional reason.                                                                                                                               |
@@ -269,7 +278,7 @@ implementation change.
 | `PATCH` | `/api/v1/admin/inventory/recipes/:recipeId` | Manager, Developer | 12 | Version-check a precise recipe and shared ingredient name edit without changing saved order snapshots. |
 | `POST` | `/api/v1/admin/inventory/recipes/:recipeId/archive` | Manager, Developer | 12 | Archive a recipe while retaining referenced configurations and history. |
 | `GET` | `/api/v1/admin/products/:productId/costing` | Manager, Developer | 12 | Read a product's recipe or purchased-item costing configuration and option rules. |
-| `PUT` | `/api/v1/admin/products/:productId/costing` | Manager, Developer | 12 | Version-check and replace a product's costing configuration and option rules. |
+| `PUT` | `/api/v1/admin/products/:productId/costing` | Manager, Developer | 12 | Version-check and replace a product's costing configuration and option rules; resolve that product's incomplete item snapshots on eligible pending paid orders and retry each affected whole order. |
 | `POST` | `/api/v1/admin/products/:productId/costing/preview` | Manager, Developer | 12 | Resolve selected options and return known ingredient quantities, cost, and incompleteness reasons. |
 | `GET` | `/api/v1/admin/inventory/counts` | Manager, Developer | 12 | Cursor-page counts with optional stock-item search, kind/status, and created-time filters. |
 | `POST` | `/api/v1/admin/inventory/counts` | Manager, Developer | 12 | Create a physical-count draft with observed quantities and values; require one shared reason if any observed quantity differs from its recorded balance. |
@@ -277,7 +286,7 @@ implementation change.
 | `POST` | `/api/v1/admin/inventory/counts/:countId/post` | Manager, Developer | 12 | Post a count once, explicitly reconcile selected pending orders, and establish counted balances. |
 | `GET` | `/api/v1/admin/inventory/movements` | Manager, Developer | 12 | Cursor-page inventory history with date-range, stock-item, movement-type, or POS order-number filters; include the visible order number on order-related movements. |
 | `GET` | `/api/v1/admin/inventory/pending-consumption` | Manager, Developer | 12 | Read whole orders awaiting stock or count reconciliation. |
-| `GET` | `/api/v1/admin/reports/gross-profit` | Developer | 13, 17 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, compatible inventory consumption estimates, and detailed packaging recovery breakdowns. |
+| `GET` | `/api/v1/admin/reports/gross-profit` | Developer | 13, 17 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, and compatible inventory consumption estimates. Takeaway packaging is included in product COGS; no separate packaging revenue is reported. |
 | `GET` | `/api/v1/admin/reports/sales-channels` | Developer | 18 | Report bounded dine-in/takeaway revenue, order distribution, AOV, and channel origin. |
 | `GET` | `/api/v1/admin/reports/sales-analytics` | Developer | 18 | Report bounded order/item demand, contribution, and peak-hour analytics. |
 | `GET` | `/api/v1/admin/price-history` | Manager, Developer | 17 | Cursor-page price baseline and change records by bounded Tehran-date range, product, option, or price dimension. Include stable event IDs, before/after amounts and discounts, actor, source, and whether effective time is known. |
@@ -288,8 +297,8 @@ implementation change.
 | ------ | ---- | ------ | ----- | ------- |
 | `GET` | `/api/v1/admin/pricing-experiments` | Developer | 19 | List bounded experiment metadata, target prices, linked Phase 1 change events, and data-quality flags. |
 | `POST` | `/api/v1/admin/pricing-experiments` | Developer | 19 | Create an analysis-only experiment with an effective timestamp, evaluation/comparison duration, target prices, and optional notes. Never write catalog prices. |
-| `GET` | `/api/v1/admin/pricing-experiments/:experimentId` | Developer | 19 | Return the pre/post analysis, product and option impact, packaging recovery, contribution decomposition, break-even volume, fixed-cost coverage, and data-quality limits. |
-| `POST` | `/api/v1/admin/reports/pricing-experiments/simulate` | Developer | 19 | Calculate a non-mutating product/category/option/packaging pricing scenario and selected volume sensitivity. |
+| `GET` | `/api/v1/admin/pricing-experiments/:experimentId` | Developer | 19 | Return the pre/post analysis, product and option impact, contribution decomposition, break-even volume, fixed-cost coverage, and data-quality limits. |
+| `POST` | `/api/v1/admin/reports/pricing-experiments/simulate` | Developer | 19 | Calculate a non-mutating product/category/option pricing scenario and selected volume sensitivity. |
 
 Inventory routes declare `400`, `401`, `403`, `404`, `409`, `422`, `429`,
 `500`, and `503` error envelopes in their runtime response schemas. Validation
@@ -354,6 +363,12 @@ clients must refetch affected API resources after reconnecting.
   movement or pending retry. After enablement, order-created-at eligibility
   controls stock deductions, pending consumption, retries, and restorations;
   earlier orders are not backfilled.
+- Saving product costing can resolve an incomplete item snapshot on an eligible
+  paid order that still has pending consumption. Recompute only the affected
+  incomplete item snapshots; preserve item snapshots that were complete at
+  payment. Retry the whole order only after every item snapshot is complete and
+  every required tracked balance is sufficient. A posted order or an order
+  created before activation is never backfilled by this path.
 - Settings updates cannot alter or clear enablement. Database protection also
   rejects changing the timestamp or deleting settings after enablement.
 
