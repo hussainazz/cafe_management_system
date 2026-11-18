@@ -171,6 +171,32 @@ describe("permanent stock turnover activation", () => {
     await expectNoOrderMovements(created.id);
   });
 
+  it("does not backfill a pre-activation paid sale when its recipe is configured later", async () => {
+    const manager = await login("MANAGER");
+    const staff = await login("STAFF");
+    const item = await product();
+    const stock = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/stock-items", cookies: manager, payload: { name: "Pre-activation late recipe beans", category: "Ingredients", baseUnit: "GRAM", openingQuantity: "100", openingValueAmount: 10_000, conversions: [] } });
+    expect(stock.statusCode, stock.body).toBe(201);
+    const stockItemId = stock.json().data.id as string;
+
+    const created = await order(staff, item.id, "pre-activation-late-recipe-order");
+    await settle(staff, created, "pre-activation-late-recipe-payment");
+    const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: created.id } });
+    expect(consumption).toMatchObject({ status: "UNTRACKED", isCostComplete: false, theoreticalCogsAmount: null });
+
+    await activate(manager);
+    const recipe = await app.inject({ method: "POST", url: "/api/v1/admin/inventory/recipes", cookies: manager, payload: { name: "Pre-activation late recipe", outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "beans", sourceKind: "STOCK_ITEM", stockItemId, quantity: "10", displayOrder: 0 }] } });
+    expect(recipe.statusCode, recipe.body).toBe(201);
+    const configured = await app.inject({ method: "PUT", url: `/api/v1/admin/products/${item.id}/costing`, cookies: manager, payload: { expectedVersion: 1, mode: "RECIPE", recipeId: recipe.json().data.id, recipeQuantity: "1", optionRules: [], combinations: [] } });
+    expect(configured.statusCode, configured.body).toBe(200);
+
+    const unchanged = await app.prisma.orderConsumption.findUniqueOrThrow({ where: { id: consumption.id } });
+    expect(unchanged).toMatchObject({ status: "UNTRACKED", isCostComplete: false, theoreticalCogsAmount: null });
+    expect(await app.prisma.orderItemCostingSnapshot.findFirstOrThrow({ where: { orderItem: { orderId: created.id } } })).toMatchObject({ isComplete: false });
+    expect(await app.prisma.inventoryMovement.count({ where: { orderConsumptionId: consumption.id, kind: "ORDER_CONSUMPTION" } })).toBe(0);
+    expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } })).quantityOnHand.toString()).toBe("100");
+  });
+
   it("records staff consumption without stock deduction or sales profit before activation", async () => {
     const manager = await login("MANAGER");
     const { item, stockItemId } = await setupCosting(manager);
