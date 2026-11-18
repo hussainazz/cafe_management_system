@@ -1,17 +1,104 @@
-## Active local operations fix — VPN TUN / Docker subnet collision (18 November 2026)
+## Active delivery — retire separate packaging-fee reporting (18 November 2026)
+
+- [x] Update approved scope and API contracts: takeaway packaging remains a
+  product cost; separate fee revenue, recovery, and pricing targets are retired.
+- [x] Remove the packaging-economics report and order-assignment UI/API/model.
+  New orders reject legacy `PACKING` sale products, and new source categories
+  no longer create them.
+- [x] Add a migration that archives existing `PACKING` sale products, drops
+  assignment storage, and prevents those products from being reactivated. Keep
+  historical orders and price-history records unchanged.
+- [x] Remove fee attribution from gross-profit, sales-analytics, and pricing
+  experiment calculations and contracts. Retain packaging material costs in
+  product COGS.
+- Automated tests and typechecks were not run. The destructive migration has
+  not been applied to any database; no local or production data was changed.
+- Left: schedule the database migration with the release that removes this
+  feature.
+
+## Completed backend follow-up — late recipe costing for paid orders (18 November 2026)
+
+- [x] When a post-activation paid order remains pending because an item has no
+  complete costing snapshot, saving that product's costing resolves only the
+  incomplete item snapshots and retries the whole order.
+- [x] Prevent partial deduction while any item is unresolved or required stock
+  is short; preserve completed snapshots and leave pre-activation orders alone.
+- [x] Inventory integration tests pass 40/40; activation tests pass 10/10;
+  API typecheck and `git diff --check` pass. GPT-6.1-sol review found no
+  actionable issues.
+- Left: none for this backend follow-up.
+
+## Active delivery — required deferred-order customer name (18 November 2026)
+
+- [x] Require a customer name before moving an order to the unpaid list.
+- [x] Remember up to 100 previously used names in the POS browser and offer
+  them as input suggestions; save a name only after the order moves successfully.
+- Left: review the required-name form and suggestions in an authenticated POS
+  browser. Automated tests were not run.
+
+## Active delivery — POS deferred-order count (18 November 2026)
+
+- [x] Add a live count of open orders moved to the deferred “تسویه‌نشده” list
+  beside the dine-in/takeaway selector, with a shortcut to that list.
+- [x] Refresh the count with POS operational refreshes and after order actions;
+  count every page returned by the existing deferred-order listing.
+- Left: review the changed POS UI in an authenticated browser. Automated tests
+  were not run.
+
+## Active delivery — Personnel profiles and staff-order entry (18 November 2026)
+
+- [x] Add name-only personnel profiles in «حساب پرسنل» and let the cashier
+  choose a profile before opening an order.
+- [x] Reuse the takeaway order builder for personnel orders, showing the
+  selected person in the order context and preserving the signed-in user as the
+  creator/audit actor.
+- [x] Persist the selected name with staff-consumption entries and retain the
+  existing staff-benefit, discount, and inventory-recognition behavior.
+- [x] Add the profile migration and apply it to the local development database.
+  Prisma generation, contracts/API/POS typechecks, and `git diff --check` pass.
+  Automated tests were not run.
+- Left: authenticated POS browser acceptance of profile creation, selection,
+  personnel order entry, and the returned account history.
+
+## Active delivery — POS ticket time, order editor, and stock alerts (18 November 2026)
+
+- [x] Include the server-recorded Tehran print time in the centered header row
+  of the bar ticket, between the dine-in/takeaway label and order number.
+- [x] Increase contrast for saved order items and enlarge the quantity controls
+  in the opened order editor.
+- [x] Add an inventory alert count and detail panel in order-taking for roles
+  that already have inventory access; include low, empty, and untracked items.
+- [x] The local dine-in flow opened an active order and expanded one saved item.
+  The local development database needed its pending additive packaging migration;
+  it was applied. Contracts, API, and POS typechecks plus `git diff --check` pass.
+- Left: recheck the updated editor and alert panel in an authenticated browser.
+  The local API now reports the database unavailable under the existing VPN/TUN
+  route issue, so the post-change browser review could not continue. Automated
+  tests were not run.
+
+## Completed local operations fix — VPN TUN / Docker subnet collision (18 November 2026)
 
 - [x] Diagnose local POS sign-in failure: POS-to-API proxy responds, but API
   readiness reports the database unavailable. Docker publishes PostgreSQL from
   `172.18.0.2:5432`; v2rayN's sing-box TUN also uses `172.18.0.1/30`, and
   `ip route get 172.18.0.2` selects `singbox_tun` instead of Docker's bridge.
-- Left: apply a non-overlapping TUN IPv4 subnet (`172.31.0.1/30`) and exclude
-  Docker's `172.18.0.0/16` in v2rayN, then verify database readiness, POS
-  authentication, and external connectivity with the tunnel enabled. Applying
-  the settings needs the user's native-app interaction; native control is
-  unavailable and passwordless administrator access is unavailable here.
+- [x] Configure the local Compose default network as `172.30.50.0/24`, away
+  from the tunnel subnet and LAN. The API still reaches PostgreSQL through the
+  existing host port `127.0.0.1:5433`; the named database volume is unchanged.
+- [x] Apply the Compose network change to the local PostgreSQL container. The
+  live bridge now uses `172.30.50.0/24`; the API continues to connect through
+  `127.0.0.1:5433`, using the existing named volume.
+- [x] Verify API and POS-prefixed readiness report `database: connected`, and
+  refresh the local POS to its authenticated table workspace.
+- [x] Keep v2rayN at `172.18.0.1/30`; public HTTPS succeeds and
+  `ip route get 1.1.1.1` selects `singbox_tun`.
 - No application/authentication code, database data, or production service changed.
 
-## Active delivery — POS packaging product assignments (18 November 2026)
+## Withdrawn delivery — POS packaging product assignments (18 November 2026)
+
+This delivery was retired by the separate packaging-fee reporting decision
+recorded at the top of this checklist. Its test and browser notes below are
+historical evidence for the removed implementation.
 
 - Browser feedback refinement: removed the packaging type/price/quantity section;
   new assignments default to all editable current product units. Existing assignments
@@ -36,6 +123,10 @@
   order summary/category navigation layout.
 - [x] Persist packaging-to-order-item links and assigned quantities through
   order creation, supported edits, order reads, and inventory recognition.
+- [x] Use recognized assignments in gross-profit packaging revenue attribution
+  and show assigned packaging product names and quantities in the per-product
+  breakdown. The focused API packaging tests (5/5), report UI test, API/POS/
+  contracts typechecks, and `git diff --check` pass.
 - [x] Preserve existing PACKING catalog prices, product identity, and stock
   costing behavior.
 - [x] Contracts, API, and POS typechecks pass; `git diff --check` passes. No
@@ -43,8 +134,7 @@
 - [x] Sol 6.1 reviewed the UI and backend changes; no actionable findings
   remain. The review considered the 1024×576 layout, but did not perform
   browser visual acceptance.
-- Left: inspect the workspace in an authenticated local POS browser at 1024×576;
-  the follow-up was visually checked at approximately 738×584.
+- Superseded: the assignment workspace and saved assignments were removed.
 
 ## Active fix — Base recipes and product accompaniments (18 November 2026)
 
