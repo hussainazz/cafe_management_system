@@ -48,6 +48,43 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
+it("takes a new operator from a missing purchase prerequisite to the stock form without writing data", async () => {
+  render(<InventoryWorkspace catalog={catalog} />);
+  await screen.findByText("ابتدا کالای خرید را تعریف کنید");
+  fireEvent.click(screen.getByRole("button", { name: "تعریف کالای خرید" }));
+  await screen.findByText("هنوز کالای فعالی ثبت نشده است.");
+  fireEvent.click(screen.getByRole("button", { name: "تعریف اولین کالای انبار" }));
+  expect(document.activeElement).toBe(screen.getByLabelText("نام کالا"));
+  expect(api.createInventoryPurchase).not.toHaveBeenCalled();
+  expect(api.saveInventoryStockItem).not.toHaveBeenCalled();
+});
+
+it("keeps optional help navigation behind the existing unsaved draft guard", async () => {
+  vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  try {
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.change(await screen.findByLabelText("تأمین‌کننده (اختیاری)"), { target: { value: "خرید جاری" } });
+    fireEvent.click(screen.getByText("راهنمای ثبت خرید"));
+    fireEvent.click(screen.getByRole("button", { name: "رفتن به اقلام موجودی" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect((screen.getByLabelText("تأمین‌کننده (اختیاری)") as HTMLInputElement).value).toBe("خرید جاری");
+    expect(api.createInventoryPurchase).not.toHaveBeenCalled();
+  } finally { confirm.mockRestore(); }
+});
+
+it("distinguishes a first purchase from an empty filtered search and clears the applied search", async () => {
+  render(<InventoryWorkspace catalog={catalog} />);
+  await screen.findByText("هنوز خریدی ثبت نشده است");
+  fireEvent.change(screen.getByLabelText("جست‌وجو در تأمین‌کننده یا کالا"), { target: { value: "نام ناموجود" } });
+  fireEvent.click(screen.getByRole("button", { name: "اعمال فیلترها" }));
+  await screen.findByText("خریدی با این فیلترها پیدا نشد.");
+  fireEvent.click(screen.getByRole("button", { name: "نمایش همه‌ی خریدها" }));
+  await screen.findByText("هنوز خریدی ثبت نشده است");
+  expect((screen.getByLabelText("جست‌وجو در تأمین‌کننده یا کالا") as HTMLInputElement).value).toBe("");
+  expect(api.readInventoryPurchases).toHaveBeenLastCalledWith({ limit: 20 });
+});
+
 it("shows and retries a failed stock prerequisite on purchases instead of suggesting an empty inventory", async () => {
   vi.mocked(api.readInventoryStockItems).mockResolvedValueOnce({ ok: false, error: { kind: "response", code: "SERVICE_UNAVAILABLE", message: "Database unavailable" } } as never);
   render(<InventoryWorkspace catalog={catalog} />);
@@ -137,7 +174,7 @@ describe("InventoryWorkspace", () => {
     await waitFor(() => expect(api.createInventoryCount).toHaveBeenCalledWith({ lines: [{ stockItemId: stock.id, observedQuantity: "80", observedValueAmount: 20000 }], reason: "کسری در شمارش فیزیکی", kind: "PHYSICAL" }));
   });
   it("blocks costing edits after a configuration read fails and allows a read retry", async () => {
-    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [{ options: [{ optionId: "option-1" }] }] }], optionGroups: [{ id: "group-1", name: "اندازه", options: [{ id: "option-1", name: "دبل", isActive: true, archivedAt: null }] }], categories: [], options: [] } as never;
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [{ optionGroupId: "group-1", options: [{ optionId: "option-1" }] }] }], optionGroups: [{ id: "group-1", name: "اندازه", options: [{ id: "option-1", name: "دبل", isActive: true, archivedAt: null }] }], categories: [], options: [] } as never;
     vi.mocked(api.readProductCosting).mockResolvedValue({ ok: false, error: { kind: "response", code: "SERVICE_UNAVAILABLE", message: "Database unavailable", requestId: "costing-read-123" } } as never);
     render(<InventoryWorkspace catalog={costingCatalog} />);
     fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
@@ -296,7 +333,7 @@ describe("InventoryWorkspace", () => {
   });
 
   it("saves a reusable option recipe and links it to product costing", async () => {
-    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [{ options: [{ optionId: "option-1" }] }] }], optionGroups: [{ id: "group-1", name: "اندازه", options: [{ id: "option-1", name: "دبل", isActive: true, archivedAt: null }] }], categories: [], options: [] } as never;
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [{ optionGroupId: "group-1", options: [{ optionId: "option-1" }] }] }], optionGroups: [{ id: "group-1", name: "اندازه", options: [{ id: "option-1", name: "دبل", isActive: true, archivedAt: null }] }], categories: [], options: [] } as never;
     const savedRecipe = { id: "recipe-1", name: "اسپرسو دبل option-", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "component-1", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, quantity: "18" }] };
     vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
     vi.mocked(api.saveInventoryRecipe).mockResolvedValue(ok({ data: savedRecipe }) as never);
@@ -311,6 +348,122 @@ describe("InventoryWorkspace", () => {
     await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({
       mode: "RECIPE", optionRecipes: [{ optionId: "option-1", recipeId: "recipe-1", recipeQuantity: "1" }],
     })));
+  });
+
+  it("gives an optional no-additive selection its own base recipe instead of reusing the first option recipe", async () => {
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [{ optionGroupId: "group-1", minSelections: 0, options: [{ optionId: "option-1" }] }] }], optionGroups: [{ id: "group-1", name: "افزودنی", options: [{ id: "option-1", name: "دبل", isActive: true, archivedAt: null }] }], categories: [], options: [] } as never;
+    const optionRecipe = { id: "existing-option-recipe", name: "Espresso double", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, nestedRecipeId: null, quantity: "20", displayOrder: 0 }] };
+    const baseRecipe = { ...optionRecipe, id: "base-recipe", name: "Espresso base", components: [{ ...optionRecipe.components[0], quantity: "18" }] };
+    const savedOptionRecipe = { ...optionRecipe, version: 2 };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+    vi.mocked(api.readInventoryRecipes).mockResolvedValue(list([optionRecipe], "recipes") as never);
+    vi.mocked(api.readProductCosting).mockResolvedValue(ok({ data: { mode: "RECIPE", recipeId: optionRecipe.id, recipeQuantity: "1", extrasRecipeId: null, servedAlongside: [], optionRecipes: [{ optionId: "option-1", recipeId: optionRecipe.id, recipeQuantity: "1" }], optionRules: [], combinations: [], version: 1 } }) as never);
+    vi.mocked(api.saveInventoryRecipe).mockResolvedValueOnce(ok({ data: baseRecipe }) as never).mockResolvedValueOnce(ok({ data: savedOptionRecipe }) as never);
+    vi.mocked(api.saveProductCosting).mockResolvedValue(ok({ data: { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", extrasRecipeId: null, servedAlongside: [], optionRecipes: [{ optionId: "option-1", recipeId: savedOptionRecipe.id, recipeQuantity: "1" }], optionRules: [], combinations: [], version: 2 } }) as never);
+
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    await screen.findByText("بدون افزودنی");
+    const quantities = screen.getAllByLabelText("مقدار (گرم)");
+    fireEvent.change(quantities[0]!, { target: { value: "18" } });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({
+      recipeId: baseRecipe.id,
+      optionRecipes: [{ optionId: "option-1", recipeId: savedOptionRecipe.id, recipeQuantity: "1" }],
+    })));
+    expect(api.saveInventoryRecipe).toHaveBeenNthCalledWith(1, null, expect.objectContaining({ components: [expect.objectContaining({ quantity: "18" })] }));
+    expect(api.saveInventoryRecipe).toHaveBeenNthCalledWith(2, optionRecipe.id, expect.objectContaining({ components: [expect.objectContaining({ quantity: "20" })] }));
+  });
+
+  it("does not offer an empty option selection when another option group is required", async () => {
+    const costingCatalog = {
+      products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [
+        { optionGroupId: "required-group", minSelections: 1, options: [{ optionId: "required-option" }] },
+        { optionGroupId: "optional-group", minSelections: 0, options: [{ optionId: "optional-option" }] },
+      ] }],
+      optionGroups: [
+        { id: "required-group", name: "اندازه", options: [{ id: "required-option", name: "معمولی", isActive: true, archivedAt: null }] },
+        { id: "optional-group", name: "افزودنی", options: [{ id: "optional-option", name: "کوکی", isActive: true, archivedAt: null }] },
+      ],
+      categories: [], options: [],
+    } as never;
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    await screen.findByText("معمولی");
+
+    expect(screen.queryByText("بدون افزودنی")).toBeNull();
+    expect(screen.getByText("کوکی")).toBeTruthy();
+  });
+
+  it("treats a deactivated required option group as absent from the menu", async () => {
+    const costingCatalog = {
+      products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [
+        { optionGroupId: "inactive-group", minSelections: 1, options: [{ optionId: "inactive-option" }] },
+      ] }],
+      optionGroups: [], categories: [], options: [],
+    } as never;
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+
+    expect(await screen.findByRole("group", { name: /مواد اصلی محصول.*بدون گزینه/ })).toBeTruthy();
+  });
+
+  it("saves served-alongside rows beside the product without putting them in the reusable main recipe", async () => {
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [] }], optionGroups: [], categories: [], options: [] } as never;
+    const cookie = { ...stock, id: "stock-cookie", name: "کوکی", baseUnit: "PIECE" as const };
+    const baseRecipe = { id: "base-recipe", name: "Espresso", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, nestedRecipeId: null, quantity: "18", displayOrder: 0 }] };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock, cookie], "stockItems") as never);
+    vi.mocked(api.readInventoryRecipes).mockResolvedValue(list([baseRecipe], "recipes") as never);
+    vi.mocked(api.readProductCosting).mockResolvedValue(ok({ data: { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", extrasRecipeId: null, servedAlongside: [], optionRecipes: [], optionRules: [], combinations: [], version: 1 } }) as never);
+    vi.mocked(api.saveInventoryRecipe).mockResolvedValue(ok({ data: baseRecipe }) as never);
+    vi.mocked(api.saveProductCosting).mockResolvedValue(ok({ data: { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", extrasRecipeId: null, servedAlongside: [{ sourceKind: "STOCK_ITEM", stockItemId: cookie.id, quantity: "1" }], optionRecipes: [], optionRules: [], combinations: [], version: 2 } }) as never);
+
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    fireEvent.click(await screen.findByRole("button", { name: "افزودن مورد سرو در کنار محصول" }));
+    const picker = screen.getByLabelText("قلم افزودنی");
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "کوکی" } });
+    fireEvent.click(await screen.findByRole("option", { name: "کوکی" }));
+    fireEvent.change(screen.getByLabelText("مقدار برای هر واحد (عدد)"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({
+      servedAlongside: [{ sourceKind: "STOCK_ITEM", stockItemId: cookie.id, quantity: "1" }],
+    })));
+    expect(api.saveInventoryRecipe).toHaveBeenCalledWith(baseRecipe.id, expect.objectContaining({
+      components: [expect.objectContaining({ stockItemId: stock.id, quantity: "18" })],
+    }));
+    expect(api.saveInventoryRecipe).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      components: expect.arrayContaining([expect.objectContaining({ stockItemId: cookie.id })]),
+    }));
+  });
+
+  it("loads a reusable served-alongside recipe and persists its removal without changing the main recipe", async () => {
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [] }], optionGroups: [], categories: [], options: [] } as never;
+    const baseRecipe = { id: "base-recipe", name: "Espresso", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, nestedRecipeId: null, quantity: "18", displayOrder: 0 }] };
+    const cookieRecipe = { id: "cookie-recipe", name: "کوکی کنار محصول", ingredientName: "کوکی", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "cookie", label: "کوکی", sourceKind: "STOCK_ITEM", stockItemId: "stock-cookie", nestedRecipeId: null, quantity: "1", displayOrder: 0 }] };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+    vi.mocked(api.readInventoryRecipes).mockResolvedValue(list([baseRecipe, cookieRecipe], "recipes") as never);
+    vi.mocked(api.readProductCosting).mockResolvedValue(ok({ data: { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", extrasRecipeId: null, servedAlongside: [{ sourceKind: "RECIPE", recipeId: cookieRecipe.id, quantity: "1" }], optionRecipes: [], optionRules: [], combinations: [], version: 1 } }) as never);
+    vi.mocked(api.saveInventoryRecipe).mockResolvedValue(ok({ data: baseRecipe }) as never);
+    vi.mocked(api.saveProductCosting).mockResolvedValue(ok({ data: { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", extrasRecipeId: null, servedAlongside: [], optionRecipes: [], optionRules: [], combinations: [], version: 2 } }) as never);
+
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    expect((await screen.findByLabelText("نوع افزودنی 1") as HTMLSelectElement).value).toBe("RECIPE");
+    expect(screen.getByLabelText("دستور افزودنی")).toHaveProperty("value", cookieRecipe.name);
+    fireEvent.click(screen.getByRole("button", { name: "حذف افزودنی 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({ servedAlongside: [] })));
+    expect(api.saveInventoryRecipe).toHaveBeenCalledWith(baseRecipe.id, expect.objectContaining({
+      components: [expect.objectContaining({ stockItemId: stock.id, quantity: "18" })],
+    }));
+    expect(api.saveInventoryRecipe).not.toHaveBeenCalledWith(cookieRecipe.id, expect.anything());
   });
 
   it("creates a physical count and asks for one reason when a quantity differs", async () => {
@@ -429,6 +582,7 @@ function mockPackaging() {
 it("loads, edits, saves and removes takeaway packaging while preserving the base recipe", async () => {
   mockPackaging();
   render(<InventoryWorkspace catalog={packagingCatalog} role="DEVELOPER" />);
+  fireEvent.click(await screen.findByRole("button", { name: "مدیریت انبار" }));
   fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
   const packaging = await screen.findByLabelText("قلم بسته‌بندی 1");
   expect((packaging as HTMLSelectElement).value).toBe("cup-1");
@@ -445,6 +599,7 @@ it("sends the preview channel and invalidates old results after switching it", a
   mockPackaging();
   vi.mocked(api.previewProductCosting).mockResolvedValue(ok({ data: { isComplete: true, knownCostAmount: 3700, components: [], missingReasons: [] } }) as never);
   render(<InventoryWorkspace catalog={packagingCatalog} role="DEVELOPER" />);
+  fireEvent.click(await screen.findByRole("button", { name: "مدیریت انبار" }));
   fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
   const channel = await screen.findByLabelText("نوع سفارش برای محاسبه‌ی هزینه");
   fireEvent.click(screen.getByRole("button", { name: "محاسبه‌ی هزینه‌ی مواد اصلی محصول" }));
