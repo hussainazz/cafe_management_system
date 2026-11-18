@@ -8,6 +8,7 @@ import {
   refreshSession,
   signIn,
   type ApiFailure,
+  type PosPersonnelProfile,
 } from "../lib/api-client";
 import { unlockWaiterCallSound } from "../lib/waiter-call-sound";
 import { AccountingIcon, CatalogIcon, ClockIcon, CloseIcon, CupIcon, ExitIcon, InventoryIcon, OrdersIcon, SettingsIcon, SunIcon } from "./icons";
@@ -79,6 +80,7 @@ export function PosSessionBoundary() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace>("orders");
   const [openOrderId, setOpenOrderId] = useState<string | null>(null);
+  const [staffOrderTarget, setStaffOrderTarget] = useState<PosPersonnelProfile | null>(null);
   const [ordersActivity, setOrdersActivity] = useState<PosActivity>({ isBusy: true, hasUnsavedChanges: false });
   const opener = useRef<HTMLButtonElement | null>(null);
   const drawerRef = useRef<HTMLElement | null>(null);
@@ -171,6 +173,7 @@ export function PosSessionBoundary() {
 
   const role = session.user.role === "CASHIER" ? "صندوقدار" : session.user.role === "MANAGER" ? "مدیر" : session.user.role === "DEVELOPER" ? "توسعه‌دهنده" : "پرسنل";
   const selectWorkspace = (next: Workspace) => {
+    if (next !== "orders") setStaffOrderTarget(null);
     setWorkspace(next);
     writeRecovery("workspace", next);
     setDrawerOpen(false);
@@ -258,6 +261,7 @@ export function PosSessionBoundary() {
             onClick={() => {
               void endSession().then(() => {
                 setWorkspace("orders");
+                setStaffOrderTarget(null);
                 setDrawerOpen(false);
                 setSession({ kind: "authentication-required" });
               });
@@ -270,7 +274,7 @@ export function PosSessionBoundary() {
 
       <main ref={mainRef} className="pos-main" inert={drawerOpen} tabIndex={-1}>
         <TerminalConnectionMonitor />
-        {workspace === "orders" ? <OrdersWorkspace openOrderId={openOrderId} onOpenedOrder={() => setOpenOrderId(null)} refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : workspace === "deferred" ? <DeferredOrders menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} onOpenOrder={(id) => { setOpenOrderId(id); selectWorkspace("orders"); }} /> : workspace === "staff-consumption" ? <StaffConsumption role={session.user.role} menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} /> : <ManagerWorkspace section={workspace} role={session.user.role} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
+        {workspace === "orders" ? <OrdersWorkspace canViewInventoryAlerts={session.user.role !== "STAFF"} staffOrderTarget={staffOrderTarget} onStaffOrderCancel={() => { setStaffOrderTarget(null); selectWorkspace("staff-consumption"); }} onStaffOrderFinish={() => { setStaffOrderTarget(null); selectWorkspace("staff-consumption"); }} openOrderId={openOrderId} onOpenedOrder={() => setOpenOrderId(null)} onOpenDeferredOrders={() => selectWorkspace("deferred")} refreshing={session.refreshing} onActivityChange={setOrdersActivity} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} /> : workspace === "deferred" ? <DeferredOrders menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} onOpenOrder={(id) => { setOpenOrderId(id); selectWorkspace("orders"); }} /> : workspace === "staff-consumption" ? <StaffConsumption role={session.user.role} menuOpen={drawerOpen} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} onStartOrder={(profile) => { setStaffOrderTarget(profile); selectWorkspace("orders"); }} /> : <ManagerWorkspace section={workspace} role={session.user.role} onOpenMenu={() => { opener.current = document.activeElement as HTMLButtonElement; setDrawerOpen(true); }} menuOpen={drawerOpen} />}
         <ReleaseUpdateGuard activity={workspace === "orders" ? ordersActivity : { isBusy: true, hasUnsavedChanges: false }} />
       </main>
     </div>
