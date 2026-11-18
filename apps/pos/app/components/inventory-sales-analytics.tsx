@@ -11,7 +11,7 @@ type TimeBasis = "demand" | "recognition";
 type Channel = "" | "TABLE" | "TAKEAWAY";
 type Bucket = SalesAnalyticsReport["data"]["operationalBuckets"][number] | SalesAnalyticsReport["data"]["financialBuckets"][number];
 type Metric = "orderCount" | "itemUnits" | "netSalesAmount" | "knownContributionAmount" | "knownContributionMarginPercent" | "costCoveragePercent" | "averageOrderValueAmount";
-type ProductMetric = "quantitySold" | "netSalesAmount" | "knownCogsAmount" | "knownContributionAmount" | "packagingChargeRevenueAmount" | "packagingKnownMaterialCostAmount" | "contributionBeforePackagingAmount" | "combinedContributionAfterPackagingAmount" | "knownContributionMarginPercent" | "costCoveragePercent";
+type ProductMetric = "quantitySold" | "netSalesAmount" | "knownCogsAmount" | "knownContributionAmount" | "knownContributionMarginPercent" | "costCoveragePercent";
 
 const dayNames = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"];
 const faNumber = (value: number | string) => Number(value).toLocaleString("fa-IR", { maximumFractionDigits: 2 });
@@ -237,7 +237,7 @@ export function InventorySalesAnalytics({ catalog }: { catalog: ManagerCatalog }
   const productRows = productBasis === "demand" ? data?.productDemandSeries ?? [] : data?.productFinancialSeries ?? [];
   const seriesMetricOptions: Array<[ProductMetric, string]> = productBasis === "demand"
     ? [["quantitySold", "تعداد واحد فروخته‌شده"], ["netSalesAmount", "فروش در زمان ثبت قلم"]]
-    : [["quantitySold", "تعداد واحد در زمان شناسایی"], ["netSalesAmount", "فروش خالص"], ["knownCogsAmount", "بهای شناخته‌شده‌ی کالا"], ["knownContributionAmount", "مشارکت اقلام دارای بهای کامل"], ["packagingChargeRevenueAmount", "درآمد بسته‌بندی منتسب"], ["packagingKnownMaterialCostAmount", "هزینه‌ی معلوم مواد بسته‌بندی منتسب"], ["contributionBeforePackagingAmount", "مشارکت پیش از هزینه‌ی بسته‌بندی"], ["combinedContributionAfterPackagingAmount", "مشارکت پس از بسته‌بندی"], ["knownContributionMarginPercent", "حاشیه‌ی مشارکت با هزینه‌ی کامل"], ["costCoveragePercent", "پوشش هزینه"]];
+    : [["quantitySold", "تعداد واحد در زمان شناسایی"], ["netSalesAmount", "فروش خالص"], ["knownCogsAmount", "بهای شناخته‌شده‌ی کالا"], ["knownContributionAmount", "مشارکت اقلام دارای بهای کامل"], ["knownContributionMarginPercent", "حاشیه‌ی مشارکت با هزینه‌ی کامل"], ["costCoveragePercent", "پوشش هزینه"]];
   const aggregateSlots = (rows: Bucket[], valueMetric: Metric) => {
     const grouped = new Map<string, { label: string; orderCount: number; itemUnits: number; sales: number; contribution: number; completeRevenue: number; totalRevenue: number; orderValueSum: number }>();
     for (const row of rows) {
