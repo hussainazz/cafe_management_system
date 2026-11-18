@@ -17,6 +17,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-
 volumes:
   cafe_postgres_data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.50.0/24
+          gateway: 172.30.50.1
