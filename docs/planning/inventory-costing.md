@@ -125,18 +125,34 @@ The product remains one café, one branch, and one authoritative API/database.
   quantity is available. If any stock item is short, deduct nothing and create
   one pending-consumption record for the entire order. Checkout remains
   available.
+- If an eligible, fully paid order is pending because a product has no complete
+  costing configuration, saving that product's costing configuration resolves
+  the missing item snapshot on that pending order and immediately retries the
+  whole order. Never rewrite item snapshots that were already complete at
+  payment. Keep the whole order pending without any deduction while any item
+  snapshot is still incomplete or any required stock balance is unavailable.
+  Once all item snapshots are complete and every required balance is tracked
+  and sufficient, deduct the whole order atomically. The newly resolved item's
+  theoretical cost uses the moving-average valuation available when its costing
+  snapshot is resolved; actual movement value still uses the moving average at
+  posting time.
 - A posted receipt retries pending orders in full-payment order. Fulfill each
-  complete order in full only when every required item is available; do not
-  reserve or consume partial ingredients. Actual movement value uses the
-  moving average at posting time, while theoretical profit retains the cost
-  snapshot from full payment.
+  fully cost-complete order in full only when every required item is available;
+  do not reserve or consume partial ingredients. Actual movement value uses the
+  moving average at posting time, while theoretical profit retains the saved
+  item cost snapshots, including any item snapshot resolved after payment.
 - Before posting a physical count, the Manager identifies pending orders whose
   ingredients are already included in the observed count. Reconcile those
   orders without another deduction, then establish the observed balance.
 - Count history is bounded and newest-first, with server-side stock-item
   search, count kind/status filters, and a Tehran-calendar creation-time range.
-- Later recipe or valuation setup affects future orders. It never fills a
-  historical cost gap automatically.
+- Later recipe or valuation setup does not rewrite completed historical item
+  snapshots. Saving costing configuration may resolve an incomplete item on an
+  eligible paid order that is still pending, then retry that entire order as
+  described above. Do not backfill orders created before stock-turnover
+  activation, orders without pending consumption, or orders that are no longer
+  eligible. A later recipe setup does not silently turn an already posted or
+  reconciled order into another stock movement.
 
 ## Corrections And Reporting
 
@@ -276,60 +292,24 @@ Counts include split rows/options of this product. A different drink does not
 contribute to this product's holder groups. For a one-time package on quantities
 2 through 3, use `یک بار برای محصول در سفارش` with minimum 2 and maximum 3.
 
-## Phase 1 packaging economics and price history — approved 15 November 2026
+## Phase 1 packaging cost and price history — updated 18 November 2026
 
-The Developer gross-profit report keeps its current definition and adds a separate
-packaging-economics view:
+The café does not charge a separate packaging fee. Packaging is a cost of
+takeaway products, not a source of revenue. Gross-profit reports include those
+material costs in product COGS and do not show packaging revenue, recovery, or a
+separate economics breakdown.
 
-```text
-product contribution before packaging = product net revenue - non-packaging COGS
-packaging net recovery = packaging charge revenue - attributable packaging cost
-combined gross profit = all eligible net revenue - all attributable COGS
-recovery rate = packaging charge revenue / attributable packaging cost * 100
-```
+Direct takeaway-packaging mappings are included in future cost snapshots.
+Managers can also mark a stock item as packaging material. That classification
+follows the stock item through nested recipes, so packaging in a reusable
+takeaway preparation remains part of the product's cost. Dine-in costing does
+not include takeaway packaging.
 
-Packaging charge revenue comes from the system `PACKING` product's active
-settlement allocations. It remains part of total eligible revenue and is shown
-separately in the packaging view. For an order with exactly one distinct
-non-`PACKING` product, the report allocates the order charge across that
-product's selected option variants in proportion to their active settled net
-sales. It uses largest remainders with a stable variant-key tie-break so
-integer rounding preserves the exact charge. Lines with the same product,
-channel, and selected options share a row. Orders with multiple products, or
-with no positive settled product revenue to use as weights, keep the charge
-unattributed at order level.
-
-Direct takeaway-packaging mappings are classified as packaging in future cost
-snapshots. Managers can also mark a stock item as packaging material. That
-classification follows the stock item through nested recipes, so a wrapper in a
-reusable takeaway preparation is separable from the food inside it. Neither
-takeaway status nor component names alone classify a cost as packaging.
-
-Historical cost snapshots that do not retain enough component identity remain
-ambiguous. The report includes their known COGS in an explicitly unclassified
-amount and does not treat it as zero packaging cost. Packaging recovery and
-recovery rate are unavailable when attribution is incomplete; the recovery rate
-is also unavailable when known packaging cost is zero. Daily values use the
-existing Tehran recognition date. Category grouping uses the product's current
-catalog category because historical order items do not snapshot category IDs.
-The report does not reconcile packaging consumption to inventory movements or
-posted counts: those records do not retain component roles. It marks that
-reconciliation unavailable rather than treating stock variances as waste.
-
-The canonical gross-profit fields retain their existing meaning and calculations.
-Packaging revenue and costs appear once in those totals and once in their
-respective breakdowns. The breakdown does not remove or duplicate either amount.
-
-Price history stores a migration-time baseline of current product, option,
-product-option override, discount, and `PACKING` charge configuration. Baseline
-records identify the currently observed value while leaving the prior value and
-effective time unknown. Historical orders keep their existing immutable price
-snapshots; they are not converted into fabricated catalog-change events.
-Subsequent catalog price writes create immutable history rows in the same
-transaction as the existing catalog update and audit record. Shared option
-changes include one row for each product whose effective option price changed.
-The complete pricing experiment UI and before/after pricing analytics remain
-outside Phase 1.
+Catalog price history continues to record product and option prices, overrides,
+discounts, actors, and effective-time certainty. It does not create or report a
+separate packaging-fee price dimension. Historical order and price records stay
+unchanged. Existing `PACKING` catalog entries are disabled for new sales; old
+orders keep their recorded totals and snapshots.
 
 ## Product accompaniments and no-option recipes, 18 November 2026
 
@@ -351,16 +331,15 @@ components when another product selects an existing main ingredient recipe.
   units and two identical option selections has the same variant as one unit
   with one selection. Partial selections may produce a fractional reporting
   quantity. Order-entry option counts remain integers.
-- Operational and financial analytics include packaging charges in their
-  unfiltered net-sales totals. Product/category/option filters exclude the
-  separate fee from both populations; product-level attributed packaging remains
-  available separately. Their dates still follow their distinct time bases.
+- Operational and financial analytics use order-item settlement allocations
+  for recorded revenue. Product/category/option filters retain their existing
+  behavior and dates follow their distinct time bases. Packaging material costs
+  remain part of product COGS.
 - Pricing simulations apply changes to historical line snapshots. Fixed-price
   options use their recorded line counts once; weighted products and options
-  use their recorded grams and pricing mode. Packaging rules reference one
-  category-specific PACKING product. Sensitivity affects only matching sale
-  cohorts, with assigned fee revenue scaled once and ambiguous fees retained
-  at order level unless their packaging cohort is selected directly.
+  use their recorded grams and pricing mode. Packaging material costs remain
+  part of each affected product's COGS; there is no separate packaging-fee
+  target or revenue adjustment.
 - Observed experiment break-even compares the earlier and later contribution
   per unit, including recorded cost changes. The whole-group calculation
   applies earlier unit contribution to the later mix once per sale cohort;
