@@ -169,7 +169,7 @@ export function PosSessionBoundary() {
       />
     );
 
-  const role = session.user.role === "MANAGER" ? "مدیر" : session.user.role === "DEVELOPER" ? "توسعه‌دهنده" : "پرسنل";
+  const role = session.user.role === "CASHIER" ? "صندوقدار" : session.user.role === "MANAGER" ? "مدیر" : session.user.role === "DEVELOPER" ? "توسعه‌دهنده" : "پرسنل";
   const selectWorkspace = (next: Workspace) => {
     setWorkspace(next);
     writeRecovery("workspace", next);
@@ -239,7 +239,7 @@ export function PosSessionBoundary() {
             <button className={`nav-item ${workspace === "catalog" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("catalog")}><CatalogIcon /><span>منو و کالاها</span></button>
             <button className={`nav-item ${workspace === "payments" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("payments")}><AccountingIcon /><span>تاریخچه‌ی پرداخت</span></button>
           </>}
-          {(session.user.role === "MANAGER" || session.user.role === "DEVELOPER") && <>
+          {(session.user.role === "CASHIER" || session.user.role === "MANAGER" || session.user.role === "DEVELOPER") && <>
             <h2>مدیریت</h2>
             <button className={`nav-item ${workspace === "settings" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("settings")}><SettingsIcon /><span>تنظیمات</span></button>
             <button className={`nav-item ${workspace === "finance" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("finance")}><AccountingIcon /><span>حسابداری</span></button>
