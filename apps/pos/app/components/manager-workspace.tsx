@@ -152,7 +152,7 @@ export function ManagerWorkspace({
   menuOpen,
 }: {
   section?: ManagerSection;
-  role?: "STAFF" | "MANAGER" | "DEVELOPER";
+  role?: "STAFF" | "CASHIER" | "MANAGER" | "DEVELOPER";
   onOpenMenu: () => void;
   menuOpen: boolean;
 }) {
@@ -307,7 +307,7 @@ export function ManagerWorkspace({
       {!loading && panel === "tables" && catalog && <TablesPanel catalog={catalog} mutate={mutate} reload={reloadCatalog} requestConfirm={setConfirm} />}
       {!loading && panel === "inventory" && catalog && <InventoryWorkspace catalog={catalog} turnoverEnabled={settings?.inventoryActivatedAt !== null && settings?.inventoryActivatedAt !== undefined} role={role} />}
       {!loading && (panel === "finance" || panel === "payments" || panel === "audit") && (
-        <FinancePanel panel={panel} role={hasManagerAccess ? "MANAGER" : "STAFF"} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
+        <FinancePanel panel={panel} role={role === "DEVELOPER" ? "MANAGER" : role} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
       )}
       {!loading && panel === "settings" && hasManagerAccess && settings && (
         <SettingsPanel settings={settings} staff={staff} mutate={mutate} reload={reloadSettings} reloadStaff={reloadStaff} requestConfirm={setConfirm} />
@@ -645,11 +645,12 @@ function FinancePanel({
   requestConfirm,
 }: {
   panel: "finance" | "payments" | "audit";
-  role: "STAFF" | "MANAGER";
+  role: "STAFF" | "CASHIER" | "MANAGER";
   tables: ManagerCatalog["tables"];
   mutate: (action: () => Promise<any>, reload: () => Promise<any>) => Promise<void>;
   requestConfirm: (confirm: Confirm) => void;
 }) {
+  const canViewAccountingReport = role === "MANAGER";
   const [payments, setPayments] = useState<PaymentHistory>([]);
   const [paymentListFilter, setPaymentListFilter] = useState<PaymentListFilter>(null);
   const [unpaidOrders, setUnpaidOrders] = useState<OrderSummary[]>([]);
@@ -746,7 +747,8 @@ function FinancePanel({
   useEffect(() => {
     void Promise.all([
       loadPayments(appliedPaymentFilters, paymentListFilter === "PREVIOUS_UNPAID" ? undefined : paymentListFilter ?? undefined),
-      ...(role !== "STAFF" ? [loadReport(appliedPaymentFilters), loadAudit()] : []),
+      ...(canViewAccountingReport ? [loadReport(appliedPaymentFilters)] : []),
+      ...(role !== "STAFF" ? [loadAudit()] : []),
     ]);
   }, [appliedPaymentFilters, loadAudit, loadPayments, loadReport, paymentListFilter, role]);
   useEffect(() => {
@@ -797,7 +799,7 @@ function FinancePanel({
   return (
     <div className={`manager-grid${panel === "finance" || panel === "payments" ? " finance-dashboard-grid" : ""}`}>
       {(panel === "finance" || panel === "payments") && <div className="finance-dashboard">
-      {panel === "finance" && role !== "STAFF" && <ManagerCard className="manager-card--accounting" title="نمای کلی مالی" hint="گزارش بر اساس بازه‌ی انتخاب‌شده برای پرداخت‌ها.">
+      {panel === "finance" && canViewAccountingReport && <ManagerCard className="manager-card--accounting" title="نمای کلی مالی" hint="گزارش بر اساس بازه‌ی انتخاب‌شده برای پرداخت‌ها.">
         {report ? <>
           <div className="finance-metrics">
             <article className="finance-metric finance-metric--primary"><span>کل</span><strong>{formatToman(report.data.salesAmount)}</strong><small>تومان</small></article>
@@ -1029,7 +1031,7 @@ function FinancePanel({
                       () => reverseSettlement(item.id, { expectedVersion: order.data.version, ...(reason ? { reason } : {}) }),
                       async () => {
                         await refreshPayments();
-                        if (role !== "STAFF") await loadReport(appliedPaymentFilters);
+                        if (canViewAccountingReport) await loadReport(appliedPaymentFilters);
                       },
                     );
                   },
@@ -1054,7 +1056,7 @@ function FinancePanel({
                         () => deleteOpenOrder(item.orderId, { expectedVersion: order.data.version }),
                         async () => {
                           await refreshPayments();
-                          if (role !== "STAFF") await loadReport(appliedPaymentFilters);
+                          if (canViewAccountingReport) await loadReport(appliedPaymentFilters);
                         },
                       );
                     },
@@ -1116,7 +1118,7 @@ function FinancePanel({
               setEditingSettlementId(null);
               setSelectedOrder(null);
               await refreshPayments();
-              if (role !== "STAFF") await loadReport(appliedPaymentFilters);
+              if (canViewAccountingReport) await loadReport(appliedPaymentFilters);
             }}
           />
         ) : null;
