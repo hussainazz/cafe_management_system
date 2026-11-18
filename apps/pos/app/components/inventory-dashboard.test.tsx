@@ -104,12 +104,6 @@ const report = {
       ],
     },
     pendingConsumptionCount: 1,
-    packagingEconomics: {
-      totals: { packagingChargeRevenueAmount: 4_000, knownMaterialCostAmount: 5_000, unclassifiedKnownCostAmount: 100, netRecoveryAmount: -1_000, recoveryRatePercent: "80.00", unattributedOrderLevelChargeRevenueAmount: 500, packagingRelevantProductRevenueAmount: 600, completeAttributionRevenueAmount: 400, incompleteAttributionRevenueAmount: 200, attributionCoveragePercent: "66.67", completeOrderItemCount: 1, incompleteOrderItemCount: 1, ambiguousOrderItemCount: 1, missingMaterialValuationCount: 0, theoreticalPackagingCostAmount: null, postedPackagingMovementAmount: null, packagingMovementVarianceAmount: null, packagingMovementReconciliationAvailable: false, isCostComplete: false },
-      products: [{ productId: "packaging-product", productName: "محصول بسته‌بندی", categoryId: null, categoryName: null, channel: "TAKEAWAY", options: [], assignedPackaging: [], soldQuantity: 1, soldWeightGrams: 0, productNetSalesAmount: 600, packagingChargeRevenueAmount: 0, nonPackagingKnownCostAmount: 300, packagingKnownCostAmount: 200, unclassifiedKnownCostAmount: 100, netRecoveryAmount: null, packagingRecoveryRatePercent: null, productContributionBeforePackagingAmount: null, combinedContributionAfterPackagingAmount: null, isCostComplete: false, isPackagingAttributionComplete: false }],
-      categories: [{ categoryId: null, categoryName: "نامشخص", channel: "TAKEAWAY", productNetSalesAmount: 600, packagingChargeRevenueAmount: 0, knownMaterialCostAmount: 200, unclassifiedKnownCostAmount: 100, netRecoveryAmount: null, recoveryRatePercent: null, isCostComplete: false }],
-      daily: [{ date: "2026-11-11", packagingChargeRevenueAmount: 4_000, knownMaterialCostAmount: 5_000, unclassifiedKnownCostAmount: 100, netRecoveryAmount: -1_000, isCostComplete: false, incompleteOrderItemCount: 1 }],
-    },
     inventoryConsumption: {
       amount: null,
       varianceAmount: null,
@@ -240,21 +234,6 @@ describe("inventory overview", () => {
 });
 
 describe("profit dashboard", () => {
-  it("shows packaging deficits, incomplete attribution, product/category tables and a daily trend", async () => {
-    vi.mocked(api.readGrossProfitReport).mockResolvedValue({
-      ok: true,
-      data: { ...report, data: { ...report.data, packagingEconomics: { ...report.data.packagingEconomics, products: [{ ...report.data.packagingEconomics.products[0]!, options: [{ optionId: "option-large", optionName: "گزینه‌ی بزرگ", quantity: 1 }] }] } } },
-    } as never);
-    render(<InventoryProfitPanel />);
-    await screen.findByRole("heading", { name: "اقتصاد بسته‌بندی" });
-    expect(screen.getByText("کسری بازیافت هزینه")).toBeTruthy();
-    expect(screen.getByText(/در سطح سفارش باقی مانده است/)).toBeTruthy();
-    expect(screen.getByRole("region", { name: "تفکیک بسته‌بندی بر اساس محصول" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "تفکیک بسته‌بندی بر اساس دسته‌بندی" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: /روند روزانه درآمد بسته‌بندی/ })).toBeTruthy();
-    expect(screen.getByText("گزینه‌ی بزرگ")).toBeTruthy();
-  });
-
   it("shows the current discounted menu price while preserving historical net sales and updating with catalog changes", async () => {
     const catalogForPrice = (priceAmount: number) => ({
       categories: [{ id: "coffee-category", archivedAt: null }],
@@ -416,7 +395,7 @@ describe("profit dashboard", () => {
       categories: [{ id: "coffee-category", archivedAt: null }],
       products: [
         { id: "ordinary", categoryId: "coffee-category", priceAmount: 1_000, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, isPublic: true, systemKey: null, isActive: true, archivedAt: null, optionGroups: [] },
-        { id: "packing", categoryId: "coffee-category", priceAmount: 250, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, isPublic: false, systemKey: "PACKING", isActive: true, archivedAt: null, optionGroups: [] },
+        { id: "packing", categoryId: "coffee-category", priceAmount: 250, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, isPublic: false, systemKey: "PACKING", isActive: false, archivedAt: "2026-11-18T00:00:00.000Z", optionGroups: [] },
       ],
       optionGroups: [],
       tables: [],
