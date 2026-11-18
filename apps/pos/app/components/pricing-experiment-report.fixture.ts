@@ -13,8 +13,7 @@ export function pricingExperimentReportFixture(status: "READY" | "IN_PROGRESS" |
     unaffectedNetRevenueAmount: 0, unattributedNetRevenueAmount: 0, affectedContributionAmount: incomplete ? null : -1_000,
     unaffectedContributionAmount: 0, averageSellingPriceAmount: 10_000, averageOrderValueAmount: 10_000,
     ingredientCogsAmount: 11_000, completeCostRevenueAmount: incomplete ? 0 : 10_000, incompleteCostRevenueAmount: incomplete ? 10_000 : 0,
-    packagingChargeRevenueAmount: 0, packagingMaterialCostAmount: 0, packagingDeficitAmount: 0,
-    packagingRecoveryRatePercent: null, packagingCostCoveragePercent: "100.00", variableCostAmount: incomplete ? null : 11_000,
+    variableCostAmount: incomplete ? null : 11_000,
     knownContributionAmount: -1_000, contributionAmount: incomplete ? null : -1_000, contributionMarginPercent: incomplete ? null : "-10.00",
     contributionPerOrderAmount: incomplete ? null : -1_000, costCoveragePercent: incomplete ? "0.00" : "100.00",
     monthlyEquivalentContributionAmount: incomplete ? null : -4_286, fixedCostCoveragePercent: incomplete ? null : "-0.00",
@@ -32,7 +31,7 @@ export function pricingExperimentReportFixture(status: "READY" | "IN_PROGRESS" |
     experiment, status, assessment: { outcome: status === "READY" ? "DECLINED" : "INCONCLUSIVE", summaryFa: "مشارکت ثبت‌شده برای بررسی آماده است.", reasons: [] },
     periods: { before: period, after: { ...period, fromDate: "2026-10-09", toDate: "2026-10-15" }, weekdayCompositionMatched: true, excludedCurrentPartialDay: true, effectiveDayExcluded: true },
     changes: { totalContributionAmount: incomplete ? null : -4_286, totalContributionPercent: incomplete ? null : "-10.00", netRevenueAmount: 0, netRevenuePercent: "0.00",
-      affectedQuantity: 0, affectedQuantityPercent: "0.00", averageOrderValueAmount: 0, averageOrderValuePercent: "0.00", packagingDeficitAmount: 0, packagingDeficitPercent: null,
+      affectedQuantity: 0, affectedQuantityPercent: "0.00", averageOrderValueAmount: 0, averageOrderValuePercent: "0.00",
       fixedCostCoveragePercent: incomplete ? null : "-0.00", marginOfSafetyAmount: null, marginOfSafetyPercent: null },
     daily: [
       { date: "2026-10-07", phase: "BEFORE", experimentStartMarker: false, orderCount: 1, itemUnits: 1, netRevenueAmount: 10_000, contributionAmount: incomplete ? null : -1_000, contributionMarginPercent: incomplete ? null : "-10.00" },
@@ -55,6 +54,6 @@ export function pricingExperimentReportFixture(status: "READY" | "IN_PROGRESS" |
       wholeAffectedGroupDeclinePercent: null, overallOrderCountChangePercent: "0.00", totalContributionChangeAmount: incomplete ? null : -1_000, assumption: "مقایسه بر پایه‌ی مشارکت هر واحد است." },
     controls: { affectedContributionChangePercent: null, unaffectedContributionChangePercent: null, relativeContributionChangePercent: null, comparisonIsObservational: true },
     confounders: { discountsChanged: false, catalogPriceChanges: 0, holidays: "UNKNOWN", weather: "UNKNOWN", productAvailability: "UNKNOWN", operationalClosures: "UNKNOWN", specialEvents: "UNKNOWN" },
-    dataQuality: { flags: incomplete ? [{ code: "COSTS_INCOMPLETE", severity: "BLOCKER", messageFa: "بهای کامل ثبت نشده است." }] : [], costCoverageComplete: !incomplete, packagingAttributionComplete: true, validOrderCount: 2 },
+    dataQuality: { flags: incomplete ? [{ code: "COSTS_INCOMPLETE", severity: "BLOCKER", messageFa: "بهای کامل ثبت نشده است." }] : [], costCoverageComplete: !incomplete, validOrderCount: 2 },
   }, meta: { requestId: "test" } });
 }
