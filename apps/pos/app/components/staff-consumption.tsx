@@ -43,7 +43,7 @@ function draftLineAmount(item: Draft): number {
 }
 
 export function StaffConsumption({ role, onOpenMenu, menuOpen = false }: {
-  role: "STAFF" | "MANAGER" | "DEVELOPER";
+  role: "STAFF" | "CASHIER" | "MANAGER" | "DEVELOPER";
   onOpenMenu: () => void;
   menuOpen?: boolean;
 }) {
