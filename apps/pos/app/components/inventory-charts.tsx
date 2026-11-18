@@ -5,6 +5,12 @@ import { readGrossProfitReport, type GrossProfitReport } from "../lib/api-client
 import { inventoryErrorMessage } from "../lib/inventory-errors";
 
 type Day = NonNullable<GrossProfitReport["data"]["daily"]>[number];
+const overviewSeries = [
+  { key: "netSalesAmount", label: "فروش خالص", color: "#efb35d" },
+  { key: "theoreticalCogsAmount", label: "بهای تمام‌شده", color: "#aaa0dc" },
+  { key: "grossProfitAmount", label: "سود ناخالص", color: "#7ed4ac" },
+] as const;
+type OverviewSeriesKey = (typeof overviewSeries)[number]["key"];
 const number = (value: number) => value.toLocaleString("fa-IR");
 const dateLabel = (date: string) =>
   new Date(`${date}T12:00:00+03:30`).toLocaleDateString("fa-IR", {
@@ -40,13 +46,17 @@ export function InventoryTrend({
 }) {
   const gradient = useId().replace(/:/g, "");
   const [selected, setSelected] = useState(Math.max(0, daily.length - 1));
+  const [visibleSeries, setVisibleSeries] = useState<OverviewSeriesKey[]>(
+    overviewSeries.map((item) => item.key),
+  );
   const current = daily[Math.min(selected, daily.length - 1)];
   if (!daily.length)
     return <p className="inventory-empty">روند روزانه برای این گزارش در دسترس نیست.</p>;
   const series = compact
     ? (["grossProfitAmount"] as const)
-    : (["netSalesAmount", "theoreticalCogsAmount", "grossProfitAmount"] as const);
-  const colors = ["#efb35d", "#aaa0dc", "#7ed4ac"];
+    : overviewSeries.filter((item) => !overview || visibleSeries.includes(item.key)).map((item) => item.key);
+  const visibleLabels = series.map((key) => overviewSeries.find((item) => item.key === key)?.label ?? "");
+  const colors = overviewSeries.map((item) => item.color);
   const values = daily.flatMap((day) =>
     series.map((key) => day[key]).filter((v): v is number => v !== null),
   );
@@ -72,16 +82,16 @@ export function InventoryTrend({
     <div className="inventory-chart">
       <div className="inventory-chart-readout" aria-live="polite">
         <span>{current ? dateLabel(current.date) : ""}</span>
-        <strong>
-          {current?.grossProfitAmount == null
-            ? "سود محاسبه نشده"
-            : `${number(current.grossProfitAmount)} تومان سود ناخالص`}
-        </strong>
-        <small>
+        {series.map((key) => {
+          const item = overviewSeries.find((entry) => entry.key === key)!;
+          const value = current?.[key] ?? null;
+          return <strong key={key} style={{ color: item.color }}>{value === null ? `${item.label} محاسبه نشده` : `${item.label} ${number(value)} تومان`}</strong>;
+        })}
+        {series.includes("grossProfitAmount") && <small>
           {current?.grossMarginPercent == null
             ? "حاشیه‌ی سود در دسترس نیست"
             : `حاشیه‌ی سود ${number(Number(current.grossMarginPercent))}٪`}
-        </small>
+        </small>}
       </div>
       <svg
         viewBox="0 0 680 225"
@@ -89,7 +99,9 @@ export function InventoryTrend({
         aria-label={
           compact
             ? "روند روزانه سود ناخالص به تومان"
-            : "روند روزانه فروش، بهای تمام‌شده و سود ناخالص به تومان"
+            : overview
+              ? `روند روزانه ${visibleLabels.join("، ")} به تومان`
+              : "روند روزانه فروش، بهای تمام‌شده و سود ناخالص به تومان"
         }
       >
         <defs>
@@ -110,11 +122,11 @@ export function InventoryTrend({
             </g>
           );
         })}
-        {series.map((key, s) => (
+        {series.map((key) => (
           <g key={key}>
             {paths(key).map((path, i) => (
               <g key={i}>
-                {s === 0 && (
+                {key === "netSalesAmount" && (
                   <path
                     d={`${path} L${path.match(/([\d.]+),[-\d.]+$/)?.[1] ?? 60},${y(0)} L${path.match(/^M([\d.]+)/)?.[1] ?? 60},${y(0)} Z`}
                     fill={`url(#${gradient})`}
@@ -123,7 +135,9 @@ export function InventoryTrend({
                 <path
                   d={path}
                   fill="none"
-                  stroke={compact ? colors[0] : colors[s]}
+                  stroke={
+                    compact ? colors[0] : colors[overviewSeries.findIndex((item) => item.key === key)]
+                  }
                   strokeWidth="2.5"
                   strokeLinejoin="round"
                 />
@@ -140,15 +154,20 @@ export function InventoryTrend({
               height="175"
               fill="transparent"
             />
-            {day.grossProfitAmount !== null && (daily.length < 35 || i === selected) && (
-              <circle
-                cx={x(i)}
-                cy={y(day.grossProfitAmount)}
-                r={i === selected ? 4.5 : 2.5}
-                fill="#7ed4ac"
-                stroke="#14251d"
-              />
-            )}
+            {series.map((key) => {
+              const value = day[key];
+              const colorIndex = overviewSeries.findIndex((item) => item.key === key);
+              return value !== null && (daily.length < 35 || i === selected) ? (
+                <circle
+                  key={key}
+                  cx={x(i)}
+                  cy={y(value)}
+                  r={i === selected ? 4.5 : 2.5}
+                  fill={colors[colorIndex]}
+                  stroke="#14251d"
+                />
+              ) : null;
+            })}
             {(i === 0 ||
               i === daily.length - 1 ||
               i % Math.max(1, Math.ceil(daily.length / 6)) === 0) && (
@@ -169,24 +188,40 @@ export function InventoryTrend({
         ))}
       </svg>
       <div className="inventory-chart-footer">
-        <div className="inventory-chart-legend">
-          {!compact && (
-            <>
-              <span style={{ color: colors[0] }}>
-                <i />
-                فروش خالص
-              </span>
-              <span style={{ color: colors[1] }}>
-                <i />
-                بهای تمام‌شده
-              </span>
-            </>
-          )}
-          <span style={{ color: compact ? colors[0] : colors[2] }}>
-            <i />
-            سود ناخالص
-          </span>
-        </div>
+        {overview ? (
+          <fieldset className="inventory-chart-series-filter">
+            <legend>نمایش در نمودار</legend>
+            {overviewSeries.map((item) => (
+              <label key={item.key} style={{ color: item.color }}>
+                <input
+                  type="checkbox"
+                  checked={visibleSeries.includes(item.key)}
+                  disabled={visibleSeries.length === 1 && visibleSeries.includes(item.key)}
+                  onChange={(event) =>
+                    setVisibleSeries((current) =>
+                      event.target.checked
+                        ? [...current, item.key]
+                        : current.filter((key) => key !== item.key),
+                    )
+                  }
+                />
+                {item.label}
+              </label>
+            ))}
+          </fieldset>
+        ) : (
+          <div className="inventory-chart-legend">
+            {series.map((key) => {
+              const item = overviewSeries.find((entry) => entry.key === key)!;
+              return (
+                <span key={key} style={{ color: compact ? colors[0] : item.color }}>
+                  <i />
+                  {item.label}
+                </span>
+              );
+            })}
+          </div>
+        )}
         <label>
           <span className="sr-only">روز نمودار</span>
           <select
@@ -269,7 +304,7 @@ export function InventoryOverviewTrends() {
         <div className="inventory-overview-chart-grid">
           <article className="manager-card">
             <header className="inventory-section-heading">
-              <h3>فروش خالص و هزینه‌ی مواد</h3>
+              <h3>فروش خالص، بهای تمام‌شده و سود ناخالص</h3>
               <strong>
                 {number(totals!.netSalesAmount)} <small>تومان فروش</small>
               </strong>
@@ -307,25 +342,6 @@ export function InventoryOverviewTrends() {
             <p>
               {number(complete)} قلم کامل · {number(count - complete)} قلم ناقص
             </p>
-          </article>
-          <article className="manager-card">
-            <header className="inventory-section-heading">
-              <h3>سود ناخالص</h3>
-              <strong
-                className={
-                  totals!.grossProfitAmount === null
-                    ? undefined
-                    : totals!.grossProfitAmount < 0
-                      ? "inventory-negative"
-                      : "inventory-positive"
-                }
-              >
-                {totals!.grossProfitAmount === null
-                  ? "محاسبه نشده"
-                  : `${number(totals!.grossProfitAmount)} تومان`}
-              </strong>
-            </header>
-            <InventoryTrend daily={report.data.daily ?? []} compact overview />
           </article>
         </div>
       )}
