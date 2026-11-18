@@ -115,7 +115,7 @@ describe("Developer pricing experiment workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی اطلاعات آزمایش" }));
     await waitFor(() => expect(api.createPricingExperiment).toHaveBeenCalledWith(expect.objectContaining({ targets: [expect.objectContaining({ targetKind: "PACKAGING", productId: packB })] })));
     fireEvent.change(screen.getByLabelText("نوع سیاست"), { target: { value: "PACKAGING" } });
-    fireEvent.change(screen.getAllByLabelText("قلم بسته‌بندی")[1]!, { target: { value: packB } });
+    fireEvent.change(screen.getAllByLabelText("قلم بسته‌بندی").at(-1)!, { target: { value: packB } });
     fireEvent.change(screen.getByLabelText("تغییر قیمت هر واحد (تومان)"), { target: { value: "1000" } });
     fireEvent.click(screen.getByRole("button", { name: "محاسبه‌ی سناریو" }));
     await waitFor(() => expect(api.simulatePricingScenario).toHaveBeenCalledWith(expect.objectContaining({ rules: [{ targetKind: "PACKAGING", productId: packB, adjustmentAmount: 1_000 }] })));
