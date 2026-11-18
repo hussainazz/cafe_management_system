@@ -54,6 +54,8 @@ import {
   PricingExperimentCreatedResponseSchema,
   PricingExperimentReportResponseSchema,
   PricingScenarioResponseSchema,
+  PersonnelProfileResponseSchema,
+  PersonnelProfilesResponseSchema,
   type ProductSaleDiscountRequest,
   type RecordSettlementRequest,
   type UpdateOrderRequest,
@@ -71,6 +73,7 @@ import {
   type SalesAnalyticsQuery,
   type CreatePricingExperimentRequest,
   type PricingScenarioRequest,
+  type PersonnelProfile,
   PaymentHistoryOrderFilterSchema,
 } from "@cafe/contracts";
 import type { z } from "zod";
@@ -102,6 +105,7 @@ export type InventoryRecipe = z.infer<typeof RecipeResponseSchema>["data"];
 export type InventoryCount = z.infer<typeof InventoryCountResponseSchema>["data"];
 export type InventoryMovement = z.infer<typeof InventoryMovementsResponseSchema>["data"]["movements"][number];
 export type PendingInventoryConsumption = z.infer<typeof PendingConsumptionsResponseSchema>["data"]["consumptions"][number];
+export type PosPersonnelProfile = PersonnelProfile;
 export type ProductCostingConfiguration = z.infer<typeof ProductCostingConfigurationResponseSchema>["data"];
 export type ProductCostingPreview = z.infer<typeof ProductCostingPreviewResponseSchema>["data"];
 export type GrossProfitReport = z.infer<typeof GrossProfitReportResponseSchema>;
@@ -297,12 +301,22 @@ export async function deferOpenOrder(orderId: string, expectedVersion: number, c
 }
 
 export type StaffConsumptionEntry = { id: string; version: number; dailyOrderNumber: number; createdAt: string; username: string; staffName: string | null; totalAmount: number; discountAmount: number; items: Array<{ productNameSnapshot: string; quantity: number }> };
+export async function readPersonnelProfiles() {
+  const parsed = await managerResponse("/staff-consumption/personnel-profiles", PersonnelProfilesResponseSchema, "فهرست پروفایل‌های پرسنل معتبر نیست.");
+  return parsed.ok ? { ok: true as const, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
+export async function createPersonnelProfile(name: string) {
+  const parsed = parseResponse(await request<unknown>("/staff-consumption/personnel-profiles", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }),
+  }), PersonnelProfileResponseSchema, "پاسخ ثبت پروفایل پرسنل معتبر نیست.");
+  return parsed.ok ? { ok: true as const, data: parsed.data.data, replayed: parsed.replayed } : parsed;
+}
 export async function readStaffConsumption(cursor?: string) {
   const result = await request<{ data: StaffConsumptionEntry[]; meta: { nextCursor: string | null } }>(`/staff-consumption${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, undefined, false);
   return result.ok ? { ok: true as const, data: result.data, replayed: result.replayed } : result;
 }
-export async function createStaffConsumption(input: CreateOrderRequest, key: string, staffName?: string) {
-  return request<{ data: { id: string } }>("/staff-consumption", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify({ ...input, ...(staffName ? { staffName } : {}) }) });
+export async function createStaffConsumption(input: CreateOrderRequest, key: string, personnelProfileId: string) {
+  return request<{ data: { id: string } }>("/staff-consumption", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify({ ...input, personnelProfileId }) });
 }
 export async function discountStaffConsumption(orderId: string, expectedVersion: number, discount: { kind: "FIXED" | "PERCENTAGE"; value: number }) {
   return request(`/staff-consumption/${encodeURIComponent(orderId)}/discount`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedVersion, discount }) });
@@ -311,6 +325,18 @@ export async function discountStaffConsumption(orderId: string, expectedVersion:
 export async function readOrderList(filters: OrderListQuery) {
   const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined) as [string, string][]);
   return managerResponse(`/orders?${query}`, OrderListResponseSchema, "فهرست سفارش‌ها معتبر نیست.");
+}
+
+export async function readDeferredOrderCount(): Promise<ApiResult<number>> {
+  let count = 0;
+  let cursor: string | undefined;
+  do {
+    const result = await readOrderList({ state: "OPEN", deferred: "true", limit: 100, ...(cursor ? { cursor } : {}) });
+    if (!result.ok) return result;
+    count += result.data.data.orders.length;
+    cursor = result.data.meta.page.nextCursor ?? undefined;
+  } while (cursor);
+  return { ok: true, data: count, replayed: false };
 }
 
 export async function markTableOccupied(tableId: string): Promise<ApiResult<PosTable>> {
