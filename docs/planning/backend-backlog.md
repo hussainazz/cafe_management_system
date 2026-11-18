@@ -80,9 +80,11 @@ stage is implemented.
   measured-performance verification for the inventory phase.
 - **P9 / Stage 16 — Complete.** Manager-managed explanatory product notes are
   persisted in the catalog and exposed in the public menu product detail.
-- **P10 / Stage 17 — Active.** Packaging economics reporting and auditable
-  catalog price-change history are implemented locally; production release
-  remains.
+- **P10 / Stage 17 — Complete with revised scope.** Product and option price
+  history remains. Packaging material cost stays in takeaway COGS. The café
+  does not charge a separate packaging fee, so packaging revenue attribution,
+  recovery reporting, and fee price targets are retired by the 18 November 2026
+  user decision.
 - **P11 / Stage 18 — Complete.** Developer-only bounded sales, contribution, and peak-hour
   analytics are implemented and locally verified; see `docs/current-left.md`.
 - **P12 / Stage 19 — Complete.** Developer-only pricing experiments and strategy
@@ -102,31 +104,20 @@ rerun for these schema-neutral fixes. Physical café-device acceptance and the
 Phase 1 production baseline/release gate remain separate. No production
 migration or release was performed.
 
-### P10 — Stage 17 Packaging Economics And Price History — Active
-
-Implement the approved Phase 1 finance-analytics brief before the next menu
-price adjustment.
+### P10 — Stage 17 Packaging Cost And Price History — Complete
 
 Acceptance criteria:
 
-- Report packaging charge revenue, attributable packaging material costs,
-  recovery and recovery rate while preserving the canonical gross-profit
-  calculation and reconciling packaging amounts exactly once.
 - Attribute known packaging costs from direct packaging mappings and explicitly
   classified stock items inside nested recipes. Keep historical rows without
   sufficient component metadata marked ambiguous.
-- Add Manager packaging economics in Inventory/Profitability with product and
-  selected-option/channel and category breakdowns, Tehran-date trends,
-  reconciliation-safe single-product charge allocation, unattributed
-  multi-product charges, and clear cost-completeness status.
 - Capture an immutable baseline of current catalog prices without inventing
-  prior changes. Record later product, option, option-override, discount, and
-  packaging-charge changes atomically with catalog writes.
-- Expose bounded Manager price-history reads filtered by date, product, option,
-  and packaging-charge dimension. Preserve shared-option effects and actor,
+  prior changes. Record later product, option, option-override, and discount
+  changes atomically with catalog writes.
+- Expose bounded Manager price-history reads filtered by date, product, and
+  option. Preserve shared-option effects and actor,
   source, effective-time certainty, and stable event IDs.
-- Cover sales attribution, option-variant charge rounding, costing,
-  reconciliation, price-history writes and reads, concurrency, no-op writes,
+- Cover price-history writes and reads, concurrency, no-op writes,
   reversals, Tehran boundaries, and role restrictions with relevant tests and
   typechecks.
 
@@ -135,8 +126,7 @@ Left: implementation and verification are tracked in `docs/current-left.md`.
 ### P11 — Stage 18 Sales, Contribution And Peak-Hour Analytics — Complete
 
 Implement the approved Phase 2 Manager analytics brief. Preserve the existing
-settled-order eligibility, recognized-consumption timing, costing snapshots,
-and packaging attribution rules.
+settled-order eligibility, recognized-consumption timing, and costing snapshots.
 
 Acceptance criteria:
 
@@ -148,8 +138,7 @@ Acceptance criteria:
   from fully costed revenue, margin and coverage, and average order value. An
   incomplete cost bucket never presents a full contribution or margin.
 - Provide product/category/option and TABLE/TAKEAWAY filters, day-of-week
-  filters, multi-product comparisons, product peaks, and packaging contribution
-  using the established Phase 1 allocation and completeness rules.
+  filters, multi-product comparisons, and product peaks.
 - Add first-entry timestamps to new order-item lines without changing order,
   settlement, or historical costing behavior; retain null for existing rows.
 - Apply the daily 08:00–00:00 scheduled opening window to hourly buckets,
@@ -179,13 +168,13 @@ populated-production baseline and release checks remain open separately.
 ### P12 — Stage 19 Pricing Experiments And Strategy Evaluation — Complete
 
 Implement the approved Phase 3 brief under ADR 0013. Reuse the Phase 1 price
-history and packaging economics and the Phase 2 eligible-order, settlement,
+history and the Phase 2 eligible-order, settlement,
 costing, and recognition rules.
 
 Acceptance criteria:
 
 - Add Developer-only create/list/report workflows for analytical experiment
-  metadata and product, option, variant, and packaging targets. Associate
+  metadata and product, option, and variant targets. Associate
   matching Phase 1 price events where possible and flag missing, ambiguous, or
   mismatched history without inventing baseline prices. Experiment writes and
   simulations never change catalog data.
@@ -193,11 +182,10 @@ Acceptance criteria:
   effective/partial day, align weekday composition, and expose unavailable or
   incomplete post-change periods.
 - Reuse the Phase 2 valid-order and financial-recognition rules, historical
-  order/option/discount snapshots, Phase 1 packaging allocation, and cost
-  completeness flags. Report affected and unaffected products, variants,
-  options, packaging, channel, and category performance.
+  order/option/discount snapshots, and cost completeness flags. Report affected
+  and unaffected products, variants, options, channel, and category performance.
 - Show sales, contribution, cost coverage, average realized price, order value,
-  packaging recovery, fixed-cost coverage, and 30-day monthly equivalents.
+  fixed-cost coverage, and 30-day monthly equivalents.
   Use the confirmed 265,000,000 Toman monthly fixed-cost assumption. Suppress a
   complete margin or operating surplus when relevant variable costs are
   incomplete.
@@ -205,10 +193,10 @@ Acceptance criteria:
   decomposition. Components reconcile when inputs are complete; otherwise
   report residuals and limitations. Label control comparisons observational.
 - Calculate per-target and whole-experiment volume break-even points from
-  contribution, and provide non-mutating product/category/option/packaging
-  simulations with volume sensitivity controls.
-- Add Developer-only Persian RTL dashboard, daily trends, product and packaging
-  comparisons, strategy assessment, and CSV export.
+  contribution, and provide non-mutating product/category/option simulations
+  with volume sensitivity controls.
+- Add Developer-only Persian RTL dashboard, daily trends, product comparisons,
+  strategy assessment, and CSV export.
 - Cover history association, snapshots, discounts, packaging, settlements and
   reversals, cost completeness, decomposition, break-even, substitution/mix,
   identical or partial periods, Tehran boundaries, fixed costs, empty data,
@@ -759,9 +747,14 @@ Acceptance criteria:
   deducted atomically for the complete order only when every requirement is
   available; otherwise one whole-order pending record is created and checkout
   succeeds.
-- Posted purchases retry pending orders in full-payment order without partial
-  reservations. Actual movements use posting-time average values while
-  theoretical item costs retain full-payment snapshots.
+- When Manager product-costing setup resolves a missing item recipe on an
+  eligible pending paid order, refresh only that incomplete item's snapshot and
+  retry the whole order. Keep the whole order pending with no deduction while
+  any item snapshot is incomplete or any required tracked balance is short.
+- Posted purchases also retry eligible pending orders in full-payment order
+  without partial reservations. Actual movements use posting-time average
+  values; theoretical item costs retain their saved snapshots, including the
+  valuation available when a previously missing item is resolved.
 - Physical-count posting records expected/observed quantities and valuation;
   the Manager explicitly identifies absorbed pending orders before posting.
 - Tender corrections have no inventory effect. Reversals and logical deletion
@@ -946,13 +939,10 @@ with active-reference and positive-quantity validation. Keep the list separate
 from reusable recipe components so selecting an existing recipe for another
 product inherits only the main ingredients.
 
-### POS packaging product assignments — approved 18 November 2026
+### POS packaging product assignments — withdrawn 18 November 2026
 
-Persist links from existing `PACKING` order items to non-packaging order items,
-including the assigned quantity. Keep catalog price and product identity
-authoritative, expose the relationships in order details and recognized
-inventory snapshots, and preserve them through supported order edits. Validate
-that both references belong to the same order and that assigned quantity does
-not exceed the referenced product line quantity. Keep these attribution links
-independent of product-level `takeawayPackaging` stock consumption and order
-price calculation.
+The café does not charge a separate packaging fee. Remove order-item assignment
+storage and its reporting, retire fee recovery and packaging price targets, and
+archive the legacy `PACKING` sale products. Preserve old orders and price history
+for audit. Continue to cost takeaway packaging materials through product recipes
+and include them in product COGS.
