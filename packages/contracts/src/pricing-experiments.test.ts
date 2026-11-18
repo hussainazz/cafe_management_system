@@ -19,17 +19,17 @@ describe("pricing experiment contracts", () => {
     expect(CreatePricingExperimentRequestSchema.safeParse({ ...parsed, targets: [{ ...parsed.targets[1], optionId: undefined }] }).success).toBe(false);
   });
 
-  it("accepts combined product, category, option, and packaging scenario policies", () => {
+  it("accepts product, category, and option scenarios and rejects packaging-fee policies", () => {
     const result = PricingScenarioRequestSchema.parse({
       fromDate: "2026-11-01", toDate: "2026-11-07", customVolumeChangePercent: -12.5,
       rules: [
         { targetKind: "PRODUCT", productId, adjustmentAmount: 10_000 },
         { targetKind: "CATEGORY", categoryId, adjustmentAmount: 20_000 },
         { targetKind: "OPTION", productId, optionId, adjustmentAmount: 5_000 },
-        { targetKind: "PACKAGING", productId, adjustmentAmount: 5_000 },
       ],
     });
-    expect(result.rules).toHaveLength(4);
+    expect(result.rules).toHaveLength(3);
+    expect(PricingScenarioRequestSchema.safeParse({ fromDate: "2026-11-01", toDate: "2026-11-07", rules: [{ targetKind: "PACKAGING", productId, adjustmentAmount: 5_000 }] }).success).toBe(false);
     expect(result.customVolumeChangePercent).toBe(-12.5);
   });
 
