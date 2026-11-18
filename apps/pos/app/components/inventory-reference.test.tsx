@@ -122,7 +122,7 @@ it("leaves a gap for missing daily costs and provides keyboard day selection", (
   fireEvent.change(screen.getByRole("combobox", { name: "روز نمودار" }), {
     target: { value: "2026-11-09" },
   });
-  expect(screen.getByText("سود محاسبه نشده")).toBeTruthy();
+  expect(screen.getByText("سود ناخالص محاسبه نشده")).toBeTruthy();
   expect(screen.getByText(/روزهای با هزینه‌ی ناقص/)).toBeTruthy();
   expect(document.querySelectorAll('path[stroke="#7ed4ac"]')).toHaveLength(2);
 });
