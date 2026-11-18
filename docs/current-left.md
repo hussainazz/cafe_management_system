@@ -1,4 +1,4 @@
-## Active delivery — retire separate packaging-fee reporting (18 November 2026)
+## Completed delivery — retire separate packaging-fee reporting (18 November 2026)
 
 - [x] Update approved scope and API contracts: takeaway packaging remains a
   product cost; separate fee revenue, recovery, and pricing targets are retired.
@@ -11,10 +11,14 @@
 - [x] Remove fee attribution from gross-profit, sales-analytics, and pricing
   experiment calculations and contracts. Retain packaging material costs in
   product COGS.
-- Automated tests and typechecks were not run. The destructive migration has
-  not been applied to any database; no local or production data was changed.
-- Left: schedule the database migration with the release that removes this
-  feature.
+- API (30 files / 270 tests), POS (35 files / 259 tests), and contracts
+  (10 files / 32 tests) suites pass. API, POS, and contracts typechecks and
+  production builds pass.
+- Production release `cafe-20261118-f66d791` applied
+  `20261118150000_personnel_profiles` and
+  `20261118160000_retire_packaging_fee_sales`; all 61 migrations are current.
+  The deployment evidence is in
+  [`production-gates.md`](planning/production-gates.md).
 
 ## Completed backend follow-up — late recipe costing for paid orders (18 November 2026)
 
@@ -33,8 +37,8 @@
 - [x] Require a customer name before moving an order to the unpaid list.
 - [x] Remember up to 100 previously used names in the POS browser and offer
   them as input suggestions; save a name only after the order moves successfully.
-- Left: review the required-name form and suggestions in an authenticated POS
-  browser. Automated tests were not run.
+- The final POS suite passes 259/259. Left: review the required-name form and
+  suggestions in an authenticated POS browser.
 
 ## Active delivery — POS deferred-order count (18 November 2026)
 
@@ -42,8 +46,8 @@
   beside the dine-in/takeaway selector, with a shortcut to that list.
 - [x] Refresh the count with POS operational refreshes and after order actions;
   count every page returned by the existing deferred-order listing.
-- Left: review the changed POS UI in an authenticated browser. Automated tests
-  were not run.
+- The final POS suite passes 259/259. Left: review the changed POS UI in an
+  authenticated browser.
 
 ## Active delivery — Personnel profiles and staff-order entry (18 November 2026)
 
@@ -55,8 +59,8 @@
 - [x] Persist the selected name with staff-consumption entries and retain the
   existing staff-benefit, discount, and inventory-recognition behavior.
 - [x] Add the profile migration and apply it to the local development database.
-  Prisma generation, contracts/API/POS typechecks, and `git diff --check` pass.
-  Automated tests were not run.
+  The profile migration is also applied in production. Prisma generation,
+  contracts/API/POS typechecks, and the final full API/POS/contracts suites pass.
 - Left: authenticated POS browser acceptance of profile creation, selection,
   personnel order entry, and the returned account history.
 
@@ -70,11 +74,9 @@
   that already have inventory access; include low, empty, and untracked items.
 - [x] The local dine-in flow opened an active order and expanded one saved item.
   The local development database needed its pending additive packaging migration;
-  it was applied. Contracts, API, and POS typechecks plus `git diff --check` pass.
+  it was applied. Contracts, API, and POS typechecks plus the final full suites
+  pass; the VPN/TUN route issue was resolved by the local Compose subnet change.
 - Left: recheck the updated editor and alert panel in an authenticated browser.
-  The local API now reports the database unavailable under the existing VPN/TUN
-  route issue, so the post-change browser review could not continue. Automated
-  tests were not run.
 
 ## Completed local operations fix — VPN TUN / Docker subnet collision (18 November 2026)
 
@@ -149,11 +151,9 @@ historical evidence for the removed implementation.
   and contracts typechecks pass; the isolated `cafe_management_test` reset
   applied the additive served-alongside migration. The local development
   database has 58 migrations and none pending.
-- Full POS suite: 239/260 tests pass; 21 fail in inventory-reference,
-  pricing-experiment, Manager workspace, and sales-analytics tests. None fail
-  in the inventory workspace feature tests. The Manager workspace also emits
-  uncaught errors because concurrent local code references undefined
-  `canViewAccountingReport`.
+- An earlier integrated POS run passed 239/260 tests. After follow-up fixes,
+  the final full POS suite passes 259/259. The final API and contracts suites
+  also pass.
 - [x] GPT-6.1-sol reviewed the final implementation and regression tests; no
   actionable findings remain.
 - Left: browser visual acceptance is not verified because the open POS tab
@@ -189,11 +189,10 @@ historical evidence for the removed implementation.
   drafts, Persian numeral support, focused errors, validated/debounced custom
   comparison requests, and concise readiness guidance for inconclusive reports.
 - [x] POS typecheck and `git diff --check` pass.
-- Focused POS run before the final refinements: 63 passed, 5 failed. Updated
-  selectors and navigation assertions for the new UI; the focused run was not
-  repeated after those changes.
+- An earlier focused POS run passed 63 and failed 5 before selector and
+  navigation assertions were updated. The final full POS suite passes 259/259.
 - Left: manually verify draft recovery, chart geometry, and narrowed layouts in
-  the local browser; rerun the focused POS suite after the final refinements.
+  the local browser.
 
 ## Completed delivery — Inventory overview trend filters (17 November 2026)
 
