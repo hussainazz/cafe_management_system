@@ -6,8 +6,10 @@ import { roundDiscountedAmount } from "@cafe/contracts";
 import {
   acknowledgeWaiterCall,
   createOpenOrder,
+  createStaffConsumption,
   deleteOpenOrder,
   deferOpenOrder,
+  readDeferredOrderCount,
   readOpenOrders,
   readOrder,
   readPosCatalog,
@@ -19,6 +21,7 @@ import {
   makeTableAvailable,
   updateOpenOrder,
   type PosOrderDetail,
+  type PosPersonnelProfile,
   posApiFailureEvent,
 } from "../lib/api-client";
 import { readRecentItemNotes, rememberItemNotes } from "../lib/recent-item-notes";
@@ -44,7 +47,7 @@ import { AccountingIcon, CheckIcon, AlertIcon, ServiceBellIcon, BagIcon, ClockIc
 import type { PosActivity } from "./release-update-guard";
 import { useTerminalPayment, TerminalPaymentStatus } from "./terminal-payment";
 import { ProductPicker } from "./product-picker";
-import { PackagingWorkspace, packagingReferenceKey, type PackagingAssignmentDraft, type PackagingCatalogProduct, type PackagingItemReference, type PackagingWorkspaceLine, type PackagingWorkspaceSession } from "./packaging-workspace";
+import { InventoryAlertsButton } from "./inventory-alerts-button";
 
 type Channel = "TABLE" | "TAKEAWAY";
 type OrderDetail = PosOrderDetail;
@@ -58,6 +61,7 @@ type Data = {
   tableSeatingLimitMinutes: number | null;
   calls: Array<{ tableId: string; tableName: string; version: number; requestedAt: string }>;
   openOrders: Array<{ id: string; tableId: string | null; channel: Channel; paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID"; dailyOrderNumber: number; totalAmount: number; balanceAmount: number }>;
+  deferredOrderCount: number | null;
 };
 type PendingTableClear = { tableId: string; tableName: string; dailyOrderNumber: number; error: string };
 type PendingTransfer = { order: OrderDetail; source: PosTable; destination: PosTable; swaps: boolean };
@@ -69,6 +73,30 @@ const productConfigurationKey = (productId: string, options: Array<{ id: string 
 const requestKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const requestItemRef = () => globalThis.crypto?.randomUUID?.() ?? "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => { const random = Math.random() * 16 | 0; return (char === "x" ? random : random & 0x3 | 0x8).toString(16); });
 const shotName = /^(.*)\s(سینگل|دبل)$/;
+const deferredCustomerNamesStorageKey = "cafe.pos.deferred-customer-names.v1";
+
+function readDeferredCustomerNames(): string[] {
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(deferredCustomerNamesStorageKey) ?? "[]");
+    return Array.isArray(value)
+      ? [...new Set(value.filter((name): name is string => typeof name === "string").map((name) => name.trim()).filter(Boolean))].slice(0, 100)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberDeferredCustomerName(name: string): string[] {
+  const normalizedName = name.trim().replace(/\s+/g, " ");
+  if (!normalizedName) return readDeferredCustomerNames();
+  const names = [normalizedName, ...readDeferredCustomerNames().filter((previous) => previous.toLocaleLowerCase() !== normalizedName.toLocaleLowerCase())].slice(0, 100);
+  try {
+    window.localStorage.setItem(deferredCustomerNamesStorageKey, JSON.stringify(names));
+  } catch {
+    // Name suggestions are optional and must not interrupt a successful defer.
+  }
+  return names;
+}
 
 function productCards(products: PosCatalogProduct[]): ProductCard[] {
   const grouped = new Map<string, PosCatalogProduct[]>();
@@ -172,25 +200,12 @@ function savedDrafts(order: OrderDetail | null): SavedDraft[] {
   }));
 }
 
-function packagingAssignmentsForOrder(order: OrderDetail | null): PackagingAssignmentDraft[] {
-  return (order?.packagingAssignments ?? []).map((assignment) => ({
-    packagingItem: { kind: "EXISTING", orderItemId: assignment.packagingOrderItemId },
-    productItem: { kind: "EXISTING", orderItemId: assignment.productOrderItemId },
-    quantity: assignment.quantity,
-  }));
-}
-
-function assignmentSignature(assignments: PackagingAssignmentDraft[]): string {
-  return JSON.stringify(assignments.map((assignment) => ({
-    packagingItem: packagingReferenceKey(assignment.packagingItem),
-    productItem: packagingReferenceKey(assignment.productItem),
-    quantity: assignment.quantity,
-  })).sort((left, right) => `${left.packagingItem}:${left.productItem}`.localeCompare(`${right.packagingItem}:${right.productItem}`)));
+function clearDeskRecoveryPrefix(prefix: string) {
+  for (const suffix of ["draft", "saved", "version", "create-key", "create-fingerprint", "checkout"]) writeRecovery(`${prefix}:${suffix}`, undefined);
 }
 
 function clearDeskRecovery(channel: Channel, tableId: string | null, orderId: string | null) {
-  const prefix = `desk:${channel}:${tableId ?? "takeaway"}:${orderId ?? "new"}`;
-  for (const suffix of ["draft", "saved", "packaging", "version", "create-key", "create-fingerprint", "checkout"]) writeRecovery(`${prefix}:${suffix}`, undefined);
+  clearDeskRecoveryPrefix(`desk:${channel}:${tableId ?? "takeaway"}:${orderId ?? "new"}`);
 }
 
 function clearPaymentRecovery(orderId: string, version: number | null) {
@@ -199,22 +214,33 @@ function clearPaymentRecovery(orderId: string, version: number | null) {
 }
 
 export function OrdersWorkspace({
+  canViewInventoryAlerts = false,
+  staffOrderTarget = null,
+  onStaffOrderCancel = () => {},
+  onStaffOrderFinish = () => {},
   refreshing,
   onActivityChange,
   onOpenMenu,
   menuOpen,
   openOrderId,
   onOpenedOrder,
+  onOpenDeferredOrders = () => {},
 }: {
+  canViewInventoryAlerts?: boolean;
+  staffOrderTarget?: PosPersonnelProfile | null;
+  onStaffOrderCancel?: () => void;
+  onStaffOrderFinish?: (message: string) => void;
   refreshing: boolean;
   onActivityChange: (activity: PosActivity) => void;
   onOpenMenu: () => void;
   menuOpen: boolean;
   openOrderId?: string | null;
   onOpenedOrder?: () => void;
+  onOpenDeferredOrders?: () => void;
 }) {
   const [data, setData] = useState<Data | null>(null);
-  const [channel, setChannel] = useRecoveryState<Channel>("channel", "TABLE");
+  const channelRecoveryKey = staffOrderTarget ? `staff-consumption-channel:${staffOrderTarget.id}` : "channel";
+  const [channel, setChannel] = useRecoveryState<Channel>(channelRecoveryKey, staffOrderTarget ? "TAKEAWAY" : "TABLE");
   const [selected, setSelected] = useState<PosTable | null>(null);
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [editingOrder, setEditingOrder] = useState(false);
@@ -260,6 +286,13 @@ export function OrdersWorkspace({
       if (!result.ok || result.data.state !== "OPEN") {
         clearDeskRecovery(channel, context.tableId, restoredOrderId);
         clearPaymentRecovery(restoredOrderId, context.version);
+        writeRecovery("order-context", {
+          tableId: data.tables.find(table => table.id === context.tableId)?.id ?? null,
+          orderId: null,
+          version: null,
+          editing: false,
+          checkout: false,
+        });
         setOrder(null);
         setEditingOrder(false);
         setCheckout(false);
@@ -284,11 +317,12 @@ export function OrdersWorkspace({
   const load = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     setMessage(null);
-    const [catalog, tables, calls, orders] = await Promise.all([
+    const [catalog, tables, calls, orders, deferredOrders] = await Promise.all([
       readPosCatalog(),
       readPosTables(),
       readWaiterCalls(),
       readOpenOrders(),
+      readDeferredOrderCount(),
     ]);
     if (!catalog.ok || !tables.ok) {
       const failure = !catalog.ok ? catalog.error : !tables.ok ? tables.error : null;
@@ -302,11 +336,12 @@ export function OrdersWorkspace({
       tableSeatingLimitMinutes: tables.data.tableSeatingLimitMinutes,
       calls: calls.ok ? calls.data : current?.calls ?? [],
       openOrders: orders.ok ? orders.data : current?.openOrders ?? [],
+      deferredOrderCount: deferredOrders.ok ? deferredOrders.data : current?.deferredOrderCount ?? null,
     }));
     if (calls.ok) {
       observeWaiterCalls.current(calls.data);
     }
-    setLiveDataLimited(!calls.ok || !orders.ok);
+    setLiveDataLimited(!calls.ok || !orders.ok || !deferredOrders.ok);
     setLoading(false);
     return true;
   }, []);
@@ -362,7 +397,7 @@ export function OrdersWorkspace({
     return () => window.clearTimeout(healthy);
   }, [data, loading, liveDataLimited, recovery, restoringContext]);
   const refreshOperationalData = useCallback(async () => {
-    const [tables, calls, orders] = await Promise.all([readPosTables(), readWaiterCalls(), readOpenOrders()]);
+    const [tables, calls, orders, deferredOrders] = await Promise.all([readPosTables(), readWaiterCalls(), readOpenOrders(), readDeferredOrderCount()]);
     if (!tables.ok) {
       setLiveDataLimited(true);
       setMessage({ tone: "notice", text: "وضعیت میزها به‌روز نیست. برای دریافت اطلاعات تازه دوباره تلاش کنید." });
@@ -377,8 +412,9 @@ export function OrdersWorkspace({
       tableSeatingLimitMinutes: tables.data.tableSeatingLimitMinutes,
       calls: calls.ok ? calls.data : current.calls,
       openOrders: orders.ok ? orders.data : current.openOrders,
+      deferredOrderCount: deferredOrders.ok ? deferredOrders.data : current.deferredOrderCount,
     });
-    setLiveDataLimited(!calls.ok || !orders.ok);
+    setLiveDataLimited(!calls.ok || !orders.ok || !deferredOrders.ok);
   }, []);
   useEffect(() => {
     const refreshIfVisible = () => {
@@ -461,6 +497,7 @@ export function OrdersWorkspace({
           <button className={`icon-button refresh-button${refreshing ? " is-refreshing" : ""}`} onClick={() => void load()} aria-label="تازه‌سازی وضعیت" title="تازه‌سازی وضعیت">
             <RefreshIcon />
           </button>
+          {canViewInventoryAlerts && <InventoryAlertsButton />}
           <button
             className="menu-button"
             type="button"
@@ -541,13 +578,14 @@ export function OrdersWorkspace({
             }}><CloseIcon /></button>
           </div>
         ) : channel === "TAKEAWAY" ? (
-          <div className="active-table-context" dir="rtl" aria-label="سفارش بیرون‌بر">
+          <div className="active-table-context" dir="rtl" aria-label={staffOrderTarget ? `سفارش پرسنل ${staffOrderTarget.name}` : "سفارش بیرون‌بر"}>
             <BagIcon />
             <span className="active-table-context__label">
-              <b>بیرون‌بر</b>
+              <b>{staffOrderTarget?.name ?? "بیرون‌بر"}</b>
               <small>{order ? (editingOrder ? "ویرایش سفارش" : formatOrderNumber(order.dailyOrderNumber)) : "سفارش تازه"}</small>
             </span>
-            <button type="button" aria-label="بستن سفارش بیرون‌بر" onClick={() => {
+            <button type="button" aria-label={staffOrderTarget ? "بازگشت به حساب پرسنل" : "بستن سفارش بیرون‌بر"} onClick={() => {
+              if (staffOrderTarget) { onStaffOrderCancel(); return; }
               if (deskDirty) { setPendingChannel("TABLE"); return; }
               setChannel("TABLE");
               setSelected(null);
@@ -556,29 +594,42 @@ export function OrdersWorkspace({
             }}><CloseIcon /></button>
           </div>
         ) : (
-        <div className="channel-tabs" role="tablist" aria-label="نوع سفارش">
-          <button
-            className={channel === "TABLE" ? "active" : ""}
-            onClick={() => {
-              if (deskDirty) { setPendingChannel("TABLE"); return; }
-              setChannel("TABLE");
-              close();
-            }}
-          >
-            <TableIcon /> سالن
-          </button>
-          <button
-            className=""
-            onClick={() => {
-              if (deskDirty) { setPendingChannel("TAKEAWAY"); return; }
-              setChannel("TAKEAWAY");
-              setSelected(null);
-              setOrder(null);
-            }}
-          >
-            <BagIcon /> بیرون‌بر
-          </button>
-        </div>
+          <div className="order-channel-tools" dir="rtl">
+            <div className="channel-tabs" role="tablist" aria-label="نوع سفارش">
+              <button
+                className={channel === "TABLE" ? "active" : ""}
+                onClick={() => {
+                  if (deskDirty) { setPendingChannel("TABLE"); return; }
+                  setChannel("TABLE");
+                  close();
+                }}
+              >
+                <TableIcon /> سالن
+              </button>
+              <button
+                className=""
+                onClick={() => {
+                  if (deskDirty) { setPendingChannel("TAKEAWAY"); return; }
+                  setChannel("TAKEAWAY");
+                  setSelected(null);
+                  setOrder(null);
+                }}
+              >
+                <BagIcon /> بیرون‌بر
+              </button>
+            </div>
+            <button
+              className="deferred-orders-shortcut"
+              type="button"
+              onClick={onOpenDeferredOrders}
+              aria-label={`سفارش‌های تسویه‌نشده، ${data.deferredOrderCount === null ? "در حال دریافت تعداد" : `${englishNumber.format(data.deferredOrderCount)} سفارش`}`}
+              title="نمایش سفارش‌های تسویه‌نشده"
+            >
+              <ClockIcon />
+              <span>تسویه‌نشده</span>
+              <strong aria-hidden="true">{data.deferredOrderCount === null ? "…" : englishNumber.format(data.deferredOrderCount)}</strong>
+            </button>
+          </div>
         )}
       </header>
       {editingOrder || (selected && !order) || channel === "TAKEAWAY" ? (
@@ -588,7 +639,8 @@ export function OrdersWorkspace({
           table={selected}
           channel={channel}
           initialOrder={order}
-          takeawayOrders={data.openOrders.filter((item) => item.channel === "TAKEAWAY" && item.paymentStatus !== "PAID")}
+          takeawayOrders={staffOrderTarget ? null : data.openOrders.filter((item) => item.channel === "TAKEAWAY" && item.paymentStatus !== "PAID")}
+          staffOrderTarget={staffOrderTarget}
           onOpenTakeaway={async (orderId) => {
             const result = await readOrder(orderId);
             if (result.ok && result.data.state === "OPEN") setOrder(result.data);
@@ -611,6 +663,10 @@ export function OrdersWorkspace({
             await load();
           }}
           onDone={async (notice) => {
+            if (staffOrderTarget) {
+              onStaffOrderFinish(notice);
+              return;
+            }
             close();
             await load();
             setMessage({ tone: "notice", text: notice });
@@ -1025,6 +1081,7 @@ export function OrderDesk({
   table,
   channel,
   initialOrder,
+  staffOrderTarget = null,
   onOrder,
   onDone,
   onTableClearNeeded,
@@ -1039,6 +1096,7 @@ export function OrderDesk({
   table: PosTable | null;
   channel: Channel;
   initialOrder: OrderDetail | null;
+  staffOrderTarget?: PosPersonnelProfile | null;
   onOrder: (order: OrderDetail | null) => Promise<void>;
   onDone: (message: string) => void;
   onTableClearNeeded: (clear: PendingTableClear) => void;
@@ -1053,7 +1111,9 @@ export function OrderDesk({
     () => catalog.filter((item) => item.name !== "ویژه و جدید"),
     [catalog],
   );
-  const recoveryPrefix = `desk:${channel}:${table?.id ?? "takeaway"}:${initialOrder?.id ?? "new"}`;
+  const recoveryPrefix = staffOrderTarget
+    ? `desk:staff-consumption:${staffOrderTarget.id}:${initialOrder?.id ?? "new"}`
+    : `desk:${channel}:${table?.id ?? "takeaway"}:${initialOrder?.id ?? "new"}`;
   const restoredVersion = useRef(readRecovery<number>(`${recoveryPrefix}:version`));
   const [categoryId, setCategoryId] = useState("");
   const categoryNavRef = useRef<HTMLElement>(null);
@@ -1062,9 +1122,6 @@ export function OrderDesk({
   const [categoryScroll, setCategoryScroll] = useState({ horizontal: false, visible: false, thumb: 100, position: 0, maximum: 0 });
   const [draft, setDraft] = useRecoveryState<Draft[]>(`${recoveryPrefix}:draft`, []);
   const [saved, setSaved] = useRecoveryState<SavedDraft[]>(`${recoveryPrefix}:saved`, () => savedDrafts(initialOrder));
-  const [packagingAssignments, setPackagingAssignments] = useRecoveryState<PackagingAssignmentDraft[]>(`${recoveryPrefix}:packaging`, () => packagingAssignmentsForOrder(initialOrder));
-  const [packagingSession, setPackagingSession] = useState<PackagingWorkspaceSession | null>(null);
-  const [packagingSelectedQuantities, setPackagingSelectedQuantities] = useState<Record<string, number>>({});
   const [createAttemptKey, setCreateAttemptKey] = useRecoveryState<string>(`${recoveryPrefix}:create-key`, requestKey);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1072,12 +1129,12 @@ export function OrderDesk({
   const [checkout, setCheckout] = useRecoveryState(`${recoveryPrefix}:checkout`, false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [discountTarget, setDiscountTarget] = useState<DiscountTarget | null>(null);
+  const [deferredCustomerNames, setDeferredCustomerNames] = useState<string[]>([]);
   const discountTriggerRef = useRef<HTMLElement | null>(null);
   const takeawayCloseRef = useRef<HTMLButtonElement>(null);
   const takeawayOrderPanelOpen = channel === "TAKEAWAY" && initialOrder !== null;
   const [takeawayEditing, setTakeawayEditing] = useState(false);
-  const persistedAssignments = useMemo(() => packagingAssignmentsForOrder(initialOrder), [initialOrder?.id, initialOrder?.version]);
-  const packagingAssignmentsChanged = assignmentSignature(packagingAssignments) !== assignmentSignature(persistedAssignments);
+  useEffect(() => { setDeferredCustomerNames(readDeferredCustomerNames()); }, []);
   const previousDeskOrder = useRef(`${initialOrder?.id ?? "new"}:${initialOrder?.version ?? 0}`);
   useEffect(() => {
     const identity = `${initialOrder?.id ?? "new"}:${initialOrder?.version ?? 0}`;
@@ -1088,9 +1145,6 @@ export function OrderDesk({
     writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0);
     setSaved(savedDrafts(initialOrder));
     setDraft([]);
-    setPackagingAssignments(packagingAssignmentsForOrder(initialOrder));
-    setPackagingSession(null);
-    setPackagingSelectedQuantities({});
     setCreateAttemptKey(requestKey());
   }, [initialOrder?.id, initialOrder?.version]);
   useEffect(() => {
@@ -1098,16 +1152,12 @@ export function OrderDesk({
   }, [recoveryPrefix]);
   const savedIdsMatchOrder = !initialOrder || (initialOrder.items.length === saved.length && initialOrder.items.every((item) => saved.some((candidate) => candidate.id === item.id)));
   const recoveredVersionIsStale = Boolean(initialOrder) && restoredVersion.current !== undefined && restoredVersion.current !== initialOrder?.version;
-  const recoveredEditorIsDirty = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
+  const recoveredEditorIsDirty = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
   const discardRecoveredEdits = Boolean(initialOrder) && (recoveredVersionIsStale || (!savedIdsMatchOrder && recoveredEditorIsDirty));
   const draftForOrder = discardRecoveredEdits ? [] : draft;
   const savedForOrder = initialOrder && (!savedIdsMatchOrder || discardRecoveredEdits) ? savedDrafts(initialOrder) : saved;
   const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
   const cards = useMemo(() => productCards((category?.products ?? []).filter((product) => product.systemKey !== "PACKING")), [category?.products]);
-  const categoryPackagingProduct = category?.products.find((product) => product.systemKey === "PACKING");
-  const packagingProducts = useMemo(() => posCatalog.flatMap((category) => category.products
-    .filter((product) => product.systemKey === "PACKING")
-    .map((product): PackagingCatalogProduct => ({ ...product, categoryName: category.name }))), [posCatalog]);
   useEffect(() => {
     const nav = categoryNavRef.current;
     const list = categoryListRef.current;
@@ -1167,39 +1217,10 @@ export function OrderDesk({
     });
     setExpandedCard(null);
   };
-  const openNewPackaging = (product: PosCatalogProduct, options: Option[] = [], weightGrams: number | null = null) => {
-    const catalogProduct = packagingProducts.find((candidate) => candidate.id === product.id);
-    if (!catalogProduct) { setError("نوع بسته‌بندی در فهرست فعال محصولات پیدا نشد."); return; }
-    const packagingItem: PackagingItemReference = { kind: "REQUEST", clientRef: requestItemRef() };
-    setPackagingSession({ product: catalogProduct, options, weightGrams, packagingItem, quantity: 1, editingExisting: false, packagingLocked: false });
-    setPackagingSelectedQuantities(Object.fromEntries(packagingWorkspaceLines.filter((line) => !line.locked).map((line) => [line.key, line.quantity])));
-    setExpandedCard(null);
-  };
-  const packagingProductLabel = (productId: string, productName: string) => {
-    const categoryName = packagingProducts.find((product) => product.id === productId)?.categoryName;
-    return categoryName ? `${categoryName} · ${productName}` : productName;
-  };
-  const reconcileAssignmentsForQuantity = (reference: PackagingItemReference, quantity: number) => {
-    const referenceKey = packagingReferenceKey(reference);
-    setPackagingAssignments((current) => current.flatMap((assignment) => {
-      if (packagingReferenceKey(assignment.packagingItem) === referenceKey && quantity <= 0) return [];
-      if (packagingReferenceKey(assignment.productItem) === referenceKey) {
-        if (quantity <= 0) return [];
-        return [{ ...assignment, quantity: Math.min(assignment.quantity, quantity) }];
-      }
-      return [assignment];
-    }));
-    setPackagingSelectedQuantities((current) => ({
-      ...current,
-      [referenceKey]: Math.min(current[referenceKey] ?? 0, Math.max(0, quantity)),
-    }));
-    setPackagingSession((current) => current && quantity <= 0 && packagingReferenceKey(current.packagingItem) === referenceKey ? null : current);
-  };
   const changeDraftQuantity = (key: string, delta: number) => {
     const item = draftForOrder.find((candidate) => candidate.key === key);
     if (!item) return;
     const quantity = item.quantity + delta;
-    reconcileAssignmentsForQuantity({ kind: "REQUEST", clientRef: item.clientRef }, quantity);
     setDraft((items) => items.flatMap((candidate) => candidate.key !== key ? [candidate] : quantity > 0 ? [{ ...candidate, quantity }] : []));
   };
   const changeSavedQuantity = (id: string, delta: number) => {
@@ -1207,60 +1228,7 @@ export function OrderDesk({
     const item = savedForOrder.find((candidate) => candidate.id === id);
     if (!item || (delta < 0 && !canEditSavedItem(initialOrder, id))) return;
     const quantity = Math.max(minimumSavedQuantity(initialOrder, id), item.quantity + delta);
-    reconcileAssignmentsForQuantity({ kind: "EXISTING", orderItemId: id }, quantity);
     setSaved((items) => items.map((candidate) => candidate.id === id ? { ...candidate, quantity } : candidate));
-  };
-  const packagingWorkspaceLines: PackagingWorkspaceLine[] = [
-    ...(initialOrder?.items ?? []).flatMap((item) => {
-      const edit = savedForOrder.find((candidate) => candidate.id === item.id);
-      if (!edit || edit.quantity <= 0 || item.systemKey === "PACKING") return [];
-      const reference: PackagingItemReference = { kind: "EXISTING", orderItemId: item.id };
-      const key = packagingReferenceKey(reference);
-      return [{ key, reference, productName: item.productNameSnapshot, optionsLabel: item.options.map((option) => option.optionNameSnapshot).join("، "), quantity: edit.quantity, locked: !canEditSavedItem(initialOrder!, item.id), existingAssignments: packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.productItem) === key).map((assignment) => {
-        const packageReference = assignment.packagingItem;
-        const draftPackage = packageReference.kind === "REQUEST" ? draftForOrder.find((draftItem) => draftItem.clientRef === packageReference.clientRef) : undefined;
-        const savedPackage = packageReference.kind === "EXISTING" ? initialOrder!.packagingAssignments.find((row) => row.packagingOrderItemId === packageReference.orderItemId) : undefined;
-        return { packagingName: packagingProductLabel(draftPackage?.product.id ?? savedPackage?.packagingProductId ?? "", draftPackage?.product.name ?? savedPackage?.packagingProductNameSnapshot ?? "بسته‌بندی"), quantity: assignment.quantity };
-      }) }];
-    }),
-    ...draftForOrder.filter((item) => item.product.systemKey !== "PACKING").map((item) => {
-      const reference: PackagingItemReference = { kind: "REQUEST", clientRef: item.clientRef };
-      const key = packagingReferenceKey(reference);
-      return { key, reference, productName: item.product.name, optionsLabel: item.options.map((option) => option.name).join("، "), quantity: item.quantity, locked: false, existingAssignments: packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.productItem) === key).map((assignment) => {
-        const packageReference = assignment.packagingItem;
-        const draftPackage = packageReference.kind === "REQUEST" ? draftForOrder.find((draftItem) => draftItem.clientRef === packageReference.clientRef) : undefined;
-        const savedPackage = packageReference.kind === "EXISTING" ? initialOrder?.packagingAssignments.find((row) => row.packagingOrderItemId === packageReference.orderItemId) : undefined;
-        return { packagingName: packagingProductLabel(draftPackage?.product.id ?? savedPackage?.packagingProductId ?? "", draftPackage?.product.name ?? savedPackage?.packagingProductNameSnapshot ?? "بسته‌بندی"), quantity: assignment.quantity };
-      }) };
-    }),
-  ];
-  const confirmPackaging = () => {
-    if (!packagingSession) return;
-    const packageRef = packagingSession.packagingItem;
-    const preservedLockedAssignments = packagingAssignments.filter((assignment) =>
-      packagingReferenceKey(assignment.packagingItem) === packagingReferenceKey(packageRef)
-      && packagingWorkspaceLines.some((line) => line.locked && packagingReferenceKey(line.reference) === packagingReferenceKey(assignment.productItem)));
-    const productRows = packagingWorkspaceLines.flatMap((line) => {
-      const quantity = Math.min(packagingSelectedQuantities[line.key] ?? 0, line.quantity);
-      return quantity > 0 && !line.locked ? [{ line, quantity }] : [];
-    });
-    if (packageRef.kind === "REQUEST") {
-      const clientRef = packageRef.clientRef;
-      const key = `packaging:${clientRef}`;
-      setDraft((current) => {
-        const existing = current.find((item) => item.clientRef === clientRef);
-        const next: Draft = { key, clientRef, product: packagingSession.product, options: packagingSession.options, quantity: packagingSession.quantity, weightGrams: packagingSession.weightGrams, note: existing?.note ?? "" };
-        return existing ? current.map((item) => item.clientRef === next.clientRef ? next : item) : [...current, next];
-      });
-    } else {
-      setSaved((current) => current.map((item) => item.id === packageRef.orderItemId ? { ...item, quantity: packagingSession.quantity } : item));
-    }
-    setPackagingAssignments((current) => [
-      ...current.filter((assignment) => packagingReferenceKey(assignment.packagingItem) !== packagingReferenceKey(packageRef)),
-      ...preservedLockedAssignments,
-      ...productRows.map(({ line, quantity }) => ({ packagingItem: packageRef, productItem: line.reference, quantity })),
-    ]);
-    setPackagingSession(null);
   };
   const payloadItems = () =>
     draftForOrder.map((item) => ({
@@ -1277,16 +1245,10 @@ export function OrderDesk({
         quantity: item.product.pricingMode === "FIXED" ? item.quantity : 1,
       })),
     }));
-  const assignmentPayload = (replaceExistingItems = false) => packagingAssignments.map((assignment) => ({
-    packagingItem: replaceExistingItems && assignment.packagingItem.kind === "EXISTING" ? { kind: "REQUEST" as const, clientRef: assignment.packagingItem.orderItemId } : assignment.packagingItem,
-    productItem: replaceExistingItems && assignment.productItem.kind === "EXISTING" ? { kind: "REQUEST" as const, clientRef: assignment.productItem.orderItemId } : assignment.productItem,
-    quantity: assignment.quantity,
-  }));
   const createRequestFingerprint = JSON.stringify({
     channel,
     tableId: channel === "TABLE" ? table?.id ?? null : null,
     items: payloadItems(),
-    packagingAssignments: assignmentPayload(),
   });
   const attemptedCreateFingerprint = useRef(readRecovery<string>(`${recoveryPrefix}:create-fingerprint`));
   useEffect(() => {
@@ -1310,7 +1272,7 @@ export function OrderDesk({
     })),
     ...payloadItems(),
   ];
-  const dirty = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
+  const dirty = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
   // Recovery storage can lag an authoritative order refresh. Render current
   // server snapshots immediately, then persist the reconciled editor state.
   useEffect(() => {
@@ -1320,8 +1282,6 @@ export function OrderDesk({
     writeRecovery(`${recoveryPrefix}:draft`, []);
     setSaved(savedDrafts(initialOrder));
     setDraft([]);
-    setPackagingAssignments(packagingAssignmentsForOrder(initialOrder));
-    setPackagingSession(null);
   }, [initialOrder?.id, initialOrder?.version, savedIdsMatchOrder, discardRecoveredEdits]);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => {
@@ -1340,8 +1300,6 @@ export function OrderDesk({
     rememberItemNotes([...draftForOrder.map((item) => ({ productId: item.product.id, note: item.note })), ...savedForOrder.filter((item) => item.quantity > 0 && item.note !== (item.originalNote ?? "")).map((item) => ({ productId: item.productId, note: item.note }))]);
     setDraft([]);
     setSaved(initialOrder ? savedDrafts(updatedOrder) : []);
-    setPackagingAssignments(packagingAssignmentsForOrder(updatedOrder));
-    setPackagingSession(null);
     writeRecovery(`${recoveryPrefix}:version`, initialOrder ? updatedOrder.version : 0);
     setCreateAttemptKey(requestKey());
     attemptedCreateFingerprint.current = undefined;
@@ -1357,7 +1315,7 @@ export function OrderDesk({
     if (printAfterSave) await printOrderDocument(updatedOrder.id, printAfterSave);
   };
   const save = async (printAfterSave: "bar-ticket" | "receipt" | null = null) => {
-    const hasChanges = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
+    const hasChanges = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
     if (!hasChanges) {
       if (printAfterSave && initialOrder) await printOrderDocument(initialOrder.id, printAfterSave);
       return;
@@ -1368,11 +1326,10 @@ export function OrderDesk({
       const isUnpaid = initialOrder.paymentStatus === "UNPAID";
       const changedSaved = savedForOrder.filter((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
       const result = await updateOpenOrder(initialOrder.id, isUnpaid
-        ? { expectedVersion: initialOrder.version, items: replacementItems(), packagingAssignments: assignmentPayload(true) }
+        ? { expectedVersion: initialOrder.version, items: replacementItems() }
         : {
             expectedVersion: initialOrder.version,
             ...(draftForOrder.length ? { addItems: payloadItems() } : {}),
-            ...(packagingAssignmentsChanged ? { packagingAssignments: assignmentPayload() } : {}),
             ...(changedSaved.length ? { itemUpdates: changedSaved.map((item) => ({
               orderItemId: item.id,
               ...(item.quantity !== item.originalQuantity ? { quantity: item.quantity } : {}),
@@ -1389,10 +1346,32 @@ export function OrderDesk({
     } else {
       attemptedCreateFingerprint.current = createRequestFingerprint;
       writeRecovery(`${recoveryPrefix}:create-fingerprint`, createRequestFingerprint);
+      if (staffOrderTarget) {
+        const result = await createStaffConsumption({
+          channel: "TAKEAWAY",
+          items: payloadItems(),
+        }, createAttemptKey, staffOrderTarget.id);
+        if (!result.ok) {
+          setBusy(false);
+          setError(result.error.message);
+          return;
+        }
+        rememberItemNotes(draftForOrder.map((item) => ({ productId: item.product.id, note: item.note })));
+        setDraft([]);
+        setSaved([]);
+        setCreateAttemptKey(requestKey());
+        attemptedCreateFingerprint.current = undefined;
+        clearDeskRecoveryPrefix(recoveryPrefix);
+        onDirtyChange(false);
+        if (printAfterSave) await printOrderDocument(result.data.data.id, printAfterSave);
+        setBusy(false);
+        onDone(`سفارش برای ${staffOrderTarget.name} ثبت شد.`);
+        return;
+      }
       const result = await createOpenOrder(
         channel === "TABLE"
-          ? { channel, tableId: table!.id, items: payloadItems(), packagingAssignments: assignmentPayload() }
-          : { channel, items: payloadItems(), packagingAssignments: assignmentPayload() },
+          ? { channel, tableId: table!.id, items: payloadItems() }
+          : { channel, items: payloadItems() },
         createAttemptKey,
         { requestId: requestKey(), ...(channel === "TABLE" ? { tableName: table!.name } : {}) },
       );
@@ -1443,11 +1422,14 @@ export function OrderDesk({
   };
   const defer = async (customerName: string) => {
     if (!initialOrder || dirty) return;
+    const normalizedCustomerName = customerName.trim().replace(/\s+/g, " ");
+    if (!normalizedCustomerName) { setError("نام مشتری را وارد کنید."); return; }
     setBusy(true);
     setError(null);
-    const result = await deferOpenOrder(initialOrder.id, initialOrder.version, customerName.trim());
+    const result = await deferOpenOrder(initialOrder.id, initialOrder.version, normalizedCustomerName);
     setBusy(false);
     if (!result.ok) { setError(result.error.message); return; }
+    setDeferredCustomerNames(rememberDeferredCustomerName(normalizedCustomerName));
     onDone("سفارش به فهرست تسویه‌نشده منتقل شد.");
   };
   useEffect(() => {
@@ -1490,7 +1472,6 @@ export function OrderDesk({
         total={orderTotal}
         onQuantity={changeDraftQuantity}
         onSavedQuantity={changeSavedQuantity}
-        packagingChanged={packagingAssignmentsChanged}
         onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
         onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
         onSave={() => void save()}
@@ -1504,6 +1485,7 @@ export function OrderDesk({
         }}
         onRequestDelete={() => setDeleteDialogOpen(true)}
         onRequestDefer={(customerName) => void defer(customerName)}
+        deferredCustomerNames={deferredCustomerNames}
         onRequestDiscount={(target) => { discountTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setDiscountTarget(target); }}
         busy={busy}
       />
@@ -1555,20 +1537,7 @@ export function OrderDesk({
           </nav>
         </aside>
         <section className="products">
-          {packagingSession ? <PackagingWorkspace
-            session={packagingSession}
-            lines={packagingWorkspaceLines}
-            selectedQuantities={packagingSelectedQuantities}
-            onAssignmentQuantityChange={(key, quantity) => setPackagingSelectedQuantities((current) => ({ ...current, [key]: quantity }))}
-            onCancel={() => setPackagingSession(null)}
-            onConfirm={confirmPackaging}
-          /> : <div className="product-selection">
-            <div className="product-selection__toolbar">
-              <button type="button" className="button button--quiet product-selection__packaging" disabled={!categoryPackagingProduct} onClick={() => categoryPackagingProduct && openNewPackaging(categoryPackagingProduct)}>
-                <BagIcon />
-                افزودن بسته‌بندی
-              </button>
-            </div>
+          <div className="product-selection">
             <div className="product-grid">
               {cards.map((card) => (
                 <ProductPicker
@@ -1577,7 +1546,7 @@ export function OrderDesk({
                   expanded={expandedCard === card.key}
                   onOpen={() => setExpandedCard(card.key)}
                   onClose={() => setExpandedCard(null)}
-                  onSelectOptions={(product, options, weightGrams) => product.systemKey === "PACKING" ? openNewPackaging(product, options, weightGrams ?? null) : add(product, options, weightGrams ?? null)}
+                  onSelectOptions={(product, options, weightGrams) => add(product, options, weightGrams ?? null)}
                   getQuantity={(product, options, weightGrams) => draftForOrder.filter((item) => productConfigurationKey(item.product.id, item.options, item.weightGrams) === productConfigurationKey(product.id, options, weightGrams ?? null)).reduce((sum, item) => sum + item.quantity, 0)}
                   onDecrease={(product, options, weightGrams) => {
                     const signature = productConfigurationKey(product.id, options, weightGrams ?? null);
@@ -1587,7 +1556,7 @@ export function OrderDesk({
                 />
               ))}
             </div>
-          </div>}
+          </div>
         </section>
         {orderPanel}
       </div>
@@ -1645,13 +1614,13 @@ function OrderSummary({
   onSavedQuantity,
   onSavedNote,
   onDraftNote,
-  packagingChanged,
   onSave,
   onConfirmAndPrint,
   onCheckout,
   onPrint,
   onRequestDelete,
   onRequestDefer,
+  deferredCustomerNames,
   onRequestDiscount,
   busy,
 }: {
@@ -1663,13 +1632,13 @@ function OrderSummary({
   onSavedQuantity: (id: string, delta: number) => void;
   onSavedNote: (id: string, note: string) => void;
   onDraftNote: (key: string, note: string) => void;
-  packagingChanged: boolean;
   onSave: () => void;
   onConfirmAndPrint: (kind: "bar-ticket" | "receipt") => void;
   onCheckout: () => void;
   onPrint: (kind: PrintKind, settlementId?: string) => void;
   onRequestDelete: () => void;
   onRequestDefer: (customerName: string) => void;
+  deferredCustomerNames: string[];
   onRequestDiscount: (target: DiscountTarget) => void;
   busy: boolean;
 }) {
@@ -1677,7 +1646,8 @@ function OrderSummary({
   const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null);
   const [showDeferredName, setShowDeferredName] = useState(false);
   const [deferredCustomerName, setDeferredCustomerName] = useState("");
-  const hasUnsavedChanges = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingChanged;
+  const [deferredCustomerNameError, setDeferredCustomerNameError] = useState<string | null>(null);
+  const hasUnsavedChanges = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
   return (
     <>
       {order && (
@@ -1814,9 +1784,39 @@ function OrderSummary({
           </div>
         </div>
       )}
-      {order && showDeferredName && <form className="deferred-order-name-form" onSubmit={(event) => { event.preventDefault(); onRequestDefer(deferredCustomerName); }}>
-        <label htmlFor="deferred-customer-name">نام مشتری (اختیاری)</label>
-        <input id="deferred-customer-name" name="customerName" maxLength={120} value={deferredCustomerName} onChange={(event) => setDeferredCustomerName(event.target.value)} placeholder="برای پیدا کردن سفارش در فهرست" />
+      {order && showDeferredName && <form className="deferred-order-name-form" onSubmit={(event) => {
+        event.preventDefault();
+        const name = deferredCustomerName.trim();
+        if (!name) { setDeferredCustomerNameError("نام مشتری را وارد کنید."); return; }
+        setDeferredCustomerNameError(null);
+        onRequestDefer(name);
+      }}>
+        <label htmlFor="deferred-customer-name">نام مشتری</label>
+        <input
+          id="deferred-customer-name"
+          name="customerName"
+          list="deferred-customer-name-history"
+          maxLength={120}
+          required
+          aria-required="true"
+          aria-invalid={Boolean(deferredCustomerNameError)}
+          aria-describedby={`deferred-customer-name-help${deferredCustomerNameError ? " deferred-customer-name-error" : ""}`}
+          onInvalid={(event) => {
+            event.preventDefault();
+            setDeferredCustomerNameError("نام مشتری را وارد کنید.");
+          }}
+          value={deferredCustomerName}
+          onChange={(event) => {
+            setDeferredCustomerName(event.target.value);
+            if (event.target.value.trim()) setDeferredCustomerNameError(null);
+          }}
+          placeholder="نام مشتری را وارد کنید یا یکی از نام‌های قبلی را انتخاب کنید"
+        />
+        <datalist id="deferred-customer-name-history">
+          {deferredCustomerNames.map((name) => <option key={name} value={name} />)}
+        </datalist>
+        <small id="deferred-customer-name-help">وارد کردن نام الزامی است؛ می‌توانید نام‌های قبلی را از پیشنهادها انتخاب کنید.</small>
+        {deferredCustomerNameError && <p id="deferred-customer-name-error" className="pricing-field-error" role="alert">{deferredCustomerNameError}</p>}
         <div className="modal-actions"><button className="button button--quiet" type="button" disabled={busy} onClick={() => setShowDeferredName(false)}>انصراف</button><button className="button button--primary" type="submit" disabled={busy}>{busy ? "در حال انتقال…" : "انتقال به سفارش‌های تسویه‌نشده"}</button></div>
       </form>}
     </>
