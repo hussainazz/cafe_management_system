@@ -18,7 +18,6 @@ async function fixture() {
   const a = await createCategory("Drinks"), b = await createCategory("Tea");
   const product = (categoryId: string, name: string, priceAmount: number, systemKey: string | null = null) => app.prisma.product.create({ data: { categoryId, name, priceAmount, systemKey, preparationDeadlineMinutes: 5, displayOrder: 1 } });
   const coffee = await product(a.id, "Coffee", 10_000), tea = await product(b.id, "Tea", 10_000);
-  const packA = await product(a.id, "Drinks packaging", 500, "PACKING"), packB = await product(b.id, "Tea packaging", 700, "PACKING");
   const group = await app.prisma.optionGroup.create({ data: { name: "Size" } });
   const option = await app.prisma.option.create({ data: { optionGroupId: group.id, name: "Large", priceAmount: 3_000, displayOrder: 1 } });
   for (const menu of [coffee, tea]) await app.prisma.productOptionGroup.create({ data: { productId: menu.id, optionGroupId: group.id, displayOrder: 1, minSelections: 0, maxSelections: 1, allowedOptions: { create: { optionId: option.id, displayOrder: 1 } } } });
@@ -28,7 +27,7 @@ async function fixture() {
     expect(response.statusCode, response.body).toBe(200);
     return PricingScenarioResponseSchema.parse(response.json()).data;
   };
-  const experiment = async (targets: Array<{ targetKind: "PRODUCT" | "OPTION" | "PACKAGING"; productId: string; optionId?: string; previousPriceAmount: number; proposedPriceAmount: number }>) => {
+  const experiment = async (targets: Array<{ targetKind: "PRODUCT" | "OPTION"; productId: string; optionId?: string; previousPriceAmount: number; proposedPriceAmount: number }>) => {
     const response = await app.inject({ method: "POST", url: "/api/v1/admin/pricing-experiments", cookies, payload: { name: "Regression experiment", effectiveAt: "2026-10-02T06:30:00.000Z", expectedEvaluationDays: 7, comparisonDays: 7, targets } });
     expect(response.statusCode, response.body).toBe(201);
     const id = PricingExperimentCreatedResponseSchema.parse(response.json()).data.experiment.id;
@@ -36,7 +35,7 @@ async function fixture() {
     expect(report.statusCode, report.body).toBe(200);
     return PricingExperimentReportResponseSchema.parse(report.json()).data;
   };
-  return { manager, cookies, coffee, tea, packA, packB, option, sale, simulate, experiment };
+  return { manager, cookies, coffee, tea, option, sale, simulate, experiment };
 }
 
 describe("Finance analytics numerical regressions", () => {
@@ -82,23 +81,6 @@ describe("Finance analytics numerical regressions", () => {
     const result = await f.simulate([{ targetKind: "PRODUCT", productId: f.coffee.id, adjustmentAmount: 1_000 }, { targetKind: "OPTION", productId: f.coffee.id, optionId: f.option.id, adjustmentAmount: 1_000 }]);
     expect(result.scenarios.find((row) => row.volumeChangePercent === "0.00")).toMatchObject({ netRevenueAmount: 7_500, contributionAmount: 5_500 });
     expect(result.scenarios.find((row) => row.volumeChangePercent === "-20.00")).toMatchObject({ netRevenueAmount: 6_000, contributionAmount: 4_400 });
-  });
-
-  it("limits category packaging changes, affected cohorts, and volume scaling to the selected charge", async () => {
-    const f = await fixture();
-    for (const date of ["2026-10-01", "2026-10-03"]) {
-      await f.sale(date, [{ product: f.coffee, revenue: 10_000, cost: 4_100, packagingCost: 100 }, { product: f.packA, revenue: 500, cost: 0 }]);
-      // The same menu product can appear with another category's charge.
-      await f.sale(date, [{ product: f.coffee, revenue: 10_000, cost: 4_100, packagingCost: 100 }, { product: f.packB, revenue: 700, cost: 0 }]);
-    }
-    const result = await f.simulate([{ targetKind: "PACKAGING", productId: f.packA.id, adjustmentAmount: 1_000 }]);
-    expect(result.rules[0]?.affectedItemUnits).toBe(1);
-    expect(result.scenarios.find((row) => row.volumeChangePercent === "0.00")).toMatchObject({ netRevenueAmount: 22_200, contributionAmount: 14_000 });
-    expect(result.scenarios.find((row) => row.volumeChangePercent === "-20.00")).toMatchObject({ netRevenueAmount: 19_900, contributionAmount: 12_520 });
-    const report = await f.experiment([{ targetKind: "PACKAGING", productId: f.packA.id, previousPriceAmount: 500, proposedPriceAmount: 1_500 }]);
-    expect(report.periods.after.affectedItemUnits).toBe(1);
-    expect(report.products.map((row) => row.affected).sort()).toEqual([false, true]);
-    expect(report.breakEven.products[0]?.priceIncreaseAmount).toBe(0);
   });
 
   it("keeps the same per-unit option variant and independently verifies each decomposition factor", async () => {
@@ -156,20 +138,20 @@ describe("Finance analytics numerical regressions", () => {
     expect((await f.experiment([{ targetKind: "PRODUCT", productId: f.coffee.id, previousPriceAmount: 12_000, proposedPriceAmount: 11_000 }])).experiment.targets[0]?.priceHistory).toMatchObject({ status: "MATCHED", originalPriceMatches: true });
   });
 
-  it("reconciles same-day operational and financial packaging sales with exact costed peaks and AOV", async () => {
+  it("reconciles same-day operational and financial sales with costed peaks and AOV", async () => {
     const f = await fixture();
-    await f.sale("2026-10-03T05:00:00Z", [{ product: f.coffee, revenue: 10_000, cost: 4_100, packagingCost: 100 }, { product: f.packA, revenue: 500, cost: 0 }]);
+    await f.sale("2026-10-03T05:00:00Z", [{ product: f.coffee, revenue: 10_000, cost: 4_100, packagingCost: 100 }]);
     await f.sale("2026-10-03T06:00:00Z", [{ product: f.tea, revenue: 10_000, cost: 12_000 }], "TABLE");
     const response = await app.inject({ method: "GET", url: "/api/v1/admin/reports/sales-analytics?fromDate=2026-10-03&toDate=2026-10-03&intervalMinutes=30", cookies: f.cookies });
     expect(response.statusCode, response.body).toBe(200);
     const report = SalesAnalyticsResponseSchema.parse(response.json()).data;
-    expect(report.overview.operationalDemand).toMatchObject({ orderCount: 2, itemUnits: 2, netSalesAmount: 20_500, averageOrderValueAmount: 10_250 });
-    expect(report.overview.financialRecognition).toMatchObject({ netSalesAmount: 20_500, totalContributionAmount: 4_400, knownContributionAmount: 4_400, costCoveragePercent: "100.00", averageOrderValueAmount: 10_250 });
-    expect(report.insights.highestRevenuePeriod).toMatchObject({ hour: 8, minute: 30, amount: 10_500 });
-    expect(report.insights.highestKnownContributionPeriod).toMatchObject({ hour: 8, minute: 30, amount: 6_400 });
+    expect(report.overview.operationalDemand).toMatchObject({ orderCount: 2, itemUnits: 2, netSalesAmount: 20_000, averageOrderValueAmount: 10_000 });
+    expect(report.overview.financialRecognition).toMatchObject({ netSalesAmount: 20_000, totalContributionAmount: 3_900, knownContributionAmount: 3_900, costCoveragePercent: "100.00", averageOrderValueAmount: 10_000 });
+    expect(report.insights.highestRevenuePeriod).toMatchObject({ hour: 8, minute: 30, amount: 10_000 });
+    expect(report.insights.highestKnownContributionPeriod).toMatchObject({ hour: 8, minute: 30, amount: 5_900 });
     expect(report.productFinancialSeries.find((row) => row.productId === f.tea.id)).toMatchObject({ totalContributionAmount: -2_000, totalContributionMarginPercent: "-20.00" });
-    expect(report.productFinancialSeries.find((row) => row.productId === f.coffee.id)).toMatchObject({ contributionBeforePackagingAmount: 6_000, combinedContributionAfterPackagingAmount: 6_400 });
-    expect(report.operationalBuckets.reduce((sum, row) => sum + row.netSalesAmount, 0)).toBe(20_500);
+    expect(report.productFinancialSeries.find((row) => row.productId === f.coffee.id)).toMatchObject({ totalContributionAmount: 5_900, totalContributionMarginPercent: "59.00" });
+    expect(report.operationalBuckets.reduce((sum, row) => sum + row.netSalesAmount, 0)).toBe(20_000);
   });
 
   it("separates known contribution from incomplete costs and keeps filtered and empty buckets honest", async () => {
