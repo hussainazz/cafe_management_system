@@ -21,9 +21,9 @@ import { pricingExperimentCsv } from "./pricing-experiment-csv";
 
 type ExperimentList = Awaited<ReturnType<typeof readPricingExperiments>>;
 type Experiment = Extract<ExperimentList, { ok: true }> extends { data: infer Data } ? Data extends { data: { experiments: Array<infer Row> } } ? Row : never : never;
-type TargetKind = "PRODUCT" | "OPTION" | "PACKAGING";
+type TargetKind = "PRODUCT" | "OPTION";
 type TargetDraft = { targetKind: TargetKind; productId: string; optionId: string; previousPriceAmount: string; proposedPriceAmount: string };
-type ScenarioKind = "PRODUCT" | "CATEGORY" | "OPTION" | "PACKAGING";
+type ScenarioKind = "PRODUCT" | "CATEGORY" | "OPTION";
 type ScenarioDraft = { targetKind: ScenarioKind; productId: string; categoryId: string; optionId: string; adjustmentAmount: string };
 type PersianDate = { year: string; value: string };
 type ExperimentFormDraft = {
@@ -154,9 +154,8 @@ function reportCsvDownload(report: PricingExperimentReport) {
 export function InventoryPricingExperiments({ catalog, onDirtyChange }: { catalog: ManagerCatalog; onDirtyChange?: (dirty: boolean) => void }) {
   const products = useMemo(() => catalog.products.filter((product) => product.archivedAt === null), [catalog.products]);
   const menuProducts = products.filter((product) => product.systemKey !== "PACKING");
-  const packagingProducts = products.filter((product) => product.systemKey === "PACKING");
-  const packagingLabel = (product: ManagerCatalog["products"][number]) => `${catalog.categories.find((category) => category.id === product.categoryId)?.name ?? "دسته‌بندی نامشخص"} · ${product.name}`;
-  const productLabel = (product: ManagerCatalog["products"][number]) => `${packagingLabel(product)} · قیمت کاتالوگ ${money(product.priceAmount)}`;
+  const catalogProductLabel = (product: ManagerCatalog["products"][number]) => `${catalog.categories.find((category) => category.id === product.categoryId)?.name ?? "دسته‌بندی نامشخص"} · ${product.name}`;
+  const productLabel = (product: ManagerCatalog["products"][number]) => `${catalogProductLabel(product)} · قیمت کاتالوگ ${money(product.priceAmount)}`;
   const sourceCategories = catalog.categories.filter((category) => category.kind === "SOURCE" && category.archivedAt === null);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -338,8 +337,7 @@ export function InventoryPricingExperiments({ catalog, onDirtyChange }: { catalo
     for (const row of scenarioRows) {
       const delta = numberValue(row.adjustmentAmount);
       if (delta === null || Math.abs(delta) > 1_000_000 || (row.targetKind === "PRODUCT" && !row.productId) ||
-        (row.targetKind === "CATEGORY" && !row.categoryId) || (row.targetKind === "OPTION" && (!row.productId || !row.optionId)) ||
-        (row.targetKind === "PACKAGING" && !packagingProducts.some((product) => product.id === row.productId))) {
+        (row.targetKind === "CATEGORY" && !row.categoryId) || (row.targetKind === "OPTION" && (!row.productId || !row.optionId))) {
         nextScenarioErrors[scenarioRows.indexOf(row)] = "هدف و تغییر قیمت این سیاست را بررسی کنید.";
         continue;
       }
@@ -386,15 +384,14 @@ export function InventoryPricingExperiments({ catalog, onDirtyChange }: { catalo
         <label><span>طول دوره‌ی مقایسه</span><select value={experimentComparisonDays} onChange={(event) => { updateExperimentDraft({ comparisonDays: event.target.value }); setCreateComparisonError(null); }}><option value="7">۷ روز</option><option value="14">۱۴ روز</option><option value="30">۳۰ روز</option><option value="custom">سفارشی</option></select></label>
         {experimentComparisonDays === "custom" && <label><span>روزهای هر دوره</span><input type="text" inputMode="numeric" aria-invalid={!!createComparisonError} aria-describedby={createComparisonError ? "pricing-create-comparison-error" : undefined} value={experimentCustomDays} onChange={(event) => { updateExperimentDraft({ customDays: normalizeDigits(event.target.value) }); setCreateComparisonError(null); }} />{createComparisonError && <span id="pricing-create-comparison-error" className="pricing-field-error" role="alert">{createComparisonError}</span>}</label>}
         <label className="pricing-notes-field"><span>یادداشت مدیر</span><textarea name="experiment-notes" value={experimentNotes} onChange={(event) => updateExperimentDraft({ notes: event.target.value })} maxLength={1000} rows={2} /></label>
-        <div className="pricing-target-list"><div className="pricing-subheading"><h3>محصول‌ها، گزینه‌ها و هزینه‌ی بسته‌بندی</h3><button type="button" className="text-button" onClick={addTarget}>افزودن هدف</button></div>
+        <div className="pricing-target-list"><div className="pricing-subheading"><h3>محصول‌ها و گزینه‌ها</h3><button type="button" className="text-button" onClick={addTarget}>افزودن هدف</button></div>
           <label className="pricing-product-search"><span>جست‌وجوی محصول یا دسته</span><input type="search" value={targetSearch} onChange={(event) => { event.stopPropagation(); setTargetSearch(event.target.value); }} placeholder="نام محصول یا دسته‌بندی را بنویسید" /></label>
           {targetRows.map((row, index) => <div className="pricing-target-row" key={index}>
             <label><span>نوع هدف</span><select value={row.targetKind} onChange={(event) => {
               const kind = event.target.value as TargetKind;
               updateTarget(index, { targetKind: kind, productId: "", optionId: "" });
-            }}><option value="PRODUCT">محصول</option><option value="OPTION">محصول و گزینه</option><option value="PACKAGING">هزینه‌ی بسته‌بندی</option></select></label>
-            {row.targetKind === "PACKAGING" ? <label><span>قلم بسته‌بندی</span><select value={row.productId} aria-invalid={targetFieldInvalid(row, index, "product")} aria-describedby={targetErrors[index] ? `pricing-target-error-${index}` : undefined} onChange={(event) => updateTarget(index, { productId: event.target.value })} disabled={!packagingProducts.length}><option value="">انتخاب قلم بسته‌بندی</option>{matchingProducts(packagingProducts, targetSearch, row.productId).map((product) => <option key={product.id} value={product.id}>{productLabel(product)}</option>)}</select></label>
-              : <label><span>محصول هدف و دسته‌بندی آن</span><select value={row.productId} aria-invalid={targetFieldInvalid(row, index, "product")} aria-describedby={targetErrors[index] ? `pricing-target-error-${index}` : undefined} onChange={(event) => updateTarget(index, { productId: event.target.value, optionId: "" })}><option value="">انتخاب محصول</option>{matchingProducts(menuProducts, targetSearch, row.productId).map((product) => <option key={product.id} value={product.id}>{productLabel(product)}</option>)}</select></label>}
+            }}><option value="PRODUCT">محصول</option><option value="OPTION">محصول و گزینه</option></select></label>
+            <label><span>محصول هدف و دسته‌بندی آن</span><select value={row.productId} aria-invalid={targetFieldInvalid(row, index, "product")} aria-describedby={targetErrors[index] ? `pricing-target-error-${index}` : undefined} onChange={(event) => updateTarget(index, { productId: event.target.value, optionId: "" })}><option value="">انتخاب محصول</option>{matchingProducts(menuProducts, targetSearch, row.productId).map((product) => <option key={product.id} value={product.id}>{productLabel(product)}</option>)}</select></label>
             {row.targetKind === "OPTION" && <label><span>گزینه</span><select value={row.optionId} aria-invalid={targetFieldInvalid(row, index, "option")} aria-describedby={targetErrors[index] ? `pricing-target-error-${index}` : undefined} onChange={(event) => updateTarget(index, { optionId: event.target.value })}><option value="">انتخاب کنید</option>{optionsForProduct(catalog, row.productId).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>}
             <label><span>قیمت پیشین، اگر معلوم است (تومان)</span><input inputMode="numeric" aria-invalid={targetFieldInvalid(row, index, "previous")} aria-describedby={targetErrors[index] ? `pricing-target-error-${index}` : undefined} value={row.previousPriceAmount} onChange={(event) => updateTarget(index, { previousPriceAmount: event.target.value })} placeholder="خالی بگذارید تا نامشخص بماند" /></label>
             <label><span>قیمت پیشنهادی (تومان)</span><input required inputMode="numeric" aria-invalid={targetFieldInvalid(row, index, "proposed")} aria-describedby={targetErrors[index] ? `pricing-target-error-${index}` : undefined} value={row.proposedPriceAmount} onChange={(event) => updateTarget(index, { proposedPriceAmount: event.target.value })} /></label>
@@ -429,10 +426,9 @@ export function InventoryPricingExperiments({ catalog, onDirtyChange }: { catalo
         <label className="pricing-product-search"><span>جست‌وجوی محصول یا دسته</span><input type="search" value={scenarioSearch} onChange={(event) => { event.stopPropagation(); setScenarioSearch(event.target.value); }} placeholder="نام محصول یا دسته‌بندی را بنویسید" /></label>
         {scenarioRows.map((row, index) => <div className="pricing-scenario-row" key={index}>
           <label><span>نوع سیاست</span><select value={row.targetKind} onChange={(event) => updateScenarioRow(index, { targetKind: event.target.value as ScenarioKind, productId: "", optionId: "" })}>
-            <option value="PRODUCT">یک محصول</option><option value="CATEGORY">همه‌ی محصولات یک دسته</option><option value="OPTION">یک گزینه در محصول</option><option value="PACKAGING">هزینه‌ی بسته‌بندی</option>
+            <option value="PRODUCT">یک محصول</option><option value="CATEGORY">همه‌ی محصولات یک دسته</option><option value="OPTION">یک گزینه در محصول</option>
           </select></label>
           {row.targetKind === "CATEGORY" ? <label><span>دسته‌ی منبع</span><select value={row.categoryId} aria-invalid={scenarioFieldInvalid(row, index, "category")} aria-describedby={scenarioErrors[index] ? `pricing-scenario-error-${index}` : undefined} onChange={(event) => updateScenarioRow(index, { categoryId: event.target.value })}><option value="">انتخاب کنید</option>{matchingCategories(scenarioSearch, row.categoryId).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
-            : row.targetKind === "PACKAGING" ? <label><span>قلم بسته‌بندی</span><select value={row.productId} aria-invalid={scenarioFieldInvalid(row, index, "product")} aria-describedby={scenarioErrors[index] ? `pricing-scenario-error-${index}` : undefined} onChange={(event) => updateScenarioRow(index, { productId: event.target.value })} disabled={!packagingProducts.length}><option value="">انتخاب کنید</option>{matchingProducts(packagingProducts, scenarioSearch, row.productId).map((product) => <option key={product.id} value={product.id}>{productLabel(product)}</option>)}</select></label>
               : <label><span>محصول سیاست و دسته‌بندی آن</span><select value={row.productId} aria-invalid={scenarioFieldInvalid(row, index, "product")} aria-describedby={scenarioErrors[index] ? `pricing-scenario-error-${index}` : undefined} onChange={(event) => updateScenarioRow(index, { productId: event.target.value, optionId: "" })}><option value="">انتخاب محصول</option>{matchingProducts(menuProducts, scenarioSearch, row.productId).map((product) => <option key={product.id} value={product.id}>{productLabel(product)}</option>)}</select></label>}
           {row.targetKind === "OPTION" && <label><span>گزینه</span><select value={row.optionId} aria-invalid={scenarioFieldInvalid(row, index, "option")} aria-describedby={scenarioErrors[index] ? `pricing-scenario-error-${index}` : undefined} onChange={(event) => updateScenarioRow(index, { optionId: event.target.value })}><option value="">انتخاب کنید</option>{optionsForProduct(catalog, row.productId).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>}
           <label><span>تغییر قیمت هر واحد (تومان)</span><input required inputMode="numeric" aria-invalid={scenarioFieldInvalid(row, index, "adjustment")} aria-describedby={scenarioErrors[index] ? `pricing-scenario-error-${index}` : undefined} value={row.adjustmentAmount} onChange={(event) => updateScenarioRow(index, { adjustmentAmount: event.target.value })} placeholder="مثبت برای افزایش" /></label>
@@ -456,12 +452,11 @@ function PricingExperimentDashboard({ report, onExport }: { report: PricingExper
     { label: "تغییر فروش خالص", value: signed(changes.netRevenueAmount), detail: percent(changes.netRevenuePercent) },
     { label: "تغییر واحدهای مشمول", value: `${changes.affectedQuantity > 0 ? "+" : ""}${inventoryNumber(changes.affectedQuantity)} واحد`, detail: percent(changes.affectedQuantityPercent) },
     { label: "تغییر میانگین مبلغ سفارش", value: signed(changes.averageOrderValueAmount), detail: percent(changes.averageOrderValuePercent) },
-    { label: "تغییر کسری بسته‌بندی", value: signed(changes.packagingDeficitAmount), detail: percent(changes.packagingDeficitPercent) },
     { label: "تغییر پوشش هزینه‌ی ثابت", value: changes.fixedCostCoveragePercent === null ? "محاسبه نشده" : `${inventoryNumber(changes.fixedCostCoveragePercent)} واحد درصد`, detail: `پیش ${percent(period.before.fixedCostCoveragePercent)} · پس ${percent(period.after.fixedCostCoveragePercent)}` },
     { label: "تغییر حاشیه‌ی ایمنی", value: signed(changes.marginOfSafetyAmount), detail: changes.marginOfSafetyPercent === null ? "درصد محاسبه نشده" : `${inventoryNumber(changes.marginOfSafetyPercent)} واحد درصد` },
   ];
-  const primaryCards = [cards[0]!, cards[1]!, cards[2]!, cards[5]!];
-  const supplementalCards = [cards[3]!, cards[4]!, cards[6]!];
+  const primaryCards = [cards[0]!, cards[1]!, cards[2]!, cards[4]!];
+  const supplementalCards = [cards[3]!, cards[5]!];
   return <div className="pricing-experiment-dashboard">
     <div className={`pricing-assessment ${outcomeClass[data.assessment.outcome]}`}><div><span className="pricing-status-chip">{data.status === "IN_PROGRESS" ? "در حال ارزیابی" : data.status === "READY" ? "داده‌ها آماده‌اند" : "نیازمند داده‌ی بیشتر"}</span><h2>{outcomeLabels[data.assessment.outcome]}</h2><p>{data.assessment.summaryFa}</p></div><button type="button" className="secondary-button" onClick={onExport}>دریافت گزارش CSV</button></div>
     {data.assessment.outcome === "INCONCLUSIVE" && <section className="pricing-readiness" aria-label="داده‌های لازم برای نتیجه‌ی روشن‌تر">
@@ -477,7 +472,7 @@ function PricingExperimentDashboard({ report, onExport }: { report: PricingExper
     {!period.weekdayCompositionMatched && <p className="pricing-alert" role="status">ترکیب روزهای هفته میان دو نمونه برابر نیست؛ در بازه‌های کوتاه ممکن است روز همتا وجود نداشته باشد. این تفاوت را هنگام مقایسه در نظر بگیرید.</p>}
     <section className="pricing-kpis" aria-label="شاخص‌های اصلی آزمایش">{primaryCards.map((card) => <article className="manager-card pricing-kpi" key={card.label}><h3>{card.label}</h3><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
     <details className="pricing-secondary-kpis">
-      <summary>میانگین سفارش، بسته‌بندی و حاشیه‌ی ایمنی</summary>
+      <summary>میانگین سفارش و حاشیه‌ی ایمنی</summary>
       <section className="pricing-kpis" aria-label="شاخص‌های تکمیلی آزمایش">{supplementalCards.map((card) => <article className="manager-card pricing-kpi" key={card.label}><h3>{card.label}</h3><strong>{card.value}</strong><small>{card.detail}</small></article>)}</section>
     </details>
 
@@ -523,14 +518,6 @@ function PricingExperimentDashboard({ report, onExport }: { report: PricingExper
       <div className="pricing-category-grid">{data.categories.map((row) => <article className="manager-card" key={row.categoryId ?? "unknown"}><h3>{row.categoryName}{row.affected ? " · دارای محصول مشمول" : " · گروه مقایسه"}</h3><p>سهم فروش: {percent(row.revenueShareBeforePercent)} ← {percent(row.revenueShareAfterPercent)}</p><p>درآمد: {money(row.netRevenueBeforeAmount)} ← {money(row.netRevenueAfterAmount)}</p><p>مشارکت: {money(row.contributionBeforeAmount)} ← {money(row.contributionAfterAmount)}</p></article>)}</div>
     </section>
 
-    <section className="pricing-section"><header><h2>هزینه و بازیافت بسته‌بندی</h2><p>محاسبه‌ی بسته‌بندی از گزارش مرحله‌ی نخست می‌آید؛ هزینه‌ی مواد دوباره به بهای کل افزوده نشده است.</p></header>
-      <div className="pricing-period-grid">{(["before", "after"] as const).map((key) => { const row = period[key]; return <article className="manager-card pricing-period-card" key={key}><h3>{key === "before" ? "پیش از تغییر" : "پس از تغییر"}</h3><dl>
-        <div><dt>دریافت بسته‌بندی</dt><dd>{money(row.packagingChargeRevenueAmount)}</dd></div><div><dt>هزینه‌ی معلوم مواد</dt><dd>{money(row.packagingMaterialCostAmount)}</dd></div>
-        <div><dt>کسری بسته‌بندی</dt><dd>{money(row.packagingDeficitAmount)}</dd></div><div><dt>نرخ بازیافت</dt><dd>{percent(row.packagingRecoveryRatePercent)}</dd></div>
-        <div><dt>پوشش انتساب هزینه‌ی بسته‌بندی</dt><dd>{percent(row.packagingCostCoveragePercent)}</dd></div><div><dt>ترکیب سفارش بیرون‌بر</dt><dd>{percent(row.takeawayMixPercent)}</dd></div>
-      </dl><p className="pricing-note">کسری مثبت یعنی هزینه‌ی معلوم مواد از مبلغ دریافت‌شده بیشتر بوده است. هزینه‌ی صفر یا انتساب ناقص، نرخ بازیافت را نامشخص می‌کند.</p></article>; })}</div>
-    </section>
-
     <section className="pricing-section"><header><h2>تجزیه‌ی تغییر مشارکت</h2><p>{data.decomposition.method}</p></header>
       <div className="pricing-effects">{[["اثر تحقق قیمت", data.decomposition.priceEffectAmount], ["اثر حجم کل", data.decomposition.volumeEffectAmount], ["اثر ترکیب", data.decomposition.mixEffectAmount], ["اثر هزینه‌ی واحد", data.decomposition.unitCostEffectAmount]].map(([label, value]) => <article className="manager-card" key={String(label)}><h3>{label}</h3><strong>{signed(value as number | null)}</strong></article>)}</div>
       <p className="pricing-note">تغییر مشارکت مشاهده‌شده: {signed(data.decomposition.observedContributionChangeAmount)} · باقی‌مانده: {signed(data.decomposition.residualAmount)} · {data.decomposition.reconciles ? "اجزا با جمع مشاهده‌شده سازگارند." : "به‌دلیل هزینه یا انتساب ناقص، تجزیه‌ی کامل در دسترس نیست."}</p>
@@ -559,7 +546,7 @@ function ScenarioResults({ scenario }: { scenario: PricingScenarioReport }) {
   return <section className="pricing-scenario-results" aria-live="polite"><header><h3>نتیجه‌ی سناریوی فرضی</h3><p>قیمت‌های جدید روی منو ذخیره نشده‌اند.</p></header>
     <div className="pricing-period-grid"><article className="manager-card"><h4>داده‌ی مبنا</h4><p>فروش: {money(scenario.data.source.netRevenueAmount)}</p><p>مشارکت: {money(scenario.data.source.contributionAmount)}</p><p>پوشش هزینه‌ی ثابت: {percent(scenario.data.source.fixedCostCoveragePercent)}</p></article>
       <article className="manager-card"><h4>سیاست‌های اعمال‌شده</h4>{scenario.data.rules.map((rule, index) => <p key={`${rule.label}:${index}`}>{rule.label}: {money(rule.currentPriceAmount)} ← {money(rule.proposedPriceAmount)} · {inventoryNumber(rule.affectedItemUnits)} واحد</p>)}</article></div>
-    <div className="inventory-table-wrap" role="region" aria-label="حساسیت حجم برای شبیه‌سازی قیمت" tabIndex={0}><table className="inventory-table"><thead><tr><th>تغییر حجم مشمول</th><th>درآمد فرضی</th><th>مشارکت فرضی</th><th>کسری بسته‌بندی</th><th>مشارکت معادل ماهانه</th><th>پوشش هزینه‌ی ثابت</th><th>مازاد/کسری</th><th>افت سربه‌سر</th></tr></thead><tbody>{scenario.data.scenarios.map((row) => <tr key={row.volumeChangePercent}><th>{inventoryNumber(row.volumeChangePercent)}٪</th><td>{money(row.netRevenueAmount)}</td><td>{money(row.contributionAmount)}</td><td>{money(row.packagingDeficitAmount)}</td><td>{money(row.monthlyEquivalentContributionAmount)}</td><td>{percent(row.fixedCostCoveragePercent)}</td><td>{money(row.operatingSurplusAmount)}</td><td>{percent(row.breakEvenVolumeDeclinePercent)}</td></tr>)}</tbody></table></div>
+    <div className="inventory-table-wrap" role="region" aria-label="حساسیت حجم برای شبیه‌سازی قیمت" tabIndex={0}><table className="inventory-table"><thead><tr><th>تغییر حجم مشمول</th><th>درآمد فرضی</th><th>مشارکت فرضی</th><th>مشارکت معادل ماهانه</th><th>پوشش هزینه‌ی ثابت</th><th>مازاد/کسری</th><th>افت سربه‌سر</th></tr></thead><tbody>{scenario.data.scenarios.map((row) => <tr key={row.volumeChangePercent}><th>{inventoryNumber(row.volumeChangePercent)}٪</th><td>{money(row.netRevenueAmount)}</td><td>{money(row.contributionAmount)}</td><td>{money(row.monthlyEquivalentContributionAmount)}</td><td>{percent(row.fixedCostCoveragePercent)}</td><td>{money(row.operatingSurplusAmount)}</td><td>{percent(row.breakEvenVolumeDeclinePercent)}</td></tr>)}</tbody></table></div>
     <ul className="pricing-quality-list">{scenario.data.assumptions.map((assumption) => <li className="is-info" key={assumption}><span>{assumption}</span></li>)}</ul>
   </section>;
 }
