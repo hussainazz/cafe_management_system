@@ -1,59 +1,33 @@
 "use client";
 
-import { roundDiscountedAmount, type PosCatalogCategory, type PosCatalogProduct } from "@cafe/contracts";
+import { roundDiscountedAmount } from "@cafe/contracts";
 import { useEffect, useState, type FormEvent } from "react";
 import {
-  createStaffConsumption,
+  createPersonnelProfile,
   deleteOpenOrder,
   discountStaffConsumption,
-  readPosCatalog,
+  readPersonnelProfiles,
   readStaffConsumption,
+  type PosPersonnelProfile,
   type StaffConsumptionEntry,
 } from "../lib/api-client";
-import { formatOrderNumber, formatToman, positiveIntegerAmount, sumAmounts, weightedPricePreview } from "../lib/pos-utils";
+import { formatOrderNumber, formatToman, positiveIntegerAmount } from "../lib/pos-utils";
 import { MenuIcon } from "./icons";
-import { ProductPicker } from "./product-picker";
 
-type Option = PosCatalogProduct["optionGroups"][number]["options"][number];
-type Draft = { key: string; product: PosCatalogProduct; options: Option[]; weightGrams: number | undefined; quantity: number };
 type DiscountKind = "FIXED" | "PERCENTAGE";
-const newKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
-const productConfigurationKey = (productId: string, options: Option[], weightGrams?: number) =>
-  `${productId}:${options.map((option) => option.id).sort().join(",")}:${weightGrams ?? ""}`;
 
-function draftLineAmount(item: Draft): number {
-  const optionAmount = sumAmounts(item.options.map((option) => option.priceAmount));
-  const weighted = item.product.pricingMode === "WEIGHTED_PER_KG";
-  const baseAmount = weighted
-    ? weightedPricePreview(item.product.priceAmount, 0, item.weightGrams ?? 0, item.quantity)
-    : item.product.priceAmount * item.quantity;
-  const grossAmount = weighted
-    ? baseAmount + weightedPricePreview(0, optionAmount, item.weightGrams ?? 0, item.quantity)
-    : baseAmount + optionAmount * item.quantity;
-  const saleDiscountAmount = !item.product.saleDiscountKind || !item.product.saleDiscountValue
-    ? 0
-    : item.product.saleDiscountKind === "PERCENTAGE"
-      ? Math.floor(baseAmount * item.product.saleDiscountValue / 100)
-      : weighted
-        ? Math.floor(item.product.saleDiscountValue * (item.weightGrams ?? 0) * item.quantity / 1000)
-        : item.product.saleDiscountValue * item.quantity;
-  return saleDiscountAmount > 0
-    ? Math.min(grossAmount, roundDiscountedAmount(Math.max(0, grossAmount - saleDiscountAmount)))
-    : grossAmount;
-}
-
-export function StaffConsumption({ role, onOpenMenu, menuOpen = false }: {
+export function StaffConsumption({ role, onOpenMenu, onStartOrder, menuOpen = false }: {
   role: "STAFF" | "CASHIER" | "MANAGER" | "DEVELOPER";
   onOpenMenu: () => void;
+  onStartOrder: (profile: PosPersonnelProfile) => void;
   menuOpen?: boolean;
 }) {
-  const [catalog, setCatalog] = useState<PosCatalogCategory[]>([]);
+  const [profiles, setProfiles] = useState<PosPersonnelProfile[]>([]);
   const [entries, setEntries] = useState<StaffConsumptionEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [key, setKey] = useState(newKey);
-  const [staffName, setStaffName] = useState("");
+  const [profileName, setProfileName] = useState("");
+  const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -67,9 +41,12 @@ export function StaffConsumption({ role, onOpenMenu, menuOpen = false }: {
     setError(null);
     setListError(null);
     try {
-      const [products, list] = await Promise.all([readPosCatalog(), readStaffConsumption()]);
-      if (!products.ok) { setError(products.error.message); setListError(products.error.message); }
-      else setCatalog(products.data);
+      const [people, list] = await Promise.all([readPersonnelProfiles(), readStaffConsumption()]);
+      if (!people.ok) setError(people.error.message);
+      else {
+        setProfiles(people.data);
+        setSelectedProfileId((current) => people.data.some((profile) => profile.id === current) ? current : "");
+      }
       if (!list.ok) { setError(list.error.message); setListError(list.error.message); }
       else { setEntries(list.data.data); setCursor(list.data.meta.nextCursor); }
     } finally {
@@ -78,46 +55,20 @@ export function StaffConsumption({ role, onOpenMenu, menuOpen = false }: {
   };
   useEffect(() => { void load(); }, []);
 
-  const addDraft = (product: PosCatalogProduct, options: Option[], weightGrams?: number) => {
-    const itemKey = productConfigurationKey(product.id, options, weightGrams);
-    setDraft((current) => {
-      const found = current.find((item) => item.key === itemKey);
-      return found
-        ? current.map((item) => item.key === itemKey ? { ...item, quantity: item.quantity + 1 } : item)
-        : [...current, { key: itemKey, product, options, weightGrams, quantity: 1 }];
-    });
-    setKey(newKey());
-  };
-  const changeDraftQuantity = (itemKey: string, delta: number) => {
-    setDraft((current) => current.flatMap((item) => {
-      if (item.key !== itemKey) return [item];
-      const quantity = item.quantity + delta;
-      return quantity > 0 ? [{ ...item, quantity }] : [];
-    }));
-    setKey(newKey());
-  };
-  const create = async (event: FormEvent) => {
+  const createProfile = async (event: FormEvent) => {
     event.preventDefault();
-    if (!draft.length || busy) return;
-    setBusy(true);
+    const name = profileName.trim();
+    if (!name || profileBusy) return;
+    setProfileBusy(true);
     setError(null);
-    const result = await createStaffConsumption({
-      channel: "TAKEAWAY",
-      items: draft.map((item) => ({
-        productId: item.product.id,
-        quantity: item.quantity,
-        ...(item.weightGrams ? { weightGrams: item.weightGrams } : {}),
-        options: item.options.map((option) => ({ optionId: option.id, quantity: item.product.pricingMode === "FIXED" ? item.quantity : 1 })),
-      })),
-    }, key, staffName.trim() || undefined);
+    const result = await createPersonnelProfile(name);
     if (!result.ok) setError(result.error.message);
     else {
-      setDraft([]);
-      setKey(newKey());
-      setStaffName("");
-      await load();
+      setProfiles((current) => [...current, result.data].sort((left, right) => left.name.localeCompare(right.name, "fa")));
+      setSelectedProfileId(result.data.id);
+      setProfileName("");
     }
-    setBusy(false);
+    setProfileBusy(false);
   };
   const applyDiscount = async (entry: StaffConsumptionEntry, kind: DiscountKind, value: string) => {
     const amount = positiveIntegerAmount(value);
@@ -156,8 +107,6 @@ export function StaffConsumption({ role, onOpenMenu, menuOpen = false }: {
     } else { setError(result.error.message); setListError(result.error.message); }
     setLoadingMore(false);
   };
-  const total = sumAmounts(draft.map(draftLineAmount));
-
   return <section className="pos-workspace staff-consumption-workspace" dir="rtl">
     <header className="workspace-header staff-consumption-header">
       <h1>حساب پرسنل</h1>
@@ -165,38 +114,25 @@ export function StaffConsumption({ role, onOpenMenu, menuOpen = false }: {
     </header>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="staff-consumption-layout">
-    <form className="staff-consumption-form" onSubmit={(event) => void create(event)}>
-      <h2>ثبت سفارش پرسنل</h2>
-      <p>سفارش با حساب کاربری شما ثبت می‌شود. نام زیر فقط شخص آغازکننده را مشخص می‌کند.</p>
-      <label htmlFor="staff-consumption-initiator">نام شخص آغازکننده (اختیاری)</label>
-      <input id="staff-consumption-initiator" name="staffName" value={staffName} maxLength={120} onChange={(event) => setStaffName(event.target.value)} placeholder="نام شخصی که سفارش را آغاز کرده است" />
-      {loading && catalog.length === 0
-        ? <p role="status">در حال دریافت فهرست کالاها…</p>
-        : catalog.map((category) => <section key={category.id}>
-          <h3>{category.name}</h3>
-          <div className="product-grid">{category.products.map((product) => {
-            const quantityFor = (selected: PosCatalogProduct, options: Option[], weightGrams?: number) =>
-              draft.find((item) => item.key === productConfigurationKey(selected.id, options, weightGrams))?.quantity ?? 0;
-            const decrease = (selected: PosCatalogProduct, options: Option[], weightGrams?: number) =>
-              changeDraftQuantity(productConfigurationKey(selected.id, options, weightGrams), -1);
-            return <ProductPicker key={product.id} card={{ key: product.id, name: product.name, products: [product] }} expanded={expanded === product.id} onOpen={() => setExpanded(product.id)} onClose={() => setExpanded(null)} getQuantity={quantityFor} onDecrease={decrease} onSelectOptions={addDraft} />;
-          })}</div>
-        </section>)}
-      {draft.length > 0 && <section className="staff-draft" aria-labelledby="staff-draft-title">
-        <h3 id="staff-draft-title">مرور سفارش</h3>
-        <ul className="staff-draft__list">{draft.map((item) => <li className="staff-draft__item" key={item.key}>
-          <div className="staff-draft__details"><strong>{item.product.name}{item.weightGrams ? ` · ${item.weightGrams.toLocaleString("fa-IR")} گرم` : ""}</strong>{item.options.length > 0 && <small>{item.options.map((option) => option.name).join("، ")}</small>}</div>
-          <div className="quantity" role="group" aria-label={`تعداد ${item.product.name}`}>
-            <button type="button" aria-label={`کم کردن ${item.product.name}`} disabled={busy} onClick={() => changeDraftQuantity(item.key, -1)}>−</button>
-            <output aria-live="polite">{item.quantity.toLocaleString("fa-IR")}</output>
-            <button type="button" aria-label={`زیاد کردن ${item.product.name}`} disabled={busy} onClick={() => changeDraftQuantity(item.key, 1)}>+</button>
-          </div>
-          <strong>{formatToman(draftLineAmount(item))} تومان</strong>
-        </li>)}</ul>
-        <div className="staff-draft__total"><span>جمع سفارش پیش از تخفیف نهایی</span><strong>{formatToman(total)} تومان</strong></div>
-      </section>}
-      <button className="button button--primary" type="submit" disabled={busy || loading || !draft.length}>{busy ? "در حال ثبت سفارش…" : "ثبت سفارش پرسنل"}</button>
-    </form>
+    <section className="staff-profile-section manager-card" aria-labelledby="staff-profiles-title">
+      <h2 id="staff-profiles-title">پروفایل پرسنل</h2>
+      <p>برای هر شخص یک نام ثبت کنید تا سفارش‌ها به همان پروفایل نسبت داده شوند.</p>
+      <form className="staff-profile-create" onSubmit={(event) => void createProfile(event)}>
+        <label htmlFor="staff-profile-name">نام پرسنل</label>
+        <input id="staff-profile-name" name="name" value={profileName} maxLength={120} onChange={(event) => setProfileName(event.target.value)} placeholder="نام پرسنل" autoComplete="off" />
+        <button className="button button--quiet" type="submit" disabled={profileBusy || !profileName.trim()}>{profileBusy ? "در حال ثبت…" : "ایجاد پروفایل"}</button>
+      </form>
+      <label htmlFor="staff-profile-select">ثبت سفارش برای</label>
+      <select id="staff-profile-select" value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} disabled={loading || profiles.length === 0}>
+        {profiles.length === 0 ? <option value="">ابتدا یک پروفایل بسازید</option> : <><option value="">انتخاب پرسنل</option>{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</>}
+      </select>
+      <button className="button button--primary" type="button" disabled={!selectedProfileId || loading || busy} onClick={() => {
+        const profile = profiles.find((candidate) => candidate.id === selectedProfileId);
+        if (profile) onStartOrder(profile);
+      }}>افزودن سفارش برای پرسنل</button>
+      {loading && profiles.length === 0 && <p role="status">در حال دریافت پروفایل‌ها…</p>}
+      {!loading && profiles.length === 0 && <p>هنوز پروفایلی ثبت نشده است.</p>}
+    </section>
     <section className="staff-consumption-orders" aria-labelledby="staff-orders-title">
     <h2 id="staff-orders-title">سفارش‌های پرسنل</h2>
     {loading && <p role="status">در حال دریافت سفارش‌های پرسنل…</p>}
