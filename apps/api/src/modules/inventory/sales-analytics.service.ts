@@ -2,7 +2,7 @@ import type { SalesAnalyticsQuery } from "@cafe/contracts";
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import { tehranReportRange } from "../admin/daily-report.service.js";
-import { activeRevenue, buildPackagingEconomics, hasCompleteCostSnapshot, loadRecognizedConsumptions, packagingOptions, packagingVariantKey, recognizedContribution } from "./gross-profit.service.js";
+import { activeRevenue, hasCompleteCostSnapshot, loadRecognizedConsumptions, saleOptions, salesVariantKey, recognizedContribution } from "./gross-profit.service.js";
 import { isEligibleSettledOrder, salesChannel } from "./sales-report-eligibility.js";
 
 const MAX_AMOUNT = 2_147_483_647n;
@@ -52,9 +52,9 @@ function average(amount: bigint, count: number): number | null {
 }
 
 type Selection = { productIds: Set<string> | null; categoryIds: Set<string> | null; optionIds: Set<string>; channel?: "TABLE" | "TAKEAWAY" };
-function matchesItem(item: any, channel: "TABLE" | "TAKEAWAY" | "UNKNOWN", selection: Selection, includePackaging = false) {
+function matchesItem(item: any, channel: "TABLE" | "TAKEAWAY" | "UNKNOWN", selection: Selection) {
   const row = item.orderItem ?? item;
-  if (row.product?.systemKey === "PACKING" && (!includePackaging || selection.productIds || selection.categoryIds || selection.optionIds.size)) return false;
+  if (row.product?.systemKey === "PACKING" && (selection.productIds || selection.categoryIds || selection.optionIds.size)) return false;
   if (selection.productIds && !selection.productIds.has(row.productId)) return false;
   if (selection.categoryIds && !selection.categoryIds.has(row.product?.categoryId ?? "")) return false;
   if (selection.optionIds.size) {
@@ -66,7 +66,7 @@ function matchesItem(item: any, channel: "TABLE" | "TAKEAWAY" | "UNKNOWN", selec
 }
 
 function itemOptions(item: any) {
-  return packagingOptions(item);
+  return saleOptions(item);
 }
 
 type DemandAccumulator = {
@@ -95,9 +95,6 @@ type ProductFinancialAccumulator = {
   channel: "TABLE" | "TAKEAWAY" | "UNKNOWN"; options: ReturnType<typeof itemOptions>;
   quantity: number; orderIds: Set<string>; sales: bigint; knownCogs: bigint; completeRevenue: bigint;
   incompleteRevenue: bigint; knownContribution: bigint; totalCogs: bigint; isCostComplete: boolean;
-  packagingChargeRevenue: bigint; packagingKnownMaterialCost: bigint;
-  contributionBeforePackaging: bigint; combinedContributionAfterPackaging: bigint;
-  contributionAvailable: boolean; packagingCostAttributionComplete: boolean; packagingChargeAttributionComplete: boolean;
 };
 
 function makeOverview(acc: FinancialAccumulator) {
@@ -215,7 +212,7 @@ export async function salesAnalyticsReport(prisma: PrismaClient, query: SalesAna
   for (const order of orders) {
     const channel = salesChannel(order);
     if (!isEligibleSettledOrder(order)) continue;
-    const matchingItems = order.items.filter((item) => matchesItem(item, channel, selection, true));
+    const matchingItems = order.items.filter((item) => matchesItem(item, channel, selection));
     if (!matchingItems.length) continue;
     const orderClock = clockAt(order.createdAt, interval);
     const orderInRange = order.createdAt >= range.from && order.createdAt < range.to;
@@ -239,7 +236,7 @@ export async function salesAnalyticsReport(prisma: PrismaClient, query: SalesAna
 
       if (item.product.systemKey === "PACKING") continue;
       const options = itemOptions(item);
-      const variantKey = packagingVariantKey(item.productId, channel === "UNKNOWN" ? "TAKEAWAY" : channel, options);
+      const variantKey = salesVariantKey(item.productId, channel === "UNKNOWN" ? "TAKEAWAY" : channel, options);
       const key = `${periodKey(entryClock)}|${variantKey}`;
       const row = demandSeries.get(key) ?? {
         clock: entryClock, productId: item.productId, productName: item.product.name,
@@ -259,12 +256,11 @@ export async function salesAnalyticsReport(prisma: PrismaClient, query: SalesAna
     if (weekdays && !weekdays.has(recognizedClock.dayOfWeek)) continue;
     const bucket = financialBuckets.get(clockKey(recognizedClock))!;
     const channel = consumption.order.inventorySaleChannel ?? consumption.order.channel;
-    const groups = new Map<string, { row: ProductFinancialAccumulator; revenue: bigint; cogs: bigint; complete: boolean }>();
     let hasMatchedItem = false;
 
     for (const item of consumption.items) {
       const itemChannel = ((item.costSnapshot as any)?.orderChannel ?? channel) as "TABLE" | "TAKEAWAY";
-      const matched = matchesItem(item, itemChannel, selection, true);
+      const matched = matchesItem(item, itemChannel, selection);
       if (!matched) continue;
       hasMatchedItem = true;
       const revenue = activeRevenue(item.orderItem.settlementAllocations);
@@ -285,7 +281,7 @@ export async function salesAnalyticsReport(prisma: PrismaClient, query: SalesAna
 
       if (item.orderItem.product.systemKey === "PACKING") continue;
       const options = itemOptions(item);
-      const seriesVariant = packagingVariantKey(item.orderItem.productId, itemChannel, options);
+      const seriesVariant = salesVariantKey(item.orderItem.productId, itemChannel, options);
       const key = `${periodKey(recognizedClock)}|${seriesVariant}`;
       const row = financialSeries.get(key) ?? {
         clock: recognizedClock, productId: item.orderItem.productId,
@@ -294,10 +290,7 @@ export async function salesAnalyticsReport(prisma: PrismaClient, query: SalesAna
         categoryName: item.orderItem.product.category?.name ?? null,
         channel: itemChannel, options, quantity: 0, orderIds: new Set<string>(), sales: 0n,
         knownCogs: 0n, completeRevenue: 0n, incompleteRevenue: 0n, knownContribution: 0n,
-        totalCogs: 0n, isCostComplete: true, packagingChargeRevenue: 0n,
-        packagingKnownMaterialCost: 0n, contributionBeforePackaging: 0n,
-        combinedContributionAfterPackaging: 0n, contributionAvailable: true,
-        packagingCostAttributionComplete: true, packagingChargeAttributionComplete: true,
+        totalCogs: 0n, isCostComplete: true,
       };
       row.quantity += item.quantity;
       row.orderIds.add(consumption.orderId);
@@ -312,43 +305,12 @@ export async function salesAnalyticsReport(prisma: PrismaClient, query: SalesAna
         row.incompleteRevenue += revenue;
       }
       financialSeries.set(key, row);
-      groups.set(seriesVariant, { row, revenue: (groups.get(seriesVariant)?.revenue ?? 0n) + revenue,
-        cogs: (groups.get(seriesVariant)?.cogs ?? 0n) + cogs,
-        complete: (groups.get(seriesVariant)?.complete ?? true) && complete });
     }
 
     if (!hasMatchedItem) continue;
     if (!bucket.orderIds.has(consumption.orderId)) {
       bucket.orderIds.add(consumption.orderId);
       bucket.orderTotal += BigInt(consumption.order.totalAmount);
-    }
-
-    if (groups.size) {
-      const localDate = recognizedClock.date;
-      const packaging = buildPackagingEconomics([consumption], localDate, localDate);
-      const packageRows = new Map(packaging.products.map((row: any) => [packagingVariantKey(row.productId, row.channel, row.options), row]));
-      const unattributedCharge = packaging.totals.unattributedOrderLevelChargeRevenueAmount > 0;
-      for (const [variant, group] of groups) {
-        const packageRow = packageRows.get(variant) as any;
-        if (packageRow) {
-          group.row.packagingChargeRevenue += BigInt(packageRow.packagingChargeRevenueAmount);
-          group.row.packagingKnownMaterialCost += BigInt(packageRow.packagingKnownCostAmount);
-          group.row.packagingCostAttributionComplete &&= packageRow.isPackagingAttributionComplete;
-          if (packageRow.productContributionBeforePackagingAmount === null || packageRow.combinedContributionAfterPackagingAmount === null) {
-            group.row.contributionAvailable = false;
-          } else {
-            group.row.contributionBeforePackaging += BigInt(packageRow.productContributionBeforePackagingAmount);
-            group.row.combinedContributionAfterPackaging += BigInt(packageRow.combinedContributionAfterPackagingAmount);
-          }
-        } else if (group.complete) {
-          const contribution = recognizedContribution(group.revenue, group.cogs);
-          group.row.contributionBeforePackaging += contribution;
-          group.row.combinedContributionAfterPackaging += contribution;
-        } else {
-          group.row.contributionAvailable = false;
-        }
-        if (unattributedCharge) group.row.packagingChargeAttributionComplete = false;
-      }
     }
 
     for (const item of consumption.items) {
@@ -436,12 +398,6 @@ export async function salesAnalyticsReport(prisma: PrismaClient, query: SalesAna
     totalContributionMarginPercent: row.isCostComplete ? percent(recognizedContribution(row.sales, row.totalCogs), row.sales) : null,
     costCoveragePercent: row.sales === 0n ? null : percent(row.completeRevenue, row.sales),
     isCostComplete: row.isCostComplete,
-    packagingChargeRevenueAmount: checkedAmount(row.packagingChargeRevenue),
-    packagingKnownMaterialCostAmount: checkedAmount(row.packagingKnownMaterialCost),
-    contributionBeforePackagingAmount: row.contributionAvailable && row.isCostComplete && row.packagingCostAttributionComplete ? checkedAmount(row.contributionBeforePackaging, true) : null,
-    combinedContributionAfterPackagingAmount: row.contributionAvailable && row.isCostComplete && row.packagingCostAttributionComplete && row.packagingChargeAttributionComplete ? checkedAmount(row.combinedContributionAfterPackaging, true) : null,
-    packagingChargeAttributionComplete: row.packagingChargeAttributionComplete,
-    packagingCostAttributionComplete: row.packagingCostAttributionComplete,
   }));
 
   const productIdsInSeries = new Map<string, { productName: string; quantity: number; orderIds: Set<string>; volumeByClock: Map<string, { clock: Clock; quantity: number }>; weekday: Map<number, { quantity: number; orderIds: Set<string> }>; channel: Map<string, { quantity: number; sales: bigint; orderIds: Set<string> }> }>();
