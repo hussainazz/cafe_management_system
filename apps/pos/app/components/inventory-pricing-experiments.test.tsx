@@ -37,7 +37,7 @@ beforeEach(() => {
   vi.mocked(api.simulatePricingScenario).mockResolvedValue(ok({ data: {
     source: { netRevenueAmount: 0, contributionAmount: null, fixedCostCoveragePercent: null },
     rules: [{ targetKind: "PRODUCT", label: "قهوه", currentPriceAmount: 20_000, proposedPriceAmount: 21_000, affectedItemUnits: 0 }],
-    scenarios: [{ volumeChangePercent: "0.00", netRevenueAmount: 0, contributionAmount: null, packagingDeficitAmount: null,
+    scenarios: [{ volumeChangePercent: "0.00", netRevenueAmount: 0, contributionAmount: null,
       monthlyEquivalentContributionAmount: null, fixedCostCoveragePercent: null, operatingSurplusAmount: null, breakEvenVolumeDeclinePercent: null, costsComplete: false }],
     assumptions: ["قیمت‌های منو تغییر نکرده‌اند."],
   }, meta: { requestId: "test" } }) as never);
@@ -99,26 +99,6 @@ describe("Developer pricing experiment workflow", () => {
     expect(download).toHaveBeenCalledOnce();
     expect(createObjectURL).toHaveBeenCalledOnce();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:pricing-test");
-  });
-
-  it("submits the selected category-specific packaging product for experiments and simulations", async () => {
-    const packA = "44444444-4444-4444-8444-444444444444", packB = "55555555-5555-4555-8555-555555555555";
-    const catalog = { categories: [{ id: "a", name: "نوشیدنی", kind: "SOURCE", archivedAt: null }, { id: "b", name: "خوراک", kind: "SOURCE", archivedAt: null }], optionGroups: [], tables: [],
-      products: [{ id: productId, name: "قهوه", categoryId: "a", systemKey: null, archivedAt: null, optionGroups: [] },
-        { id: packA, name: "بسته‌بندی", categoryId: "a", systemKey: "PACKING", archivedAt: null }, { id: packB, name: "بسته‌بندی", categoryId: "b", systemKey: "PACKING", archivedAt: null }] } as never;
-    render(<InventoryPricingExperiments catalog={catalog} />);
-    await screen.findByText("آزمایش قیمت‌گذاری");
-    fireEvent.change(screen.getByLabelText("نوع هدف"), { target: { value: "PACKAGING" } });
-    fireEvent.change(screen.getByLabelText("قلم بسته‌بندی"), { target: { value: packB } });
-    fireEvent.change(screen.getByLabelText("نام آزمایش"), { target: { value: "بسته‌بندی خوراک" } });
-    fireEvent.change(screen.getByLabelText("قیمت پیشنهادی (تومان)"), { target: { value: "20000" } });
-    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی اطلاعات آزمایش" }));
-    await waitFor(() => expect(api.createPricingExperiment).toHaveBeenCalledWith(expect.objectContaining({ targets: [expect.objectContaining({ targetKind: "PACKAGING", productId: packB })] })));
-    fireEvent.change(screen.getByLabelText("نوع سیاست"), { target: { value: "PACKAGING" } });
-    fireEvent.change(screen.getAllByLabelText("قلم بسته‌بندی").at(-1)!, { target: { value: packB } });
-    fireEvent.change(screen.getByLabelText("تغییر قیمت هر واحد (تومان)"), { target: { value: "1000" } });
-    fireEvent.click(screen.getByRole("button", { name: "محاسبه‌ی سناریو" }));
-    await waitFor(() => expect(api.simulatePricingScenario).toHaveBeenCalledWith(expect.objectContaining({ rules: [{ targetKind: "PACKAGING", productId: packB, adjustmentAmount: 1_000 }] })));
   });
 
   it("creates analysis metadata and runs a hypothetical scenario without catalog price writes", async () => {
