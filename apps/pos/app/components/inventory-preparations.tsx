@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { saveInventoryRecipe, type ApiResult, type InventoryRecipe, type InventoryStockItem } from "../lib/api-client";
+import { InventoryEmptyState } from "./inventory-onboarding";
 
 type Unit = "PIECE" | "GRAM" | "MILLILITER";
 const units: Record<Unit, string> = { PIECE: "عدد", GRAM: "گرم", MILLILITER: "میلی‌لیتر" };
 type Component = { key: string; kind: "STOCK_ITEM" | "RECIPE"; id: string; quantity: string };
 const emptyComponent = (): Component => ({ key: crypto.randomUUID(), kind: "STOCK_ITEM", id: "", quantity: "1" });
 
-export function InventoryPreparations({ items, recipes, mutate, onDirtyChange }: {
+export function InventoryPreparations({ onOpenStock, items, recipes, mutate, onDirtyChange }: {
+  onOpenStock: () => void;
   items: InventoryStockItem[]; recipes: InventoryRecipe[];
   mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>;
   onDirtyChange: (dirty: boolean) => void;
@@ -48,17 +50,21 @@ export function InventoryPreparations({ items, recipes, mutate, onDirtyChange }:
     } catch { setError("دستور مشترک ذخیره نشد. اتصال را بررسی کنید."); }
     finally { setSaving(false); }
   };
-  return <section className="manager-card">
+  return <section className="manager-card inventory-preparations">
     <header><h2>دستورهای مشترک</h2><p>مواد ترکیبی را یک بار تعریف کنید و در محصولات دیگر به کار ببرید. برای نمونه، «کوکی بیرون‌بر» شامل دستور «کوکی» و یک بسته‌بندی است.</p></header>
     <div className="inventory-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => load(null)}>دستور مشترک جدید</button>
       <label><span>ویرایش دستور مشترک</span><select value={editing?.id ?? ""} disabled={saving} onChange={(event) => load(recipes.find((recipe) => recipe.id === event.target.value) ?? null)}><option value="">دستور جدید</option>{recipes.filter((recipe) => recipe.isActive && !recipe.archivedAt).map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></label>
     </div>
     {error && <p role="alert" className="form-error">{error}</p>}
+    {!items.some((item) => item.isActive && !item.archivedAt) && !recipes.some((recipe) => recipe.isActive && !recipe.archivedAt) && <InventoryEmptyState title="مواد اولین دستور را تعریف کنید" detail="مواد اولیه را در اقلام موجودی ثبت کنید؛ سپس به این صفحه برگردید و ترکیب آن‌ها را بسازید." action="تعریف مواد اولیه" onAction={onOpenStock} />}
+    {!recipes.some((recipe) => recipe.isActive && !recipe.archivedAt) && items.some((item) => item.isActive && !item.archivedAt) && <p className="inventory-note">هنوز دستور مشترکی ندارید. اولین ترکیب را در فرم زیر بسازید؛ سپس می‌توانید آن را در چند محصول استفاده کنید.</p>}
     <form className="manager-form" onSubmit={(event) => void submit(event)} onChangeCapture={() => setDirty(true)}>
       <fieldset disabled={saving} className="inventory-option-recipe"><legend>اجزای دستور مشترک</legend>
+        <div className="manager-fields inventory-preparation-output">
         <label><span>نام دستور مشترک</span><input required maxLength={160} value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً کوکی بیرون‌بر" /></label>
         <label><span>واحد خروجی دستور</span><select value={unit} onChange={(event) => setUnit(event.target.value as Unit)}>{Object.entries(units).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label><span>مقدار خروجی دستور</span><input required inputMode="decimal" value={yieldQuantity} onChange={(event) => setYieldQuantity(event.target.value)} /></label>
+        <label><span>مقدار خروجی دستور</span><input required inputMode="decimal" aria-describedby="preparation-yield-help" value={yieldQuantity} onChange={(event) => setYieldQuantity(event.target.value)} /><small id="preparation-yield-help">خروجی کل یک نوبت تهیه؛ مثلاً ۱۰ عدد کوکی یا ۱۰۰۰ گرم سس. مقدار اجزای زیر باید برای همین خروجی باشد.</small></label>
+        </div>
         {components.map((row, index) => {
           const options = row.kind === "STOCK_ITEM" ? items : recipes.filter((recipe) => recipe.id !== editing?.id);
           const source = options.find((option) => option.id === row.id);
