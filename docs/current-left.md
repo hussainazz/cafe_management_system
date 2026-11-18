@@ -2488,3 +2488,18 @@ or full Stage 10 exit gate.
   Developer-only.
 - [x] Keep the Finance payment-history section and receipt actions available
   to Cashier while hiding only the accounting report card.
+
+## Release checkpoint — POS packaging and cashier updates (18 November 2026)
+
+- [x] Committed each changed file separately and pushed `main` at
+  `4666e3119518480f7b392ce75194dbe8bbbc2268` to `origin/main`.
+- [x] Node 24 contracts build, Prisma client generation, API build, and POS
+  production build pass. The POS artifact uses release ID
+  `cafe-20261118-4666e31` and includes the required Debian Prisma engine.
+- Left: production activation is pending. SSH to `185.97.116.250:22` accepted
+  TCP but timed out during the SSH banner exchange, so the active release,
+  backup, and production migration status could not be checked. No files,
+  database, or services on the VPS were changed. Retry the production gates,
+  validate a pre-release backup, and apply the three additive migrations only
+  after VPS access is restored. The previously recorded POS suite failures and
+  open browser acceptance remain unresolved release evidence.
