@@ -33,6 +33,14 @@ export function ServiceBellIcon() {
     </Icon>
   );
 }
+export function AlarmBellIcon() {
+  return (
+    <Icon>
+      <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" />
+      <path d="M3.5 6a9.5 9.5 0 0 1 2-2.8M20.5 6a9.5 9.5 0 0 0-2-2.8" />
+    </Icon>
+  );
+}
 export function OrdersIcon() {
   return (
     <Icon>
