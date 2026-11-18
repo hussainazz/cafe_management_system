@@ -27,6 +27,7 @@
     "bootstrap:manager": "tsx prisma/bootstrap-manager.ts",
     "provision:dev-pos-manager": "tsx prisma/provision-dev-pos-user.ts manager",
     "provision:dev-pos-staff": "tsx prisma/provision-dev-pos-user.ts staff",
+    "provision:dev-pos-cashier": "tsx prisma/provision-dev-pos-user.ts cashier",
     "provision:developer": "tsx prisma/provision-developer.ts",
     "provision:table-qrs": "tsx prisma/provision-table-qrs.ts"
   },
