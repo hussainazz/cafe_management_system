@@ -75,7 +75,7 @@ describe("Developer pricing experiment workflow", () => {
     if (status === "INCONCLUSIVE") {
       expect(screen.getByText("بهای کامل ثبت نشده است.")).toBeTruthy();
       expect(screen.getAllByText("محاسبه نشده").length).toBeGreaterThan(5);
-      expect(screen.getByText(/تاریخچه‌ی قیمت تاریخچه پیدا نشد/)).toBeTruthy();
+      expect(screen.getByText(/قیمت پیش از آزمایش را با تاریخچه‌ی قیمت تطبیق دهید/)).toBeTruthy();
     } else {
       expect(container.querySelector(status === "READY" ? ".pricing-assessment.is-negative" : ".pricing-assessment.is-neutral")).toBeTruthy();
       expect(container.textContent).toContain("−");
@@ -125,6 +125,7 @@ describe("Developer pricing experiment workflow", () => {
     const { container } = render(<InventoryPricingExperiments catalog={managerCatalog} />);
     await screen.findByText("آزمایش قیمت‌گذاری");
     fireEvent.change(screen.getByLabelText("نام آزمایش"), { target: { value: "افزایش قیمت قهوه" } });
+    fireEvent.change(screen.getByLabelText("محصول هدف و دسته‌بندی آن"), { target: { value: productId } });
     fireEvent.change(screen.getByLabelText("قیمت پیشنهادی (تومان)"), { target: { value: "20000" } });
     fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی اطلاعات آزمایش" }));
 
@@ -135,6 +136,7 @@ describe("Developer pricing experiment workflow", () => {
     await screen.findByText(/زمان مؤثر آزمایش/);
 
     fireEvent.click(screen.getByText("شبیه‌سازی قیمت و حساسیت حجم"));
+    fireEvent.change(screen.getByLabelText("محصول سیاست و دسته‌بندی آن"), { target: { value: productId } });
     fireEvent.change(screen.getByLabelText("تغییر قیمت هر واحد (تومان)"), { target: { value: "1000" } });
     fireEvent.click(screen.getByRole("button", { name: "محاسبه‌ی سناریو" }));
     await waitFor(() => expect(api.simulatePricingScenario).toHaveBeenCalledTimes(1));
