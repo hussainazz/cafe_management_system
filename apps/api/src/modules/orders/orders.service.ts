@@ -17,6 +17,8 @@ import {
   type TransferOrderTableRequest,
   type UpdateOrderRequest,
   type DiscountInput,
+  type PackagingAssignmentInput,
+  type OrderItemReference,
 } from "@cafe/contracts";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import type { AuthenticatedUser } from "../auth/auth.service.js";
@@ -38,8 +40,29 @@ async function lockOperationalKeys(transaction: Prisma.TransactionClient, keys: 
   }
 }
 
+function requestItemReferenceIds(assignments: PackagingAssignmentInput[], requestItemIds: Map<string, string>) {
+  const seen = new Set<string>();
+  return assignments.map((assignment) => {
+    const packagingItemId = resolveItemReference(assignment.packagingItem, requestItemIds);
+    const productItemId = resolveItemReference(assignment.productItem, requestItemIds);
+    if (!packagingItemId || !productItemId) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must reference items in this order request.");
+    }
+    if (packagingItemId === productItemId) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging item cannot be assigned to itself.");
+    }
+    const key = packagingAssignmentKey(packagingItemId, productItemId);
+    if (seen.has(key)) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An order item can only be assigned once to each packaging item.");
+    }
+    seen.add(key);
+    return { packagingItemId, productItemId, quantity: assignment.quantity };
+  });
+}
+
 type ProductForOrder = {
   id: string;
+  systemKey: string | null;
   name: string;
   priceAmount: number;
   pricingMode: "FIXED" | "WEIGHTED_PER_KG";
@@ -107,6 +130,7 @@ type CreatedOrder = {
   items: Array<{
     id: string;
     productId: string;
+    systemKey: string | null;
     productNameSnapshot: string;
     basePriceSnapshot: number;
     pricingModeSnapshot: "FIXED" | "WEIGHTED_PER_KG";
@@ -124,6 +148,16 @@ type CreatedOrder = {
       priceSnapshot: number;
       quantity: number;
     }>;
+  }>;
+  packagingAssignments: Array<{
+    id: string;
+    packagingOrderItemId: string;
+    packagingProductId: string;
+    packagingProductNameSnapshot: string;
+    productOrderItemId: string;
+    productId: string;
+    productNameSnapshot: string;
+    quantity: number;
   }>;
 };
 
@@ -146,6 +180,60 @@ function stableJson(value: unknown): string {
 
 function requestFingerprint(input: unknown): string {
   return createHash("sha256").update(stableJson(input)).digest("hex");
+}
+
+function resolveItemReference(reference: OrderItemReference, requestItemIds: Map<string, string>): string | undefined {
+  return reference.kind === "EXISTING" ? reference.orderItemId : requestItemIds.get(reference.clientRef);
+}
+
+function packagingAssignmentKey(packagingItemId: string, productItemId: string): string {
+  return `${packagingItemId}:${productItemId}`;
+}
+
+async function persistOrderPackagingAssignments(
+  transaction: Prisma.TransactionClient,
+  orderId: string,
+  assignments: PackagingAssignmentInput[] | undefined,
+  requestItemIds: Map<string, string>,
+  previousAssignments: Array<{ packagingItemId: string; productItemId: string; quantity: number }>,
+  immutableItemIds: Set<string>,
+) {
+  const currentRows = assignments === undefined
+    ? await transaction.orderItemPackagingAssignment.findMany({ where: { orderId }, select: { packagingItemId: true, productItemId: true, quantity: true } })
+    : requestItemReferenceIds(assignments, requestItemIds);
+  const resolved = currentRows;
+  const items = await transaction.orderItem.findMany({ where: { orderId }, include: { product: { select: { systemKey: true } } } });
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  for (const assignment of resolved) {
+    const packagingItem = itemById.get(assignment.packagingItemId);
+    const productItem = itemById.get(assignment.productItemId);
+    if (!packagingItem || !productItem) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must reference items in this order.");
+    }
+    if (packagingItem.product.systemKey !== "PACKING" || productItem.product.systemKey === "PACKING") {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must link a packaging product to a menu product.");
+    }
+    if (assignment.quantity > productItem.quantity) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Assigned quantity cannot exceed the order item quantity.");
+    }
+  }
+
+  if (assignments !== undefined) {
+    const oldFrozen = previousAssignments.filter((assignment) => immutableItemIds.has(assignment.packagingItemId) || immutableItemIds.has(assignment.productItemId));
+    const newFrozen = resolved.filter((assignment) => immutableItemIds.has(assignment.packagingItemId) || immutableItemIds.has(assignment.productItemId));
+    const frozenRows = (rows: Array<{ packagingItemId: string; productItemId: string; quantity: number }>) => rows
+      .map((assignment) => `${packagingAssignmentKey(assignment.packagingItemId, assignment.productItemId)}:${assignment.quantity}`)
+      .sort();
+    if (JSON.stringify(frozenRows(oldFrozen)) !== JSON.stringify(frozenRows(newFrozen))) {
+      throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments for settled or inventory-recognized items cannot be changed.");
+    }
+
+    await transaction.orderItemPackagingAssignment.deleteMany({ where: { orderId } });
+    if (resolved.length) {
+      await transaction.orderItemPackagingAssignment.createMany({ data: resolved.map((assignment) => ({ id: randomUUID(), orderId, ...assignment })) });
+    }
+  }
+  return resolved;
 }
 
 const tehranBusinessDateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -257,6 +345,7 @@ function toCreatedOrder(order: {
   items: Array<{
     id: string;
     productId: string;
+    product: { systemKey: string | null };
     productNameSnapshot: string;
     basePriceSnapshot: number;
     pricingModeSnapshot: "FIXED" | "WEIGHTED_PER_KG";
@@ -275,6 +364,14 @@ function toCreatedOrder(order: {
       quantity: number;
     }>;
   }>;
+  packagingAssignments: Array<{
+    id: string;
+    packagingItemId: string;
+    productItemId: string;
+    quantity: number;
+    packagingItem: { productId: string; productNameSnapshot: string };
+    productItem: { productId: string; productNameSnapshot: string };
+  }>;
 }): CreatedOrder {
   return {
     ...order,
@@ -291,6 +388,7 @@ function toCreatedOrder(order: {
     items: order.items.map((item) => ({
       id: item.id,
       productId: item.productId,
+      systemKey: item.product.systemKey,
       productNameSnapshot: item.productNameSnapshot,
       basePriceSnapshot: item.basePriceSnapshot,
       pricingModeSnapshot: item.pricingModeSnapshot,
@@ -309,6 +407,16 @@ function toCreatedOrder(order: {
         quantity: option.quantity,
       })),
     })),
+    packagingAssignments: order.packagingAssignments.map((assignment) => ({
+      id: assignment.id,
+      packagingOrderItemId: assignment.packagingItemId,
+      packagingProductId: assignment.packagingItem.productId,
+      packagingProductNameSnapshot: assignment.packagingItem.productNameSnapshot,
+      productOrderItemId: assignment.productItemId,
+      productId: assignment.productItem.productId,
+      productNameSnapshot: assignment.productItem.productNameSnapshot,
+      quantity: assignment.quantity,
+    })),
   } as CreatedOrder;
 }
 
@@ -322,7 +430,7 @@ export async function createOrder(
   staffConsumption = false,
   staffConsumptionName?: string,
 ): Promise<OrderCreationResult> {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
 
   const fingerprint = staffConsumption ? requestFingerprint({ input, staffConsumptionName: staffConsumptionName?.trim() || null }) : requestFingerprint(input);
   const operation = staffConsumption ? "CREATE_STAFF_CONSUMPTION" : CREATE_ORDER_OPERATION;
@@ -331,7 +439,7 @@ export async function createOrder(
     const resolvedTable = previous.tableId
       ? await prisma.cafeTable.findUnique({ where: { id: previous.tableId }, select: { id: true, name: true } })
       : null;
-    return { order: previous, replayed: true, resolvedTable };
+    return { order: { ...previous, items: previous.items.map((item) => ({ ...item, systemKey: item.systemKey ?? null })), packagingAssignments: previous.packagingAssignments ?? [] }, replayed: true, resolvedTable };
   }
 
   try {
@@ -414,6 +522,7 @@ export async function createOrder(
         const requestedDiscount = catalogSaleDiscountAmount(productAmount, saleDiscount, product.pricingMode, item.weightGrams, item.quantity);
         const { discountAmount, finalAmount } = discountedFinalAmount(grossLineAmount, requestedDiscount ? { kind: "FIXED", value: requestedDiscount } : null);
         return {
+          clientRef: item.clientRef,
           productId: product.id,
           productNameSnapshot: product.name,
           basePriceSnapshot: product.priceAmount,
@@ -430,6 +539,24 @@ export async function createOrder(
           options,
         };
       });
+      const preparedIds: string[] = preparedItems.map(() => randomUUID());
+      const requestItemIds = new Map<string, string>();
+      preparedItems.forEach((item, index) => {
+        if (item.clientRef) requestItemIds.set(item.clientRef, preparedIds[index]!);
+      });
+      const assignmentRows = requestItemReferenceIds(input.packagingAssignments ?? [], requestItemIds);
+      for (const assignment of assignmentRows) {
+        const packagingIndex = preparedIds.indexOf(assignment.packagingItemId);
+        const productIndex = preparedIds.indexOf(assignment.productItemId);
+        const packagingProduct = productById.get(preparedItems[packagingIndex]?.productId ?? "");
+        const targetProduct = productById.get(preparedItems[productIndex]?.productId ?? "");
+        if (!packagingProduct || packagingProduct.systemKey !== "PACKING" || !targetProduct || targetProduct.systemKey === "PACKING") {
+          throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must link a packaging product to a menu product.");
+        }
+        if (assignment.quantity > preparedItems[productIndex]!.quantity) {
+          throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Assigned quantity cannot exceed the order item quantity.");
+        }
+      }
       const subtotalAmount = preparedItems.reduce((total, item) => total + item.lineTotalAmount, 0);
       const createdAt = new Date();
 
@@ -447,8 +574,9 @@ export async function createOrder(
           balanceAmount: subtotalAmount,
           createdAt,
           items: {
-            create: preparedItems.map((item) => ({
+            create: preparedItems.map(({ clientRef: _clientRef, ...item }, index) => ({
               ...item,
+              id: preparedIds[index]!,
               enteredAt: createdAt,
               options: { create: item.options },
             })),
@@ -461,13 +589,19 @@ export async function createOrder(
           },
         },
       });
+      if (assignmentRows.length) {
+        await transaction.orderItemPackagingAssignment.createMany({
+          data: assignmentRows.map((assignment) => ({ id: randomUUID(), orderId: created.id, ...assignment })),
+        });
+      }
       const createdWithItems = await transaction.order.findUniqueOrThrow({
         where: { id: created.id },
         include: {
           items: {
             orderBy: { displayOrder: "asc" },
-            include: { options: { orderBy: { id: "asc" } } },
+            include: { options: { orderBy: { id: "asc" } }, product: { select: { systemKey: true } } },
           },
+          packagingAssignments: { include: { packagingItem: { select: { productId: true, productNameSnapshot: true } }, productItem: { select: { productId: true, productNameSnapshot: true } } }, orderBy: { id: "asc" } },
         },
       });
       await updateOrderCostingSnapshots(transaction, created.id);
@@ -533,8 +667,9 @@ const orderDetailInclude = {
   table: { select: { name: true } },
   items: {
     orderBy: { displayOrder: "asc" },
-    include: { options: { orderBy: { id: "asc" } } },
+    include: { options: { orderBy: { id: "asc" } }, product: { select: { systemKey: true } } },
   },
+  packagingAssignments: { include: { packagingItem: { select: { productId: true, productNameSnapshot: true } }, productItem: { select: { productId: true, productNameSnapshot: true } } }, orderBy: { id: "asc" } },
   paymentSettlements: {
     orderBy: { recordedAt: "asc" },
     include: {
@@ -570,6 +705,7 @@ function orderDetailDto(order: OrderDetailRecord) {
     items: order.items.map((item) => ({
       id: item.id,
       productId: item.productId,
+      systemKey: item.product.systemKey,
       productNameSnapshot: item.productNameSnapshot,
       basePriceSnapshot: item.basePriceSnapshot,
       pricingModeSnapshot: item.pricingModeSnapshot,
@@ -588,6 +724,16 @@ function orderDetailDto(order: OrderDetailRecord) {
         quantity: option.quantity,
       })),
     })),
+    packagingAssignments: order.packagingAssignments.map((assignment) => ({
+      id: assignment.id,
+      packagingOrderItemId: assignment.packagingItemId,
+      packagingProductId: assignment.packagingItem.productId,
+      packagingProductNameSnapshot: assignment.packagingItem.productNameSnapshot,
+      productOrderItemId: assignment.productItemId,
+      productId: assignment.productItem.productId,
+      productNameSnapshot: assignment.productItem.productNameSnapshot,
+      quantity: assignment.quantity,
+    })),
     settlements: order.paymentSettlements.map((settlement) => ({
       id: settlement.id,
       totalAmount: settlement.totalAmount,
@@ -601,7 +747,7 @@ function orderDetailDto(order: OrderDetailRecord) {
 }
 
 export async function readOrder(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: orderDetailInclude });
   if (!order) {
     throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
@@ -630,7 +776,7 @@ function encodeCursor(order: { createdAt: Date; id: string }): string {
 }
 
 export async function listOrders(prisma: PrismaClient, actor: AuthenticatedUser, query: OrderListQuery) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   const cursor = query.cursor ? decodeCursor(query.cursor) : undefined;
   const where: Prisma.OrderWhereInput = {
     ...(query.state ? { state: query.state } : {}),
@@ -683,14 +829,14 @@ export async function listOrders(prisma: PrismaClient, actor: AuthenticatedUser,
 }
 
 export async function deferOrder(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, input: { expectedVersion: number; customerName?: string }, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (tx) => {
     const initial = await tx.order.findUnique({ where: { id: orderId }, select: { tableId: true } });
     await lockOperationalKeys(tx, [`order:${orderId}`, ...(initial?.tableId ? [`table:${initial.tableId}`] : [])]);
     await assertNoTerminalReservation(tx, orderId);
     const order = await tx.order.findUnique({ where: { id: orderId } });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-    if (order.isStaffConsumption && actor.role !== "MANAGER" && actor.role !== "DEVELOPER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager or developer may remove staff consumption.");
+    if (order.isStaffConsumption && actor.role !== "CASHIER" && actor.role !== "MANAGER" && actor.role !== "DEVELOPER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager or developer may remove staff consumption.");
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     if (order.state !== OrderState.OPEN || order.balanceAmount <= 0 || order.deferredAt) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only an open unpaid order can be set aside.");
     const now = new Date();
@@ -709,7 +855,7 @@ export async function deferOrder(prisma: PrismaClient, actor: AuthenticatedUser,
 }
 
 export async function discountStaffConsumption(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, expectedVersion: number, discount: DiscountInput, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   if (!discount) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A discount is required.");
   return prisma.$transaction(async (tx) => {
     await lockOperationalKeys(tx, [`order:${orderId}`]);
@@ -732,7 +878,7 @@ export async function updateOrder(
   input: UpdateOrderRequest,
   requestId: string,
 ) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (transaction) => {
     await assertNoTerminalReservation(transaction, orderId);
     await lockOperationalKeys(transaction, [`order:${orderId}`]);
@@ -740,6 +886,9 @@ export async function updateOrder(
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be edited.");
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    if (input.items && order.packagingAssignments.length > 0 && input.packagingAssignments === undefined) {
+      throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments must be retained when replacing order contents.");
+    }
     const activeAllocations = new Map<string, number>();
     const activeAllocatedAmounts = new Map<string, number>();
     order.paymentSettlements.filter((settlement) => !settlement.reversal).forEach((settlement) => settlement.allocations.forEach((allocation) => {
@@ -752,6 +901,7 @@ export async function updateOrder(
       && activeSettlements.length > 0
       && activeSettlements.every((settlement) => settlement.allocationMode === "ITEM_QUANTITY");
     const removedItems: OrderDetailRecord["items"] = [];
+    const requestItemIds = new Map<string, string>();
     let editsUnpaidItem = false;
     if (input.items && hasActiveAllocations) {
       throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Order contents cannot be replaced after settlement.");
@@ -785,6 +935,7 @@ export async function updateOrder(
         const requestedDiscount = catalogSaleDiscountAmount(productAmount, saleDiscount, product.pricingMode, requested.weightGrams, requested.quantity);
         const { discountAmount, finalAmount } = discountedFinalAmount(grossLineAmount, requestedDiscount ? { kind: "FIXED", value: requestedDiscount } : null);
         return {
+          clientRef: requested.clientRef,
           productId: product.id, productNameSnapshot: product.name, basePriceSnapshot: product.priceAmount,
           pricingModeSnapshot: product.pricingMode, weightGrams: requested.weightGrams ?? null,
           quantity: requested.quantity,
@@ -806,21 +957,22 @@ export async function updateOrder(
       }
       const previousEnteredAt = new Map(order.items.map((item) => [item.id, item.enteredAt]));
       const preparedIds = prepared.map((item) => existingIds.get(preparationKey(item))?.shift() ?? randomUUID());
+      prepared.forEach((item, index) => { if (item.clientRef) requestItemIds.set(item.clientRef, preparedIds[index]!); });
       const newItemsEnteredAt = new Date();
       const enteredAtById = new Map(preparedIds.map((id) => [id, previousEnteredAt.has(id) ? previousEnteredAt.get(id)! : newItemsEnteredAt]));
       if (input.items) {
         // Option snapshots are dependent rows with a restrictive foreign key.
         // Remove them before replacing unpaid order items as one transaction.
+        await transaction.orderItemPackagingAssignment.deleteMany({ where: { orderId } });
         await transaction.orderItemOption.deleteMany({
           where: { orderItem: { orderId } },
         });
         await transaction.orderItemCostingSnapshot.deleteMany({ where: { orderItem: { orderId } } });
         await transaction.orderItem.deleteMany({ where: { orderId } });
       }
-      await transaction.orderItem.createMany({ data: prepared.map(({ options, ...item }, index) => ({ ...item, id: preparedIds[index]!, orderId, enteredAt: enteredAtById.get(preparedIds[index]!)! })) });
-      for (const item of prepared) {
-        const created = await transaction.orderItem.findFirstOrThrow({ where: { orderId, displayOrder: item.displayOrder }, select: { id: true } });
-        await transaction.orderItemOption.createMany({ data: item.options.map((option) => ({ ...option, orderItemId: created.id })) });
+      await transaction.orderItem.createMany({ data: prepared.map(({ options: _options, clientRef: _clientRef, ...item }, index) => ({ ...item, id: preparedIds[index]!, orderId, enteredAt: enteredAtById.get(preparedIds[index]!)! })) });
+      for (const [index, item] of prepared.entries()) {
+        await transaction.orderItemOption.createMany({ data: item.options.map((option) => ({ ...option, orderItemId: preparedIds[index]! })) });
       }
     }
     for (const change of input.itemUpdates ?? []) {
@@ -838,9 +990,13 @@ export async function updateOrder(
       if (change.quantity === 0) {
         if (!allowsUnpaidItemEdits || hasActiveAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only entirely unpaid items after item-quantity payments can be removed.");
         if (change.note !== undefined || change.discount !== undefined || change.weightGrams !== undefined) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An item removal cannot include other item changes.");
+        if (input.packagingAssignments === undefined && order.packagingAssignments.some((assignment) => assignment.packagingItemId === item.id || assignment.productItemId === item.id)) {
+          throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments must be updated when removing an assigned order item.");
+        }
         const hasSettlementHistory = order.paymentSettlements.some((settlement) => settlement.allocations.some((allocation) => allocation.orderItemId === item.id));
         if (hasSettlementHistory || await transaction.orderConsumptionItem.count({ where: { orderItemId: item.id } })) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "An item referenced by payment or inventory history cannot be removed.");
         await transaction.orderItemOption.deleteMany({ where: { orderItemId: item.id } });
+        if (input.packagingAssignments !== undefined) await transaction.orderItemPackagingAssignment.deleteMany({ where: { orderId } });
         await transaction.orderItemCostingSnapshot.deleteMany({ where: { orderItemId: item.id } });
         await transaction.orderItem.delete({ where: { id: item.id } });
         removedItems.push(item);
@@ -877,6 +1033,22 @@ export async function updateOrder(
         ...(changesPricing ? { discountAmount, lineTotalAmount } : {}),
       } });
     }
+    const inventoryHistory = order.items.length
+      ? await transaction.orderConsumptionItem.findMany({ where: { orderItemId: { in: order.items.map((item) => item.id) } }, select: { orderItemId: true } })
+      : [];
+    const immutableItemIds = new Set<string>([
+      ...activeAllocations.keys(),
+      ...activeAllocatedAmounts.keys(),
+      ...inventoryHistory.map((row) => row.orderItemId),
+    ]);
+    const resolvedPackagingAssignments = await persistOrderPackagingAssignments(
+      transaction,
+      orderId,
+      input.packagingAssignments,
+      requestItemIds,
+      order.packagingAssignments.map((assignment) => ({ packagingItemId: assignment.packagingItemId, productItemId: assignment.productItemId, quantity: assignment.quantity })),
+      immutableItemIds,
+    );
     const items = await transaction.orderItem.findMany({ where: { orderId }, include: { options: true } });
     const subtotalAmount = items.reduce((total, item) => total + item.lineTotalAmount, 0);
     if (input.orderDiscount !== undefined && hasActiveAllocations) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The order discount cannot change after settlement.");
@@ -908,7 +1080,7 @@ export async function updateOrder(
     if (closesOrder && order.channel === OrderChannel.TABLE && order.tableId) await lockOperationalKeys(transaction, [`table:${order.tableId}`]);
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, ...(closesOrder ? { state: OrderState.CLOSED } : {}), version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
-    if (input.items || input.addItems || input.itemUpdates?.some((change) => change.quantity !== undefined || change.weightGrams !== undefined)) {
+    if (input.items || input.addItems || input.packagingAssignments !== undefined || input.itemUpdates?.some((change) => change.quantity !== undefined || change.weightGrams !== undefined)) {
       await updateOrderCostingSnapshots(transaction, orderId);
     }
     if (closesOrder) {
@@ -919,13 +1091,13 @@ export async function updateOrder(
         await transaction.waiterCall.updateMany({ where: { tableId: order.tableId, status: "PENDING" }, data: { status: "RESOLVED", acknowledgedAt: closedAt, resolvedAt: closedAt, version: { increment: 1 } } });
       }
     }
-    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, ...(removedItems.length ? { beforeSnapshot: { removedItems } } : {}), afterSnapshot: { version: input.expectedVersion + 1, ...(removedItems.length ? { removedItemIds: removedItems.map((item) => item.id) } : {}) } } });
+    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, ...(removedItems.length || input.packagingAssignments !== undefined ? { beforeSnapshot: { ...(removedItems.length ? { removedItems } : {}), ...(input.packagingAssignments !== undefined ? { packagingAssignments: order.packagingAssignments.map((assignment) => ({ packagingItemId: assignment.packagingItemId, productItemId: assignment.productItemId, quantity: assignment.quantity })) } : {}) } } : {}), afterSnapshot: { version: input.expectedVersion + 1, ...(removedItems.length ? { removedItemIds: removedItems.map((item) => item.id) } : {}), ...(input.packagingAssignments !== undefined ? { packagingAssignments: resolvedPackagingAssignments } : {}) } } });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
 }
 
 export async function transferOrderTable(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, input: TransferOrderTableRequest, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (transaction) => {
     const lockKeys = [`order:${orderId}`];
     const orderForLock = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
@@ -982,12 +1154,12 @@ export async function deleteOrder(
   input: DeleteOrderRequest,
   requestId: string,
 ) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (transaction) => {
     await assertNoTerminalReservation(transaction, orderId);
     const order = await transaction.order.findUnique({ where: { id: orderId } });
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-    if (order.isStaffConsumption && actor.role !== "MANAGER" && actor.role !== "DEVELOPER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager or developer may remove staff consumption.");
+    if (order.isStaffConsumption && actor.role !== "CASHIER" && actor.role !== "MANAGER" && actor.role !== "DEVELOPER") throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Only a manager or developer may remove staff consumption.");
     if (order.state !== OrderState.OPEN && order.state !== OrderState.CLOSED) {
       throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open or closed orders can be deleted.");
     }
@@ -1174,7 +1346,7 @@ export async function recordSettlement(
   idempotencyKey: string,
   requestId: string,
 ) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   const fingerprint = requestFingerprint({ orderId, ...input });
   const previous = await existingIdempotencyResult<ReturnType<typeof orderDetailDto>>(
     prisma,
@@ -1207,7 +1379,7 @@ export async function recordSettlement(
 }
 
 export async function reverseSettlement(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string, input: ReverseSettlementRequest, requestId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (transaction) => {
     const tableAssignment = await transaction.order.findUnique({ where: { id: orderId }, select: { tableId: true, channel: true } });
     await lockOperationalKeys(transaction, ["order:" + orderId, ...(tableAssignment?.channel === OrderChannel.TABLE && tableAssignment.tableId ? ["table:" + tableAssignment.tableId] : [])]);
@@ -1258,7 +1430,7 @@ export async function editSettlement(
   idempotencyKey: string,
   requestId: string,
 ) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   const fingerprint = requestFingerprint({ settlementId, ...input });
   const previous = await existingIdempotencyResult<ReturnType<typeof orderDetailDto>>(
     prisma,
@@ -1357,7 +1529,7 @@ const receiptInclude = {
 } as const satisfies Prisma.OrderInclude;
 
 export async function barTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
   return { dailyOrderNumber: order.dailyOrderNumber, context: order.channel === OrderChannel.TABLE ? `میز ${order.table!.name}` : "بیرون‌بر", items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, pricingModeSnapshot: item.pricingModeSnapshot, weightGrams: item.weightGrams, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note })) };
@@ -1365,7 +1537,7 @@ export async function barTicket(prisma: PrismaClient, actor: AuthenticatedUser, 
 
 // Serialize snapshot capture with edits and acknowledgments on the order row.
 export async function prepareBarTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw(Prisma.sql`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`);
     const order = await tx.order.findUnique({ where: { id: orderId }, include: receiptInclude });
@@ -1381,7 +1553,7 @@ export async function prepareBarTicket(prisma: PrismaClient, actor: Authenticate
 }
 
 export async function acknowledgeBarTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, preparationId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   const prepared = await prisma.barTicketPreparation.findFirst({ where: { id: preparationId, orderId } });
   if (!prepared) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested preparation was not found.");
   // A newer snapshot can never be replaced by an older or retried acknowledgment.
@@ -1391,7 +1563,7 @@ export async function acknowledgeBarTicket(prisma: PrismaClient, actor: Authenti
 }
 
 export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
   let runningSubtotal = 0;
@@ -1426,7 +1598,7 @@ export async function orderReceipt(prisma: PrismaClient, actor: AuthenticatedUse
 }
 
 export async function settlementReceipt(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string, settlementId: string) {
-  requireRole(actor, ["STAFF", "MANAGER", "DEVELOPER"]);
+  requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
   const settlement = order.paymentSettlements.find((candidate) => candidate.id === settlementId);
