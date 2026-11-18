@@ -10,7 +10,7 @@ function group(id: string, count: number, minSelections = 1, maxSelections = 1):
   return { id, name: id, minSelections, maxSelections, options: Array.from({ length: count }, (_, index) => ({ id: `${id}-${index}`, name: `${id} ${index}`, priceAmount: 1000 * index, isAvailable: true })) };
 }
 function product(id: string, groups: Group[] = []): PosCatalogProduct {
-  return { id, name: id, priceAmount: 50000, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, preparationDeadlineMinutes: 10, isAvailable: true, image: null, optionGroups: groups };
+  return { id, systemKey: null, name: id, priceAmount: 50000, pricingMode: "FIXED", saleDiscountKind: null, saleDiscountValue: null, preparationDeadlineMinutes: 10, isAvailable: true, image: null, optionGroups: groups };
 }
 function setup(products: PosCatalogProduct[], onAdd = vi.fn()) {
   function Harness() {
