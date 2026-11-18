@@ -38,6 +38,7 @@ export async function readPosCatalog(prisma: PrismaClient) {
       name: category.name,
       products: category.products.map((product) => ({
         id: product.id,
+        systemKey: product.systemKey,
         name: product.name,
         priceAmount: product.priceAmount,
         pricingMode: product.pricingMode,
