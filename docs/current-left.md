@@ -2481,8 +2481,8 @@ or full Stage 10 exit gate.
 - [x] Add a Cashier role inheriting Manager routes and POS panels, while keeping
   Developer-only analysis views unavailable. The recipe editor hides cost
   previews and the API rejects Cashier cost-preview requests.
-- [x] Provision the local account `cashier-884839`; local development migration
-  and API/POS typechecks completed. Focused role regression tests remain open.
+- [x] Provision the local account `cashier-884839`; local development migration,
+  role regression coverage, and full API/POS suites pass.
 - [x] Hide the accounting total-sales report from Cashier and deny direct API
   access. Gross-margin, sales-channel, and sales-analytics reports remain
   Developer-only.
@@ -2491,15 +2491,35 @@ or full Stage 10 exit gate.
 
 ## Release checkpoint — POS packaging and cashier updates (18 November 2026)
 
-- [x] Committed each changed file separately and pushed `main` at
-  `4666e3119518480f7b392ce75194dbe8bbbc2268` to `origin/main`.
+- [x] Committed each changed source file separately and pushed `main` to
+  `origin/main`. Runtime implementation is commit
+  `4666e3119518480f7b392ce75194dbe8bbbc2268`; test expectation fixes were also
+  committed individually. The final pushed `main` head is
+  `4bfdc441ffdf3edca8febf8cc0d0ed0a93c975b6`.
 - [x] Node 24 contracts build, Prisma client generation, API build, and POS
-  production build pass. The POS artifact uses release ID
-  `cafe-20261118-4666e31` and includes the required Debian Prisma engine.
-- Left: production activation is pending. SSH to `185.97.116.250:22` accepted
-  TCP but timed out during the SSH banner exchange, so the active release,
-  backup, and production migration status could not be checked. No files,
-  database, or services on the VPS were changed. Retry the production gates,
-  validate a pre-release backup, and apply the three additive migrations only
-  after VPS access is restored. The previously recorded POS suite failures and
-  open browser acceptance remain unresolved release evidence.
+  production build pass. The full API suite passes, POS passes 261/261 across
+  35 files, and contracts pass 32/32 across 10 files. POS build ID is
+  `cafe-20261118-4666e31`; the artifact includes the Debian Prisma engine.
+- [x] Deploy and activate `cafe-20261118-4666e31` on the VPS. All 59 Prisma
+  migrations are current, including all three additive release migrations.
+  API readiness reports PostgreSQL connected. API, POS, and web services are
+  active with zero restarts. Public `/pos/release` reports the
+  new ID with `Cache-Control: no-store, max-age=0`; public `/pos` and `/menu`
+  return HTTP 200.
+- [x] Record the release in `/opt/cafe-menu/release-manifest.json`. The
+  release artifact SHA-256 is
+  `8e4796db052e1dbcf4b3b86ff137c90fb0eaf3a6e36e0a7ce18244ccce293795`.
+  Verified pre-release PostgreSQL backup:
+  `/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261118-4666e31.dump`
+  (SHA-256 `b8816948df3c55573bf30954ca15ce28342ae35eb39a5225ab14856377dde000`).
+  Verified rollback archive:
+  `/opt/cafe-menu-release-backups/rollback-before-cafe-20261118-4666e31.tar.gz`
+  (SHA-256 `03f74c06c98217c2a6f128b2877a0bd324b48d308ea4d8b17dee105d4c8d8ea2`).
+  The superseded backup pair was removed only after both replacements validated.
+- [x] Preserve VPS uploaded product images: storage remains at 32 files /
+  5,759,237 bytes. No developer image uploads or environment files were
+  transferred.
+- Left: verify the cashier and packaging workflows on the café POS computer,
+  including the real browser, touch interaction, and receipt printer. This
+  hardware and UX acceptance is separate from the code, build, and production
+  health checks recorded above.
