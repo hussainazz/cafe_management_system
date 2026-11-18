@@ -7,11 +7,8 @@ import { ApplicationError, ErrorCodes, type ErrorCode } from "../../errors/appli
 import { tehranReportRange } from "../admin/daily-report.service.js";
 import {
   activeRevenue,
-  buildPackagingEconomics,
   hasCompleteCostSnapshot,
   loadRecognizedConsumptions,
-  packagingOptions,
-  packagingVariantKey,
 } from "./gross-profit.service.js";
 import { isEligibleSettledOrder, salesChannel } from "./sales-report-eligibility.js";
 
@@ -34,9 +31,8 @@ type ProductGroup = {
   key: string; productId: string; productName: string; categoryId: string | null; categoryName: string | null;
   channel: "TABLE" | "TAKEAWAY" | "UNKNOWN"; options: OptionSnap[]; quantity: number;
   revenue: bigint; cogs: bigint; knownCogs: bigint; completeRevenue: bigint; incompleteRevenue: bigint;
-  complete: boolean; packagingComplete: boolean; packagingRevenue: bigint; packagingCost: bigint;
-  packagingUnclassifiedCost: bigint; affected: boolean; orderIds: Set<string>; packagingOrderIds: Set<string>; packagingProductIds: Set<string>;
-  currentPriceAmount: number | null; targetKinds: Set<"PRODUCT" | "OPTION" | "PACKAGING">;
+  complete: boolean; affected: boolean; orderIds: Set<string>;
+  currentPriceAmount: number | null; targetKinds: Set<"PRODUCT" | "OPTION">;
 };
 type PeriodAggregate = {
   dateSet: string[]; fromDate: string | null; toDate: string | null;
@@ -45,8 +41,7 @@ type PeriodAggregate = {
   unaffectedRevenue: bigint; unattributedRevenue: bigint; ingredientCogs: bigint; totalCogs: bigint;
   completeRevenue: bigint; incompleteRevenue: bigint; knownContribution: bigint;
   allCostsComplete: boolean; orderDiscount: bigint; itemDiscount: bigint;
-  groups: Map<string, ProductGroup>; packageEconomics: any; consumptions: any[];
-  packagingLineUnits: number; packagingOrderIds: Set<string>; packagingByProduct: Map<string, { units: number; revenue: bigint }>;
+  groups: Map<string, ProductGroup>; consumptions: any[];
 };
 
 function fail(status: number, code: ErrorCode, message: string): never {
@@ -106,16 +101,20 @@ function targetKey(kind: string, productId: string, optionId?: string | null) {
   return `${kind}:${productId}:${optionId ?? ""}`;
 }
 function optionsFor(item: any): OptionSnap[] {
-  return packagingOptions(item);
+  const row = item.orderItem ?? item;
+  const divisor = row.pricingModeSnapshot === "WEIGHTED_PER_KG" ? 1 : row.quantity;
+  return [...(row.options ?? [])].map((option: any) => ({
+    optionId: option.optionId, optionName: option.optionNameSnapshot, quantity: option.quantity / divisor,
+  })).sort((a, b) => a.optionId.localeCompare(b.optionId));
 }
 function groupKey(productId: string, channel: string, options: OptionSnap[]) {
-  return packagingVariantKey(productId, channel as "TABLE" | "TAKEAWAY", options);
+  return `${productId}:${channel}:${options.map((option) => `${option.optionId}=${option.quantity}`).join(",")}`;
 }
-function isTargeted(target: ExperimentTarget, item: any, channel: string, packagingProductIds: Set<string>) {
+function isTargeted(target: ExperimentTarget, item: any) {
   if (target.targetKind === "PRODUCT") return item.orderItem.productId === target.productId;
-  if (target.targetKind === "OPTION") return item.orderItem.productId === target.productId &&
+  if (target.targetKind === "PACKAGING") return false;
+  return item.orderItem.productId === target.productId &&
     item.orderItem.options.some((option: any) => option.optionId === target.optionId);
-  return packagingProductIds.has(target.productId) && channel === "TAKEAWAY";
 }
 function createGroup(item: any, channel: "TABLE" | "TAKEAWAY" | "UNKNOWN", options: OptionSnap[]): ProductGroup {
   const product = item.orderItem.product;
@@ -126,9 +125,8 @@ function createGroup(item: any, channel: "TABLE" | "TAKEAWAY" | "UNKNOWN", optio
     categoryId: product.categoryId ?? null,
     categoryName: product.category?.name ?? null,
     channel, options, quantity: 0, revenue: 0n, cogs: 0n, knownCogs: 0n,
-    completeRevenue: 0n, incompleteRevenue: 0n, complete: true, packagingComplete: true,
-    packagingRevenue: 0n, packagingCost: 0n, packagingUnclassifiedCost: 0n,
-    affected: false, orderIds: new Set(), packagingOrderIds: new Set(), packagingProductIds: new Set(),
+    completeRevenue: 0n, incompleteRevenue: 0n, complete: true,
+    affected: false, orderIds: new Set(),
     currentPriceAmount: product.priceAmount ?? null, targetKinds: new Set(),
   };
 }
@@ -149,9 +147,9 @@ async function historyForTargets(prisma: PrismaClient, effectiveAt: Date, target
   return targets.map((target) => {
     const matchingDimension = (change: any) => target.targetKind === "OPTION"
       ? change.productId === target.productId && change.optionId === target.optionId && ["OPTION_PRICE", "PRODUCT_OPTION_OVERRIDE"].includes(change.dimension)
-      : change.productId === target.productId && (target.targetKind === "PACKAGING"
-        ? change.dimension === "PACKAGING_CHARGE"
-        : ["PRODUCT_BASE_PRICE", "PRODUCT_DISCOUNT"].includes(change.dimension));
+      : target.targetKind === "PACKAGING"
+        ? change.productId === target.productId && change.dimension === "PACKAGING_CHARGE"
+        : change.productId === target.productId && ["PRODUCT_BASE_PRICE", "PRODUCT_DISCOUNT"].includes(change.dimension);
     const allTargetChanges = changes.filter(matchingDimension);
     const sameDay = allTargetChanges.filter((change) => change.effectiveAt && localDate(change.effectiveAt) === effectiveDate);
     const amountMatches = (change: any) => (change.newEffectivePriceAmount ?? change.newAmount) === target.proposedPriceAmount;
@@ -221,8 +219,7 @@ export async function createPricingExperiment(
   for (const target of input.targets) {
     const product = productById.get(target.productId);
     if (!product || product.archivedAt) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Every target must reference an active catalog product.");
-    if (target.targetKind === "PACKAGING" && product.systemKey !== "PACKING") fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging target must reference the system packaging product.");
-    if (target.targetKind !== "PACKAGING" && product.systemKey === "PACKING") fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The packaging product can only use a packaging target.");
+    if (product.systemKey === "PACKING") fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging product cannot be a pricing experiment target.");
     if (target.targetKind === "OPTION") {
       const option = product.productOptionGroups.flatMap((group) => group.allowedOptions).find((link) => link.optionId === target.optionId)?.option;
       if (!option || option.archivedAt) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The selected option is not available for that product.");
@@ -316,13 +313,10 @@ function summarize(consumptions: any[], dates: string[], targets: ExperimentTarg
   const groupMap = new Map<string, ProductGroup>();
   const orderIds = new Set<string>();
   const takeawayOrderIds = new Set<string>();
-  const packagingOrderIds = new Set<string>();
-  const packagingByProduct = new Map<string, { units: number; revenue: bigint }>();
   let orderValue = 0n; let itemUnits = 0; let affectedItemUnits = 0;
   let netRevenue = 0n; let ingredientCogs = 0n; let totalCogs = 0n;
   let completeRevenue = 0n; let incompleteRevenue = 0n; let knownContribution = 0n;
   let allCostsComplete = true; let orderDiscount = 0n; let itemDiscount = 0n;
-  let packagingLineUnits = 0;
   const targetRows = targets;
 
   for (const consumption of consumptions) {
@@ -332,13 +326,6 @@ function summarize(consumptions: any[], dates: string[], targets: ExperimentTarg
     if (channel === "TAKEAWAY") takeawayOrderIds.add(order.id);
     orderValue += BigInt(order.totalAmount);
     orderDiscount += BigInt(order.discountAmount ?? 0);
-    const packagingProductIds = new Set<string>(consumption.items.filter((item: any) => item.orderItem.product.systemKey === "PACKING").map((item: any) => item.orderItem.productId));
-    const hasPackaging = packagingProductIds.size > 0;
-    if (hasPackaging) packagingOrderIds.add(order.id);
-    const consumptionDate = localDate(consumption.recognizedAt);
-    const orderPackaging = buildPackagingEconomics([consumption], consumptionDate, consumptionDate);
-    const packageRows = new Map(orderPackaging.products.map((row) => [groupKey(row.productId, row.channel, row.options), row]));
-    const appliedPackaging = new Set<string>();
     for (const item of consumption.items) {
       const row = item.orderItem;
       const revenue = activeRevenue(row.settlementAllocations);
@@ -346,27 +333,17 @@ function summarize(consumptions: any[], dates: string[], targets: ExperimentTarg
       const cost = BigInt(item.theoreticalCogsAmount ?? item.knownCogsAmount ?? 0);
       const itemChannel = (item.costSnapshot as any)?.orderChannel ?? channel;
       const lineOptions = optionsFor(item);
-      const affected = targetRows.some((target) => isTargeted(target, item, itemChannel, packagingProductIds));
+      const affected = targetRows.some((target) => isTargeted(target, item));
       netRevenue += revenue;
       ingredientCogs += BigInt(item.knownCogsAmount ?? 0);
       knownContribution += revenue - BigInt(item.knownCogsAmount ?? 0);
       itemDiscount += BigInt(row.discountAmount ?? 0);
       if (costComplete) { completeRevenue += revenue; totalCogs += cost; }
       else { incompleteRevenue += revenue; allCostsComplete = false; }
-      if (row.product.systemKey === "PACKING") {
-        packagingLineUnits += item.quantity;
-        const packing = packagingByProduct.get(row.productId) ?? { units: 0, revenue: 0n };
-        packing.units += item.quantity;
-        packing.revenue += revenue;
-        packagingByProduct.set(row.productId, packing);
-        continue;
-      }
       itemUnits += item.quantity;
       if (affected) affectedItemUnits += item.quantity;
       const variantKey = groupKey(row.productId, itemChannel, lineOptions);
-      // Keep category-specific charge cohorts separate even when their menu
-      // product and selected options are otherwise identical.
-      const key = `${variantKey}|pack:${[...packagingProductIds].sort().join(",")}`;
+      const key = variantKey;
       const group = groupMap.get(key) ?? createGroup(item, itemChannel, lineOptions);
       group.key = key;
       group.quantity += item.quantity;
@@ -378,26 +355,14 @@ function summarize(consumptions: any[], dates: string[], targets: ExperimentTarg
       group.complete &&= costComplete;
       group.affected ||= affected;
       group.orderIds.add(order.id);
-      if (hasPackaging && itemChannel === "TAKEAWAY") group.packagingOrderIds.add(order.id);
-      packagingProductIds.forEach((id) => group.packagingProductIds.add(id));
-      for (const target of targetRows) if (isTargeted(target, item, itemChannel, packagingProductIds)) group.targetKinds.add(target.targetKind);
-      const packageRow = packageRows.get(variantKey);
-      if (packageRow && !appliedPackaging.has(variantKey)) {
-        group.packagingRevenue += BigInt(packageRow.packagingChargeRevenueAmount);
-        group.packagingCost += BigInt(packageRow.packagingKnownCostAmount);
-        group.packagingUnclassifiedCost += BigInt(packageRow.unclassifiedKnownCostAmount);
-        group.packagingComplete &&= packageRow.isPackagingAttributionComplete;
-        appliedPackaging.add(variantKey);
+      for (const target of targetRows) {
+        if (target.targetKind !== "PACKAGING" && isTargeted(target, item)) group.targetKinds.add(target.targetKind);
       }
-      if (orderPackaging.totals.unattributedOrderLevelChargeRevenueAmount > 0) group.packagingComplete = false;
       groupMap.set(key, group);
     }
   }
-  const dateBounds = bounds ?? { from: "2000-01-01", to: "2000-01-01" };
-  const packageEconomics = buildPackagingEconomics(consumptions, dateBounds.from, dateBounds.to);
   let affectedRevenue = 0n; let unaffectedRevenue = 0n; let groupedRevenue = 0n;
   for (const group of groupMap.values()) {
-    group.revenue += group.packagingRevenue;
     groupedRevenue += group.revenue;
     if (group.affected) affectedRevenue += group.revenue;
     else unaffectedRevenue += group.revenue;
@@ -408,8 +373,7 @@ function summarize(consumptions: any[], dates: string[], targets: ExperimentTarg
     orderCount: orderIds.size, orderIds, takeawayOrderIds, orderValue, itemUnits, affectedItemUnits,
     netRevenue, affectedRevenue, unaffectedRevenue, unattributedRevenue, ingredientCogs, totalCogs,
     completeRevenue, incompleteRevenue, knownContribution, allCostsComplete,
-    orderDiscount, itemDiscount, groups: groupMap, packageEconomics, consumptions,
-    packagingLineUnits, packagingOrderIds, packagingByProduct,
+    orderDiscount, itemDiscount, groups: groupMap, consumptions,
   };
 }
 
@@ -417,9 +381,6 @@ function periodMetrics(summary: PeriodAggregate) {
   const includedDays = summary.dateSet.length;
   const complete = summary.allCostsComplete;
   const contribution = complete ? summary.netRevenue - summary.totalCogs : null;
-  const packageTotals = summary.packageEconomics.totals;
-  const packageDeficit = packageTotals.netRecoveryAmount === null ? null : -BigInt(packageTotals.netRecoveryAmount);
-  const packagingComplete = packageTotals.isCostComplete;
   const monthlyContribution = contribution === null ? null : scaledAmount(contribution, includedDays);
   const monthlyRevenue = scaledAmount(summary.netRevenue, includedDays);
   const fixedCoverage = monthlyContribution === null ? null : percent(monthlyContribution, FIXED_MONTHLY_COST);
@@ -427,9 +388,9 @@ function periodMetrics(summary: PeriodAggregate) {
   const breakEvenRevenue = contribution !== null && contribution > 0n && summary.netRevenue > 0n
     ? (FIXED_MONTHLY_COST * summary.netRevenue + contribution - 1n) / contribution : null;
   const marginOfSafety = breakEvenRevenue === null ? null : monthlyRevenue - breakEvenRevenue;
-  const affectedContribution = [...summary.groups.values()].filter((group) => group.affected).every((group) => group.complete && group.packagingComplete)
+  const affectedContribution = [...summary.groups.values()].filter((group) => group.affected).every((group) => group.complete)
     ? [...summary.groups.values()].filter((group) => group.affected).reduce((sum, group) => sum + group.revenue - group.cogs, 0n) : null;
-  const unaffectedContribution = [...summary.groups.values()].filter((group) => !group.affected).every((group) => group.complete && group.packagingComplete)
+  const unaffectedContribution = [...summary.groups.values()].filter((group) => !group.affected).every((group) => group.complete)
     ? [...summary.groups.values()].filter((group) => !group.affected).reduce((sum, group) => sum + group.revenue - group.cogs, 0n) : null;
   const weekdayCounts = Array.from({ length: 7 }, (_, dayOfWeek) => ({ dayOfWeek, dayCount: summary.dateSet.filter((date) => weekday(date) === dayOfWeek).length }));
   return {
@@ -440,15 +401,10 @@ function periodMetrics(summary: PeriodAggregate) {
     unaffectedNetRevenueAmount: amount(summary.unaffectedRevenue), unattributedNetRevenueAmount: amount(summary.unattributedRevenue),
     affectedContributionAmount: affectedContribution === null ? null : signedAmount(affectedContribution),
     unaffectedContributionAmount: unaffectedContribution === null ? null : signedAmount(unaffectedContribution),
-    averageSellingPriceAmount: average(summary.netRevenue - BigInt(packageTotals.packagingChargeRevenueAmount), summary.itemUnits),
+    averageSellingPriceAmount: average(summary.netRevenue, summary.itemUnits),
     averageOrderValueAmount: average(summary.netRevenue, summary.orderCount),
     ingredientCogsAmount: amount(summary.ingredientCogs), completeCostRevenueAmount: amount(summary.completeRevenue),
     incompleteCostRevenueAmount: amount(summary.incompleteRevenue),
-    packagingChargeRevenueAmount: packageTotals.packagingChargeRevenueAmount,
-    packagingMaterialCostAmount: packageTotals.knownMaterialCostAmount,
-    packagingDeficitAmount: packageDeficit === null ? null : signedAmount(packageDeficit),
-    packagingRecoveryRatePercent: packageTotals.recoveryRatePercent,
-    packagingCostCoveragePercent: packageTotals.attributionCoveragePercent,
     variableCostAmount: complete ? amount(summary.totalCogs) : null,
     knownContributionAmount: signedAmount(summary.knownContribution),
     contributionAmount: contribution === null ? null : signedAmount(contribution),
@@ -464,19 +420,18 @@ function periodMetrics(summary: PeriodAggregate) {
     takeawayOrderCount: summary.takeawayOrderIds.size,
     takeawayMixPercent: summary.orderCount === 0 ? null : percent(BigInt(summary.takeawayOrderIds.size), BigInt(summary.orderCount)),
     orderDiscountAmount: amount(summary.orderDiscount), itemDiscountAmount: amount(summary.itemDiscount),
-    _contribution: contribution, _monthlyRevenue: monthlyRevenue, _packagingComplete: packagingComplete,
+    _contribution: contribution, _monthlyRevenue: monthlyRevenue,
   };
 }
 
 function isGroupAffected(group: ProductGroup, target: ExperimentTarget) {
   if (target.targetKind === "PRODUCT") return group.productId === target.productId;
-  if (target.targetKind === "OPTION") return group.productId === target.productId && group.options.some((option) => option.optionId === target.optionId);
-  return group.channel === "TAKEAWAY" && group.packagingProductIds.has(target.productId);
+  if (target.targetKind === "PACKAGING") return false;
+  return group.productId === target.productId && group.options.some((option) => option.optionId === target.optionId);
 }
 function makeProductRows(before: PeriodAggregate, after: PeriodAggregate, targets: any[], currentCatalogPrices: Map<string, number>) {
-  const menuTargets = targets.filter((target) => target.targetKind !== "PACKAGING");
   const keys = new Set([...before.groups.keys(), ...after.groups.keys()]);
-  for (const target of menuTargets) {
+  for (const target of targets) {
     if (![...before.groups.values(), ...after.groups.values()].some((group) => group.productId === target.productId &&
       (target.targetKind !== "OPTION" || group.options.some((option) => option.optionId === target.optionId)))) {
       keys.add(`target:${target.targetKey}`);
@@ -485,14 +440,14 @@ function makeProductRows(before: PeriodAggregate, after: PeriodAggregate, target
   return [...keys].map((key) => {
     const pre = before.groups.get(key); const post = after.groups.get(key);
     const sample = post ?? pre;
-    const targetRows = menuTargets.filter((target) => target.productId === sample?.productId || (!sample && key === `target:${target.targetKey}`));
+    const targetRows = targets.filter((target) => target.productId === sample?.productId || (!sample && key === `target:${target.targetKey}`));
     const applies = (target: any) => !sample || isGroupAffected(sample, target);
     const appliedTargets = targetRows.filter(applies);
     const affected = Boolean(sample?.affected || appliedTargets.length);
     const quantityBefore = pre?.quantity ?? 0; const quantityAfter = post?.quantity ?? 0;
     const revenueBefore = pre?.revenue ?? 0n; const revenueAfter = post?.revenue ?? 0n;
-    const contributionBefore = !pre || pre.quantity === 0 ? 0n : pre.complete && pre.packagingComplete ? pre.revenue - pre.cogs : null;
-    const contributionAfter = !post || post.quantity === 0 ? 0n : post.complete && post.packagingComplete ? post.revenue - post.cogs : null;
+    const contributionBefore = !pre || pre.quantity === 0 ? 0n : pre.complete ? pre.revenue - pre.cogs : null;
+    const contributionAfter = !post || post.quantity === 0 ? 0n : post.complete ? post.revenue - post.cogs : null;
     const target = appliedTargets[0] ?? targetRows[0];
     const change = target?._matchedChange;
     const previousPrice = change?.previousEffectivePriceAmount ?? change?.previousAmount ?? target?.previousPriceAmount ?? null;
@@ -501,7 +456,7 @@ function makeProductRows(before: PeriodAggregate, after: PeriodAggregate, target
       ? currentCatalogPrices.get(`option:${target.productId}:${target.optionId}`) ?? currentCatalogPrices.get(`option:${target.optionId}`) ?? null
       : currentCatalogPrices.get(`product:${target?.productId ?? sample?.productId}`) ?? sample?.currentPriceAmount ?? null;
     const options = sample?.options ?? (target?.optionId ? [{ optionId: target.optionId, optionName: target.optionNameSnapshot, quantity: 1 }] : []);
-    const completeRevenue = (post?.completeRevenue ?? 0n) + (post?.packagingComplete ? post.packagingRevenue : 0n);
+    const completeRevenue = post?.completeRevenue ?? 0n;
     return {
       productId: sample?.productId ?? target.productId,
       productName: sample?.productName ?? target?.productNameSnapshot ?? "محصول نامشخص",
@@ -509,7 +464,7 @@ function makeProductRows(before: PeriodAggregate, after: PeriodAggregate, target
       channel: sample?.channel ?? "UNKNOWN", options,
       affected, targetKinds: [...new Set(appliedTargets.map((row) => row.targetKind))],
       previousPriceAmount: previousPrice, experimentPriceAmount: experimentPrice, currentCatalogPriceAmount: currentPrice,
-      averageRealizedPriceBeforeAmount: average(revenueBefore - (pre?.packagingRevenue ?? 0n), quantityBefore), averageRealizedPriceAfterAmount: average(revenueAfter - (post?.packagingRevenue ?? 0n), quantityAfter),
+      averageRealizedPriceBeforeAmount: average(revenueBefore, quantityBefore), averageRealizedPriceAfterAmount: average(revenueAfter, quantityAfter),
       quantityBefore, quantityAfter,
       quantityChangePercent: quantityBefore === 0 ? null : percent(BigInt(quantityAfter - quantityBefore), BigInt(quantityBefore)),
       unitShareBeforePercent: before.itemUnits === 0 ? null : percent(BigInt(quantityBefore), BigInt(before.itemUnits)),
@@ -532,8 +487,8 @@ function categoryRows(before: PeriodAggregate, after: PeriodAggregate) {
   for (const [summary, side] of [[before, "before"], [after, "after"]] as const) for (const group of summary.groups.values()) {
     const key = group.categoryId ?? "unknown";
     const row = map.get(key) ?? { name: group.categoryName ?? "دسته‌بندی نامشخص", id: group.categoryId, beforeRev: 0n, afterRev: 0n, beforeCont: 0n, afterCont: 0n, beforeComplete: true, afterComplete: true };
-    if (side === "before") { row.beforeRev += group.revenue; row.beforeCont += group.revenue - group.cogs; row.beforeComplete &&= group.complete && group.packagingComplete; }
-    else { row.afterRev += group.revenue; row.afterCont += group.revenue - group.cogs; row.afterComplete &&= group.complete && group.packagingComplete; }
+    if (side === "before") { row.beforeRev += group.revenue; row.beforeCont += group.revenue - group.cogs; row.beforeComplete &&= group.complete; }
+    else { row.afterRev += group.revenue; row.afterCont += group.revenue - group.cogs; row.afterComplete &&= group.complete; }
     map.set(key, row);
   }
   return [...map.values()].map((row) => ({
@@ -555,17 +510,12 @@ function shapleyDecomposition(before: PeriodAggregate, after: PeriodAggregate) {
   const beforeGroupedContribution = [...before.groups.values()].reduce((sum, group) => sum + group.revenue - group.cogs, 0n);
   const afterGroupedContribution = [...after.groups.values()].reduce((sum, group) => sum + group.revenue - group.cogs, 0n);
   const complete = before.allCostsComplete && after.allCostsComplete &&
-    before.packageEconomics.totals.isCostComplete && after.packageEconomics.totals.isCostComplete &&
-    before.packageEconomics.totals.unattributedOrderLevelChargeRevenueAmount === 0 &&
-    after.packageEconomics.totals.unattributedOrderLevelChargeRevenueAmount === 0 &&
     beforeGroupedContribution === before.netRevenue - before.totalCogs &&
     afterGroupedContribution === after.netRevenue - after.totalCogs;
   const observed = periodMetrics(before)._contribution !== null && periodMetrics(after)._contribution !== null
     ? periodMetrics(after)._contribution! - periodMetrics(before)._contribution! : null;
   const limitations = [] as string[];
   if (!before.allCostsComplete || !after.allCostsComplete) limitations.push("هزینه‌ی متغیر برخی اقلام کامل نیست.");
-  if (!before.packageEconomics.totals.isCostComplete || !after.packageEconomics.totals.isCostComplete) limitations.push("انتساب هزینه‌ی بسته‌بندی در یکی از دوره‌ها کامل نیست.");
-  if (before.packageEconomics.totals.unattributedOrderLevelChargeRevenueAmount > 0 || after.packageEconomics.totals.unattributedOrderLevelChargeRevenueAmount > 0) limitations.push("بخشی از مبلغ بسته‌بندی به محصولی منتسب نشده است.");
   if (beforeGroupedContribution !== before.netRevenue - before.totalCogs || afterGroupedContribution !== after.netRevenue - after.totalCogs) limitations.push("جمع مشارکت گروه‌های قابل انتساب با جمع کافه برابر نیست.");
   if (!complete || observed === null) return {
     method: "میانگین ارزش حاشیه‌ای شاپلی روی قیمت تحقق‌یافته، حجم کل، ترکیب محصول/گزینه/کانال و هزینه‌ی متغیر؛ اثرها فقط با پوشش کامل هزینه گزارش می‌شوند.",
@@ -646,20 +596,17 @@ function productBreakEven(before: PeriodAggregate, after: PeriodAggregate, targe
   const rows = targets.map((target) => {
     const pre = [...before.groups.values()].filter((group) => isGroupAffected(group, target));
     const post = [...after.groups.values()].filter((group) => isGroupAffected(group, target));
-    const isPackaging = target.targetKind === "PACKAGING";
-    const beforeQty = isPackaging ? before.packagingByProduct.get(target.productId)?.units ?? 0 : pre.reduce((sum, group) => sum + group.quantity, 0);
-    const afterQty = isPackaging ? after.packagingByProduct.get(target.productId)?.units ?? 0 : post.reduce((sum, group) => sum + group.quantity, 0);
-    const costComplete = pre.every((group) => group.complete && group.packagingComplete) && post.every((group) => group.complete && group.packagingComplete);
+    const beforeQty = pre.reduce((sum, group) => sum + group.quantity, 0);
+    const afterQty = post.reduce((sum, group) => sum + group.quantity, 0);
+    const costComplete = pre.every((group) => group.complete) && post.every((group) => group.complete);
     const beforeContribution = costComplete ? pre.reduce((sum, group) => sum + group.revenue - group.cogs, 0n) : null;
     const afterContribution = costComplete ? post.reduce((sum, group) => sum + group.revenue - group.cogs, 0n) : null;
     const oldUnitContribution = beforeQty > 0 && beforeContribution !== null ? roundedDivide(beforeContribution, BigInt(beforeQty)) : null;
     const newUnitContribution = afterQty > 0 && afterContribution !== null ? roundedDivide(afterContribution, BigInt(afterQty)) : null;
-    const oldRealized = target.targetKind === "OPTION" ? optionPrice(before, target) : beforeQty > 0 ? roundedDivide(isPackaging
-      ? before.packagingByProduct.get(target.productId)?.revenue ?? 0n
-      : pre.reduce((sum, group) => sum + group.revenue - group.packagingRevenue, 0n), BigInt(beforeQty)) : null;
-    const newRealized = target.targetKind === "OPTION" ? optionPrice(after, target) : afterQty > 0 ? roundedDivide(isPackaging
-      ? after.packagingByProduct.get(target.productId)?.revenue ?? 0n
-      : post.reduce((sum, group) => sum + group.revenue - group.packagingRevenue, 0n), BigInt(afterQty)) : null;
+    const oldRealized = target.targetKind === "OPTION" ? optionPrice(before, target) : beforeQty > 0
+      ? roundedDivide(pre.reduce((sum, group) => sum + group.revenue, 0n), BigInt(beforeQty)) : null;
+    const newRealized = target.targetKind === "OPTION" ? optionPrice(after, target) : afterQty > 0
+      ? roundedDivide(post.reduce((sum, group) => sum + group.revenue, 0n), BigInt(afterQty)) : null;
     const increase = oldRealized === null || newRealized === null ? null : newRealized - oldRealized;
     const contributionGain = beforeQty > 0 && afterQty > 0 && beforeContribution !== null && afterContribution !== null
       ? afterContribution - roundedDivide(beforeContribution * BigInt(afterQty), BigInt(beforeQty)) : null;
@@ -667,7 +614,7 @@ function productBreakEven(before: PeriodAggregate, after: PeriodAggregate, targe
       ? percent(contributionGain, afterContribution) : null;
     return {
       productId: target.productId, optionId: target.optionId,
-      label: isPackaging ? `بسته‌بندی · ${target.productNameSnapshot}` : target.optionNameSnapshot ? `${target.productNameSnapshot}، ${target.optionNameSnapshot}` : target.productNameSnapshot,
+      label: target.optionNameSnapshot ? `${target.productNameSnapshot}، ${target.optionNameSnapshot}` : target.productNameSnapshot,
       previousUnitContributionAmount: oldUnitContribution === null ? null : signedAmount(oldUnitContribution),
       newUnitContributionAmount: newUnitContribution === null ? null : signedAmount(newUnitContribution),
       priceIncreaseAmount: increase === null ? null : signedAmount(increase),
@@ -677,7 +624,7 @@ function productBreakEven(before: PeriodAggregate, after: PeriodAggregate, targe
   });
   const affectedPre = [...before.groups.values()].filter((group) => group.affected);
   const affectedPost = [...after.groups.values()].filter((group) => group.affected);
-  const allAffectedComplete = affectedPre.every((group) => group.complete && group.packagingComplete) && affectedPost.every((group) => group.complete && group.packagingComplete);
+  const allAffectedComplete = affectedPre.every((group) => group.complete) && affectedPost.every((group) => group.complete);
   const afterCount = affectedPost.reduce((sum, group) => sum + group.quantity, 0);
   const afterContribution = afterCount > 0 ? affectedPost.reduce((sum, group) => sum + group.revenue - group.cogs, 0n) : null;
   // Apply the observed earlier unit contribution to the later mix once per
@@ -708,7 +655,7 @@ function dailyPoints(before: PeriodAggregate, after: PeriodAggregate, effectiveD
     row.orderIds.add(consumption.orderId);
     for (const item of consumption.items) {
       row.revenue += activeRevenue(item.orderItem.settlementAllocations);
-      if (item.orderItem.product.systemKey !== "PACKING") row.units += item.quantity;
+      row.units += item.quantity;
       if (hasCompleteCostSnapshot(item)) row.cogs += BigInt(item.theoreticalCogsAmount!);
       else row.complete = false;
     }
@@ -736,8 +683,6 @@ function compareChanges(before: any, after: any) {
   const beforeAffectedQty = BigInt(before.affectedItemUnits); const afterAffectedQty = BigInt(after.affectedItemUnits);
   const beforeAov = before.averageOrderValueAmount === null ? null : BigInt(before.averageOrderValueAmount);
   const afterAov = after.averageOrderValueAmount === null ? null : BigInt(after.averageOrderValueAmount);
-  const beforeDeficit = before.packagingDeficitAmount === null ? null : BigInt(before.packagingDeficitAmount);
-  const afterDeficit = after.packagingDeficitAmount === null ? null : BigInt(after.packagingDeficitAmount);
   const beforeCoverage = before.fixedCostCoveragePercent;
   const afterCoverage = after.fixedCostCoveragePercent;
   const coverageChange = beforeCoverage === null || afterCoverage === null ? null : (Number(afterCoverage) - Number(beforeCoverage)).toFixed(2);
@@ -752,8 +697,6 @@ function compareChanges(before: any, after: any) {
     affectedQuantity: Number(afterAffectedQty - beforeAffectedQty), affectedQuantityPercent: ratioChange(beforeAffectedQty, afterAffectedQty),
     averageOrderValueAmount: beforeAov === null || afterAov === null ? null : signedAmount(afterAov - beforeAov),
     averageOrderValuePercent: beforeAov === null || afterAov === null ? null : ratioChange(beforeAov, afterAov),
-    packagingDeficitAmount: beforeDeficit === null || afterDeficit === null ? null : signedAmount(afterDeficit - beforeDeficit),
-    packagingDeficitPercent: beforeDeficit === null || afterDeficit === null ? null : ratioChange(beforeDeficit, afterDeficit),
     fixedCostCoveragePercent: coverageChange,
     marginOfSafetyAmount: beforeSafety === null || afterSafety === null ? null : signedAmount(afterSafety - beforeSafety),
     marginOfSafetyPercent: beforeSafetyRate === null || afterSafetyRate === null ? null : (Number(afterSafetyRate) - Number(beforeSafetyRate)).toFixed(2),
@@ -797,7 +740,8 @@ export async function pricingExperimentReport(prisma: PrismaClient, experimentId
   const noEligibleOrders = before.orderCount + after.orderCount === 0;
   const missingCosts = !before.allCostsComplete || !after.allCostsComplete;
   const mismatchedHistory = history.length === 0 || history.some((target: any) => target.priceHistory.status !== "MATCHED");
-  const status = !periodReady ? "IN_PROGRESS" as const : missingCosts || mismatchedHistory || noEligibleOrders ? "INCONCLUSIVE" as const : "READY" as const;
+  const hasRetiredPackagingTarget = history.some((target: ExperimentTarget) => target.targetKind === "PACKAGING");
+  const status = !periodReady ? "IN_PROGRESS" as const : missingCosts || mismatchedHistory || noEligibleOrders || hasRetiredPackagingTarget ? "INCONCLUSIVE" as const : "READY" as const;
   const metricsForAssessment = { ...beforeMetrics, contributionAmount: beforeMetrics.contributionAmount };
   const assessmentResult = assessment(status, metricsForAssessment, afterMetrics, history, experiment.expectedEvaluationDays);
   const currentProductIds = [...new Set(history.map((target: any) => target.productId))];
@@ -825,7 +769,7 @@ export async function pricingExperimentReport(prisma: PrismaClient, experimentId
   if (noEligibleOrders) qualityFlags.push({ code: "NO_ELIGIBLE_ORDERS", severity: "BLOCKER", messageFa: "در دو بازه‌ی مقایسه‌شده سفارش واجد شرایطی ثبت نشده است." });
   if (dates.after.length < comparisonDays) qualityFlags.push({ code: "POST_PERIOD_INCOMPLETE", severity: "WARNING", messageFa: `از ${comparisonDays} روز درخواستی، ${dates.after.length} روز هم‌روزِ هفته با بازه‌ی پیش از تغییر قابل استفاده است.` });
   if (!before.allCostsComplete || !after.allCostsComplete) qualityFlags.push({ code: "COSTS_INCOMPLETE", severity: "BLOCKER", messageFa: "برای بخشی از فروش، بهای کامل ثبت نشده است. مشارکت کل و مازاد عملیاتی محاسبه نمی‌شود." });
-  if (!before.packageEconomics.totals.isCostComplete || !after.packageEconomics.totals.isCostComplete) qualityFlags.push({ code: "PACKAGING_COSTS_INCOMPLETE", severity: "WARNING", messageFa: "انتساب هزینه‌ی بسته‌بندی کامل نیست؛ کسری یا نرخ بازیافت ممکن است در دسترس نباشد." });
+  if (hasRetiredPackagingTarget) qualityFlags.push({ code: "RETIRED_PACKAGING_TARGET", severity: "WARNING", messageFa: "این آزمایش هدف بسته‌بندی دارد که دیگر در گزارش فروش یا شبیه‌سازی قیمت استفاده نمی‌شود." });
   if (history.some((target: any) => target.priceHistory.status !== "MATCHED")) qualityFlags.push({ code: "PRICE_HISTORY_MISMATCH", severity: "WARNING", messageFa: "برای یک یا چند هدف، رویداد تغییر قیمت پیدا نشد یا مقادیر با آزمایش تطبیق ندارند." });
   if (discountRateBefore !== discountRateAfter) qualityFlags.push({ code: "DISCOUNT_MIX_CHANGED", severity: "WARNING", messageFa: "سهم تخفیف از فروش میان دو دوره تغییر کرده است." });
   qualityFlags.push({ code: "EXTERNAL_CONFOUNDERS_UNKNOWN", severity: "INFO", messageFa: "داده‌ی مناسبت‌ها، آب‌وهوا، تعطیلی عملیاتی، موجودی کالا و رویدادهای ویژه در سامانه ثبت نمی‌شود." });
@@ -867,7 +811,6 @@ export async function pricingExperimentReport(prisma: PrismaClient, experimentId
     },
     dataQuality: {
       flags: qualityFlags, costCoverageComplete: before.allCostsComplete && after.allCostsComplete,
-      packagingAttributionComplete: before.packageEconomics.totals.isCostComplete && after.packageEconomics.totals.isCostComplete,
       validOrderCount: before.orderCount + after.orderCount,
     },
   };
@@ -934,7 +877,6 @@ export async function simulatePricingScenario(prisma: PrismaClient, input: Prici
     const category = rule.categoryId ? categoryById.get(rule.categoryId) : null;
     const option = rule.optionId ? optionById.get(rule.optionId) : null;
     if (rule.targetKind === "PRODUCT" && (!product || !product.isActive || product.archivedAt || product.systemKey === "PACKING")) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The product pricing rule requires an active menu product.");
-    if (rule.targetKind === "PACKAGING" && (!product || !product.isActive || product.archivedAt || product.systemKey !== "PACKING")) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The packaging rule must reference the active system packaging product.");
     if (rule.targetKind === "OPTION" && (!product || !product.isActive || product.archivedAt || !option || !option.isActive || option.archivedAt || !productOptionByKey.has(`${rule.productId}:${rule.optionId}`))) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The option rule requires an active option linked to the selected product.");
     if (rule.categoryId && (!category || category.archivedAt || category.kind !== "SOURCE")) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Category-wide rules must reference an active source category.");
     if (rule.targetKind === "CATEGORY" && (!category || category.archivedAt || category.kind !== "SOURCE")) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The category pricing rule requires an active source category.");
@@ -948,7 +890,7 @@ export async function simulatePricingScenario(prisma: PrismaClient, input: Prici
     for (const row of categoryRows) amount(BigInt(row.priceAmount) + BigInt(rule.adjustmentAmount));
     const label = rule.targetKind === "OPTION" ? `${product!.name}، ${option!.name}`
       : rule.targetKind === "CATEGORY" ? `دسته‌ی ${category!.name}` : product!.name;
-    const affectedUnits = rule.targetKind === "PACKAGING" ? summary.packagingByProduct.get(rule.productId!)?.units ?? 0 : [...summary.groups.values()].filter((group) => {
+    const affectedUnits = [...summary.groups.values()].filter((group) => {
       if (rule.targetKind === "PRODUCT") return group.productId === rule.productId;
       if (rule.targetKind === "OPTION") return group.productId === rule.productId && group.options.some((entry) => entry.optionId === rule.optionId);
       return group.categoryId === rule.categoryId;
@@ -957,27 +899,14 @@ export async function simulatePricingScenario(prisma: PrismaClient, input: Prici
   });
   let affectedRevenue = 0n;
   let affectedCost = 0n;
-  let affectedMaterialCost = 0n;
-  let affectedPackagingRevenue = 0n;
   let priceBenefit = 0n;
-  let packagingPriceBenefit = 0n;
   let affectedCostsComplete = true;
   for (const consumption of consumptions) {
-    const packingItems = consumption.items.filter((item: any) => item.orderItem.product.systemKey === "PACKING");
-    const packagingAffected = packingItems.some((item: any) => rules.some((rule) => rule.targetKind === "PACKAGING" && rule.productId === item.orderItem.productId));
-    const affectedVariants = new Set<string>();
     for (const item of consumption.items) {
       const row = item.orderItem;
-      if (row.product.systemKey === "PACKING") {
-        const delta = rules.filter((rule) => rule.targetKind === "PACKAGING" && rule.productId === row.productId)
-          .reduce((sum, rule) => sum + BigInt(rule.adjustmentAmount) * BigInt(item.quantity), 0n);
-        if (activeRevenue(row.settlementAllocations) + delta < 0n) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A simulated line revenue cannot be negative.");
-        priceBenefit += delta;
-        packagingPriceBenefit += delta;
-        continue;
-      }
+      if (row.product.systemKey === "PACKING") continue;
       const matchingRules = rules.filter((rule) => matchesScenarioItem(row, rule));
-      if (!packagingAffected && matchingRules.length === 0) continue;
+      if (matchingRules.length === 0) continue;
       const revenue = activeRevenue(row.settlementAllocations);
       const delta = scenarioLineAdjustment(row, matchingRules);
       if (revenue + delta < 0n) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A simulated line revenue cannot be negative.");
@@ -985,21 +914,6 @@ export async function simulatePricingScenario(prisma: PrismaClient, input: Prici
       affectedRevenue += revenue;
       affectedCost += BigInt(item.theoreticalCogsAmount ?? 0);
       affectedCostsComplete &&= hasCompleteCostSnapshot(item);
-      affectedMaterialCost += BigInt((item.costSnapshot?.components ?? []).reduce((sum: number, component: any) => sum + (component.packagingKnownCostAmount ?? 0), 0));
-      const channel = item.costSnapshot?.orderChannel ?? salesChannel(consumption.order);
-      affectedVariants.add(groupKey(row.productId, channel, optionsFor(item)));
-    }
-    const date = localDate(consumption.recognizedAt);
-    const packaging = buildPackagingEconomics([consumption], date, date);
-    const feeRevenue = BigInt(packaging.totals.packagingChargeRevenueAmount);
-    const affectedFee = packagingAffected ? feeRevenue : packaging.products.reduce((sum, row) =>
-      sum + (affectedVariants.has(groupKey(row.productId, row.channel, row.options)) ? BigInt(row.packagingChargeRevenueAmount) : 0n), 0n);
-    affectedRevenue += affectedFee;
-    affectedPackagingRevenue += affectedFee;
-    if (packagingAffected || affectedFee > 0n) {
-      const feeCost = packingItems.reduce((sum: bigint, item: any) => sum + BigInt(item.theoreticalCogsAmount ?? 0), 0n);
-      affectedCost += packagingAffected ? feeCost : roundedDivide(feeCost * affectedFee, feeRevenue);
-      affectedCostsComplete &&= packingItems.every(hasCompleteCostSnapshot);
     }
   }
   const postPriceAffectedContribution = affectedRevenue - affectedCost + priceBenefit;
@@ -1013,14 +927,10 @@ export async function simulatePricingScenario(prisma: PrismaClient, input: Prici
     const simulatedRevenue = summary.netRevenue - affectedRevenue + scale(affectedRevenue + priceBenefit);
     const simulatedCost = summary.totalCogs - affectedCost + scale(affectedCost);
     const contribution = summary.allCostsComplete ? simulatedRevenue - simulatedCost : null;
-    const adjustedMaterial = BigInt(summary.packageEconomics.totals.knownMaterialCostAmount) - affectedMaterialCost + scale(affectedMaterialCost);
-    const adjustedFee = BigInt(summary.packageEconomics.totals.packagingChargeRevenueAmount) - affectedPackagingRevenue + scale(affectedPackagingRevenue + packagingPriceBenefit);
-    const packagingDeficit = summary.packageEconomics.totals.isCostComplete ? adjustedMaterial - adjustedFee : null;
     const monthlyContribution = contribution === null ? null : scaledAmount(contribution, dates.length);
     return {
       volumeChangePercent: volumePercent.toFixed(2),
       netRevenueAmount: amount(simulatedRevenue), contributionAmount: contribution === null ? null : signedAmount(contribution),
-      packagingDeficitAmount: packagingDeficit === null ? null : signedAmount(packagingDeficit),
       monthlyEquivalentContributionAmount: monthlyContribution === null ? null : signedAmount(monthlyContribution),
       fixedCostCoveragePercent: monthlyContribution === null ? null : percent(monthlyContribution, FIXED_MONTHLY_COST),
       operatingSurplusAmount: monthlyContribution === null ? null : signedAmount(monthlyContribution - FIXED_MONTHLY_COST),
@@ -1050,8 +960,8 @@ export function calculatePricingShapleyEffects(
   beforeGroups: Array<{ key: string; quantity: number; revenue: bigint; cost: bigint }>,
   afterGroups: Array<{ key: string; quantity: number; revenue: bigint; cost: bigint }>,
 ) {
-  const before = new Map(beforeGroups.map((row) => [row.key, { ...row, cogs: row.cost, complete: true, packagingComplete: true }]));
-  const after = new Map(afterGroups.map((row) => [row.key, { ...row, cogs: row.cost, complete: true, packagingComplete: true }]));
+  const before = new Map(beforeGroups.map((row) => [row.key, { ...row, cogs: row.cost, complete: true }]));
+  const after = new Map(afterGroups.map((row) => [row.key, { ...row, cogs: row.cost, complete: true }]));
   const beforeRevenue = beforeGroups.reduce((sum, row) => sum + row.revenue, 0n);
   const afterRevenue = afterGroups.reduce((sum, row) => sum + row.revenue, 0n);
   const beforeCost = beforeGroups.reduce((sum, row) => sum + row.cost, 0n);
@@ -1062,9 +972,7 @@ export function calculatePricingShapleyEffects(
     affectedItemUnits: 0, netRevenue, affectedRevenue: 0n, unaffectedRevenue: netRevenue, unattributedRevenue: 0n,
     ingredientCogs: totalCogs, totalCogs, completeRevenue: netRevenue, incompleteRevenue: 0n, knownContribution: netRevenue - totalCogs,
     allCostsComplete: true, orderDiscount: 0n, itemDiscount: 0n, groups: rows,
-    packageEconomics: { totals: { isCostComplete: true, netRecoveryAmount: null, unattributedOrderLevelChargeRevenueAmount: 0,
-      packagingChargeRevenueAmount: 0, knownMaterialCostAmount: 0, recoveryRatePercent: null, attributionCoveragePercent: null } },
-    consumptions: [], packagingLineUnits: 0, packagingOrderIds: new Set(), packagingByProduct: new Map(),
+    consumptions: [],
   });
   const result = shapleyDecomposition(make(before, beforeRevenue, beforeCost), make(after, afterRevenue, afterCost));
   return { price: result.priceEffectAmount, volume: result.volumeEffectAmount, mix: result.mixEffectAmount, cost: result.unitCostEffectAmount, observed: result.observedContributionChangeAmount, residual: result.residualAmount };
