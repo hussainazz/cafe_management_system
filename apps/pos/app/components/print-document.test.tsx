@@ -17,7 +17,7 @@ describe("print completion", () => {
   });
   it("acknowledges the prepared ticket after invoking print without waiting for afterprint", async () => {
     const print = vi.spyOn(window, "print").mockImplementation(() => {});
-    vi.mocked(prepareBarTicket).mockResolvedValue({ ok: true, replayed: false, data: { preparationId: "prep", dailyOrderNumber: 1, context: "takeaway", items: [] } });
+    vi.mocked(prepareBarTicket).mockResolvedValue({ ok: true, replayed: false, data: { preparationId: "prep", dailyOrderNumber: 1, context: "takeaway", displayTime: "۱۴:۰۵", items: [] } });
     vi.mocked(acknowledgeBarTicket).mockResolvedValue({ ok: true, replayed: false, data: { acknowledged: true } });
     const completed = vi.fn();
     window.addEventListener("cafe-print-complete", completed, { once: true });
@@ -29,7 +29,7 @@ describe("print completion", () => {
   });
   it("reports bounded acknowledgment failure after invoking print", async () => {
     vi.spyOn(window, "print").mockImplementation(() => {});
-    vi.mocked(prepareBarTicket).mockResolvedValue({ ok: true, replayed: false, data: { preparationId: "prep", dailyOrderNumber: 1, context: "takeaway", items: [] } });
+    vi.mocked(prepareBarTicket).mockResolvedValue({ ok: true, replayed: false, data: { preparationId: "prep", dailyOrderNumber: 1, context: "takeaway", displayTime: "۱۴:۰۵", items: [] } });
     vi.mocked(acknowledgeBarTicket).mockResolvedValue({ ok: false, error: { kind: "network", message: "ack failed" } });
     const completed = vi.fn();
     window.addEventListener("cafe-print-complete", completed, { once: true });
