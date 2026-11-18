@@ -575,8 +575,11 @@ tableSeatingLimitSnapshotMinutes + estimatedPreparationMinutes`.
   version, and a mode-specific source. `RECIPE` requires one recipe and no
   purchased stock item; `PURCHASED_ITEM` requires one stock item and a positive
   configured quantity where the product is sold as a fixed unit. Optional
-  extras reference a recipe. The service checks unit compatibility with fixed
-  or weighted product pricing.
+  extras reference a recipe. The optional `servedAlongside` JSONB array stores
+  positive per-sold-unit stock or reusable-recipe rows; contracts validate the
+  source shape and the service checks each source is active. These product-level
+  rows are not recipe components and are not inherited by another product.
+  The service checks unit compatibility with fixed or weighted product pricing.
 - Option rules are unique per product, option, and component key. Replacement
   has exactly one replacement source and a positive quantity; quantity change
   has a positive quantity and no source; addition has a unique added component
@@ -778,6 +781,14 @@ with a restrictive recipe FK and non-null JSONB `takeawayOptionRecipes` default
 product option ownership, duplicate options and output units. Conditional
 packaging fields live in the existing validated JSON array; no old mappings
 are rewritten. Order snapshots persist the resolved whole-group requirements.
+
+`20261118120000_product_served_alongside` adds non-null JSONB
+`product_costing_configurations.servedAlongside` with default `[]` and an
+array-type CHECK. The service validates each stock or recipe reference is
+active. The costing resolver appends these per-sold-unit rows after main and
+option recipe resolution for every option and channel. Resolved requirements
+flow into the existing order snapshots and inventory lifecycle; no recipe or
+historical snapshot is rewritten.
 # Pricing experiment constraints (ADR 0013)
 
 - A pricing experiment has a non-empty bounded name, valid UTC effective
