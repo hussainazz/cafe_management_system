@@ -174,6 +174,19 @@ Small circular dots belong to chart legends and data observations. The stock ins
 
 ## Components
 
+### Inventory management guidance
+
+The six management tabs have optional, collapsed workflow guides above their
+working panels. Native details and summary controls provide keyboard access
+without an automatic tour or modal. Guides use the inventory inset, existing
+amber icons, muted supporting text, and a short ordered workflow. Their links
+use the existing navigation guard so unfinished forms remain protected.
+
+Empty states distinguish first use from an applied search with no results.
+They explain the prerequisite and offer a relevant action, such as defining
+a stock item, focusing the current form, or clearing filters. Read failures
+retain their error and retry controls rather than showing first-use guidance.
+
 ### Buttons
 
 Primary actions use a dark amber gradient, pale text, a warm border and semibold type. Secondary actions use a neutral charcoal fill with a stronger border. The primary and inventory action controls have a minimum height of (44px). Preserve the shared hover, focus and disabled treatments. The inspector's edit action spans its panel width.
