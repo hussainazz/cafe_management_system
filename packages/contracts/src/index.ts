@@ -33,7 +33,7 @@ export const ReadinessUnavailableResponseSchema = z.object({
 
 export type ReadinessUnavailableResponse = z.infer<typeof ReadinessUnavailableResponseSchema>;
 
-export const UserRoleSchema = z.enum(["MANAGER", "STAFF", "DEVELOPER"]);
+export const UserRoleSchema = z.enum(["MANAGER", "CASHIER", "STAFF", "DEVELOPER"]);
 
 export const AuthenticatedUserSchema = z.object({
   id: z.uuid(),
@@ -122,6 +122,7 @@ export const PosCatalogOptionGroupSchema = z.object({
 
 export const PosCatalogProductSchema = z.object({
   id: z.uuid(),
+  systemKey: z.string().nullable(),
   name: z.string(),
   priceAmount: z.number().int().nonnegative(),
   pricingMode: z.enum(["FIXED", "WEIGHTED_PER_KG"]),
@@ -188,6 +189,7 @@ export const OrderItemOptionInputSchema = z
 
 export const CreateOrderItemSchema = z
   .object({
+    clientRef: z.uuid().optional(),
     productId: z.uuid(),
     quantity: z.number().int().positive(),
     weightGrams: z.number().int().positive().optional(),
@@ -209,6 +211,29 @@ export const CreateOrderItemSchema = z
     });
   });
 
+export const OrderItemReferenceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("EXISTING"), orderItemId: z.uuid() }).strict(),
+  z.object({ kind: z.literal("REQUEST"), clientRef: z.uuid() }).strict(),
+]);
+export type OrderItemReference = z.infer<typeof OrderItemReferenceSchema>;
+export const PackagingAssignmentInputSchema = z.object({
+  packagingItem: OrderItemReferenceSchema,
+  productItem: OrderItemReferenceSchema,
+  quantity: z.number().int().positive(),
+}).strict();
+export type PackagingAssignmentInput = z.infer<typeof PackagingAssignmentInputSchema>;
+export const PackagingAssignmentSchema = z.object({
+  id: z.uuid(),
+  packagingOrderItemId: z.uuid(),
+  packagingProductId: z.uuid(),
+  packagingProductNameSnapshot: z.string(),
+  productOrderItemId: z.uuid(),
+  productId: z.uuid(),
+  productNameSnapshot: z.string(),
+  quantity: z.number().int().positive(),
+});
+export type PackagingAssignment = z.infer<typeof PackagingAssignmentSchema>;
+
 export const DiscountInputSchema = z
   .discriminatedUnion("kind", [
     z.object({ kind: z.literal("FIXED"), value: z.number().int().positive() }).strict(),
@@ -227,6 +252,20 @@ export const ReasonedDiscountInputSchema = z
 
 const CreateOrderBaseSchema = z.object({
   items: z.array(CreateOrderItemSchema).min(1).max(100),
+  packagingAssignments: z.array(PackagingAssignmentInputSchema).max(500).optional(),
+}).superRefine((input, context) => {
+  const clientRefs = new Set<string>();
+  input.items.forEach((item, index) => {
+    if (!item.clientRef) return;
+    if (clientRefs.has(item.clientRef)) context.addIssue({ code: "custom", path: ["items", index, "clientRef"], message: "A request item reference can appear only once." });
+    clientRefs.add(item.clientRef);
+  });
+  input.packagingAssignments?.forEach((assignment, index) => {
+    for (const [field, reference] of [["packagingItem", assignment.packagingItem], ["productItem", assignment.productItem]] as const) {
+      if (reference.kind !== "REQUEST") context.addIssue({ code: "custom", path: ["packagingAssignments", index, field], message: "Order creation assignments must reference request items." });
+      else if (!clientRefs.has(reference.clientRef)) context.addIssue({ code: "custom", path: ["packagingAssignments", index, field], message: "The request item reference was not included in this order." });
+    }
+  });
 });
 
 export const CreateOrderRequestSchema = CreateOrderBaseSchema.extend({
@@ -244,8 +283,8 @@ export const CreateOrderRequestSchema = CreateOrderBaseSchema.extend({
   });
 
 export type CreateOrderRequest =
-  | { channel: "TABLE"; tableId: string; items: z.infer<typeof CreateOrderBaseSchema>["items"] }
-  | { channel: "TAKEAWAY"; items: z.infer<typeof CreateOrderBaseSchema>["items"] };
+  | { channel: "TABLE"; tableId: string; items: z.infer<typeof CreateOrderBaseSchema>["items"]; packagingAssignments?: z.infer<typeof PackagingAssignmentInputSchema>[] }
+  | { channel: "TAKEAWAY"; items: z.infer<typeof CreateOrderBaseSchema>["items"]; packagingAssignments?: z.infer<typeof PackagingAssignmentInputSchema>[] };
 
 export const StaffConsumptionCreateRequestSchema = z.object({
   channel: z.literal("TAKEAWAY"),
@@ -264,6 +303,7 @@ export const CreatedOrderItemOptionSchema = z.object({
 export const CreatedOrderItemSchema = z.object({
   id: z.uuid(),
   productId: z.uuid(),
+  systemKey: z.string().nullable(),
   productNameSnapshot: z.string(),
   basePriceSnapshot: z.number().int().nonnegative(),
   pricingModeSnapshot: z.enum(["FIXED", "WEIGHTED_PER_KG"]),
@@ -297,6 +337,7 @@ export const CreatedOrderSchema = z.object({
   balanceAmount: z.number().int().nonnegative(),
   createdAt: z.iso.datetime(),
   items: z.array(CreatedOrderItemSchema),
+  packagingAssignments: z.array(PackagingAssignmentSchema),
 });
 export type CreatedOrder = z.infer<typeof CreatedOrderSchema>;
 
@@ -536,11 +577,12 @@ export const UpdateOrderRequestSchema = z
     items: z.array(CreateOrderItemSchema).min(1).max(100).optional(),
     addItems: z.array(CreateOrderItemSchema).min(1).max(100).optional(),
     itemUpdates: z.array(ExistingOrderItemUpdateSchema).min(1).max(100).optional(),
+    packagingAssignments: z.array(PackagingAssignmentInputSchema).max(500).optional(),
     orderDiscount: ReasonedDiscountInputSchema.optional(),
   })
   .strict()
   .superRefine((input, context) => {
-    if (!input.items && !input.addItems && !input.itemUpdates && input.orderDiscount === undefined) {
+    if (!input.items && !input.addItems && !input.itemUpdates && input.packagingAssignments === undefined && input.orderDiscount === undefined) {
       context.addIssue({ code: "custom", message: "At least one order change is required." });
     }
     if (input.items && (input.addItems || input.itemUpdates)) {
@@ -560,6 +602,19 @@ export const UpdateOrderRequestSchema = z
         });
       }
       itemIds.add(item.orderItemId);
+    });
+    const requestItems = input.items ?? input.addItems ?? [];
+    const clientRefs = new Set<string>();
+    requestItems.forEach((item, index) => {
+      if (!item.clientRef) return;
+      if (clientRefs.has(item.clientRef)) context.addIssue({ code: "custom", path: [input.items ? "items" : "addItems", index, "clientRef"], message: "A request item reference can appear only once." });
+      clientRefs.add(item.clientRef);
+    });
+    const assignmentKeys = new Set<string>();
+    input.packagingAssignments?.forEach((assignment, index) => {
+      const key = `${JSON.stringify(assignment.packagingItem)}:${JSON.stringify(assignment.productItem)}`;
+      if (assignmentKeys.has(key)) context.addIssue({ code: "custom", path: ["packagingAssignments", index], message: "A packaging item can reference an order item only once." });
+      assignmentKeys.add(key);
     });
   });
 
@@ -1117,11 +1172,16 @@ export const TakeawayPackagingSchema = z.array(z.object({
     context.addIssue({ code: "custom", message: "Each packaging stock item must appear only once." });
   }
 });
+export const ProductServedAlongsideSchema = z.array(z.discriminatedUnion("sourceKind", [
+  z.object({ sourceKind: z.literal("STOCK_ITEM"), stockItemId: z.uuid(), quantity: InventoryDecimalSchema }).strict(),
+  z.object({ sourceKind: z.literal("RECIPE"), recipeId: z.uuid(), quantity: InventoryDecimalSchema }).strict(),
+])).max(100);
 const RecipeCostingConfigurationInputSchema = z.object({
   mode: z.literal("RECIPE"),
   recipeId: z.uuid(),
   recipeQuantity: InventoryDecimalSchema,
   extrasRecipeId: z.uuid().nullable().optional(),
+  servedAlongside: ProductServedAlongsideSchema.optional(),
   takeawayPackaging: TakeawayPackagingSchema.optional(),
   takeawayRecipeId: z.uuid().nullable().optional(),
   takeawayOptionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
@@ -1134,6 +1194,7 @@ const PurchasedCostingConfigurationInputSchema = z.object({
   purchasedStockItemId: z.uuid(),
   purchasedQuantity: InventoryDecimalSchema.optional(),
   extrasRecipeId: z.uuid().nullable().optional(),
+  servedAlongside: ProductServedAlongsideSchema.optional(),
   takeawayPackaging: TakeawayPackagingSchema.optional(),
   takeawayRecipeId: z.uuid().nullable().optional(),
   takeawayOptionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
@@ -1153,6 +1214,7 @@ export const ProductCostingConfigurationResponseDataSchema = z.discriminatedUnio
     recipeId: z.uuid(),
     recipeQuantity: InventoryNonNegativeDecimalSchema,
     extrasRecipeId: z.uuid().nullable(),
+    servedAlongside: ProductServedAlongsideSchema,
     takeawayPackaging: TakeawayPackagingSchema.optional(),
     takeawayRecipeId: z.uuid().nullable().optional(),
     takeawayOptionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
@@ -1168,6 +1230,7 @@ export const ProductCostingConfigurationResponseDataSchema = z.discriminatedUnio
     purchasedStockItemId: z.uuid(),
     purchasedQuantity: InventoryNonNegativeDecimalSchema.nullable(),
     extrasRecipeId: z.uuid().nullable(),
+    servedAlongside: ProductServedAlongsideSchema,
     takeawayPackaging: TakeawayPackagingSchema.optional(),
     takeawayRecipeId: z.uuid().nullable().optional(),
     takeawayOptionRecipes: ProductOptionRecipeCostingInputSchema.optional(),
@@ -1564,6 +1627,7 @@ export const PackagingEconomicsProductSchema = z.object({
   options: z.array(SalesAnalyticsOptionSchema),
   soldQuantity: z.number().int().nonnegative(),
   soldWeightGrams: z.number().int().nonnegative(),
+  assignedPackaging: z.array(z.object({ packagingProductId: z.uuid(), packagingProductName: z.string(), quantity: z.number().int().nonnegative() })),
   productNetSalesAmount: InventoryMoneySchema,
   packagingChargeRevenueAmount: InventoryMoneySchema,
   nonPackagingKnownCostAmount: InventoryMoneySchema,
