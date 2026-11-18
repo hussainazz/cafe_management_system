@@ -53,7 +53,7 @@ wrapped cookie.
 | Area           | Baseline decision                                                                                                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                                                                                                                     |
-| Roles          | Manager, Staff, and Developer use one POS application. Developer has all Manager capabilities plus exclusive access to inventory overview, sales-channel, peak/contribution, gross-profit, and pricing-experiment views. Manager cannot access those five analysis views. |
+| Roles          | Manager, Cashier, Staff, and Developer use one POS application. Cashier inherits Manager capabilities except ingredient final-cost visibility in recipe editing and cost previews, and access to accounting, sales, and gross-margin reports. Developer has all Manager capabilities plus exclusive access to inventory overview, sales-channel, peak/contribution, gross-profit, and pricing-experiment views. Manager and Cashier cannot access those five analysis views. |
 | Customers      | Customers browse the generic menu anonymously. A table-scoped QR credential asks for a phone number on first use and creates a short table visit that authorizes only a waiter-call; OTP verification is intentionally deferred to a later phase. When Staff, Manager, or Developer explicitly holds an eligible table occupied, that table alone may temporarily bypass customer phone collection for its current QR context; returning it to available clears the bypass. Collected phones are unverified and must not be used for marketing until OTP/consent work is added. There are no order, payment, tracking, loyalty, or marketing capabilities. |
 | Currency       | Every amount is an integer count of **Toman**. Floating-point money is forbidden. Verified terminal-boundary conversion is allowed only under ADR 0012; accounting remains integer Toman.                                                                                                                                |
 | Time           | Store timestamps in UTC. Display timestamps and calculate calendar-day reports in `Asia/Tehran`.                                                                                                                                       |
@@ -96,7 +96,7 @@ acceptance gates are tracked in [`current-left.md`](../current-left.md).
 
 ## Actors, Permissions, And Workflows
 
-The POS has three roles. Staff, Manager, and Developer use the same operational table dashboard. Developer receives all Manager capabilities and five additional inventory analysis views. This is not a separate application or a second implementation of POS business rules.
+The POS has four roles. Staff, Manager, Cashier, and Developer use the same operational table dashboard. Cashier receives Manager capabilities except ingredient final-cost inspection and financial or sales reporting. Developer receives all Manager capabilities and five additional inventory analysis views. This is not a separate application or a second implementation of POS business rules.
 
 | Capability                                                                  | Staff | Manager | Developer |
 | --------------------------------------------------------------------------- | :---: | :-----: | :-------: |
@@ -401,3 +401,17 @@ The guiding principle is simple: finish and verify the authoritative backend fir
 ## Approved SEP SSP1126 increment (25 October 2026)
 
 [ADR 0012](../adr/0012-sep-ssp1126-local-bridge.md) approves the optional single-terminal Windows bridge, authenticated attempts/results, durable recovery, and audited reconciliation. It remains disabled until browser and financial safety gates pass. Pending or unknown dispatched attempts cannot trigger another charge, post an unverified settlement, close an order, or release its table. Manual/cash/split workflows remain available subject to unresolved-attempt guards. Deployment and real payments require separate explicit authorization.
+
+## POS packaging product assignments — approved 18 November 2026
+
+When Staff selects an existing `PACKING` catalog product during order entry,
+replace the center product grid with a packaging assignment workspace while
+keeping the order summary and category navigation in place. Staff can assign
+quantities of ordered products to that packaging item. Persist the relationship
+between the packaging order item and each non-packaging order item, and expose
+it for order editing and inventory/financial analysis. Packaging items retain
+their catalog identity, price snapshots, and normal inventory behavior. These
+links provide attribution only: they do not replace or add to the existing
+product `takeawayPackaging` stock-consumption configuration or change order
+totals. A product unit may have more than one kind of packaging, such as a cup
+and a lid.
