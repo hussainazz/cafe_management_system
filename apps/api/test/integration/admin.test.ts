@@ -263,7 +263,7 @@ describe("Manager administration", () => {
     expect(productTwo.json().data.displayOrder).toBe(2);
     const productReorder = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${first.json().data.id}/products/reorder`, cookies: manager, payload: { productIds: [productTwo.json().data.id, productOne.json().data.id] } });
     expect(productReorder.statusCode).toBe(200);
-    expect(productReorder.json().data.products.map((row: any) => row.displayOrder)).toEqual([1, 2, 3]);
+    expect(productReorder.json().data.products.map((row: any) => row.displayOrder)).toEqual([1, 2]);
     const crossCategory = await app.inject({ method: "PATCH", url: `/api/v1/admin/categories/${first.json().data.id}/products/reorder`, cookies: manager, payload: { productIds: [productOne.json().data.id, otherProduct.json().data.id] } });
     expect(crossCategory.statusCode).toBe(422);
     await expect(app.prisma.auditLog.findFirstOrThrow({ where: { operation: "REORDER_PRODUCTS", entityId: first.json().data.id } })).resolves.toBeDefined();
@@ -349,19 +349,17 @@ describe("Manager administration", () => {
     expect(disabled.json().data.tableSeatingLimitMinutes).toBeNull();
   });
 
-  it("creates and protects one POS-only Packing product per new category", async () => {
+  it("does not create a separate packaging sale product with a new category", async () => {
     const manager = await session(UserRole.MANAGER, "packing.manager");
     const created = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "بسته‌بندی تست" } });
     expect(created.statusCode).toBe(200);
     const categoryId = created.json().data.id;
-    const packing = await app.prisma.product.findUniqueOrThrow({ where: { categoryId_systemKey: { categoryId, systemKey: "PACKING" } } });
-    expect(packing).toMatchObject({ isPublic: false, systemKey: "PACKING", displayOrder: 1 });
+    expect(await app.prisma.product.findFirst({ where: { categoryId, systemKey: "PACKING" } })).toBeNull();
 
     const products = await app.inject({ method: "GET", url: "/api/v1/admin/products", cookies: manager });
-    expect(products.json().data.products.filter((product: any) => product.categoryId === categoryId)).toHaveLength(1);
-    expect((await app.inject({ method: "POST", url: `/api/v1/admin/products/${packing.id}/archive`, cookies: manager })).statusCode).toBe(422);
+    expect(products.json().data.products.filter((product: any) => product.categoryId === categoryId)).toHaveLength(0);
     const otherCategory = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "بسته‌بندی تست دوم" } });
-    expect((await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${packing.id}`, cookies: manager, payload: { categoryId: otherCategory.json().data.id } })).statusCode).toBe(422);
+    expect(await app.prisma.product.findFirst({ where: { categoryId: otherCategory.json().data.id, systemKey: "PACKING" } })).toBeNull();
   });
 
   it("returns safe client errors for malformed paths, missing rows, duplicates, and foreign keys", async () => {
@@ -709,7 +707,7 @@ describe("Manager administration", () => {
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log?from=2026-09-10T00:00:00.000Z&to=2026-09-09T00:00:00.000Z", cookies: manager })).statusCode).toBe(400);
   });
 
-  it("records atomic, filtered price history for products, shared options, overrides and packaging charges", async () => {
+  it("records atomic, filtered price history for products, shared options, overrides and discounts", async () => {
     const manager = await session(UserRole.MANAGER, "price-history.manager");
     const staff = await session(UserRole.STAFF, "price-history.staff");
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", calendar: "gregory", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -719,11 +717,7 @@ describe("Manager administration", () => {
     const categoryResponse = await app.inject({ method: "POST", url: "/api/v1/admin/categories", cookies: manager, payload: { name: "Price history category" } });
     expect(categoryResponse.statusCode, categoryResponse.body).toBe(200);
     const categoryId = categoryResponse.json().data.id;
-    const packing = await app.prisma.product.findUniqueOrThrow({ where: { categoryId_systemKey: { categoryId, systemKey: "PACKING" } } });
-    const packDown = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${packing.id}`, cookies: manager, payload: { priceAmount: 15_000 } });
-    expect(packDown.statusCode, packDown.body).toBe(200);
-    const packUpdate = await app.inject({ method: "PATCH", url: `/api/v1/admin/products/${packing.id}`, cookies: manager, payload: { priceAmount: 20_000 } });
-    expect(packUpdate.statusCode, packUpdate.body).toBe(200);
+    expect(await app.prisma.product.findFirst({ where: { categoryId, systemKey: "PACKING" } })).toBeNull();
 
     const groupResponse = await app.inject({ method: "POST", url: "/api/v1/admin/option-groups", cookies: manager, payload: { name: "Price history size" } });
     expect(groupResponse.statusCode, groupResponse.body).toBe(200);
@@ -788,13 +782,6 @@ describe("Manager administration", () => {
     expect(nextPage.json().data.changes).toEqual(expect.arrayContaining([expect.objectContaining({ dimension: "PRODUCT_BASE_PRICE", previousAmount: 10_000, newAmount: 12_000 })]));
     expect(nextPage.json().data.changes.map((change: any) => change.id)).not.toContain(firstHistory.json().data.changes[0].id);
 
-    const packagingHistory = await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&dimension=PACKAGING_CHARGE`, cookies: manager });
-    expect(packagingHistory.statusCode).toBe(200);
-    expect(packagingHistory.json().data.changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ productId: packing.id, dimension: "PACKAGING_CHARGE", source: "POS_PRODUCT_CREATE", previousAmount: null, newAmount: 20_000 }),
-      expect.objectContaining({ productId: packing.id, dimension: "PACKAGING_CHARGE", source: "POS_PRODUCT_UPDATE", previousAmount: 20_000, newAmount: 15_000 }),
-      expect.objectContaining({ productId: packing.id, dimension: "PACKAGING_CHARGE", source: "POS_PRODUCT_UPDATE", previousAmount: 15_000, newAmount: 20_000 }),
-    ]));
     expect(optionHistory.json().data.changes.every((change: any) => change.effectiveTimeKnown && change.actor && change.requestId)).toBe(true);
     expect((await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=2026-12-01&toDate=${today}`, cookies: manager })).statusCode).toBe(400);
     expect((await app.inject({ method: "GET", url: `/api/v1/admin/price-history?fromDate=${today}&toDate=${today}&cursor=00000000-0000-4000-8000-000000000000`, cookies: manager })).statusCode).toBe(400);
