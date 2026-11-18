@@ -49,6 +49,7 @@ function BarTicket({ ticket }: { ticket: BarTicket }) {
     <main className="thermal-print thermal-print--ticket">
       <header className="thermal-ticket-header">
         <p className="thermal-context">{ticket.context}</p>
+        <time className="thermal-time thermal-time--ticket" aria-label={`زمان چاپ ${ticket.displayTime}`}>{ticket.displayTime}</time>
         <strong className="thermal-ticket-number">
           #{englishNumber.format(ticket.dailyOrderNumber)}
         </strong>
