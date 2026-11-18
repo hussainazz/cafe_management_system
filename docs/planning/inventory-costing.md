@@ -74,8 +74,13 @@ The product remains one café, one branch, and one authoritative API/database.
   preparations such as an espresso dose. Reject circular recipe references.
 - Each product has either a recipe costing configuration or a purchased-stock
   configuration. Purchased desserts may include a configured recipe of direct
-  extras. Whole cakes use their actual sold unit; automatic slice-yield
-  conversion is excluded.
+  extras. An optional product-level served-alongside list adds stock items or
+  reusable recipes, with quantities per sold unit, to every selected product
+  option and costing channel. It is separate from the product's main ingredient
+  recipe: choosing an existing recipe for another product inherits only that
+  recipe's main components, not the source product's served-alongside list. Whole
+  cakes use their actual sold unit; automatic slice-yield conversion is
+  excluded.
 - Option costing rules target named recipe components and may replace a
   component, change its quantity, or add ingredients. Resolve the base recipe,
   then individual option rules, then an explicitly configured exact option
@@ -325,6 +330,20 @@ transaction as the existing catalog update and audit record. Shared option
 changes include one row for each product whose effective option price changed.
 The complete pricing experiment UI and before/after pricing analytics remain
 outside Phase 1.
+
+## Product accompaniments and no-option recipes, 18 November 2026
+
+The product costing editor may save a distinct base recipe for the empty
+selection of an optional menu-option group. This recipe is used when no option
+is selected; configured full recipes for selected options continue to resolve
+as before. Keep the base recipe distinct from the first option's recipe.
+
+Managers may optionally add one or more items served alongside a product. Each
+entry is an active stock item or reusable recipe with a positive quantity. These
+entries apply to every option selection and channel, participate in previews,
+order snapshots, theoretical costing, and the existing stock lifecycle, and
+remain product-level configuration. They are not copied into reusable recipe
+components when another product selects an existing main ingredient recipe.
 
 ## Reporting calculation clarifications, 15 November 2026
 
