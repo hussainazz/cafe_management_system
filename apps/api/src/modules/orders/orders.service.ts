@@ -17,8 +17,6 @@ import {
   type TransferOrderTableRequest,
   type UpdateOrderRequest,
   type DiscountInput,
-  type PackagingAssignmentInput,
-  type OrderItemReference,
 } from "@cafe/contracts";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import type { AuthenticatedUser } from "../auth/auth.service.js";
@@ -38,26 +36,6 @@ async function lockOperationalKeys(transaction: Prisma.TransactionClient, keys: 
   for (const key of [...new Set(keys)].sort()) {
     await transaction.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}::text))`);
   }
-}
-
-function requestItemReferenceIds(assignments: PackagingAssignmentInput[], requestItemIds: Map<string, string>) {
-  const seen = new Set<string>();
-  return assignments.map((assignment) => {
-    const packagingItemId = resolveItemReference(assignment.packagingItem, requestItemIds);
-    const productItemId = resolveItemReference(assignment.productItem, requestItemIds);
-    if (!packagingItemId || !productItemId) {
-      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must reference items in this order request.");
-    }
-    if (packagingItemId === productItemId) {
-      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging item cannot be assigned to itself.");
-    }
-    const key = packagingAssignmentKey(packagingItemId, productItemId);
-    if (seen.has(key)) {
-      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An order item can only be assigned once to each packaging item.");
-    }
-    seen.add(key);
-    return { packagingItemId, productItemId, quantity: assignment.quantity };
-  });
 }
 
 type ProductForOrder = {
@@ -149,16 +127,6 @@ type CreatedOrder = {
       quantity: number;
     }>;
   }>;
-  packagingAssignments: Array<{
-    id: string;
-    packagingOrderItemId: string;
-    packagingProductId: string;
-    packagingProductNameSnapshot: string;
-    productOrderItemId: string;
-    productId: string;
-    productNameSnapshot: string;
-    quantity: number;
-  }>;
 };
 
 type OrderTraceTable = { id: string; name: string };
@@ -180,60 +148,6 @@ function stableJson(value: unknown): string {
 
 function requestFingerprint(input: unknown): string {
   return createHash("sha256").update(stableJson(input)).digest("hex");
-}
-
-function resolveItemReference(reference: OrderItemReference, requestItemIds: Map<string, string>): string | undefined {
-  return reference.kind === "EXISTING" ? reference.orderItemId : requestItemIds.get(reference.clientRef);
-}
-
-function packagingAssignmentKey(packagingItemId: string, productItemId: string): string {
-  return `${packagingItemId}:${productItemId}`;
-}
-
-async function persistOrderPackagingAssignments(
-  transaction: Prisma.TransactionClient,
-  orderId: string,
-  assignments: PackagingAssignmentInput[] | undefined,
-  requestItemIds: Map<string, string>,
-  previousAssignments: Array<{ packagingItemId: string; productItemId: string; quantity: number }>,
-  immutableItemIds: Set<string>,
-) {
-  const currentRows = assignments === undefined
-    ? await transaction.orderItemPackagingAssignment.findMany({ where: { orderId }, select: { packagingItemId: true, productItemId: true, quantity: true } })
-    : requestItemReferenceIds(assignments, requestItemIds);
-  const resolved = currentRows;
-  const items = await transaction.orderItem.findMany({ where: { orderId }, include: { product: { select: { systemKey: true } } } });
-  const itemById = new Map(items.map((item) => [item.id, item]));
-  for (const assignment of resolved) {
-    const packagingItem = itemById.get(assignment.packagingItemId);
-    const productItem = itemById.get(assignment.productItemId);
-    if (!packagingItem || !productItem) {
-      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must reference items in this order.");
-    }
-    if (packagingItem.product.systemKey !== "PACKING" || productItem.product.systemKey === "PACKING") {
-      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must link a packaging product to a menu product.");
-    }
-    if (assignment.quantity > productItem.quantity) {
-      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Assigned quantity cannot exceed the order item quantity.");
-    }
-  }
-
-  if (assignments !== undefined) {
-    const oldFrozen = previousAssignments.filter((assignment) => immutableItemIds.has(assignment.packagingItemId) || immutableItemIds.has(assignment.productItemId));
-    const newFrozen = resolved.filter((assignment) => immutableItemIds.has(assignment.packagingItemId) || immutableItemIds.has(assignment.productItemId));
-    const frozenRows = (rows: Array<{ packagingItemId: string; productItemId: string; quantity: number }>) => rows
-      .map((assignment) => `${packagingAssignmentKey(assignment.packagingItemId, assignment.productItemId)}:${assignment.quantity}`)
-      .sort();
-    if (JSON.stringify(frozenRows(oldFrozen)) !== JSON.stringify(frozenRows(newFrozen))) {
-      throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments for settled or inventory-recognized items cannot be changed.");
-    }
-
-    await transaction.orderItemPackagingAssignment.deleteMany({ where: { orderId } });
-    if (resolved.length) {
-      await transaction.orderItemPackagingAssignment.createMany({ data: resolved.map((assignment) => ({ id: randomUUID(), orderId, ...assignment })) });
-    }
-  }
-  return resolved;
 }
 
 const tehranBusinessDateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -325,6 +239,61 @@ async function existingIdempotencyResult<T>(
   return resultFromSnapshot<T>(record.resultSnapshot);
 }
 
+export async function listPersonnelProfiles(prisma: PrismaClient) {
+  return prisma.personnelProfile.findMany({
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    select: { id: true, name: true, createdAt: true },
+  });
+}
+
+export async function createPersonnelProfile(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  name: string,
+  requestId: string,
+) {
+  const normalizedName = name.trim();
+  try {
+    return await prisma.$transaction(async (transaction) => {
+      const profile = await transaction.personnelProfile.create({ data: { name: normalizedName } });
+      await transaction.auditLog.create({
+        data: {
+          actorId: actor.id,
+          requestId,
+          operation: "CREATE_PERSONNEL_PROFILE",
+          entityType: "PERSONNEL_PROFILE",
+          entityId: profile.id,
+          afterSnapshot: { name: profile.name },
+        },
+      });
+      return profile;
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ApplicationError(409, ErrorCodes.CONFLICT, "پروفایلی با این نام از قبل ثبت شده است.");
+    }
+    throw error;
+  }
+}
+
+export async function createStaffConsumption(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  input: CreateOrderRequest,
+  idempotencyKey: string,
+  requestId: string,
+  personnelProfileId?: string,
+  legacyStaffName?: string,
+) {
+  let staffName = legacyStaffName;
+  if (personnelProfileId) {
+    const profile = await prisma.personnelProfile.findUnique({ where: { id: personnelProfileId }, select: { name: true } });
+    if (!profile) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "پروفایل پرسنل انتخاب‌شده پیدا نشد.");
+    staffName = profile.name;
+  }
+  return createOrder(prisma, actor, input, idempotencyKey, requestId, undefined, true, staffName);
+}
+
 function toCreatedOrder(order: {
   id: string;
   orderNumber: string;
@@ -364,14 +333,6 @@ function toCreatedOrder(order: {
       quantity: number;
     }>;
   }>;
-  packagingAssignments: Array<{
-    id: string;
-    packagingItemId: string;
-    productItemId: string;
-    quantity: number;
-    packagingItem: { productId: string; productNameSnapshot: string };
-    productItem: { productId: string; productNameSnapshot: string };
-  }>;
 }): CreatedOrder {
   return {
     ...order,
@@ -407,16 +368,6 @@ function toCreatedOrder(order: {
         quantity: option.quantity,
       })),
     })),
-    packagingAssignments: order.packagingAssignments.map((assignment) => ({
-      id: assignment.id,
-      packagingOrderItemId: assignment.packagingItemId,
-      packagingProductId: assignment.packagingItem.productId,
-      packagingProductNameSnapshot: assignment.packagingItem.productNameSnapshot,
-      productOrderItemId: assignment.productItemId,
-      productId: assignment.productItem.productId,
-      productNameSnapshot: assignment.productItem.productNameSnapshot,
-      quantity: assignment.quantity,
-    })),
   } as CreatedOrder;
 }
 
@@ -439,7 +390,7 @@ export async function createOrder(
     const resolvedTable = previous.tableId
       ? await prisma.cafeTable.findUnique({ where: { id: previous.tableId }, select: { id: true, name: true } })
       : null;
-    return { order: { ...previous, items: previous.items.map((item) => ({ ...item, systemKey: item.systemKey ?? null })), packagingAssignments: previous.packagingAssignments ?? [] }, replayed: true, resolvedTable };
+    return { order: { ...previous, items: previous.items.map((item) => ({ ...item, systemKey: item.systemKey ?? null })) }, replayed: true, resolvedTable };
   }
 
   try {
@@ -466,7 +417,7 @@ export async function createOrder(
 
       for (const item of input.items) {
         const product = productById.get(item.productId);
-        if (!product || !isAvailableProduct(product)) {
+        if (!product || product.systemKey === "PACKING" || !isAvailableProduct(product)) {
           throw new ApplicationError(
             422,
             ErrorCodes.UNAVAILABLE_PRODUCT,
@@ -540,23 +491,6 @@ export async function createOrder(
         };
       });
       const preparedIds: string[] = preparedItems.map(() => randomUUID());
-      const requestItemIds = new Map<string, string>();
-      preparedItems.forEach((item, index) => {
-        if (item.clientRef) requestItemIds.set(item.clientRef, preparedIds[index]!);
-      });
-      const assignmentRows = requestItemReferenceIds(input.packagingAssignments ?? [], requestItemIds);
-      for (const assignment of assignmentRows) {
-        const packagingIndex = preparedIds.indexOf(assignment.packagingItemId);
-        const productIndex = preparedIds.indexOf(assignment.productItemId);
-        const packagingProduct = productById.get(preparedItems[packagingIndex]?.productId ?? "");
-        const targetProduct = productById.get(preparedItems[productIndex]?.productId ?? "");
-        if (!packagingProduct || packagingProduct.systemKey !== "PACKING" || !targetProduct || targetProduct.systemKey === "PACKING") {
-          throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must link a packaging product to a menu product.");
-        }
-        if (assignment.quantity > preparedItems[productIndex]!.quantity) {
-          throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Assigned quantity cannot exceed the order item quantity.");
-        }
-      }
       const subtotalAmount = preparedItems.reduce((total, item) => total + item.lineTotalAmount, 0);
       const createdAt = new Date();
 
@@ -589,11 +523,6 @@ export async function createOrder(
           },
         },
       });
-      if (assignmentRows.length) {
-        await transaction.orderItemPackagingAssignment.createMany({
-          data: assignmentRows.map((assignment) => ({ id: randomUUID(), orderId: created.id, ...assignment })),
-        });
-      }
       const createdWithItems = await transaction.order.findUniqueOrThrow({
         where: { id: created.id },
         include: {
@@ -601,7 +530,6 @@ export async function createOrder(
             orderBy: { displayOrder: "asc" },
             include: { options: { orderBy: { id: "asc" } }, product: { select: { systemKey: true } } },
           },
-          packagingAssignments: { include: { packagingItem: { select: { productId: true, productNameSnapshot: true } }, productItem: { select: { productId: true, productNameSnapshot: true } } }, orderBy: { id: "asc" } },
         },
       });
       await updateOrderCostingSnapshots(transaction, created.id);
@@ -669,7 +597,6 @@ const orderDetailInclude = {
     orderBy: { displayOrder: "asc" },
     include: { options: { orderBy: { id: "asc" } }, product: { select: { systemKey: true } } },
   },
-  packagingAssignments: { include: { packagingItem: { select: { productId: true, productNameSnapshot: true } }, productItem: { select: { productId: true, productNameSnapshot: true } } }, orderBy: { id: "asc" } },
   paymentSettlements: {
     orderBy: { recordedAt: "asc" },
     include: {
@@ -723,16 +650,6 @@ function orderDetailDto(order: OrderDetailRecord) {
         priceSnapshot: option.priceSnapshot,
         quantity: option.quantity,
       })),
-    })),
-    packagingAssignments: order.packagingAssignments.map((assignment) => ({
-      id: assignment.id,
-      packagingOrderItemId: assignment.packagingItemId,
-      packagingProductId: assignment.packagingItem.productId,
-      packagingProductNameSnapshot: assignment.packagingItem.productNameSnapshot,
-      productOrderItemId: assignment.productItemId,
-      productId: assignment.productItem.productId,
-      productNameSnapshot: assignment.productItem.productNameSnapshot,
-      quantity: assignment.quantity,
     })),
     settlements: order.paymentSettlements.map((settlement) => ({
       id: settlement.id,
@@ -886,9 +803,6 @@ export async function updateOrder(
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be edited.");
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
-    if (input.items && order.packagingAssignments.length > 0 && input.packagingAssignments === undefined) {
-      throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments must be retained when replacing order contents.");
-    }
     const activeAllocations = new Map<string, number>();
     const activeAllocatedAmounts = new Map<string, number>();
     order.paymentSettlements.filter((settlement) => !settlement.reversal).forEach((settlement) => settlement.allocations.forEach((allocation) => {
@@ -901,7 +815,6 @@ export async function updateOrder(
       && activeSettlements.length > 0
       && activeSettlements.every((settlement) => settlement.allocationMode === "ITEM_QUANTITY");
     const removedItems: OrderDetailRecord["items"] = [];
-    const requestItemIds = new Map<string, string>();
     let editsUnpaidItem = false;
     if (input.items && hasActiveAllocations) {
       throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Order contents cannot be replaced after settlement.");
@@ -920,7 +833,7 @@ export async function updateOrder(
       const nextDisplayOrder = order.items.reduce((highest, item) => Math.max(highest, item.displayOrder), -1) + 1;
       const prepared = catalogItems.map((requested, index) => {
         const product = productById.get(requested.productId);
-        if (!product || !isAvailableProduct(product)) throw new ApplicationError(422, ErrorCodes.UNAVAILABLE_PRODUCT, "One or more selected products are unavailable.");
+        if (!product || product.systemKey === "PACKING" || !isAvailableProduct(product)) throw new ApplicationError(422, ErrorCodes.UNAVAILABLE_PRODUCT, "One or more selected products are unavailable.");
         const allowedOptions = validateOptionSelections(product as ProductForOrder, requested.options, requested.quantity);
         const options = requested.options.map((selected) => {
           const option = allowedOptions.get(selected.optionId);
@@ -957,13 +870,11 @@ export async function updateOrder(
       }
       const previousEnteredAt = new Map(order.items.map((item) => [item.id, item.enteredAt]));
       const preparedIds = prepared.map((item) => existingIds.get(preparationKey(item))?.shift() ?? randomUUID());
-      prepared.forEach((item, index) => { if (item.clientRef) requestItemIds.set(item.clientRef, preparedIds[index]!); });
       const newItemsEnteredAt = new Date();
       const enteredAtById = new Map(preparedIds.map((id) => [id, previousEnteredAt.has(id) ? previousEnteredAt.get(id)! : newItemsEnteredAt]));
       if (input.items) {
         // Option snapshots are dependent rows with a restrictive foreign key.
         // Remove them before replacing unpaid order items as one transaction.
-        await transaction.orderItemPackagingAssignment.deleteMany({ where: { orderId } });
         await transaction.orderItemOption.deleteMany({
           where: { orderItem: { orderId } },
         });
@@ -990,13 +901,9 @@ export async function updateOrder(
       if (change.quantity === 0) {
         if (!allowsUnpaidItemEdits || hasActiveAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only entirely unpaid items after item-quantity payments can be removed.");
         if (change.note !== undefined || change.discount !== undefined || change.weightGrams !== undefined) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An item removal cannot include other item changes.");
-        if (input.packagingAssignments === undefined && order.packagingAssignments.some((assignment) => assignment.packagingItemId === item.id || assignment.productItemId === item.id)) {
-          throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments must be updated when removing an assigned order item.");
-        }
         const hasSettlementHistory = order.paymentSettlements.some((settlement) => settlement.allocations.some((allocation) => allocation.orderItemId === item.id));
         if (hasSettlementHistory || await transaction.orderConsumptionItem.count({ where: { orderItemId: item.id } })) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "An item referenced by payment or inventory history cannot be removed.");
         await transaction.orderItemOption.deleteMany({ where: { orderItemId: item.id } });
-        if (input.packagingAssignments !== undefined) await transaction.orderItemPackagingAssignment.deleteMany({ where: { orderId } });
         await transaction.orderItemCostingSnapshot.deleteMany({ where: { orderItemId: item.id } });
         await transaction.orderItem.delete({ where: { id: item.id } });
         removedItems.push(item);
@@ -1033,22 +940,6 @@ export async function updateOrder(
         ...(changesPricing ? { discountAmount, lineTotalAmount } : {}),
       } });
     }
-    const inventoryHistory = order.items.length
-      ? await transaction.orderConsumptionItem.findMany({ where: { orderItemId: { in: order.items.map((item) => item.id) } }, select: { orderItemId: true } })
-      : [];
-    const immutableItemIds = new Set<string>([
-      ...activeAllocations.keys(),
-      ...activeAllocatedAmounts.keys(),
-      ...inventoryHistory.map((row) => row.orderItemId),
-    ]);
-    const resolvedPackagingAssignments = await persistOrderPackagingAssignments(
-      transaction,
-      orderId,
-      input.packagingAssignments,
-      requestItemIds,
-      order.packagingAssignments.map((assignment) => ({ packagingItemId: assignment.packagingItemId, productItemId: assignment.productItemId, quantity: assignment.quantity })),
-      immutableItemIds,
-    );
     const items = await transaction.orderItem.findMany({ where: { orderId }, include: { options: true } });
     const subtotalAmount = items.reduce((total, item) => total + item.lineTotalAmount, 0);
     if (input.orderDiscount !== undefined && hasActiveAllocations) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The order discount cannot change after settlement.");
@@ -1080,7 +971,7 @@ export async function updateOrder(
     if (closesOrder && order.channel === OrderChannel.TABLE && order.tableId) await lockOperationalKeys(transaction, [`table:${order.tableId}`]);
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, ...(closesOrder ? { state: OrderState.CLOSED } : {}), version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
-    if (input.items || input.addItems || input.packagingAssignments !== undefined || input.itemUpdates?.some((change) => change.quantity !== undefined || change.weightGrams !== undefined)) {
+    if (input.items || input.addItems || input.itemUpdates?.some((change) => change.quantity !== undefined || change.weightGrams !== undefined)) {
       await updateOrderCostingSnapshots(transaction, orderId);
     }
     if (closesOrder) {
@@ -1091,7 +982,7 @@ export async function updateOrder(
         await transaction.waiterCall.updateMany({ where: { tableId: order.tableId, status: "PENDING" }, data: { status: "RESOLVED", acknowledgedAt: closedAt, resolvedAt: closedAt, version: { increment: 1 } } });
       }
     }
-    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, ...(removedItems.length || input.packagingAssignments !== undefined ? { beforeSnapshot: { ...(removedItems.length ? { removedItems } : {}), ...(input.packagingAssignments !== undefined ? { packagingAssignments: order.packagingAssignments.map((assignment) => ({ packagingItemId: assignment.packagingItemId, productItemId: assignment.productItemId, quantity: assignment.quantity })) } : {}) } } : {}), afterSnapshot: { version: input.expectedVersion + 1, ...(removedItems.length ? { removedItemIds: removedItems.map((item) => item.id) } : {}), ...(input.packagingAssignments !== undefined ? { packagingAssignments: resolvedPackagingAssignments } : {}) } } });
+    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, ...(removedItems.length ? { beforeSnapshot: { removedItems } } : {}), afterSnapshot: { version: input.expectedVersion + 1, ...(removedItems.length ? { removedItemIds: removedItems.map((item) => item.id) } : {}) } } });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
 }
@@ -1515,6 +1406,15 @@ function tehranDisplayTime(value: Date): string {
   return `${year}/${month}/${day}  •  ${hour}:${minute}`;
 }
 
+function tehranClockTime(value: Date): string {
+  return new Intl.DateTimeFormat("fa-IR-u-ca-persian-nu-arabext", {
+    timeZone: "Asia/Tehran",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(value);
+}
+
 const receiptInclude = {
   table: { select: { name: true } },
   items: { orderBy: { displayOrder: "asc" }, include: { options: { orderBy: { id: "asc" } } } },
@@ -1532,7 +1432,7 @@ export async function barTicket(prisma: PrismaClient, actor: AuthenticatedUser, 
   requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: receiptInclude });
   if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
-  return { dailyOrderNumber: order.dailyOrderNumber, context: order.channel === OrderChannel.TABLE ? `میز ${order.table!.name}` : "بیرون‌بر", items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, pricingModeSnapshot: item.pricingModeSnapshot, weightGrams: item.weightGrams, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note })) };
+  return { dailyOrderNumber: order.dailyOrderNumber, context: order.channel === OrderChannel.TABLE ? `میز ${order.table!.name}` : "بیرون‌بر", displayTime: tehranClockTime(new Date()), items: order.items.map((item) => ({ productName: item.productNameSnapshot, quantity: item.quantity, pricingModeSnapshot: item.pricingModeSnapshot, weightGrams: item.weightGrams, options: item.options.map((option) => ({ name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note })) };
 }
 
 // Serialize snapshot capture with edits and acknowledgments on the order row.
@@ -1546,7 +1446,7 @@ export async function prepareBarTicket(prisma: PrismaClient, actor: Authenticate
       quantity: item.quantity, pricingModeSnapshot: item.pricingModeSnapshot, weightGrams: item.weightGrams,
       options: item.options.map((option) => ({ optionId: option.optionId, name: option.optionNameSnapshot, quantity: option.quantity })), note: item.note }));
     const prepared = await tx.barTicketPreparation.create({ data: { orderId, snapshot: snapshot as Prisma.InputJsonValue } });
-    return { preparationId: prepared.id, dailyOrderNumber: order.dailyOrderNumber,
+    return { preparationId: prepared.id, dailyOrderNumber: order.dailyOrderNumber, displayTime: tehranClockTime(prepared.createdAt),
       context: order.channel === OrderChannel.TABLE ? `میز ${order.table!.name}` : "بیرون‌بر",
       items: preparationItems(snapshot, order.barTicketSnapshot as PreparationItem[] | null) };
   });
