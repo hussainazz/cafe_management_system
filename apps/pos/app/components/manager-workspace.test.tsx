@@ -113,7 +113,7 @@ describe("ManagerWorkspace", () => {
     expect(api.readInventoryRecipes).toHaveBeenCalledTimes(1);
     expect(api.readInventoryMovements).toHaveBeenCalledWith({ limit: "6" });
     expect(api.readPendingInventoryConsumption).toHaveBeenCalledTimes(1);
-    expect(api.readGrossProfitReport).toHaveBeenCalledTimes(1);
+    expect(api.readGrossProfitReport).toHaveBeenCalledTimes(2);
   });
 
   it("gives Developer the Manager accounting summary and audit workspace", async () => {
