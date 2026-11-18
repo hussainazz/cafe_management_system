@@ -211,29 +211,6 @@ export const CreateOrderItemSchema = z
     });
   });
 
-export const OrderItemReferenceSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("EXISTING"), orderItemId: z.uuid() }).strict(),
-  z.object({ kind: z.literal("REQUEST"), clientRef: z.uuid() }).strict(),
-]);
-export type OrderItemReference = z.infer<typeof OrderItemReferenceSchema>;
-export const PackagingAssignmentInputSchema = z.object({
-  packagingItem: OrderItemReferenceSchema,
-  productItem: OrderItemReferenceSchema,
-  quantity: z.number().int().positive(),
-}).strict();
-export type PackagingAssignmentInput = z.infer<typeof PackagingAssignmentInputSchema>;
-export const PackagingAssignmentSchema = z.object({
-  id: z.uuid(),
-  packagingOrderItemId: z.uuid(),
-  packagingProductId: z.uuid(),
-  packagingProductNameSnapshot: z.string(),
-  productOrderItemId: z.uuid(),
-  productId: z.uuid(),
-  productNameSnapshot: z.string(),
-  quantity: z.number().int().positive(),
-});
-export type PackagingAssignment = z.infer<typeof PackagingAssignmentSchema>;
-
 export const DiscountInputSchema = z
   .discriminatedUnion("kind", [
     z.object({ kind: z.literal("FIXED"), value: z.number().int().positive() }).strict(),
@@ -252,19 +229,12 @@ export const ReasonedDiscountInputSchema = z
 
 const CreateOrderBaseSchema = z.object({
   items: z.array(CreateOrderItemSchema).min(1).max(100),
-  packagingAssignments: z.array(PackagingAssignmentInputSchema).max(500).optional(),
 }).superRefine((input, context) => {
   const clientRefs = new Set<string>();
   input.items.forEach((item, index) => {
     if (!item.clientRef) return;
     if (clientRefs.has(item.clientRef)) context.addIssue({ code: "custom", path: ["items", index, "clientRef"], message: "A request item reference can appear only once." });
     clientRefs.add(item.clientRef);
-  });
-  input.packagingAssignments?.forEach((assignment, index) => {
-    for (const [field, reference] of [["packagingItem", assignment.packagingItem], ["productItem", assignment.productItem]] as const) {
-      if (reference.kind !== "REQUEST") context.addIssue({ code: "custom", path: ["packagingAssignments", index, field], message: "Order creation assignments must reference request items." });
-      else if (!clientRefs.has(reference.clientRef)) context.addIssue({ code: "custom", path: ["packagingAssignments", index, field], message: "The request item reference was not included in this order." });
-    }
   });
 });
 
@@ -283,15 +253,35 @@ export const CreateOrderRequestSchema = CreateOrderBaseSchema.extend({
   });
 
 export type CreateOrderRequest =
-  | { channel: "TABLE"; tableId: string; items: z.infer<typeof CreateOrderBaseSchema>["items"]; packagingAssignments?: z.infer<typeof PackagingAssignmentInputSchema>[] }
-  | { channel: "TAKEAWAY"; items: z.infer<typeof CreateOrderBaseSchema>["items"]; packagingAssignments?: z.infer<typeof PackagingAssignmentInputSchema>[] };
+  | { channel: "TABLE"; tableId: string; items: z.infer<typeof CreateOrderBaseSchema>["items"] }
+  | { channel: "TAKEAWAY"; items: z.infer<typeof CreateOrderBaseSchema>["items"] };
 
 export const StaffConsumptionCreateRequestSchema = z.object({
   channel: z.literal("TAKEAWAY"),
   items: z.array(CreateOrderItemSchema).min(1).max(100),
+  personnelProfileId: z.uuid().optional(),
+  // Retained for older clients while new POS flows select a saved profile.
   staffName: z.string().trim().min(1).max(120).optional(),
 }).strict();
 export type StaffConsumptionCreateRequest = z.infer<typeof StaffConsumptionCreateRequestSchema>;
+
+export const PersonnelProfileSchema = z.object({
+  id: z.uuid(),
+  name: z.string().min(1).max(120),
+  createdAt: z.iso.datetime(),
+}).strict();
+export const PersonnelProfilesResponseSchema = z.object({
+  data: z.array(PersonnelProfileSchema),
+  meta: z.object({ requestId: z.string() }).strict(),
+}).strict();
+export const PersonnelProfileCreateRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+}).strict();
+export const PersonnelProfileResponseSchema = z.object({
+  data: PersonnelProfileSchema,
+  meta: z.object({ requestId: z.string() }).strict(),
+}).strict();
+export type PersonnelProfile = z.infer<typeof PersonnelProfileSchema>;
 
 export const CreatedOrderItemOptionSchema = z.object({
   optionId: z.uuid(),
@@ -337,7 +327,6 @@ export const CreatedOrderSchema = z.object({
   balanceAmount: z.number().int().nonnegative(),
   createdAt: z.iso.datetime(),
   items: z.array(CreatedOrderItemSchema),
-  packagingAssignments: z.array(PackagingAssignmentSchema),
 });
 export type CreatedOrder = z.infer<typeof CreatedOrderSchema>;
 
@@ -577,12 +566,11 @@ export const UpdateOrderRequestSchema = z
     items: z.array(CreateOrderItemSchema).min(1).max(100).optional(),
     addItems: z.array(CreateOrderItemSchema).min(1).max(100).optional(),
     itemUpdates: z.array(ExistingOrderItemUpdateSchema).min(1).max(100).optional(),
-    packagingAssignments: z.array(PackagingAssignmentInputSchema).max(500).optional(),
     orderDiscount: ReasonedDiscountInputSchema.optional(),
   })
   .strict()
   .superRefine((input, context) => {
-    if (!input.items && !input.addItems && !input.itemUpdates && input.packagingAssignments === undefined && input.orderDiscount === undefined) {
+    if (!input.items && !input.addItems && !input.itemUpdates && input.orderDiscount === undefined) {
       context.addIssue({ code: "custom", message: "At least one order change is required." });
     }
     if (input.items && (input.addItems || input.itemUpdates)) {
@@ -609,12 +597,6 @@ export const UpdateOrderRequestSchema = z
       if (!item.clientRef) return;
       if (clientRefs.has(item.clientRef)) context.addIssue({ code: "custom", path: [input.items ? "items" : "addItems", index, "clientRef"], message: "A request item reference can appear only once." });
       clientRefs.add(item.clientRef);
-    });
-    const assignmentKeys = new Set<string>();
-    input.packagingAssignments?.forEach((assignment, index) => {
-      const key = `${JSON.stringify(assignment.packagingItem)}:${JSON.stringify(assignment.productItem)}`;
-      if (assignmentKeys.has(key)) context.addIssue({ code: "custom", path: ["packagingAssignments", index], message: "A packaging item can reference an order item only once." });
-      assignmentKeys.add(key);
     });
   });
 
@@ -687,7 +669,7 @@ const ReceiptItemSchema = z.object({
   paidAmount: z.number().int().nonnegative(),
   isPaid: z.boolean(),
 });
-export const BarTicketResponseSchema = z.object({ data: z.object({ preparationId: z.string().uuid().optional(), dailyOrderNumber: z.number().int().positive(), context: z.string(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), pricingModeSnapshot: z.enum(["FIXED", "WEIGHTED_PER_KG"]), weightGrams: z.number().int().positive().nullable(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
+export const BarTicketResponseSchema = z.object({ data: z.object({ preparationId: z.string().uuid().optional(), dailyOrderNumber: z.number().int().positive(), context: z.string(), displayTime: z.string(), items: z.array(z.object({ productName: z.string(), quantity: z.number().int().positive(), pricingModeSnapshot: z.enum(["FIXED", "WEIGHTED_PER_KG"]), weightGrams: z.number().int().positive().nullable(), options: z.array(z.object({ name: z.string(), quantity: z.number().int().positive() })), note: z.string().nullable() })) }), meta: z.object({ requestId: z.string() }) });
 export const OrderReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
 export const SettlementReceiptResponseSchema = z.object({ data: z.object({ displayTime: z.string(), items: z.array(ReceiptItemSchema), totalAmount: z.number().int().nonnegative() }), meta: z.object({ requestId: z.string() }) });
 
@@ -1551,10 +1533,6 @@ const SalesAnalyticsProductFinancialSchema = z.object({
   knownContributionAmount: SalesAnalyticsSignedAmountSchema, knownContributionMarginPercent: SalesAnalyticsPercentSchema,
   totalContributionAmount: SalesAnalyticsSignedAmountSchema.nullable(), totalContributionMarginPercent: SalesAnalyticsPercentSchema,
   costCoveragePercent: SalesAnalyticsPercentSchema, isCostComplete: z.boolean(),
-  packagingChargeRevenueAmount: InventoryMoneySchema, packagingKnownMaterialCostAmount: InventoryMoneySchema,
-  contributionBeforePackagingAmount: SalesAnalyticsSignedAmountSchema.nullable(),
-  combinedContributionAfterPackagingAmount: SalesAnalyticsSignedAmountSchema.nullable(),
-  packagingChargeAttributionComplete: z.boolean(), packagingCostAttributionComplete: z.boolean(),
 });
 
 export const SalesAnalyticsResponseSchema = z.object({
@@ -1617,78 +1595,6 @@ export const GrossProfitProductSchema = z.object({
   incompleteOrderItemCount: z.number().int().nonnegative(),
 });
 
-const reportPercentSchema = z.string().regex(/^\d+(?:\.\d{2})?$/).nullable();
-export const PackagingEconomicsProductSchema = z.object({
-  productId: z.uuid(),
-  productName: z.string(),
-  categoryId: z.uuid().nullable(),
-  categoryName: z.string().nullable(),
-  channel: OrderChannelSchema,
-  options: z.array(SalesAnalyticsOptionSchema),
-  soldQuantity: z.number().int().nonnegative(),
-  soldWeightGrams: z.number().int().nonnegative(),
-  assignedPackaging: z.array(z.object({ packagingProductId: z.uuid(), packagingProductName: z.string(), quantity: z.number().int().nonnegative() })),
-  productNetSalesAmount: InventoryMoneySchema,
-  packagingChargeRevenueAmount: InventoryMoneySchema,
-  nonPackagingKnownCostAmount: InventoryMoneySchema,
-  packagingKnownCostAmount: InventoryMoneySchema,
-  unclassifiedKnownCostAmount: InventoryMoneySchema,
-  netRecoveryAmount: z.number().int().nullable(),
-  packagingRecoveryRatePercent: reportPercentSchema,
-  productContributionBeforePackagingAmount: z.number().int().nullable(),
-  combinedContributionAfterPackagingAmount: z.number().int().nullable(),
-  isCostComplete: z.boolean(),
-  isPackagingAttributionComplete: z.boolean(),
-});
-
-const PackagingEconomicsGroupSchema = z.object({
-  categoryId: z.uuid().nullable(),
-  categoryName: z.string(),
-  channel: OrderChannelSchema,
-  productNetSalesAmount: InventoryMoneySchema,
-  packagingChargeRevenueAmount: InventoryMoneySchema,
-  knownMaterialCostAmount: InventoryMoneySchema,
-  unclassifiedKnownCostAmount: InventoryMoneySchema,
-  netRecoveryAmount: z.number().int().nullable(),
-  recoveryRatePercent: reportPercentSchema,
-  isCostComplete: z.boolean(),
-});
-
-export const PackagingEconomicsSchema = z.object({
-  totals: z.object({
-    packagingChargeRevenueAmount: InventoryMoneySchema,
-    knownMaterialCostAmount: InventoryMoneySchema,
-    unclassifiedKnownCostAmount: InventoryMoneySchema,
-    netRecoveryAmount: z.number().int().nullable(),
-    recoveryRatePercent: reportPercentSchema,
-    unattributedOrderLevelChargeRevenueAmount: InventoryMoneySchema,
-    packagingRelevantProductRevenueAmount: InventoryMoneySchema,
-    completeAttributionRevenueAmount: InventoryMoneySchema,
-    incompleteAttributionRevenueAmount: InventoryMoneySchema,
-    attributionCoveragePercent: reportPercentSchema,
-    completeOrderItemCount: z.number().int().nonnegative(),
-    incompleteOrderItemCount: z.number().int().nonnegative(),
-    ambiguousOrderItemCount: z.number().int().nonnegative(),
-    missingMaterialValuationCount: z.number().int().nonnegative(),
-    theoreticalPackagingCostAmount: InventoryMoneySchema.nullable(),
-    postedPackagingMovementAmount: InventoryMoneySchema.nullable(),
-    packagingMovementVarianceAmount: z.number().int().nullable(),
-    packagingMovementReconciliationAvailable: z.boolean(),
-    isCostComplete: z.boolean(),
-  }),
-  products: z.array(PackagingEconomicsProductSchema),
-  categories: z.array(PackagingEconomicsGroupSchema),
-  daily: z.array(z.object({
-    date: z.iso.date(),
-    packagingChargeRevenueAmount: InventoryMoneySchema,
-    knownMaterialCostAmount: InventoryMoneySchema,
-    unclassifiedKnownCostAmount: InventoryMoneySchema,
-    netRecoveryAmount: z.number().int().nullable(),
-    isCostComplete: z.boolean(),
-    incompleteOrderItemCount: z.number().int().nonnegative(),
-  })),
-});
-
 export const CatalogPriceDimensionSchema = z.enum([
   "PRODUCT_BASE_PRICE", "OPTION_PRICE", "PRODUCT_OPTION_OVERRIDE", "PRODUCT_DISCOUNT", "PACKAGING_CHARGE",
 ]);
@@ -1743,8 +1649,9 @@ export const PriceHistoryResponseSchema = z.object({
 });
 
 export const PricingExperimentTargetKindSchema = z.enum(["PRODUCT", "OPTION", "PACKAGING"]);
+const PricingExperimentTargetInputKindSchema = z.enum(["PRODUCT", "OPTION"]);
 export const PricingExperimentTargetInputSchema = z.object({
-  targetKind: PricingExperimentTargetKindSchema,
+  targetKind: PricingExperimentTargetInputKindSchema,
   productId: z.uuid(),
   optionId: z.uuid().optional(),
   previousPriceAmount: InventoryMoneySchema.nullable().optional(),
@@ -1802,9 +1709,7 @@ const PricingPeriodMetricsSchema = z.object({
   unaffectedContributionAmount: PricingSignedAmountSchema.nullable(),
   averageSellingPriceAmount: InventoryMoneySchema.nullable(), averageOrderValueAmount: InventoryMoneySchema.nullable(),
   ingredientCogsAmount: InventoryMoneySchema, completeCostRevenueAmount: InventoryMoneySchema, incompleteCostRevenueAmount: InventoryMoneySchema,
-  packagingChargeRevenueAmount: InventoryMoneySchema, packagingMaterialCostAmount: InventoryMoneySchema,
-  packagingDeficitAmount: PricingSignedAmountSchema.nullable(), packagingRecoveryRatePercent: PricingPercentSchema,
-  packagingCostCoveragePercent: PricingPercentSchema, variableCostAmount: InventoryMoneySchema.nullable(),
+  variableCostAmount: InventoryMoneySchema.nullable(),
   knownContributionAmount: PricingSignedAmountSchema, contributionAmount: PricingSignedAmountSchema.nullable(),
   contributionMarginPercent: PricingPercentSchema, contributionPerOrderAmount: PricingSignedAmountSchema.nullable(),
   costCoveragePercent: PricingPercentSchema, monthlyEquivalentContributionAmount: PricingSignedAmountSchema.nullable(),
@@ -1854,7 +1759,6 @@ export const PricingExperimentReportResponseSchema = z.object({
       netRevenueAmount: PricingSignedAmountSchema, netRevenuePercent: PricingPercentSchema,
       affectedQuantity: z.number().int(), affectedQuantityPercent: PricingPercentSchema,
       averageOrderValueAmount: PricingSignedAmountSchema.nullable(), averageOrderValuePercent: PricingPercentSchema,
-      packagingDeficitAmount: PricingSignedAmountSchema.nullable(), packagingDeficitPercent: PricingPercentSchema,
       fixedCostCoveragePercent: PricingPercentSchema,
       marginOfSafetyAmount: PricingSignedAmountSchema.nullable(), marginOfSafetyPercent: PricingPercentSchema,
     }),
@@ -1873,13 +1777,13 @@ export const PricingExperimentReportResponseSchema = z.object({
     confounders: z.object({ discountsChanged: z.boolean().nullable(), catalogPriceChanges: z.number().int().nonnegative(), holidays: z.literal("UNKNOWN"),
       weather: z.literal("UNKNOWN"), productAvailability: z.literal("UNKNOWN"), operationalClosures: z.literal("UNKNOWN"), specialEvents: z.literal("UNKNOWN") }),
     dataQuality: z.object({ flags: z.array(z.object({ code: z.string(), severity: z.enum(["INFO", "WARNING", "BLOCKER"]), messageFa: z.string() })),
-      costCoverageComplete: z.boolean(), packagingAttributionComplete: z.boolean(), validOrderCount: z.number().int().nonnegative() }),
+      costCoverageComplete: z.boolean(), validOrderCount: z.number().int().nonnegative() }),
   }),
   meta: z.object({ requestId: z.string() }),
 });
 
 export const PricingExperimentReportQuerySchema = z.object({ comparisonDays: z.coerce.number().int().min(1).max(90).optional() }).strict();
-export const PricingScenarioRuleKindSchema = z.enum(["PRODUCT", "CATEGORY", "OPTION", "PACKAGING"]);
+export const PricingScenarioRuleKindSchema = z.enum(["PRODUCT", "CATEGORY", "OPTION"]);
 export const PricingScenarioRuleSchema = z.object({
   targetKind: PricingScenarioRuleKindSchema,
   productId: z.uuid().optional(), categoryId: z.uuid().optional(), optionId: z.uuid().optional(),
@@ -1888,7 +1792,6 @@ export const PricingScenarioRuleSchema = z.object({
   if (rule.targetKind === "PRODUCT" && (!rule.productId || rule.categoryId || rule.optionId)) context.addIssue({ code: "custom", path: ["productId"], message: "Product scenarios require one product." });
   if (rule.targetKind === "CATEGORY" && (!rule.categoryId || rule.productId || rule.optionId)) context.addIssue({ code: "custom", path: ["categoryId"], message: "Category scenarios require one category." });
   if (rule.targetKind === "OPTION" && (!rule.productId || !rule.optionId || rule.categoryId)) context.addIssue({ code: "custom", path: ["optionId"], message: "Option scenarios require a product and option." });
-  if (rule.targetKind === "PACKAGING" && (!rule.productId || rule.categoryId || rule.optionId)) context.addIssue({ code: "custom", path: ["productId"], message: "Packaging scenarios require the packaging product." });
 });
 export const PricingScenarioRequestSchema = z.object({
   fromDate: z.iso.date(), toDate: z.iso.date(), rules: z.array(PricingScenarioRuleSchema).min(1).max(60),
@@ -1898,7 +1801,7 @@ export type PricingScenarioRequest = z.infer<typeof PricingScenarioRequestSchema
 export const PricingScenarioResponseSchema = z.object({
   data: z.object({ source: PricingPeriodMetricsSchema, scenarios: z.array(z.object({
     volumeChangePercent: z.string(), netRevenueAmount: InventoryMoneySchema, contributionAmount: PricingSignedAmountSchema.nullable(),
-    packagingDeficitAmount: PricingSignedAmountSchema.nullable(), monthlyEquivalentContributionAmount: PricingSignedAmountSchema.nullable(),
+    monthlyEquivalentContributionAmount: PricingSignedAmountSchema.nullable(),
     fixedCostCoveragePercent: PricingPercentSchema, operatingSurplusAmount: PricingSignedAmountSchema.nullable(),
     breakEvenVolumeDeclinePercent: PricingPercentSchema, costsComplete: z.boolean(),
   })), assumptions: z.array(z.string()),
@@ -1955,7 +1858,6 @@ export const GrossProfitReportResponseSchema = z.object({
       varianceAmount: z.number().int().nullable(),
       missingValuationCount: z.number().int().nonnegative(),
     }),
-    packagingEconomics: PackagingEconomicsSchema,
   }),
   meta: z.object({ requestId: z.string(), range: z.object({ from: z.iso.datetime(), to: z.iso.datetime() }) }),
 });
