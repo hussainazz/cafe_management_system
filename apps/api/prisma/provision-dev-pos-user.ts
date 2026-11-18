@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomInt, randomBytes } from "node:crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, UserRole } from "../generated/prisma/client.js";
 import { hashPassword } from "../src/auth/password.js";
@@ -16,12 +17,17 @@ const accounts = {
     username: process.env.DEV_POS_STAFF_USERNAME ?? "run.staff",
     password: process.env.DEV_POS_STAFF_PASSWORD ?? "RunCafeStaff2026",
   },
+  cashier: {
+    role: UserRole.CASHIER,
+    username: process.env.DEV_POS_CASHIER_USERNAME ?? `cashier-${randomInt(100000, 1000000)}`,
+    password: process.env.DEV_POS_CASHIER_PASSWORD ?? randomBytes(18).toString("base64url"),
+  },
 } as const;
 
 function readAccount(): (typeof accounts)[keyof typeof accounts] {
   const role = process.argv[2] as keyof typeof accounts | undefined;
   if (!role || !(role in accounts)) {
-    throw new Error("Usage: provision-dev-pos-user.ts <manager|staff>");
+    throw new Error("Usage: provision-dev-pos-user.ts <manager|staff|cashier>");
   }
   return accounts[role];
 }
