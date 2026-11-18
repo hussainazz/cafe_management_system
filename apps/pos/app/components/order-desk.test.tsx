@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OrderDesk, OrdersWorkspace } from "./orders-workspace";
 import { readRecovery, setRecoveryUser, writeRecovery } from "../lib/automatic-recovery";
 import { readRecentItemNotes } from "../lib/recent-item-notes";
-const api = vi.hoisted(() => ({ posApiFailureEvent: "run-cafe:api-failure", createOpenOrder: vi.fn(), readOrder: vi.fn(), updateOpenOrder: vi.fn(), readPosCatalog: vi.fn(), readPosTables: vi.fn(), readWaiterCalls: vi.fn(), readOpenOrders: vi.fn() }));
+const api = vi.hoisted(() => ({ posApiFailureEvent: "run-cafe:api-failure", createOpenOrder: vi.fn(), readOrder: vi.fn(), updateOpenOrder: vi.fn(), readPosCatalog: vi.fn(), readPosTables: vi.fn(), readWaiterCalls: vi.fn(), readOpenOrders: vi.fn(), readDeferredOrderCount: vi.fn().mockResolvedValue({ ok: true, data: 0 }) }));
 const printing = vi.hoisted(() => ({ printDocument: vi.fn(), printRoute: vi.fn((id: string, kind: string) => `/pos/print/${id}/${kind}`) }));
 vi.mock("../lib/api-client", () => api);
 vi.mock("../lib/print-routes", () => printing);
@@ -332,7 +332,7 @@ describe("authoritative workspace recovery", () => {
     expect(screen.queryByText(/کار قبلی فقط برای بررسی/)).toBeNull();
     expect(api.updateOpenOrder).not.toHaveBeenCalled();
     expect(api.createOpenOrder).not.toHaveBeenCalled();
-    expect(readRecovery("order-context")).toEqual({ tableId: null, orderId: null, version: null, editing: false, checkout: false });
+    await waitFor(() => expect(readRecovery("order-context")).toEqual({ tableId: null, orderId: null, version: null, editing: false, checkout: false }));
   });
 });
 
