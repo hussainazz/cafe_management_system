@@ -366,6 +366,15 @@ are per sold unit even for weighted products. New configurations default to
 empty; omitted mappings on updates retain existing mappings. Explicit `[]`
 clears them. Existing Manager authorization and version checks apply.
 
+Product costing also accepts optional `servedAlongside` rows with a positive
+per-sold-unit quantity and exactly one active source: a stock item
+(`{ sourceKind: STOCK_ITEM, stockItemId, quantity }`) or reusable recipe
+(`{ sourceKind: RECIPE, recipeId, quantity }`). The list is bounded to 100.
+These product-level additions apply to every option selection and channel in
+previews and order snapshots. Omitted rows retain the saved list on update;
+explicit `[]` clears it. They are not part of a reusable recipe, so selecting
+that recipe elsewhere inherits only its main ingredients.
+
 Cost preview accepts optional `channel: TABLE | TAKEAWAY`, default TABLE.
 TAKEAWAY adds packaging to resolved ingredient/option requirements. Costing
 snapshots preserve the resolved quantities and original sale channel.
