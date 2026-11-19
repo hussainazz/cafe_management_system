@@ -88,6 +88,71 @@ describe("OrderDesk order workflow", () => {
     expect(printing.printRoute).toHaveBeenCalledWith("saved-order", kind);
     expect(printing.printDocument).toHaveBeenCalledWith(`/pos/print/saved-order/${kind}`);
   });
+  it("adds catalog-priced packaging during order initialization and submits its product quantity assignment", async () => {
+    const product = { id: "product", name: "قهوه", priceAmount: 50_000, pricingMode: "FIXED", isAvailable: true, optionGroups: [] };
+    const packaging = { id: "packaging", name: "پاکت", priceAmount: 20_000, pricingMode: "FIXED", systemKey: "PACKING", isAvailable: true, optionGroups: [] };
+    const onOrder = vi.fn(async () => undefined);
+    render(<OrderDesk catalog={[{ id: "category", name: "نوشیدنی", products: [product, packaging] }] as never} table={null} channel="TAKEAWAY" initialOrder={null} onOrder={onOrder} onDone={vi.fn()} onTableClearNeeded={vi.fn()} onCreateFailure={vi.fn(async () => undefined)} onDirtyChange={vi.fn()} onSubmitReady={vi.fn()} takeawayOrders={[]} onOpenTakeaway={vi.fn(async () => undefined)} onCloseTakeawayPanel={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
+    fireEvent.click(screen.getByRole("button", { name: "افزودن بسته‌بندی" }));
+    const count = screen.getByRole("spinbutton", { name: "تعداد قهوه برای بسته‌بندی" }) as HTMLInputElement;
+    expect(count.value).toBe("2");
+    fireEvent.change(count, { target: { value: "1.5" } });
+    expect(count.value).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "ثبت بسته‌بندی" }));
+    expect(document.querySelector(".order-total strong")?.textContent).toBe("120,000");
+
+    api.createOpenOrder.mockResolvedValueOnce({ ok: true, data: { id: "saved-order" } });
+    api.readOrder.mockResolvedValueOnce({ ok: true, data: { id: "saved-order", version: 1, items: [], packagingAssignments: [] } });
+    fireEvent.click(screen.getByRole("button", { name: "ثبت سفارش" }));
+
+    await waitFor(() => expect(api.createOpenOrder).toHaveBeenCalledOnce());
+    const request = api.createOpenOrder.mock.calls[0]![0];
+    const productItem = request.items.find((item: { productId: string }) => item.productId === product.id);
+    const packagingItem = request.items.find((item: { productId: string }) => item.productId === packaging.id);
+    expect(request.items.map((item: { productId: string; quantity: number }) => [item.productId, item.quantity])).toEqual([[product.id, 2], [packaging.id, 1]]);
+    expect(request.packagingAssignments).toEqual([{
+      packagingItem: { kind: "REQUEST", clientRef: packagingItem.clientRef },
+      productItem: { kind: "REQUEST", clientRef: productItem.clientRef },
+      quantity: 1,
+    }]);
+    expect(onOrder).toHaveBeenCalledOnce();
+  });
+  it.each([false, true])("edits an order with a saved package and inventory history=%s", async (hasInventoryHistory) => {
+    const coffee = { id: "coffee", name: "قهوه", priceAmount: 50_000, pricingMode: "FIXED", isAvailable: true, optionGroups: [] };
+    const packaging = { ...coffee, id: "bag", name: "پاکت", systemKey: "PACKING", priceAmount: 20_000 };
+    const menuLine = { id: "menu-line", productId: coffee.id, productNameSnapshot: coffee.name, basePriceSnapshot: 50_000, lineTotalAmount: 100_000, quantity: 2, options: [], note: null, weightGrams: null, pricingModeSnapshot: "FIXED", discountKind: null, discountValue: null, discountAmount: 0, hasInventoryHistory };
+    const packageLine = { ...menuLine, id: "package-line", productId: packaging.id, productNameSnapshot: packaging.name, systemKey: "PACKING", basePriceSnapshot: 20_000, lineTotalAmount: 20_000, quantity: 1 };
+    const order = {
+      id: "packed-order", channel: "TAKEAWAY", state: "OPEN", paymentStatus: "UNPAID", version: 3, dailyOrderNumber: 1, totalAmount: 120_000, subtotalAmount: 120_000, balanceAmount: 120_000, paidAmount: 0, discountAmount: 0,
+      items: [menuLine, packageLine],
+      settlements: hasInventoryHistory ? [{ id: "reversed", reversedAt: "2026-11-19T08:00:00.000Z", recordedAt: "2026-11-19T07:00:00.000Z", totalAmount: 120_000, payments: [], allocations: [{ orderItemId: menuLine.id, quantity: 2 }, { orderItemId: packageLine.id, quantity: 1 }] }] : [],
+      packagingAssignments: [{ id: "assignment", packagingOrderItemId: packageLine.id, packagingProductId: packaging.id, packagingProductNameSnapshot: packaging.name, productOrderItemId: menuLine.id, productId: coffee.id, productNameSnapshot: coffee.name, quantity: 1 }],
+    };
+    render(<OrderDesk catalog={[{ id: "category", name: "نوشیدنی", products: [coffee, packaging] }] as never} table={null} channel="TAKEAWAY" initialOrder={order as never} onOrder={vi.fn()} onDone={vi.fn()} onTableClearNeeded={vi.fn()} onCreateFailure={vi.fn(async () => undefined)} onDirtyChange={vi.fn()} onSubmitReady={vi.fn()} takeawayOrders={[]} onOpenTakeaway={vi.fn(async () => undefined)} onCloseTakeawayPanel={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "ویرایش سفارش" }));
+    fireEvent.click(screen.getByRole("button", { name: "افزودن بسته‌بندی" }));
+    const count = screen.getByRole("spinbutton", { name: "تعداد قهوه برای بسته‌بندی" }) as HTMLInputElement;
+    if (hasInventoryHistory) {
+      expect(count.disabled).toBe(true);
+      expect((screen.getByRole("button", { name: "ثبت بسته‌بندی" }) as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "انصراف" }));
+      fireEvent.click(screen.getByRole("button", { name: /قهوه × 2/ }));
+      fireEvent.change(screen.getByLabelText("یادداشت قهوه"), { target: { value: "بدون شکر" } });
+    } else {
+      expect(count.value).toBe("1");
+      fireEvent.change(count, { target: { value: "0" } });
+      fireEvent.click(screen.getByRole("button", { name: "ثبت بسته‌بندی" }));
+      expect(document.querySelector(".order-total strong")?.textContent).toBe("100,000");
+    }
+    api.updateOpenOrder.mockResolvedValueOnce({ ok: false, error: { message: "Save retry" } });
+    fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت ویرایش" }));
+    await waitFor(() => expect(api.updateOpenOrder).toHaveBeenCalledWith("packed-order", hasInventoryHistory
+      ? { expectedVersion: 3, itemUpdates: [{ orderItemId: menuLine.id, note: "بدون شکر" }] }
+      : { expectedVersion: 3, itemUpdates: [{ orderItemId: packageLine.id, quantity: 0 }], packagingAssignments: [] }));
+  });
   it("shows a weighted line total once when quantity exceeds one", () => {
     desk(undefined, true);
     fireEvent.click(screen.getByRole("button", { name: "انتخاب گزینه‌های قهوه" }));
