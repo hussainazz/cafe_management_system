@@ -50,15 +50,191 @@ async function order(f: Fixture, channel: "TABLE" | "TAKEAWAY", quantity = 1) {
 async function pay(f: Fixture, current: any, amount = current.balanceAmount, key = randomUUID()) {
   return request(f.manager, "POST", `/orders/${current.id}/record-settlement`, { expectedVersion: current.version, allocationMode: "AMOUNT", amount, payments: [{ method: "CASH", amount }] }, 201, key);
 }
-async function report(f: Fixture) {
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+async function report(f: Fixture, at = new Date()) {
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
   const response = await app.inject({ method: "GET", url: `/api/v1/admin/reports/gross-profit?fromDate=${date}&toDate=${date}`, cookies: f.developer });
   expect(response.statusCode, response.body).toBe(200);
   return GrossProfitReportResponseSchema.parse(response.json()).data;
 }
 async function balance(id: string) { return (await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId: id } })).quantityOnHand.toString(); }
 
+async function orderWithPackagingCharge(f: Fixture, quantity: number, assignedQuantity: number) {
+  const packaging = await app.prisma.product.create({ data: {
+    categoryId: f.product.categoryId, name: "Takeaway bag", systemKey: "PACKING", isPublic: false,
+    priceAmount: 20_000, preparationDeadlineMinutes: 1, displayOrder: 2,
+  } });
+  const menuRef = randomUUID();
+  const packageRef = randomUUID();
+  const created = await request(f.manager, "POST", "/orders", {
+    channel: "TAKEAWAY",
+    items: [
+      { clientRef: menuRef, productId: f.product.id, quantity, options: [] },
+      { clientRef: packageRef, productId: packaging.id, quantity: assignedQuantity, options: [] },
+    ],
+    packagingAssignments: [{
+      packagingItem: { kind: "REQUEST", clientRef: packageRef },
+      productItem: { kind: "REQUEST", clientRef: menuRef },
+      quantity: assignedQuantity,
+    }],
+  }, 201, randomUUID());
+  return { created, packaging };
+}
+
 describe("takeaway packaging", () => {
+  it("charges for selected packaging without duplicating stock cost and preserves assignments across reversal and repayment", async () => {
+    const f = await fixture(true);
+    const { created, packaging } = await orderWithPackagingCharge(f, 2, 1);
+    const [assignment] = created.packagingAssignments;
+    expect(created.totalAmount).toBe(40_000);
+    expect(await balance(f.cup.id)).toBe("10");
+    const partial = await pay(f, created, 20_000);
+    expect(await balance(f.cup.id)).toBe("10");
+    expect((await report(f)).totals.netSalesAmount).toBe(0);
+    const paid = await pay(f, partial);
+    expect(paid.packagingAssignments).toEqual(created.packagingAssignments);
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.id } })).toMatchObject({
+      status: "POSTED", theoreticalCogsAmount: 600, isCostComplete: true,
+    });
+    expect(await balance(f.cup.id)).toBe("8");
+    expect(await balance(f.holder.id)).toBe("9");
+    const paidReport = await report(f);
+    expect(paidReport.totals).toMatchObject({ netSalesAmount: 40_000, theoreticalCogsAmount: 600, grossProfitAmount: 39_400 });
+    expect(paidReport.products).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: f.product.id, netSalesAmount: 20_000, theoreticalCogsAmount: 600 }),
+      expect.objectContaining({ productId: packaging.id, netSalesAmount: 20_000, theoreticalCogsAmount: 0 }),
+    ]));
+    expect(paidReport).not.toHaveProperty("packagingEconomics");
+
+    const firstReversal = await request(f.manager, "POST", `/admin/settlements/${paid.settlements[1].id}/reverse`, { expectedVersion: paid.version });
+    const reopened = await request(f.manager, "POST", `/admin/settlements/${paid.settlements[0].id}/reverse`, { expectedVersion: firstReversal.version });
+    expect(reopened).toMatchObject({ state: "OPEN", paymentStatus: "UNPAID", packagingAssignments: [assignment] });
+    expect(reopened.items.every((item: { hasInventoryHistory: boolean }) => item.hasInventoryHistory)).toBe(true);
+    expect(await balance(f.cup.id)).toBe("10");
+    expect(await balance(f.holder.id)).toBe("10");
+    expect((await report(f)).products).toEqual([]);
+    expect(await app.prisma.inventoryMovement.count({ where: { kind: "ORDER_RESTORATION" } })).toBe(3);
+
+    await request(f.manager, "PATCH", `/orders/${created.id}`, {
+      expectedVersion: reopened.version,
+      items: [{ productId: f.product.id, quantity: 1, options: [] }],
+      packagingAssignments: [],
+    }, 409);
+    const newPackageRef = randomUUID();
+    const target = { kind: "EXISTING", orderItemId: assignment.productOrderItemId };
+    await request(f.manager, "PATCH", `/orders/${created.id}`, {
+      expectedVersion: reopened.version,
+      addItems: [{ clientRef: newPackageRef, productId: packaging.id, quantity: 1, options: [] }],
+      packagingAssignments: [
+        { packagingItem: { kind: "EXISTING", orderItemId: assignment.packagingOrderItemId }, productItem: target, quantity: 1 },
+        { packagingItem: { kind: "REQUEST", clientRef: newPackageRef }, productItem: target, quantity: 1 },
+      ],
+    }, 409);
+    const edited = await request(f.manager, "PATCH", `/orders/${created.id}`, {
+      expectedVersion: reopened.version,
+      itemUpdates: [{ orderItemId: assignment.productOrderItemId, note: "Corrected note" }],
+    });
+    expect(edited.packagingAssignments).toEqual([assignment]);
+    expect(edited.items).toHaveLength(2);
+    const repaid = await pay(f, edited);
+    expect(repaid.packagingAssignments).toEqual([assignment]);
+    expect(await balance(f.cup.id)).toBe("8");
+    expect((await report(f)).totals).toEqual(paidReport.totals);
+    expect(await app.prisma.orderConsumption.findMany({
+      where: { orderId: created.id }, orderBy: { cycleNumber: "asc" }, select: { status: true },
+    })).toEqual([{ status: "CANCELLED" }, { status: "POSTED" }]);
+  });
+
+  it("restores count-reconciled packaging when the physical count recorded zero stock", async () => {
+    const f = await fixture(true);
+    const { created } = await orderWithPackagingCharge(f, 11, 1);
+    const paid = await pay(f, created);
+    const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: created.id } });
+    expect(consumption.status).toBe("PENDING");
+    const count = await request(f.manager, "POST", "/admin/inventory/counts", {
+      kind: "PHYSICAL", reason: "Count already reflects the packed order",
+      lines: [
+        { stockItemId: f.beans.id, observedQuantity: "890", observedValueAmount: 8_900 },
+        { stockItemId: f.cup.id, observedQuantity: "0", observedValueAmount: 0 },
+        { stockItemId: f.holder.id, observedQuantity: "4.5", observedValueAmount: 900 },
+      ],
+    }, 201);
+    await request(f.manager, "POST", `/admin/inventory/counts/${count.id}/post`, {
+      expectedVersion: 1, absorbedOrderConsumptionIds: [consumption.id],
+    }, 200, randomUUID());
+    await request(f.manager, "POST", `/admin/settlements/${paid.settlements[0].id}/reverse`, { expectedVersion: paid.version });
+    const restored = await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId: f.cup.id } });
+    expect(restored.quantityOnHand.toString()).toBe("11");
+    expect(restored.carryingValueAmount).toBe(1_100);
+    expect((await report(f)).totals.netSalesAmount).toBe(0);
+  });
+
+  it("reports and retries a legacy paid order whose charge had an artificial missing-recipe cost", async () => {
+    const f = await fixture(true);
+    const { created } = await orderWithPackagingCharge(f, 11, 1);
+    const [assignment] = created.packagingAssignments;
+    await pay(f, created);
+    const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: created.id } });
+    const legacySnapshot = { orderChannel: "TAKEAWAY", components: [], missingReasons: ["missing-costing:Takeaway bag"] };
+    await app.prisma.orderConsumptionItem.update({
+      where: { orderConsumptionId_orderItemId: { orderConsumptionId: consumption.id, orderItemId: assignment.packagingOrderItemId } },
+      data: { theoreticalCogsAmount: null, isCostComplete: false, costSnapshot: legacySnapshot },
+    });
+    await app.prisma.orderConsumption.update({ where: { id: consumption.id }, data: { theoreticalCogsAmount: null, isCostComplete: false } });
+    expect((await report(f)).totals).toMatchObject({ netSalesAmount: 130_000, theoreticalCogsAmount: 3_300, grossProfitAmount: 126_700 });
+
+    const purchase = await request(f.manager, "POST", "/admin/inventory/purchases", {
+      receivedAt: new Date().toISOString(),
+      lines: [{ stockItemId: f.cup.id, conversionId: null, purchaseUnitLabel: "PIECE", purchaseQuantity: "10", directCostAmount: 1_000 }],
+    }, 201);
+    await request(f.manager, "POST", `/admin/inventory/purchases/${purchase.id}/post`, { expectedVersion: 1 }, 200, randomUUID());
+    expect(await balance(f.cup.id)).toBe("9");
+    expect(await app.prisma.orderConsumption.findUnique({ where: { id: consumption.id } })).toMatchObject({
+      status: "POSTED", theoreticalCogsAmount: 3_300, isCostComplete: true,
+    });
+  });
+
+  it("reports a sale on the day unpaid packaging is removed and the order closes", async () => {
+    const f = await fixture(true);
+    await app.prisma.product.update({ where: { id: f.product.id }, data: { priceAmount: 0 } });
+    const paidProduct = await app.prisma.product.create({ data: {
+      categoryId: f.product.categoryId, name: "Paid coffee", priceAmount: 20_000, preparationDeadlineMinutes: 1, displayOrder: 3,
+    } });
+    await request(f.manager, "PUT", `/admin/products/${paidProduct.id}/costing`, {
+      ...f.input, expectedVersion: 1, takeawayPackaging: [],
+    });
+    const { created } = await orderWithPackagingCharge(f, 2, 1);
+    const [assignment] = created.packagingAssignments;
+    const withPaidItem = await request(f.manager, "PATCH", `/orders/${created.id}`, {
+      expectedVersion: created.version, addItems: [{ productId: paidProduct.id, quantity: 1, options: [] }],
+    });
+    const paidItemId = withPaidItem.items.find((line: { productId: string }) => line.productId === paidProduct.id).id;
+    const partial = await request(f.manager, "POST", `/orders/${created.id}/record-settlement`, {
+      expectedVersion: withPaidItem.version,
+      allocations: [{ orderItemId: paidItemId, quantity: 1 }],
+      payments: [{ method: "CASH", amount: 20_000 }],
+    }, 201, randomUUID());
+    const previousDay = new Date(Date.now() - 86_400_000);
+    await app.prisma.paymentSettlement.update({
+      where: { id: partial.settlements[0].id }, data: { recordedAt: previousDay },
+    });
+    const closed = await request(f.manager, "PATCH", `/orders/${created.id}`, {
+      expectedVersion: partial.version,
+      itemUpdates: [{ orderItemId: assignment.packagingOrderItemId, quantity: 0 }],
+      packagingAssignments: [],
+    });
+    expect(closed).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", packagingAssignments: [] });
+    expect(await balance(f.cup.id)).toBe("8");
+    const recognized = await report(f);
+    expect(recognized.totals).toMatchObject({ netSalesAmount: 20_000, theoreticalCogsAmount: 700 });
+    expect(recognized.soldProducts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: f.product.id, soldQuantity: 2, netSalesAmount: 0 }),
+      expect.objectContaining({ productId: paidProduct.id, soldQuantity: 1, netSalesAmount: 20_000 }),
+    ]));
+    const before = await report(f, previousDay);
+    expect(before.totals.netSalesAmount).toBe(0);
+    expect(before.soldProducts).toEqual([]);
+  });
+
   it.each(["RECIPE", "PURCHASED_ITEM"] as const)("adds multiple exact packaging quantities only to takeaway %s previews", async (mode) => {
     const f = await fixture(false, mode);
     expect(await preview(f, "TABLE", 2)).toMatchObject({ isComplete: true, knownCostAmount: 200 });
