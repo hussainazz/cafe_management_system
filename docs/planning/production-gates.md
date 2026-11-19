@@ -631,6 +631,49 @@ order routes returned HTTP 401. Production journal inspection recorded no
 error-level entries after activation. Authenticated browser, café-device,
 touch, and printer acceptance remains open in `docs/current-left.md`.
 
+### Deferred takeaway payment release — 19 November 2026
+
+Released `cafe-20261119-5d71c8e` from source commit
+`5d71c8e09f150c1944a990b1b69b5e0fd58fb274`. The coordinated API/contracts/POS
+artifact SHA-256 is
+`643a9fb587c8a90738a574f0a7e3eb92a780b0d9ed724ee85fee98641eaa0296`
+(9,293,147 bytes; 556 archive entries and 422 manifested payload files). The
+POS `BUILD_ID` matches the release ID. The artifact contains all 62 migration
+files and the Debian OpenSSL 3 Prisma engine; it excludes environment files,
+secrets, product-image uploads, `node_modules`, and Next.js development/cache
+output.
+
+Before activation, PostgreSQL 17.11 production was backed up with PostgreSQL
+17.12 client tools to
+`/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261119-5d71c8e.dump`.
+`pg_restore --list` validated its 434 entries; SHA-256 is
+`57e478cb0b0cfb803ddb7e950e3cd51403ea97f1accf98cc2d8a0ca218d21b9e`. The
+code-only rollback archive
+`/opt/cafe-menu-release-backups/rollback-before-cafe-20261119-5d71c8e.tar.gz`
+passed archive validation; its 386 saved runtime files matched the previous
+active runtime byte-for-byte. Its SHA-256 is
+`505239994ef8000b40d3caf17353a4ecbd12d47dfb26c0c9becac64380d9195e`. Both
+recovery artifacts were verified before deleting the superseded 7d01337 backup
+pair. The separate packaging-assignment recovery input remains retained.
+
+Activation ran from `2026-11-19T17:17:22.168608Z` to
+`2026-11-19T17:17:49.840173Z`. No production migration was applied; Prisma
+reports 62 migrations found and the schema up to date. Direct API liveness and
+readiness, direct/public POS readiness, direct/public `/pos`, the public menu
+page and proxy, and direct/public `/pos/release` all returned HTTP 200. Both
+release endpoints report `cafe-20261119-5d71c8e` with
+`Cache-Control: no-store, max-age=0`. Direct and public menu APIs each returned
+16 categories and 141 products. API, POS, web, and Nginx are active; API and POS
+restarted for activation with exit status 0 and zero `NRestarts`. Web and Nginx
+were not restarted. No production payment, checkout, or print was performed by
+the release.
+
+Product-image storage remains 32 files / 5,759,237 bytes with tree SHA-256
+`d85b72b8e06b01ec20fcdb158703b8607a5ba97c045b0cae354f5748ad5b4553`; no image
+or environment data was transferred. API/POS error-level journal count after
+activation was zero. Authenticated POS-browser, café-device, touch, and receipt
+printer acceptance remains open in `docs/current-left.md`.
+
 ## Decisions Fixed Before Implementation
 
 | Decision              | Fixed default                                                                                                                                       |
