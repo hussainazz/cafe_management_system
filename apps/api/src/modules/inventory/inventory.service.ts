@@ -7,6 +7,8 @@ import {
   OrderConsumptionStatus,
   Prisma,
   PurchaseStatus,
+  type InventoryBalance,
+  type OrderConsumption,
   type PrismaClient,
 } from "../../../generated/prisma/client.js";
 import type {
@@ -96,6 +98,7 @@ export async function createStockItem(prisma: PrismaClient, actor: Authenticated
 }
 export async function updateStockItem(prisma: PrismaClient, actor: AuthenticatedUser, id: string, input: StockUpdate, requestId: string) {
   return prisma.$transaction(async (tx) => {
+    if (input.openingQuantity !== undefined) await lock(tx, [`inventory:${id}`]);
     const current = await tx.stockItem.findUnique({ where: { id }, include: { conversions: true, balance: true } });
     if (!current) fail(404, ErrorCodes.NOT_FOUND, "The stock item was not found.");
     if (current.archivedAt) fail(409, ErrorCodes.INVALID_STATE, "An archived stock item cannot be edited.");
@@ -221,6 +224,14 @@ export async function updatePurchase(prisma: PrismaClient, actor: AuthenticatedU
 
 type FlatComponent = { stockItemId: string; stockItemName: string; baseUnit: string; quantity: Prisma.Decimal; isPackagingMaterial: boolean; sourceKey: string };
 type CostSnapshot = { components: Array<{ stockItemId: string; stockItemName: string; baseUnit: string; quantity: string; packagingQuantity: string; isPackagingMaterial: boolean; knownCostAmount: number | null; packagingKnownCostAmount: number | null; nonPackagingKnownCostAmount: number | null }>; isComplete: boolean; missingReasons: string[]; configurationVersion: number | null };
+
+export function hasOnlyMissingPackagingConfiguration(systemKey: string | null, snapshot: unknown) {
+  if (systemKey !== "PACKING" || !snapshot || typeof snapshot !== "object") return false;
+  const { components, missingReasons } = snapshot as Partial<CostSnapshot>;
+  return Array.isArray(components) && components.length === 0
+    && Array.isArray(missingReasons) && missingReasons.length === 1
+    && typeof missingReasons[0] === "string" && missingReasons[0].startsWith("missing-costing:");
+}
 async function flattenRecipe(tx: Tx, recipeId: string, amount: Prisma.Decimal, keyPrefix = "", seen = new Set<string>(), missingReasons: string[] = []): Promise<FlatComponent[]> {
   if (seen.has(recipeId)) { missingReasons.push(`recipe-cycle:${recipeId}`); return []; }
   const recipe = await tx.recipe.findUnique({ where: { id: recipeId }, include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }], include: { stockItem: true } } } });
@@ -254,10 +265,15 @@ function applyCostingRule(components: Array<{ componentKey: string; label: strin
   else components[index] = { ...components[index]!, label: rule.label ?? components[index]!.label, sourceKind: rule.sourceKind, sourceId: rule.sourceId, quantity: decimal(rule.quantity) };
 }
 async function resolveCosting(tx: Tx, productId: string, optionIds: string[], quantity: number, weightGrams: number | null, includeCosts: boolean, channel: "TABLE" | "TAKEAWAY" = "TABLE", orderQuantity = quantity, previousQuantity = 0): Promise<CostSnapshot> {
-  const product = await tx.product.findUnique({ where: { id: productId }, select: { id: true, name: true, pricingMode: true } });
+  const product = await tx.product.findUnique({ where: { id: productId }, select: { id: true, name: true, pricingMode: true, systemKey: true } });
   if (!product) return { components: [], isComplete: false, missingReasons: ["product-not-found"], configurationVersion: null };
   const config: any = await tx.productCostingConfiguration.findUnique({ where: { productId }, include: { product: { select: { optionRecipeCostings: { include: { recipe: { include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }] } } } } }, optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true } }, costingCombinations: { where: { isActive: true }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true } } } } } } } });
-  if (!config) return { components: [], isComplete: false, missingReasons: [`missing-costing:${product.name}`], configurationVersion: null };
+  if (!config) {
+    // Packaging charges need no separate recipe. The menu item mappings
+    // account for physical packaging, including when no charge is added.
+    const missingReasons = product.systemKey === "PACKING" ? [] : [`missing-costing:${product.name}`];
+    return { components: [], isComplete: missingReasons.length === 0, missingReasons, configurationVersion: null };
+  }
   const overrides = channel === "TAKEAWAY" ? config.takeawayOptionRecipes ?? [] : [];
   const overriddenIds = new Set(overrides.map((entry: any) => entry.optionId));
   const optionCostings = [...config.product.optionRecipeCostings.filter((entry: any) => !overriddenIds.has(entry.optionId))];
@@ -649,19 +665,42 @@ async function trackOrderItemSnapshots(tx: Tx, orderId: string, onlyMissing = fa
   }
 }
 async function readOrderItemSnapshots(tx: Tx, orderId: string): Promise<Array<{ itemId: string; productId: string; productName: string; quantity: number; weightGrams: number | null; orderChannel: "TABLE" | "TAKEAWAY" | undefined; components: CostSnapshot["components"]; missingReasons: string[] }>> {
-  const items = await tx.orderItem.findMany({ where: { orderId }, include: { costingSnapshot: true } });
+  const items = await tx.orderItem.findMany({ where: { orderId }, include: { costingSnapshot: true, product: { select: { systemKey: true } } } });
   return items.map((item) => {
     const saved = (item.costingSnapshot?.snapshot ?? {}) as unknown as CostSnapshot & { orderChannel?: "TABLE" | "TAKEAWAY" };
-    return { orderChannel: saved.orderChannel, itemId: item.id, productId: item.productId, productName: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams, components: saved.components ?? [], missingReasons: saved.missingReasons ?? ["missing-costing-snapshot"] };
+    const missingReasons = hasOnlyMissingPackagingConfiguration(item.product.systemKey, saved) ? [] : saved.missingReasons ?? ["missing-costing-snapshot"];
+    return { orderChannel: saved.orderChannel, itemId: item.id, productId: item.productId, productName: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams, components: saved.components ?? [], missingReasons };
   });
 }
 type OrderItemCostingSnapshot = Awaited<ReturnType<typeof readOrderItemSnapshots>>[number];
-async function valueOrderItemSnapshot(tx: Tx, snapshot: OrderItemCostingSnapshot) {
+type StockNeed = { stockItemId: string; quantity: Prisma.Decimal };
+type StockBalances = Map<string, InventoryBalance>;
+
+async function readStockBalances(tx: Tx, stockItemIds: string[]): Promise<StockBalances> {
+  const balances = stockItemIds.length
+    ? await tx.inventoryBalance.findMany({ where: { stockItemId: { in: stockItemIds } } })
+    : [];
+  return new Map(balances.map((balance) => [balance.stockItemId, balance]));
+}
+
+async function readLockedStockBalances(tx: Tx, needs: StockNeed[]) {
+  await lock(tx, needs.map((need) => `inventory:${need.stockItemId}`));
+  return readStockBalances(tx, needs.map((need) => need.stockItemId));
+}
+
+function hasStockForOrder(needs: StockNeed[], balances: StockBalances) {
+  return needs.every(({ stockItemId, quantity }) => {
+    const balance = balances.get(stockItemId);
+    return !!balance?.trackingStartedAt && balance.quantityOnHand.gte(quantity);
+  });
+}
+
+function valueOrderItemSnapshot(snapshot: OrderItemCostingSnapshot, balances: StockBalances) {
   const components: Array<any> = [];
   let known = 0;
   let complete = snapshot.missingReasons.length === 0;
   for (const component of snapshot.components) {
-    const balance = await tx.inventoryBalance.findUnique({ where: { stockItemId: component.stockItemId } });
+    const balance = balances.get(component.stockItemId);
     const tracked = !!balance?.trackingStartedAt;
     const unitValue = tracked ? decimal(balance!.quantityOnHand.gt(0) ? decimal(balance!.carryingValueAmount).div(balance!.quantityOnHand) : decimal(0)) : null;
     const cost = unitValue === null ? null : intMoney(decimal(component.quantity).mul(unitValue));
@@ -680,43 +719,32 @@ async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: st
   const cycleNumber = (await tx.orderConsumption.aggregate({ where: { orderId: order.id }, _max: { cycleNumber: true } }))._max.cycleNumber ?? 0;
   const turnoverEligible = await orderTurnoverEligible(tx, order.id);
   const snapshots = await readOrderItemSnapshots(tx, order.id);
-  const itemAmounts: Array<{ snapshot: typeof snapshots[number]; amount: number; known: number; complete: boolean; components: Array<any> }> = [];
   const allNeeds = new Map<string, Prisma.Decimal>();
   for (const snapshot of snapshots) {
-    const valued = await valueOrderItemSnapshot(tx, snapshot);
     for (const component of snapshot.components) allNeeds.set(component.stockItemId, (allNeeds.get(component.stockItemId) ?? decimal(0)).plus(component.quantity));
-    itemAmounts.push({ snapshot, ...valued });
   }
   const movementRows = [...allNeeds].map(([stockItemId, quantity]) => ({ stockItemId, quantity }));
-  await lock(tx, movementRows.map((need) => `inventory:${need.stockItemId}`));
-  const stockRows = movementRows.length ? await tx.inventoryBalance.findMany({ where: { stockItemId: { in: movementRows.map((row) => row.stockItemId) } } }) : [];
-  const balanceById = new Map(stockRows.map((row) => [row.stockItemId, row]));
-  let canFulfill = turnoverEligible && movementRows.length > 0 && !snapshots.some((snapshot) => snapshot.missingReasons.length > 0);
-  for (const { stockItemId, quantity } of movementRows) {
-    const balance = balanceById.get(stockItemId);
-    if (!balance?.trackingStartedAt || balance.quantityOnHand.lt(quantity)) canFulfill = false;
-  }
+  const balances = await readLockedStockBalances(tx, movementRows);
+  const itemAmounts = snapshots.map((snapshot) => ({ snapshot, ...valueOrderItemSnapshot(snapshot, balances) }));
+  const canFulfill = turnoverEligible && movementRows.length > 0
+    && snapshots.every((snapshot) => snapshot.missingReasons.length === 0)
+    && hasStockForOrder(movementRows, balances);
   const knownCogsAmount = itemAmounts.reduce((sum, item) => sum + item.known, 0);
   const isCostComplete = itemAmounts.every((item) => item.complete) && snapshots.length > 0;
   const theoreticalCogsAmount = isCostComplete ? knownCogsAmount : null;
   const consumption = await tx.orderConsumption.create({ data: { orderId: order.id, cycleNumber: cycleNumber + 1, paymentSettlementId: settlementId, status: !turnoverEligible ? OrderConsumptionStatus.UNTRACKED : canFulfill ? OrderConsumptionStatus.POSTED : OrderConsumptionStatus.PENDING, recognizedById: actorId, recognizedAt: at, resolvedAt: !turnoverEligible || canFulfill ? at : null, theoreticalCogsAmount, knownCogsAmount, isCostComplete, costSnapshot: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productId: item.snapshot.productId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, components: item.components })) as unknown as Prisma.InputJsonValue, items: { create: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, costSnapshot: { orderChannel: item.snapshot.orderChannel ?? order.channel, components: item.components, missingReasons: item.snapshot.missingReasons } })) } } });
-  if (turnoverEligible && canFulfill && !await consumeStockForOrder(tx, consumption.id, movementRows, actorId, at)) await tx.orderConsumption.update({ where: { id: consumption.id }, data: { status: OrderConsumptionStatus.PENDING, resolvedAt: null } });
+  if (canFulfill) await deductStockForOrder(tx, consumption.id, movementRows, balances, actorId, at);
   return consumption;
 }
-async function consumeStockForOrder(tx: Tx, consumptionId: string, needs: Array<{ stockItemId: string; quantity: Prisma.Decimal }>, actorId: string, at: Date) {
-  await lock(tx, needs.map((need) => `inventory:${need.stockItemId}`));
-  const balances = await tx.inventoryBalance.findMany({ where: { stockItemId: { in: needs.map((need) => need.stockItemId) } } });
-  const byId = new Map(balances.map((balance) => [balance.stockItemId, balance]));
-  if (needs.some((need) => { const balance = byId.get(need.stockItemId); return !balance?.trackingStartedAt || balance.quantityOnHand.lt(need.quantity); })) return false;
+async function deductStockForOrder(tx: Tx, consumptionId: string, needs: StockNeed[], balances: StockBalances, actorId: string, at: Date) {
   for (const need of needs) {
-    const balance = byId.get(need.stockItemId)!;
+    const balance = balances.get(need.stockItemId)!;
     const nextQuantity = balance.quantityOnHand.minus(need.quantity);
     const value = nextQuantity.isZero() ? balance.carryingValueAmount : intMoney(need.quantity.mul(balance.quantityOnHand.gt(0) ? decimal(balance.carryingValueAmount).div(balance.quantityOnHand) : decimal(0)));
     const valueDeltaAmount = nextQuantity.isZero() ? -balance.carryingValueAmount : -Math.min(balance.carryingValueAmount, value);
     await tx.inventoryMovement.create({ data: { stockItemId: need.stockItemId, kind: InventoryMovementKind.ORDER_CONSUMPTION, quantityDelta: need.quantity.negated(), valueDeltaAmount, orderConsumptionId: consumptionId, createdById: actorId, occurredAt: at } });
     await tx.inventoryBalance.update({ where: { stockItemId: need.stockItemId }, data: { quantityOnHand: nextQuantity, carryingValueAmount: balance.carryingValueAmount + valueDeltaAmount } });
   }
-  return true;
 }
 async function needsFromConsumption(tx: Tx, consumptionId: string) {
   const items = await tx.orderConsumptionItem.findMany({ where: { orderConsumptionId: consumptionId } });
@@ -729,10 +757,10 @@ async function needsFromConsumption(tx: Tx, consumptionId: string) {
 }
 async function refreshPendingConsumptionSnapshots(tx: Tx, consumptionId: string, orderId: string, affectedItemIds: Set<string>) {
   const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { channel: true, inventorySaleChannel: true } });
-  const snapshots = await readOrderItemSnapshots(tx, orderId);
+  const snapshots = (await readOrderItemSnapshots(tx, orderId)).filter((snapshot) => affectedItemIds.has(snapshot.itemId));
+  const balances = await readStockBalances(tx, [...new Set(snapshots.flatMap((snapshot) => snapshot.components.map((component) => component.stockItemId)))]);
   for (const snapshot of snapshots) {
-    if (!affectedItemIds.has(snapshot.itemId)) continue;
-    const valued = await valueOrderItemSnapshot(tx, snapshot);
+    const valued = valueOrderItemSnapshot(snapshot, balances);
     await tx.orderConsumptionItem.update({
       where: { orderConsumptionId_orderItemId: { orderConsumptionId: consumptionId, orderItemId: snapshot.itemId } },
       data: {
@@ -748,6 +776,10 @@ async function refreshPendingConsumptionSnapshots(tx: Tx, consumptionId: string,
     });
   }
 
+  await updateConsumptionCostTotals(tx, consumptionId);
+}
+
+async function updateConsumptionCostTotals(tx: Tx, consumptionId: string) {
   const items = await tx.orderConsumptionItem.findMany({ where: { orderConsumptionId: consumptionId }, include: { orderItem: { select: { productId: true } } } });
   const knownCogsAmount = items.reduce((sum, item) => sum + item.knownCogsAmount, 0);
   const isCostComplete = items.length > 0 && items.every((item) => item.isCostComplete);
@@ -773,19 +805,38 @@ async function refreshPendingConsumptionSnapshots(tx: Tx, consumptionId: string,
 async function tryPostPendingConsumption(tx: Tx, consumptionId: string, actorId: string, at: Date) {
   const consumption = await tx.orderConsumption.findUnique({
     where: { id: consumptionId },
-    include: { items: true, order: { select: { state: true, paymentStatus: true } } },
+    include: { items: { include: { orderItem: { select: { product: { select: { systemKey: true } } } } } }, order: { select: { state: true, paymentStatus: true } } },
   });
   if (!consumption || consumption.status !== OrderConsumptionStatus.PENDING || consumption.order.state === "DELETED" || consumption.order.paymentStatus !== "PAID") return false;
   if (!await orderTurnoverEligible(tx, consumption.orderId) || consumption.items.length === 0) return false;
+  const legacyChargeItems = consumption.items.filter((item) =>
+    hasOnlyMissingPackagingConfiguration(item.orderItem.product.systemKey, item.costSnapshot));
+  const legacyChargeItemIds = new Set(legacyChargeItems.map((item) => item.id));
   if (consumption.items.some((item) => {
+    if (legacyChargeItemIds.has(item.id)) return false;
     const snapshot = item.costSnapshot as any;
     return !Array.isArray(snapshot?.missingReasons) || snapshot.missingReasons.length > 0;
   })) return false;
 
   const needs = await needsFromConsumption(tx, consumptionId);
   if (needs.length === 0) return false;
-  if (!await consumeStockForOrder(tx, consumptionId, needs, actorId, at)) return false;
-  await tx.orderConsumption.update({ where: { id: consumptionId }, data: { status: OrderConsumptionStatus.POSTED, resolvedAt: at } });
+  const balances = await readLockedStockBalances(tx, needs);
+  if (!hasStockForOrder(needs, balances)) return false;
+  const claimed = await tx.orderConsumption.updateMany({
+    where: { id: consumptionId, status: OrderConsumptionStatus.PENDING },
+    data: { status: OrderConsumptionStatus.POSTED, resolvedAt: at },
+  });
+  if (claimed.count !== 1) return false;
+  if (legacyChargeItems.length) {
+    for (const item of legacyChargeItems) {
+      await tx.orderConsumptionItem.update({ where: { id: item.id }, data: {
+        theoreticalCogsAmount: 0, isCostComplete: true,
+        costSnapshot: { ...(item.costSnapshot as Prisma.JsonObject), missingReasons: [] },
+      } });
+    }
+    await updateConsumptionCostTotals(tx, consumptionId);
+  }
+  await deductStockForOrder(tx, consumptionId, needs, balances, actorId, at);
   return true;
 }
 async function resolvePendingCostingForProduct(tx: Tx, productId: string, actorId: string, at: Date) {
@@ -821,17 +872,22 @@ export async function retryPendingConsumptions(tx: Tx, actorId: string, at = new
 
 export async function postPurchase(prisma: PrismaClient, actor: AuthenticatedUser, id: string, expectedVersion: number, key: string, requestId: string) {
   const fingerprint = sha({ id, expectedVersion });
-  const existing = await prisma.idempotencyRecord.findUnique({ where: { actorId_operation_key: { actorId: actor.id, operation: POST_PURCHASE, key } } });
-  if (existing) { if (existing.requestFingerprint !== fingerprint) fail(409, ErrorCodes.IDEMPOTENCY_CONFLICT, "This idempotency key was already used for a different request."); return existing.resultSnapshot as any; }
   try {
     return await prisma.$transaction(async (tx) => {
       await lock(tx, [`purchase:${id}`]);
+      const existing = await tx.idempotencyRecord.findUnique({ where: { actorId_operation_key: { actorId: actor.id, operation: POST_PURCHASE, key } } });
+      if (existing) { if (existing.requestFingerprint !== fingerprint) fail(409, ErrorCodes.IDEMPOTENCY_CONFLICT, "This idempotency key was already used for a different request."); return existing.resultSnapshot as any; }
       const purchase = await tx.purchase.findUnique({ where: { id }, include: { lines: true } });
       if (!purchase) fail(404, ErrorCodes.NOT_FOUND, "The purchase was not found.");
       if (purchase.version !== expectedVersion) stale("The purchase has changed.", purchase.version);
       if (purchase.status !== PurchaseStatus.DRAFT) fail(409, ErrorCodes.INVALID_STATE, "The purchase is already posted.");
       await lock(tx, purchase.lines.map((line) => `inventory:${line.stockItemId}`));
       const occurredAt = new Date();
+      const posted = await tx.purchase.updateMany({
+        where: { id, version: expectedVersion, status: PurchaseStatus.DRAFT },
+        data: { status: PurchaseStatus.POSTED, postedAt: occurredAt, version: { increment: 1 } },
+      });
+      if (posted.count !== 1) fail(409, ErrorCodes.STALE_VERSION, "The purchase has changed.");
       for (const line of purchase.lines) {
         const balance = await tx.inventoryBalance.findUnique({ where: { stockItemId: line.stockItemId } });
         if (!balance?.trackingStartedAt) fail(409, ErrorCodes.INVALID_STATE, "An opening count must be posted before received purchases can update tracked inventory.");
@@ -841,13 +897,14 @@ export async function postPurchase(prisma: PrismaClient, actor: AuthenticatedUse
         await tx.inventoryMovement.create({ data: { stockItemId: line.stockItemId, kind: InventoryMovementKind.PURCHASE_RECEIPT, quantityDelta: line.baseQuantityReceived, valueDeltaAmount: line.directCostAmount, purchaseLineId: line.id, createdById: actor.id, occurredAt: purchase.receivedAt } });
         await tx.inventoryBalance.update({ where: { stockItemId: line.stockItemId }, data: { quantityOnHand: nextQty, carryingValueAmount: nextValue } });
       }
-      const updated = await tx.purchase.update({ where: { id }, data: { status: PurchaseStatus.POSTED, postedAt: occurredAt, version: { increment: 1 } }, include: { lines: true } });
+      const updated = await tx.purchase.findUniqueOrThrow({ where: { id }, include: { lines: true } });
+      // See pending checkouts that committed while this receipt waited for stock locks.
       const retried = await retryPendingConsumptions(tx, actor.id, occurredAt);
       await audit(tx, actor.id, requestId, POST_PURCHASE, "PURCHASE", id, { status: purchase.status }, { status: updated.status, retriedPendingOrders: retried });
       const result = purchaseDto(updated);
       await tx.idempotencyRecord.create({ data: { actorId: actor.id, operation: POST_PURCHASE, key, requestFingerprint: fingerprint, responseStatus: 200, resultSnapshot: result, expiresAt: new Date(occurredAt.getTime() + IDEMPOTENCY_TTL) } });
       return result;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const replay = await prisma.idempotencyRecord.findUnique({ where: { actorId_operation_key: { actorId: actor.id, operation: POST_PURCHASE, key } } });
@@ -1006,13 +1063,20 @@ export async function recognizeStaffConsumption(tx: Tx, orderId: string, actorId
   return recordFullPaymentConsumption(tx, order, null, actorId, at);
 }
 
-async function restoreConsumption(tx: Tx, consumption: any, actorId: string, at: Date) {
-  if (consumption.status === OrderConsumptionStatus.PENDING || consumption.status === OrderConsumptionStatus.CANCELLED) {
-    await tx.orderConsumption.update({ where: { id: consumption.id }, data: { status: OrderConsumptionStatus.CANCELLED, resolvedAt: at } });
-    return;
+async function restoreConsumption(tx: Tx, consumption: OrderConsumption, actorId: string, at: Date) {
+  if (consumption.status === OrderConsumptionStatus.PENDING) {
+    const cancelled = await tx.orderConsumption.updateMany({
+      where: { id: consumption.id, status: OrderConsumptionStatus.PENDING },
+      data: { status: OrderConsumptionStatus.CANCELLED, resolvedAt: at },
+    });
+    if (cancelled.count === 1) return;
+    // A receipt or physical count changed the status while this cancellation waited.
+    consumption = await tx.orderConsumption.findUniqueOrThrow({ where: { id: consumption.id } });
   }
-  const movements = await tx.inventoryMovement.findMany({ where: { orderConsumptionId: consumption.id, kind: InventoryMovementKind.ORDER_CONSUMPTION } });
+  if (consumption.status === OrderConsumptionStatus.CANCELLED) return;
   if (consumption.status === OrderConsumptionStatus.POSTED) {
+    const movements = await tx.inventoryMovement.findMany({ where: { orderConsumptionId: consumption.id, kind: InventoryMovementKind.ORDER_CONSUMPTION } });
+    await lock(tx, movements.map((movement) => `inventory:${movement.stockItemId}`));
     for (const movement of movements) {
       if (await tx.inventoryMovement.findUnique({ where: { compensatesMovementId: movement.id }, select: { id: true } })) continue;
       const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { stockItemId: movement.stockItemId } });
@@ -1026,8 +1090,15 @@ async function restoreConsumption(tx: Tx, consumption: any, actorId: string, at:
     for (const need of needs) {
       const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { stockItemId: need.stockItemId } });
       const countedLine = reconciliation?.count.lines.find((line) => line.stockItemId === need.stockItemId);
-      if (!countedLine || countedLine.observedQuantity.isZero()) fail(409, ErrorCodes.INVALID_STATE, "The reconciled count does not contain a carrying value for restored stock.");
-      const restoredValue = intMoney(need.quantity.mul(decimal(countedLine.observedValueAmount).div(countedLine.observedQuantity)));
+      if (!countedLine) fail(409, ErrorCodes.INVALID_STATE, "The reconciled count does not contain a carrying value for restored stock.");
+      // A zero count has no observed unit value. Use the pre-count value
+      // captured at posting, which is independent of subsequent receipts.
+      const observedStock = countedLine.observedQuantity.gt(0);
+      const valuationQuantity = observedStock ? countedLine.observedQuantity : countedLine.expectedQuantity;
+      const valuationAmount = observedStock ? countedLine.observedValueAmount : countedLine.expectedValueAmount;
+      const restoredValue = valuationQuantity?.gt(0) && valuationAmount !== null
+        ? intMoney(need.quantity.mul(decimal(valuationAmount).div(valuationQuantity)))
+        : 0;
       await tx.inventoryMovement.create({ data: { stockItemId: need.stockItemId, kind: InventoryMovementKind.ORDER_RESTORATION, quantityDelta: need.quantity, valueDeltaAmount: restoredValue, orderConsumptionId: consumption.id, createdById: actorId, occurredAt: at } });
       await tx.inventoryBalance.update({ where: { stockItemId: need.stockItemId }, data: { quantityOnHand: balance.quantityOnHand.plus(need.quantity), carryingValueAmount: balance.carryingValueAmount + restoredValue } });
     }
