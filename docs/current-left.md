@@ -10,6 +10,19 @@
   activation and recovery are completed in Phase 3 below. Café-device, browser,
   and receipt-printer acceptance remains open.
 
+## Completed local POS delivery — packaging layout and unpaid takeaway orders (19 November 2026)
+
+- [x] Size the packaging workspace to its content and keep longer item lists
+  scrollable. Verify the panel in the browser at 464×584 and 1264×704.
+- [x] Let staff send a new takeaway draft or an opened takeaway order to the
+  unpaid list with the required customer name.
+- [x] Verify that item-quantity and amount-based partial payments can both be
+  deferred with only the remaining balance outstanding.
+- [x] The focused POS suite passes 33/33; the focused API regression passes
+  1/1. API and POS typechecks and `git diff --check` pass. The API test used
+  only the isolated `cafe_management_test` database. No migration or production
+  change was made.
+
 ## Inventory ingredient deduction concurrency — 19 November 2026
 
 - [x] Reproduced four concurrency failures in PostgreSQL covering lost stock
