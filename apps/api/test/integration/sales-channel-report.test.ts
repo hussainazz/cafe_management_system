@@ -82,6 +82,37 @@ async function readReport(cookies: Cookies, fromDate = "2026-11-10", toDate = fr
 }
 
 describe("Manager takeaway and dine-in sales report", () => {
+  it("classifies a settled table order with an assigned packaging charge as table-originated takeaway", async () => {
+    const manager = await login("DEVELOPER");
+    const staff = await login("STAFF");
+    const espresso = await product("Table takeaway espresso", 10_000);
+    const bag = await product("Table takeaway bag", 20_000, "PACKING");
+    const menuRef = randomUUID();
+    const packageRef = randomUUID();
+    const response = await app.inject({
+      method: "POST", url: "/api/v1/orders", cookies: staff, headers: { "idempotency-key": randomUUID() },
+      payload: {
+        channel: "TABLE", tableId: (await table()).id,
+        items: [
+          { clientRef: menuRef, productId: espresso.id, quantity: 2, options: [] },
+          { clientRef: packageRef, productId: bag.id, quantity: 1, options: [] },
+        ],
+        packagingAssignments: [{
+          packagingItem: { kind: "REQUEST", clientRef: packageRef },
+          productItem: { kind: "REQUEST", clientRef: menuRef },
+          quantity: 1,
+        }],
+      },
+    });
+    expect(response.statusCode, response.body).toBe(201);
+    const order = response.json().data;
+    await settle(staff, order);
+    await recordPaidAt(order.id, "2026-11-10T10:00:00.000Z");
+    expect((await readReport(manager)).data.takeawayOrigin).toMatchObject({
+      directTakeawayCount: 0, tableOriginatedTakeawayCount: 1, tableOriginatedTakeawayRevenueAmount: 40_000,
+    });
+  });
+
   it("uses the channel fallback for ordinary legacy orders without a saved origin", async () => {
     const manager = await login("DEVELOPER");
     const staff = await login("STAFF");
