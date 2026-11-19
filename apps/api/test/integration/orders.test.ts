@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { UserRole } from "../../generated/prisma/client.js";
 import { hashPassword } from "../../src/auth/password.js";
@@ -86,6 +87,192 @@ async function createOrderRequest(
 }
 
 describe("Staff order creation", () => {
+  it("includes catalog-priced PACKING products and persists their assigned item quantities", async () => {
+    const cookies = await userSession(UserRole.STAFF, "order-packaging.staff");
+    const { product } = await sellableProduct();
+    const category = await app.prisma.category.create({ data: { name: "Order packaging", displayOrder: 901 } });
+    const packaging = await app.prisma.product.create({
+      data: {
+        categoryId: category.id,
+        name: "پاکت",
+        priceAmount: 20_000,
+        systemKey: "PACKING",
+        preparationDeadlineMinutes: 1,
+        displayOrder: 1,
+      },
+    });
+    const productRef = "d0000000-0000-4000-8000-000000000001";
+    const packagingRef = "d0000000-0000-4000-8000-000000000002";
+    const payload = {
+      channel: "TAKEAWAY",
+      items: [
+        { clientRef: productRef, productId: product.id, quantity: 2, options: [] },
+        { clientRef: packagingRef, productId: packaging.id, quantity: 2, options: [] },
+      ],
+      packagingAssignments: [{
+        packagingItem: { kind: "REQUEST", clientRef: packagingRef },
+        productItem: { kind: "REQUEST", clientRef: productRef },
+        quantity: 2,
+      }],
+    };
+
+    const created = await createOrderRequest(cookies, payload, "order-packaging-create-001");
+    expect(created.statusCode).toBe(201);
+    const order = created.json().data;
+    const replay = await createOrderRequest(cookies, payload, "order-packaging-create-001");
+    expect(replay.headers["idempotency-replayed"]).toBe("true");
+    expect(replay.json().data).toEqual(order);
+    expect(order).toMatchObject({ subtotalAmount: 140_000, totalAmount: 140_000 });
+    expect(order.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: product.id, quantity: 2, lineTotalAmount: 100_000 }),
+      expect.objectContaining({ productId: packaging.id, systemKey: "PACKING", quantity: 2, basePriceSnapshot: 20_000, lineTotalAmount: 40_000 }),
+    ]));
+    const productItem = order.items.find((item: { productId: string }) => item.productId === product.id);
+    const packagingItem = order.items.find((item: { productId: string }) => item.productId === packaging.id);
+    expect(order.packagingAssignments).toEqual([expect.objectContaining({
+      packagingOrderItemId: packagingItem.id,
+      packagingProductId: packaging.id,
+      productOrderItemId: productItem.id,
+      productId: product.id,
+      quantity: 2,
+    })]);
+    expect(await app.prisma.orderItemPackagingAssignment.findMany({ where: { orderId: order.id }, select: { packagingItemId: true, productItemId: true, quantity: true } })).toEqual([
+      { packagingItemId: packagingItem.id, productItemId: productItem.id, quantity: 2 },
+    ]);
+
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/orders/${order.id}`,
+      cookies,
+      payload: {
+        expectedVersion: order.version,
+        packagingAssignments: [{
+          packagingItem: { kind: "EXISTING", orderItemId: packagingItem.id },
+          productItem: { kind: "EXISTING", orderItemId: productItem.id },
+          quantity: 1,
+        }],
+        itemUpdates: [{ orderItemId: packagingItem.id, quantity: 1 }],
+      },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().data).toMatchObject({ totalAmount: 120_000, version: order.version + 1, items: expect.arrayContaining([expect.objectContaining({ productId: packaging.id, quantity: 1, lineTotalAmount: 20_000 })]), packagingAssignments: [expect.objectContaining({ id: order.packagingAssignments[0].id, quantity: 1 })] });
+
+    const invalidUpdate = await app.inject({
+      method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies,
+      payload: { expectedVersion: edited.json().data.version, itemUpdates: [{ orderItemId: packagingItem.id, quantity: 2 }] },
+    });
+    expect(invalidUpdate.statusCode, invalidUpdate.body).toBe(422);
+    const unchanged = await app.inject({ method: "GET", url: `/api/v1/orders/${order.id}`, cookies });
+    expect(unchanged.json().data).toEqual(edited.json().data);
+
+    const removed = await app.inject({
+      method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies,
+      payload: { expectedVersion: edited.json().data.version, itemUpdates: [{ orderItemId: packagingItem.id, quantity: 0 }], packagingAssignments: [] },
+    });
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.json().data).toMatchObject({ totalAmount: 100_000, packagingAssignments: [], items: [expect.objectContaining({ id: productItem.id })] });
+    const empty = await app.inject({
+      method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies,
+      payload: { expectedVersion: removed.json().data.version, itemUpdates: [{ orderItemId: productItem.id, quantity: 0 }] },
+    });
+    expect(empty.statusCode, empty.body).toBe(422);
+    expect(await app.prisma.orderItem.count({ where: { orderId: order.id } })).toBe(1);
+  });
+
+  it("rejects invalid package assignments without creating an order", async () => {
+    const cookies = await staffSession();
+    const { product } = await sellableProduct();
+    const packageProduct = await app.prisma.product.create({
+      data: { categoryId: product.categoryId, name: "Bag", priceAmount: 20_000, systemKey: "PACKING", isPublic: false, preparationDeadlineMinutes: 1, displayOrder: 2 },
+    });
+    const menu = { clientRef: randomUUID(), productId: product.id, quantity: 2, options: [] };
+    const pack = { clientRef: randomUUID(), productId: packageProduct.id, quantity: 1, options: [] };
+    const otherPack = { ...pack, clientRef: randomUUID(), quantity: 2 };
+    const reference = (clientRef: string) => ({ kind: "REQUEST", clientRef });
+    const valid = { packagingItem: reference(pack.clientRef), productItem: reference(menu.clientRef), quantity: 1 };
+    const payload = { channel: "TAKEAWAY", items: [menu, pack], packagingAssignments: [valid] };
+    const invalid = [
+      { ...payload, packagingAssignments: [] },
+      { ...payload, items: [menu, { ...pack, quantity: 2 }] },
+      { ...payload, items: [menu, pack, otherPack], packagingAssignments: [valid, { ...valid, packagingItem: reference(otherPack.clientRef), quantity: 2 }] },
+      { ...payload, packagingAssignments: [valid, valid] },
+      { ...payload, packagingAssignments: [{ ...valid, productItem: reference(pack.clientRef) }] },
+      { ...payload, packagingAssignments: [{ ...valid, packagingItem: valid.productItem, productItem: valid.packagingItem }] },
+      {
+        ...payload,
+        items: [{ ...menu, quantity: 50_000 }, { ...pack, quantity: 50_000 }],
+        packagingAssignments: [{ ...valid, quantity: 50_000 }],
+      },
+      {
+        ...payload,
+        items: [{ ...menu, quantity: 31_000 }, { ...pack, quantity: 31_000 }],
+        packagingAssignments: [{ ...valid, quantity: 31_000 }],
+      },
+    ];
+    for (const body of invalid) {
+      const response = await createOrderRequest(cookies, body, randomUUID());
+      expect(response.statusCode, response.body).toBe(422);
+    }
+    const unknownReference = await createOrderRequest(cookies, {
+      ...payload, packagingAssignments: [{ ...valid, productItem: reference(randomUUID()) }],
+    }, randomUUID());
+    expect(unknownReference.statusCode, unknownReference.body).toBe(400);
+    const oversizedAssignment = await createOrderRequest(cookies, {
+      ...payload, packagingAssignments: [{ ...valid, quantity: 2_147_483_648 }],
+    }, randomUUID());
+    expect(oversizedAssignment.statusCode, oversizedAssignment.body).toBe(400);
+    await app.prisma.product.update({ where: { id: packageProduct.id }, data: { isAvailable: false } });
+    const unavailable = await createOrderRequest(cookies, payload, randomUUID());
+    expect(unavailable.statusCode, unavailable.body).toBe(422);
+    expect(unavailable.json().error.code).toBe("UNAVAILABLE_PRODUCT");
+    expect(await app.prisma.order.count()).toBe(0);
+    expect(await app.prisma.orderItemPackagingAssignment.count()).toBe(0);
+  });
+
+  it("replays an unpackaged order when the retry includes an empty assignment list", async () => {
+    const cookies = await staffSession();
+    const { product } = await sellableProduct();
+    const payload = { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: 1, options: [] }] };
+    const key = randomUUID();
+    const original = await createOrderRequest(cookies, payload, key);
+    expect(original.statusCode, original.body).toBe(201);
+    const replay = await createOrderRequest(cookies, { ...payload, packagingAssignments: [] }, key);
+    expect(replay.statusCode, replay.body).toBe(201);
+    expect(replay.headers["idempotency-replayed"]).toBe("true");
+    expect(replay.json().data).toEqual(original.json().data);
+  });
+
+  it.each([false, true])("accepts unrelated edits to a legacy packaging charge with saved assignments=%s", async (hasAssignments) => {
+    const cookies = await staffSession();
+    const { product } = await sellableProduct();
+    const pack = await app.prisma.product.create({ data: {
+      categoryId: product.categoryId, name: "Legacy pack", priceAmount: 20_000, systemKey: "PACKING", preparationDeadlineMinutes: 1, displayOrder: 2,
+    } });
+    const menuRef = randomUUID();
+    const packRef = randomUUID();
+    const response = await createOrderRequest(cookies, {
+      channel: "TAKEAWAY",
+      items: [
+        { clientRef: menuRef, productId: product.id, quantity: 2, options: [] },
+        { clientRef: packRef, productId: pack.id, quantity: 2, options: [] },
+      ],
+      packagingAssignments: [{ packagingItem: { kind: "REQUEST", clientRef: packRef }, productItem: { kind: "REQUEST", clientRef: menuRef }, quantity: 2 }],
+    }, randomUUID());
+    expect(response.statusCode, response.body).toBe(201);
+    const order = response.json().data;
+    const [assignment] = order.packagingAssignments;
+    await app.prisma.orderItem.update({ where: { id: assignment.packagingOrderItemId }, data: { quantity: 1, lineTotalAmount: 20_000 } });
+    await app.prisma.order.update({ where: { id: order.id }, data: { subtotalAmount: 120_000, totalAmount: 120_000, balanceAmount: 120_000 } });
+    if (!hasAssignments) await app.prisma.orderItemPackagingAssignment.delete({ where: { id: assignment.id } });
+
+    const updated = await app.inject({
+      method: "PATCH", url: `/api/v1/orders/${order.id}`, cookies,
+      payload: { expectedVersion: order.version, itemUpdates: [{ orderItemId: assignment.productOrderItemId, quantity: 3 }] },
+    });
+    expect(updated.statusCode, updated.body).toBe(200);
+    expect(updated.json().data).toMatchObject({ totalAmount: 170_000, packagingAssignments: hasAssignments ? [assignment] : [] });
+  });
+
   it("records staff consumption without tender, permits discounts and restricts removal to managers", async () => {
     const staff = await userSession(UserRole.STAFF, "consumption.staff");
     const manager = await userSession(UserRole.MANAGER, "consumption.manager");
@@ -1663,7 +1850,7 @@ describe("unpaid item edits after item-quantity payments", () => {
     expect(removed.statusCode, removed.body).toBe(200);
     const result = removed.json().data;
     expect(result).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", subtotalAmount: 50_000, totalAmount: 50_000, paidAmount: 50_000, balanceAmount: 0, version: 3 });
-    expect(result.items).toEqual([order.items[0]]);
+    expect(result.items).toEqual([{ ...order.items[0], hasInventoryHistory: true }]);
     expect(result.settlements).toEqual(order.settlements);
     expect(await app.prisma.payment.count()).toBe(1);
     expect(await app.prisma.orderItemOption.count()).toBe(0);
