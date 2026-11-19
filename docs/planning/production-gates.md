@@ -674,6 +674,48 @@ or environment data was transferred. API/POS error-level journal count after
 activation was zero. Authenticated POS-browser, café-device, touch, and receipt
 printer acceptance remains open in `docs/current-left.md`.
 
+### Responsive takeaway panel release — 19 November 2026
+
+Released `cafe-20261119-f4228c9` from source commit
+`f4228c901d706e15adbc8c2f578e632ba20f1116`. The coordinated API/contracts/POS
+artifact SHA-256 is
+`17809e663e59357d7af4b4d5162b62582b974779e88dd5b66eb45c16afd1767f`
+(17,566,823 bytes; 589 manifested files). Its POS `BUILD_ID` matches the
+release ID. All 62 migrations and the Debian OpenSSL 3 Prisma engine are
+included. Environment files, secrets, product-image uploads, `node_modules`,
+Next.js development/cache output, source maps, and declarations are excluded.
+
+The PostgreSQL 17.11 production database was backed up with PostgreSQL 17.12
+client tools to
+`/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261119-f4228c9.dump`.
+`pg_restore --list` validated 434 entries; SHA-256 is
+`57fb043b458f474cbfa3bcb59f0bda438e0bf10d96579c22281cb3d21485cd51`.
+The code rollback archive
+`/opt/cafe-menu-release-backups/rollback-before-cafe-20261119-f4228c9.tar.gz`
+contains 561 entries; all 429 saved runtime files matched the active runtime
+byte-for-byte. Its SHA-256 is
+`e260b1d510fd21113d8aa14a733d98598dab66447527a42f12eed8486cc89530`. After
+both replacements were verified, the superseded 5d71c8e database and rollback
+files were removed. The separate assignment-recovery input remains retained.
+
+Activation ran from `2026-11-19T18:12:05.124856Z` to
+`2026-11-19T18:12:22.587654Z`. No production migration was applied; Prisma
+reports 62 migrations found and the schema up to date. Direct API liveness and
+readiness, direct/public POS readiness, direct/public `/pos`, the public menu
+page and proxy, and direct/public `/pos/release` all returned HTTP 200. Both
+release endpoints report `cafe-20261119-f4228c9` with
+`Cache-Control: no-store, max-age=0`. Direct and public menu APIs each returned
+16 categories and 141 products. API, POS, web, and Nginx are active with zero
+`NRestarts`; web and Nginx were not restarted. No production payment, checkout,
+or print was performed by this release.
+
+Product-image storage remains 32 files / 5,759,237 bytes with tree SHA-256
+`d85b72b8e06b01ec20fcdb158703b8607a5ba97c045b0cae354f5748ad5b4553`; no image
+or environment data was transferred. The local POS layout was inspected at
+320 × 568, 464 × 584, 900 × 600, 1264 × 480, and 1264 × 704. Authenticated
+production POS-browser and café-device acceptance remains open in
+`docs/current-left.md`.
+
 ## Decisions Fixed Before Implementation
 
 | Decision              | Fixed default                                                                                                                                       |
