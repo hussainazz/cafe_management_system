@@ -363,6 +363,11 @@ clients must refetch affected API resources after reconnecting.
   movement or pending retry. After enablement, order-created-at eligibility
   controls stock deductions, pending consumption, retries, and restorations;
   earlier orders are not backfilled.
+- Checkouts read availability and moving-average costs under the same ingredient
+  locks used by receipts and restorations. A shortage leaves the whole order
+  pending while payment succeeds. Receipt posting can retry a pending checkout
+  that committed while the receipt waited for stock. A cancellation racing a
+  retry either prevents the deduction or restores the committed movement.
 - Saving product costing can resolve an incomplete item snapshot on an eligible
   paid order that still has pending consumption. Recompute only the affected
   incomplete item snapshots; preserve item snapshots that were complete at
