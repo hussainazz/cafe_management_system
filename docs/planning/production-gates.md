@@ -611,9 +611,11 @@ at their existing 20,000 Toman catalog price; all remain nonpublic and
 unarchived. Four open unpaid orders were present during activation and remain
 stored. No production payment, checkout, print, reset, seed, full-snapshot
 restore, SEP change, service-config change, or environment-file change was
-made. Product-image storage remains at 32 files / 5,759,237 bytes. The image
-directory was never in the upload or copy scope; its post-activation aggregate
-tree SHA-256 is
+made. The activation snapshot had four open unpaid orders; a later read-only
+snapshot counted six open orders as café activity continued. No reset or order
+replay occurred. Product-image storage remains at 32 files / 5,759,237 bytes.
+The image directory was never in the upload or copy scope; its
+post-activation aggregate tree SHA-256 is
 `095ef326e10251e3b8f228b7d1f9dd5c20ec765dae5a40e330a2d8ebc6d8366c`.
 
 Activation began at `2026-11-19T12:58:12Z`. The API process started at
