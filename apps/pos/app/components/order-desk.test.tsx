@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OrderDesk, OrdersWorkspace } from "./orders-workspace";
 import { readRecovery, setRecoveryUser, writeRecovery } from "../lib/automatic-recovery";
 import { readRecentItemNotes } from "../lib/recent-item-notes";
-const api = vi.hoisted(() => ({ posApiFailureEvent: "run-cafe:api-failure", createOpenOrder: vi.fn(), readOrder: vi.fn(), updateOpenOrder: vi.fn(), readPosCatalog: vi.fn(), readPosTables: vi.fn(), readWaiterCalls: vi.fn(), readOpenOrders: vi.fn(), readDeferredOrderCount: vi.fn().mockResolvedValue({ ok: true, data: 0 }) }));
+const api = vi.hoisted(() => ({ posApiFailureEvent: "run-cafe:api-failure", createOpenOrder: vi.fn(), readOrder: vi.fn(), updateOpenOrder: vi.fn(), deferOpenOrder: vi.fn(), readPosCatalog: vi.fn(), readPosTables: vi.fn(), readWaiterCalls: vi.fn(), readOpenOrders: vi.fn(), readDeferredOrderCount: vi.fn().mockResolvedValue({ ok: true, data: 0 }) }));
 const printing = vi.hoisted(() => ({ printDocument: vi.fn(), printRoute: vi.fn((id: string, kind: string) => `/pos/print/${id}/${kind}`) }));
 vi.mock("../lib/api-client", () => api);
 vi.mock("../lib/print-routes", () => printing);
@@ -19,6 +19,54 @@ function desk(paymentStatus?: "UNPAID" | "PARTIALLY_PAID", weighted = false, ite
   return order;
 }
 describe("OrderDesk order workflow", () => {
+  it("creates an initialized takeaway order directly in the unpaid list", async () => {
+    const product = { id: "product", name: "قهوه", priceAmount: 50_000, pricingMode: "FIXED", isAvailable: true, optionGroups: [] };
+    const createdOrder = { id: "new-deferred", state: "OPEN", channel: "TAKEAWAY", version: 1, deferredAt: null, items: [] };
+    const onDone = vi.fn();
+    api.createOpenOrder.mockResolvedValueOnce({ ok: true, data: { id: createdOrder.id } });
+    api.readOrder.mockResolvedValueOnce({ ok: true, data: createdOrder });
+    api.deferOpenOrder.mockResolvedValueOnce({ ok: true, data: { ...createdOrder, deferredAt: "2026-11-19T10:00:00.000Z" } });
+    render(<OrderDesk catalog={[{ id: "category", name: "نوشیدنی", products: [product] }] as never} table={null} channel="TAKEAWAY" initialOrder={null} onOrder={vi.fn(async () => undefined)} onDone={onDone} onTableClearNeeded={vi.fn()} onCreateFailure={vi.fn(async () => undefined)} onDirtyChange={vi.fn()} onSubmitReady={vi.fn()} takeawayOrders={[]} onOpenTakeaway={vi.fn(async () => undefined)} onCloseTakeawayPanel={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "افزودن قهوه به سفارش" }));
+    fireEvent.click(screen.getByRole("button", { name: "ثبت سفارش در فهرست تسویه‌نشده" }));
+    const customerName = screen.getByRole("combobox", { name: "نام مشتری" });
+    fireEvent.change(customerName, { target: { value: "  سارا   احمدی " } });
+    fireEvent.click(screen.getByRole("button", { name: "انتقال به سفارش‌های تسویه‌نشده" }));
+
+    await waitFor(() => expect(api.deferOpenOrder).toHaveBeenCalledWith("new-deferred", 1, "سارا احمدی"));
+    expect(api.createOpenOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "TAKEAWAY", items: [expect.objectContaining({ productId: product.id, quantity: 1 })] }),
+      expect.any(String),
+      { requestId: expect.any(String) },
+    );
+    expect(onDone).toHaveBeenCalledWith("سفارش به فهرست تسویه‌نشده منتقل شد.");
+  });
+
+  it.each([
+    { allocationMode: "ITEM_QUANTITY", paidAmount: 50_000, balanceAmount: 50_000, quantity: 2, allocation: { orderItemId: "item", quantity: 1, amount: 50_000 } },
+    { allocationMode: "AMOUNT", paidAmount: 30_000, balanceAmount: 20_000, quantity: 1, allocation: { orderItemId: "item", quantity: 0, amount: 30_000 } },
+  ])("offers a move to unpaid for an item- or amount-partially-paid takeaway", async ({ allocationMode, paidAmount, balanceAmount, quantity, allocation }) => {
+    const order = {
+      id: `partial-${allocationMode.toLowerCase()}`, state: "OPEN", channel: "TAKEAWAY", version: 2, dailyOrderNumber: 3,
+      paymentStatus: "PARTIALLY_PAID", subtotalAmount: quantity * 50_000, totalAmount: quantity * 50_000,
+      paidAmount, balanceAmount, discountAmount: 0, deferredAt: null,
+      items: [{ id: "item", productId: "product", productNameSnapshot: "قهوه", quantity, lineTotalAmount: quantity * 50_000, note: null, weightGrams: null, pricingModeSnapshot: "FIXED", options: [] }],
+      settlements: [{ id: "settlement", allocationMode, reversedAt: null, recordedAt: "2026-11-19T09:00:00.000Z", totalAmount: paidAmount, allocations: [allocation] }],
+      packagingAssignments: [],
+    };
+    const onDone = vi.fn();
+    api.deferOpenOrder.mockResolvedValueOnce({ ok: true, data: { ...order, deferredAt: "2026-11-19T10:00:00.000Z" } });
+    render(<OrderDesk catalog={[]} table={null} channel="TAKEAWAY" initialOrder={order as never} onOrder={vi.fn(async () => undefined)} onDone={onDone} onTableClearNeeded={vi.fn()} onCreateFailure={vi.fn(async () => undefined)} onDirtyChange={vi.fn()} onSubmitReady={vi.fn()} takeawayOrders={[]} onOpenTakeaway={vi.fn(async () => undefined)} onCloseTakeawayPanel={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "انتقال به تسویه‌نشده" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "نام مشتری" }), { target: { value: "مینا" } });
+    fireEvent.click(screen.getByRole("button", { name: "انتقال به سفارش‌های تسویه‌نشده" }));
+
+    await waitFor(() => expect(api.deferOpenOrder).toHaveBeenCalledWith(order.id, order.version, "مینا"));
+    expect(onDone).toHaveBeenCalledWith("سفارش به فهرست تسویه‌نشده منتقل شد.");
+  });
+
   it("keeps the mobile category thumb and wheel/keyboard scrolling aligned with RTL", async () => {
     vi.stubGlobal("innerWidth", 390);
     desk();
