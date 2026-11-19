@@ -31,6 +31,18 @@ it.each(["catalog", "payments", "settings", "finance", "inventory", "manager"])(
   fireEvent.click(screen.getByRole("button", { name: "تاریخچه‌ی پرداخت" }));
   await waitFor(() => expect(manager).toHaveBeenLastCalledWith({ section: "payments", role: "STAFF" }));
 });
+it.each(["settings", "manager"] as const)("hides Settings from Cashier and sends a saved %s workspace back to orders", async (saved) => {
+  const id = `cashier-settings-restore-${saved}`;
+  sessionStorage.clear(); localStorage.setItem("pos-theme", "light"); setRecoveryUser(id); writeRecovery("workspace", saved);
+  api.currentSession.mockResolvedValue({ ok: true, data: { id, username: "cashier", role: "CASHIER" } });
+  render(<PosSessionBoundary />);
+  await screen.findByText("orders workspace");
+  fireEvent.click(screen.getByRole("button", { name: "open menu" }));
+  expect(screen.queryByRole("button", { name: "تنظیمات" })).toBeNull();
+  for (const name of ["حسابداری", "منو و کالاها", "انبار"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "انبار" }));
+  await waitFor(() => expect(manager).toHaveBeenLastCalledWith({ section: "inventory", role: "CASHIER" }));
+});
 it("never mounts Manager workspace after Manager logout and Staff login, even with stored Manager preference", async () => {
   sessionStorage.clear(); localStorage.setItem("pos-theme", "light");
   setRecoveryUser("staff-role-transition"); writeRecovery("workspace", "manager");
