@@ -10,6 +10,21 @@
   activation and recovery are completed in Phase 3 below. Café-device, browser,
   and receipt-printer acceptance remains open.
 
+## Phase 3 — VPS activation and release recovery record (19 November 2026)
+
+- [x] Activate `cafe-20261119-5d71c8e` from source commit
+  `5d71c8e09f150c1944a990b1b69b5e0fd58fb274`; record artifact, database backup,
+  rollback archive, migration status, service state, route probes, and image
+  preservation in [`production-gates.md`](planning/production-gates.md).
+- [x] Confirm the production schema remains current at 62 migrations with no
+  migration applied by this release. API/POS/web/Nginx are active; public and
+  direct readiness, menu, POS, and release-identity probes pass.
+- [x] Verify the new pre-release database dump and code rollback archive before
+  removing the superseded backup pair. Retain the separate packaging assignment
+  recovery input. Product-image storage is unchanged.
+- Left: authenticated POS-browser, café-device, touch, and receipt-printer
+  acceptance.
+
 ## Completed local POS delivery — packaging layout and unpaid takeaway orders (19 November 2026)
 
 - [x] Size the packaging workspace to its content and keep longer item lists
