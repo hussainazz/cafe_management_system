@@ -1,4 +1,5 @@
 import { inventoryActivation } from "./inventory-activation.js";
+import { hasOnlyMissingPackagingConfiguration } from "./inventory.service.js";
 import type { GrossProfitReportQuery } from "@cafe/contracts";
 import type { PrismaClient } from "../../../generated/prisma/client.js";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
@@ -67,25 +68,32 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
   }
 
   const range = tehranReportRange(query);
-  const consumptions = await loadRecognizedConsumptions(prisma, range);
+  const consumptions = await loadRecognizedConsumptions(prisma, range, false);
 
-  // Sold quantities follow the date the order became fully paid, not inventory
-  // recognition. Older orders may have no consumption row at all.
+  // An edit can close a partially paid order after its last settlement.
+  // The recognition timestamp records that transition even before turnover.
   const paidItems = await prisma.orderItem.findMany({
     where: { order: { paymentStatus: "PAID", state: { not: "DELETED" }, isStaffConsumption: false } },
-    select: { id: true, productId: true, productNameSnapshot: true, quantity: true, weightGrams: true,
-      product: { select: { name: true, systemKey: true } },
-      order: { select: { channel: true, inventorySaleChannel: true, paymentSettlements: {
-        where: { reversal: null }, orderBy: { recordedAt: "desc" }, select: { recordedAt: true,
-          allocations: { select: { orderItemId: true, amount: true } } },
-      } } },
+    select: {
+      id: true, productId: true, quantity: true, weightGrams: true,
+      product: { select: { name: true } },
+      order: {
+        select: {
+          channel: true, inventorySaleChannel: true,
+          orderConsumptions: { where: { status: { not: "CANCELLED" } }, orderBy: { cycleNumber: "desc" }, take: 1, select: { recognizedAt: true } },
+          paymentSettlements: {
+            where: { reversal: null }, orderBy: { recordedAt: "desc" }, select: { recordedAt: true,
+              allocations: { select: { orderItemId: true, amount: true } } },
+          },
+        },
+      },
     },
   });
   const soldByProduct = new Map<string, { productId: string; productName: string; channel: "TABLE" | "TAKEAWAY"; soldQuantity: number; soldWeightGrams: number; netSalesAmount: bigint }>();
   for (const item of paidItems) {
     const settlements = item.order.paymentSettlements;
-    const finalSettlement = settlements[0];
-    if (!finalSettlement || finalSettlement.recordedAt < range.from || finalSettlement.recordedAt >= range.to) continue;
+    const paidAt = item.order.orderConsumptions[0]?.recognizedAt ?? settlements[0]?.recordedAt;
+    if (!paidAt || paidAt < range.from || paidAt >= range.to) continue;
     const channel = item.order.inventorySaleChannel ?? item.order.channel;
     const key = `${item.productId}:${channel}`;
     const row = soldByProduct.get(key) ?? { productId: item.productId, productName: item.product.name, channel, soldQuantity: 0, soldWeightGrams: 0, netSalesAmount: 0n };
@@ -131,7 +139,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
     const day = daily.get(todayInTehran.format(consumption.recognizedAt))!;
     for (const item of consumption.items) {
       const productId = item.orderItem.productId;
-      const channel = (item.costSnapshot as { orderChannel?: "TABLE" | "TAKEAWAY" })?.orderChannel ?? consumption.order.channel;
+      const channel = (item.costSnapshot as { orderChannel?: "TABLE" | "TAKEAWAY" })?.orderChannel ?? consumption.order.inventorySaleChannel ?? consumption.order.channel;
       const key = `${productId}:${channel}`;
       const product = byProduct.get(key) ?? {
         channel,
@@ -310,8 +318,8 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
   };
 }
 
-export async function loadRecognizedConsumptions(prisma: PrismaClient, range: { from: Date; to: Date }) {
-  return prisma.orderConsumption.findMany({
+export async function loadRecognizedConsumptions(prisma: PrismaClient, range: { from: Date; to: Date }, includeProductDetails = true) {
+  const consumptions = await prisma.orderConsumption.findMany({
     where: {
       recognizedAt: { gte: range.from, lt: range.to },
       status: { not: "CANCELLED" },
@@ -332,7 +340,10 @@ export async function loadRecognizedConsumptions(prisma: PrismaClient, range: { 
               productId: true,
               productNameSnapshot: true, basePriceSnapshot: true, pricingModeSnapshot: true,
               weightGrams: true, quantity: true, discountAmount: true,
-              product: { select: { name: true, priceAmount: true, systemKey: true, categoryId: true, category: { select: { name: true } } } },
+              product: { select: {
+                systemKey: true, name: includeProductDetails, priceAmount: includeProductDetails, categoryId: includeProductDetails,
+                category: includeProductDetails ? { select: { name: true } } : false,
+              } },
               options: { select: { optionId: true, optionNameSnapshot: true, priceSnapshot: true, quantity: true } },
               settlementAllocations: {
                 select: {
@@ -346,6 +357,13 @@ export async function loadRecognizedConsumptions(prisma: PrismaClient, range: { 
       },
     },
   });
+  return consumptions.map((consumption) => ({
+    ...consumption,
+    items: consumption.items.map((item) =>
+      hasOnlyMissingPackagingConfiguration(item.orderItem.product.systemKey, item.costSnapshot)
+        ? { ...item, theoreticalCogsAmount: 0, isCostComplete: true }
+        : item),
+  }));
 }
 
 export function activeRevenue(allocations: Array<{ amount: number; settlement: { reversal: unknown } }>) {
