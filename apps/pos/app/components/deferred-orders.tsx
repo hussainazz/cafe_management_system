@@ -25,11 +25,16 @@ export function DeferredOrders({ onOpenMenu, onOpenOrder, menuOpen = false }: { 
   };
   useEffect(() => { void load(); }, []);
   return <section className="pos-workspace" dir="rtl">
-    <header className="workspace-header"><h1>سفارش‌های تسویه‌نشده</h1><button className="menu-button" type="button" aria-label="باز کردن منو" aria-expanded={menuOpen} aria-controls="pos-navigation-drawer" onClick={onOpenMenu}><MenuIcon /></button></header>
+    <header className="workspace-header">
+      <div className="header-actions">
+        <button className="menu-button" type="button" aria-label="باز کردن منو" aria-expanded={menuOpen} aria-controls="pos-navigation-drawer" onClick={onOpenMenu}><MenuIcon /></button>
+      </div>
+      <div className="workspace-title"><h1>سفارش‌های تسویه‌نشده</h1></div>
+    </header>
     {error && <p role="alert">{error}</p>}
     {error && !loading && <button className="button button--quiet" type="button" onClick={() => void load()}>دریافت دوباره</button>}
     {!loading && !error && orders.length === 0 && <p>سفارشی در این فهرست نیست.</p>}
-    {orders.length > 0 && <div className="manager-card"><ul className="deferred-orders-list">{orders.map((order) => <li key={order.id}>
+    {orders.length > 0 && <div className="manager-card deferred-orders-card"><ul className="deferred-orders-list">{orders.map((order) => <li key={order.id}>
       <button className="button button--quiet deferred-order-row" type="button" onClick={() => onOpenOrder(order.id)}>
         <span className="deferred-order-row__identity"><strong>سفارش {formatOrderNumber(order.dailyOrderNumber)}</strong>{order.deferredCustomerName && <small>{order.deferredCustomerName}</small>}</span>
         <span className="deferred-order-row__balance">مانده {formatToman(order.balanceAmount)} تومان</span>
