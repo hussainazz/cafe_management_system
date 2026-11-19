@@ -47,6 +47,7 @@ import { AccountingIcon, CheckIcon, AlertIcon, ServiceBellIcon, BagIcon, ClockIc
 import type { PosActivity } from "./release-update-guard";
 import { useTerminalPayment, TerminalPaymentStatus } from "./terminal-payment";
 import { ProductPicker } from "./product-picker";
+import { PackagingWorkspace, packagingReferenceKey, type PackagingAssignmentDraft, type PackagingCatalogProduct, type PackagingItemReference, type PackagingWorkspaceLine, type PackagingWorkspaceSession } from "./packaging-workspace";
 import { InventoryAlertsButton } from "./inventory-alerts-button";
 
 type Channel = "TABLE" | "TAKEAWAY";
@@ -177,16 +178,20 @@ function canEditSavedItem(order: OrderDetail, itemId: string): boolean {
 
 function minimumSavedQuantity(order: OrderDetail, itemId: string): number {
   // Historical receipts must keep their referenced item even after reversal.
-  return order.paymentStatus === "UNPAID" || !order.settlements.some((settlement) => settlement.allocations.some((allocation) => allocation.orderItemId === itemId)) ? 0 : 1;
+  return order.items.some((item) => item.id === itemId && item.hasInventoryHistory)
+    || order.settlements.some((settlement) => settlement.allocations.some((allocation) => allocation.orderItemId === itemId)) ? 1 : 0;
 }
 
 const orderEditErrorMessages: Record<string, string> = {
   "Unpaid items can be edited only after item-quantity payments.": "ویرایش اقلام پرداخت‌نشده فقط پس از پرداخت بر اساس کالا ممکن است.",
-  "Only entirely unpaid items after item-quantity payments can be removed.": "فقط کالایی که هیچ بخشی از آن پرداخت نشده است، پس از پرداخت بر اساس کالا قابل حذف است.",
+  "Only entirely unpaid items can be removed.": "فقط کالایی که هیچ بخشی از آن پرداخت نشده است، قابل حذف است.",
   "An item referenced by payment or inventory history cannot be removed.": "این کالا در سابقهٔ پرداخت یا انبار ثبت شده است و قابل حذف نیست.",
   "The selected options cannot be preserved at this item quantity.": "با این تعداد، گزینه‌های ثبت‌شدهٔ کالا قابل حفظ نیستند.",
   "The edited order total cannot be less than its recorded payments.": "مبلغ سفارش نمی‌تواند از پرداخت‌های ثبت‌شده کمتر شود.",
   "This edit would change an item's settled amount.": "این ویرایش سهم تخفیف کالای پرداخت‌شده را تغییر می‌دهد و قابل ثبت نیست.",
+  "A packaging item's quantity must equal the total assigned product quantity.": "تعداد بسته‌بندی باید با مجموع واحدهای کالای اختصاص‌یافته برابر باشد.",
+  "An order item cannot be assigned to more packaging units than its quantity.": "تعداد بسته‌بندی انتخاب‌شده نمی‌تواند از تعداد کالای سفارش بیشتر باشد.",
+  "Packaging assignments for settled or inventory-recognized items cannot be changed.": "بسته‌بندی کالایی که پرداخت یا مصرف انباری برای آن ثبت شده است، قابل ویرایش نیست.",
 };
 
 function savedDrafts(order: OrderDetail | null): SavedDraft[] {
@@ -200,8 +205,24 @@ function savedDrafts(order: OrderDetail | null): SavedDraft[] {
   }));
 }
 
+function packagingAssignmentsForOrder(order: OrderDetail | null): PackagingAssignmentDraft[] {
+  return (order?.packagingAssignments ?? []).map((assignment) => ({
+    packagingItem: { kind: "EXISTING", orderItemId: assignment.packagingOrderItemId },
+    productItem: { kind: "EXISTING", orderItemId: assignment.productOrderItemId },
+    quantity: assignment.quantity,
+  }));
+}
+
+function assignmentSignature(assignments: PackagingAssignmentDraft[]): string {
+  return JSON.stringify(assignments.map((assignment) => ({
+    packagingItem: packagingReferenceKey(assignment.packagingItem),
+    productItem: packagingReferenceKey(assignment.productItem),
+    quantity: assignment.quantity,
+  })).sort((left, right) => `${left.packagingItem}:${left.productItem}`.localeCompare(`${right.packagingItem}:${right.productItem}`)));
+}
+
 function clearDeskRecoveryPrefix(prefix: string) {
-  for (const suffix of ["draft", "saved", "version", "create-key", "create-fingerprint", "checkout"]) writeRecovery(`${prefix}:${suffix}`, undefined);
+  for (const suffix of ["draft", "saved", "packaging", "version", "create-key", "create-fingerprint", "checkout"]) writeRecovery(`${prefix}:${suffix}`, undefined);
 }
 
 function clearDeskRecovery(channel: Channel, tableId: string | null, orderId: string | null) {
@@ -1134,6 +1155,11 @@ export function OrderDesk({
   const takeawayCloseRef = useRef<HTMLButtonElement>(null);
   const takeawayOrderPanelOpen = channel === "TAKEAWAY" && initialOrder !== null;
   const [takeawayEditing, setTakeawayEditing] = useState(false);
+  const [packagingAssignments, setPackagingAssignments] = useRecoveryState<PackagingAssignmentDraft[]>(`${recoveryPrefix}:packaging`, () => packagingAssignmentsForOrder(initialOrder));
+  const [packagingSession, setPackagingSession] = useState<PackagingWorkspaceSession | null>(null);
+  const [packagingSelectedQuantities, setPackagingSelectedQuantities] = useState<Record<string, number>>({});
+  const persistedAssignments = useMemo(() => packagingAssignmentsForOrder(initialOrder), [initialOrder?.id, initialOrder?.version]);
+  const packagingAssignmentsChanged = assignmentSignature(packagingAssignments) !== assignmentSignature(persistedAssignments);
   useEffect(() => { setDeferredCustomerNames(readDeferredCustomerNames()); }, []);
   const previousDeskOrder = useRef(`${initialOrder?.id ?? "new"}:${initialOrder?.version ?? 0}`);
   useEffect(() => {
@@ -1145,6 +1171,9 @@ export function OrderDesk({
     writeRecovery(`${recoveryPrefix}:version`, initialOrder?.version ?? 0);
     setSaved(savedDrafts(initialOrder));
     setDraft([]);
+    setPackagingAssignments(packagingAssignmentsForOrder(initialOrder));
+    setPackagingSession(null);
+    setPackagingSelectedQuantities({});
     setCreateAttemptKey(requestKey());
   }, [initialOrder?.id, initialOrder?.version]);
   useEffect(() => {
@@ -1152,12 +1181,16 @@ export function OrderDesk({
   }, [recoveryPrefix]);
   const savedIdsMatchOrder = !initialOrder || (initialOrder.items.length === saved.length && initialOrder.items.every((item) => saved.some((candidate) => candidate.id === item.id)));
   const recoveredVersionIsStale = Boolean(initialOrder) && restoredVersion.current !== undefined && restoredVersion.current !== initialOrder?.version;
-  const recoveredEditorIsDirty = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+  const recoveredEditorIsDirty = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
   const discardRecoveredEdits = Boolean(initialOrder) && (recoveredVersionIsStale || (!savedIdsMatchOrder && recoveredEditorIsDirty));
   const draftForOrder = discardRecoveredEdits ? [] : draft;
   const savedForOrder = initialOrder && (!savedIdsMatchOrder || discardRecoveredEdits) ? savedDrafts(initialOrder) : saved;
   const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
   const cards = useMemo(() => productCards((category?.products ?? []).filter((product) => product.systemKey !== "PACKING")), [category?.products]);
+  const categoryPackagingProduct = staffOrderTarget ? undefined : category?.products.find((product) => product.systemKey === "PACKING" && product.isAvailable);
+  const packagingProducts = useMemo(() => staffOrderTarget ? [] : posCatalog.flatMap((category) => category.products
+    .filter((product) => product.systemKey === "PACKING")
+    .map((product): PackagingCatalogProduct => ({ ...product, categoryName: category.name }))), [posCatalog, staffOrderTarget]);
   useEffect(() => {
     const nav = categoryNavRef.current;
     const list = categoryListRef.current;
@@ -1217,18 +1250,181 @@ export function OrderDesk({
     });
     setExpandedCard(null);
   };
+  const isPackagingItemLocked = (reference: PackagingItemReference) => {
+    if (reference.kind !== "EXISTING" || !initialOrder) return false;
+    return !canEditSavedItem(initialOrder, reference.orderItemId)
+      || initialOrder.items.some((item) => item.id === reference.orderItemId && item.hasInventoryHistory);
+  };
+  const openPackaging = (product: PosCatalogProduct, options: Option[] = [], weightGrams: number | null = null) => {
+    const catalogProduct = packagingProducts.find((candidate) => candidate.id === product.id);
+    if (!catalogProduct) { setError("نوع بسته‌بندی در فهرست فعال محصولات پیدا نشد."); return; }
+    const draftPackage = [...draftForOrder].reverse().find((item) => item.product.systemKey === "PACKING" && item.product.id === product.id);
+    const savedPackage = !draftPackage && initialOrder
+      ? [...initialOrder.items].reverse().find((item) => item.systemKey === "PACKING"
+        && item.productId === product.id
+        && !isPackagingItemLocked({ kind: "EXISTING", orderItemId: item.id })
+        && savedForOrder.some((candidate) => candidate.id === item.id && candidate.quantity > 0))
+      : undefined;
+    const packagingItem: PackagingItemReference = draftPackage
+      ? { kind: "REQUEST", clientRef: draftPackage.clientRef }
+      : savedPackage
+        ? { kind: "EXISTING", orderItemId: savedPackage.id }
+        : { kind: "REQUEST", clientRef: requestItemRef() };
+    const editingExisting = Boolean(draftPackage || savedPackage);
+    setPackagingSession({
+      product: catalogProduct,
+      options: draftPackage?.options ?? options,
+      weightGrams: draftPackage?.weightGrams ?? weightGrams,
+      packagingItem,
+      editingExisting,
+      minimumQuantity: savedPackage ? minimumSavedQuantity(initialOrder!, savedPackage.id) : 0,
+    });
+    setPackagingSelectedQuantities(Object.fromEntries(packagingWorkspaceLines.map((line) => {
+      const packagingKey = packagingReferenceKey(packagingItem);
+      const selected = packagingAssignments
+        .filter((assignment) => packagingReferenceKey(assignment.packagingItem) === packagingKey
+          && packagingReferenceKey(assignment.productItem) === packagingReferenceKey(line.reference))
+        .reduce((total, assignment) => total + assignment.quantity, 0);
+      const assignedElsewhere = assignedPackagingQuantity(line.reference) - selected;
+      const available = Math.max(0, line.quantity - assignedElsewhere);
+      return [line.key, editingExisting || line.locked ? selected : available];
+    })));
+    setExpandedCard(null);
+  };
+  const packagingProductLabel = (productId: string, productName: string) => {
+    const categoryName = packagingProducts.find((product) => product.id === productId)?.categoryName;
+    return categoryName ? `${categoryName} · ${productName}` : productName;
+  };
+  const assignedPackagingQuantity = (productItem: PackagingItemReference, assignments = packagingAssignments) => assignments
+    .filter((assignment) => packagingReferenceKey(assignment.productItem) === packagingReferenceKey(productItem))
+    .reduce((total, assignment) => total + assignment.quantity, 0);
+  const availablePackagingQuantity = (productItem: PackagingItemReference, itemQuantity: number) => {
+    const activePackagingKey = packagingSession ? packagingReferenceKey(packagingSession.packagingItem) : null;
+    const assignedElsewhere = packagingAssignments
+      .filter((assignment) => packagingReferenceKey(assignment.productItem) === packagingReferenceKey(productItem)
+        && packagingReferenceKey(assignment.packagingItem) !== activePackagingKey)
+      .reduce((total, assignment) => total + assignment.quantity, 0);
+    return Math.max(0, itemQuantity - assignedElsewhere);
+  };
+  const reconcileAssignmentsForQuantity = (reference: PackagingItemReference, quantity: number) => {
+    if (quantity >= assignedPackagingQuantity(reference)) return;
+    const referenceKey = packagingReferenceKey(reference);
+    const targetsItem = (assignment: PackagingAssignmentDraft) => packagingReferenceKey(assignment.productItem) === referenceKey;
+    const locked = (assignment: PackagingAssignmentDraft) => isPackagingItemLocked(assignment.productItem) || isPackagingItemLocked(assignment.packagingItem);
+    const affectedPackagingKeys = new Set<string>();
+    let remainingAssignedQuantity = quantity - packagingAssignments.filter((assignment) => targetsItem(assignment) && locked(assignment))
+      .reduce((sum, assignment) => sum + assignment.quantity, 0);
+    const nextAssignments = packagingAssignments.flatMap((assignment) => {
+      if (!targetsItem(assignment) || locked(assignment)) return [assignment];
+      const nextQuantity = Math.max(0, Math.min(assignment.quantity, remainingAssignedQuantity));
+      remainingAssignedQuantity -= nextQuantity;
+      if (nextQuantity === assignment.quantity) return [assignment];
+      affectedPackagingKeys.add(packagingReferenceKey(assignment.packagingItem));
+      return nextQuantity > 0 ? [{ ...assignment, quantity: nextQuantity }] : [];
+    });
+    setPackagingAssignments(nextAssignments);
+    const packageTotals = new Map<string, number>();
+    nextAssignments.forEach((assignment) => {
+      const key = packagingReferenceKey(assignment.packagingItem);
+      packageTotals.set(key, (packageTotals.get(key) ?? 0) + assignment.quantity);
+    });
+    setDraft((current) => current.flatMap((item) => {
+      if (item.product.systemKey !== "PACKING" || !item.clientRef) return [item];
+      const key = packagingReferenceKey({ kind: "REQUEST", clientRef: item.clientRef });
+      if (!affectedPackagingKeys.has(key)) return [item];
+      const nextQuantity = packageTotals.get(key) ?? 0;
+      return nextQuantity > 0 ? [{ ...item, quantity: nextQuantity }] : [];
+    }));
+    const savedPackagingIds = new Set((initialOrder?.items ?? []).filter((item) => item.systemKey === "PACKING").map((item) => item.id));
+    setSaved((current) => current.map((item) => {
+      if (!savedPackagingIds.has(item.id)) return item;
+      const key = packagingReferenceKey({ kind: "EXISTING", orderItemId: item.id });
+      if (!affectedPackagingKeys.has(key)) return item;
+      return { ...item, quantity: packageTotals.get(key) ?? 0 };
+    }));
+    setPackagingSelectedQuantities((current) => ({
+      ...current,
+      [referenceKey]: Math.min(current[referenceKey] ?? 0, Math.max(0, quantity - assignedPackagingQuantity(reference, nextAssignments))),
+    }));
+    setPackagingSession((current) => current && quantity <= 0 && packagingReferenceKey(current.packagingItem) === referenceKey ? null : current);
+  };
   const changeDraftQuantity = (key: string, delta: number) => {
     const item = draftForOrder.find((candidate) => candidate.key === key);
-    if (!item) return;
+    if (!item || item.product.systemKey === "PACKING") return;
     const quantity = item.quantity + delta;
+    reconcileAssignmentsForQuantity({ kind: "REQUEST", clientRef: item.clientRef }, quantity);
     setDraft((items) => items.flatMap((candidate) => candidate.key !== key ? [candidate] : quantity > 0 ? [{ ...candidate, quantity }] : []));
   };
   const changeSavedQuantity = (id: string, delta: number) => {
     if (!initialOrder) return;
     const item = savedForOrder.find((candidate) => candidate.id === id);
-    if (!item || (delta < 0 && !canEditSavedItem(initialOrder, id))) return;
-    const quantity = Math.max(minimumSavedQuantity(initialOrder, id), item.quantity + delta);
+    if (!item || initialOrder.items.find((candidate) => candidate.id === id)?.systemKey === "PACKING" || (delta < 0 && !canEditSavedItem(initialOrder, id))) return;
+    const reference = { kind: "EXISTING" as const, orderItemId: id };
+    const frozenQuantity = packagingAssignments
+      .filter((assignment) => packagingReferenceKey(assignment.productItem) === packagingReferenceKey(reference)
+        && (isPackagingItemLocked(reference) || isPackagingItemLocked(assignment.packagingItem)))
+      .reduce((sum, assignment) => sum + assignment.quantity, 0);
+    const quantity = Math.max(minimumSavedQuantity(initialOrder, id), frozenQuantity, item.quantity + delta);
+    reconcileAssignmentsForQuantity(reference, quantity);
     setSaved((items) => items.map((candidate) => candidate.id === id ? { ...candidate, quantity } : candidate));
+  };
+  const packagingWorkspaceLines: PackagingWorkspaceLine[] = [
+    ...(initialOrder?.items ?? []).flatMap((item) => {
+      const edit = savedForOrder.find((candidate) => candidate.id === item.id);
+      if (!edit || edit.quantity <= 0 || item.systemKey === "PACKING") return [];
+      const reference: PackagingItemReference = { kind: "EXISTING", orderItemId: item.id };
+      const key = packagingReferenceKey(reference);
+      return [{ key, reference, productName: item.productNameSnapshot, optionsLabel: item.options.map((option) => option.optionNameSnapshot).join("، "), quantity: edit.quantity, remainingQuantity: availablePackagingQuantity(reference, edit.quantity), locked: isPackagingItemLocked(reference), existingAssignments: packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.productItem) === key).map((assignment) => {
+        const packageReference = assignment.packagingItem;
+        const draftPackage = packageReference.kind === "REQUEST" ? draftForOrder.find((draftItem) => draftItem.clientRef === packageReference.clientRef) : undefined;
+        const savedPackage = packageReference.kind === "EXISTING" ? initialOrder!.packagingAssignments.find((row) => row.packagingOrderItemId === packageReference.orderItemId) : undefined;
+        return { packagingName: packagingProductLabel(draftPackage?.product.id ?? savedPackage?.packagingProductId ?? "", draftPackage?.product.name ?? savedPackage?.packagingProductNameSnapshot ?? "بسته‌بندی"), quantity: assignment.quantity };
+      }) }];
+    }),
+    ...draftForOrder.filter((item) => item.product.systemKey !== "PACKING").map((item) => {
+      const reference: PackagingItemReference = { kind: "REQUEST", clientRef: item.clientRef };
+      const key = packagingReferenceKey(reference);
+      return { key, reference, productName: item.product.name, optionsLabel: item.options.map((option) => option.name).join("، "), quantity: item.quantity, remainingQuantity: availablePackagingQuantity(reference, item.quantity), locked: false, existingAssignments: packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.productItem) === key).map((assignment) => {
+        const packageReference = assignment.packagingItem;
+        const draftPackage = packageReference.kind === "REQUEST" ? draftForOrder.find((draftItem) => draftItem.clientRef === packageReference.clientRef) : undefined;
+        const savedPackage = packageReference.kind === "EXISTING" ? initialOrder?.packagingAssignments.find((row) => row.packagingOrderItemId === packageReference.orderItemId) : undefined;
+        return { packagingName: packagingProductLabel(draftPackage?.product.id ?? savedPackage?.packagingProductId ?? "", draftPackage?.product.name ?? savedPackage?.packagingProductNameSnapshot ?? "بسته‌بندی"), quantity: assignment.quantity };
+      }) };
+    }),
+  ];
+  const confirmPackaging = () => {
+    if (!packagingSession) return;
+    const packageRef = packagingSession.packagingItem;
+    const preservedLockedAssignments = packagingAssignments.filter((assignment) =>
+      packagingReferenceKey(assignment.packagingItem) === packagingReferenceKey(packageRef)
+      && packagingWorkspaceLines.some((line) => line.locked && packagingReferenceKey(line.reference) === packagingReferenceKey(assignment.productItem)));
+    const productRows = packagingWorkspaceLines.flatMap((line) => {
+      const quantity = Math.min(packagingSelectedQuantities[line.key] ?? 0, line.remainingQuantity);
+      return quantity > 0 && !line.locked ? [{ line, quantity }] : [];
+    });
+    const confirmedAssignments = [
+      ...preservedLockedAssignments,
+      ...productRows.map(({ line, quantity }) => ({ packagingItem: packageRef, productItem: line.reference, quantity })),
+    ];
+    const packagingQuantity = confirmedAssignments.reduce((total, assignment) => total + assignment.quantity, 0);
+    if (packagingQuantity < packagingSession.minimumQuantity || (packagingQuantity === 0 && !packagingSession.editingExisting)) return;
+    if (packageRef.kind === "REQUEST") {
+      const clientRef = packageRef.clientRef;
+      const key = `packaging:${clientRef}`;
+      setDraft((current) => {
+        const existing = current.find((item) => item.clientRef === clientRef);
+        if (packagingQuantity <= 0) return current.filter((item) => item.clientRef !== clientRef);
+        const next: Draft = { key, clientRef, product: packagingSession.product, options: packagingSession.options, quantity: packagingQuantity, weightGrams: packagingSession.weightGrams, note: existing?.note ?? "" };
+        return existing ? current.map((item) => item.clientRef === next.clientRef ? next : item) : [...current, next];
+      });
+    } else {
+      setSaved((current) => current.map((item) => item.id === packageRef.orderItemId ? { ...item, quantity: packagingQuantity } : item));
+    }
+    setPackagingAssignments((current) => [
+      ...current.filter((assignment) => packagingReferenceKey(assignment.packagingItem) !== packagingReferenceKey(packageRef)),
+      ...confirmedAssignments,
+    ]);
+    setPackagingSession(null);
   };
   const payloadItems = () =>
     draftForOrder.map((item) => ({
@@ -1249,6 +1445,7 @@ export function OrderDesk({
     channel,
     tableId: channel === "TABLE" ? table?.id ?? null : null,
     items: payloadItems(),
+    packagingAssignments,
   });
   const attemptedCreateFingerprint = useRef(readRecovery<string>(`${recoveryPrefix}:create-fingerprint`));
   useEffect(() => {
@@ -1272,7 +1469,7 @@ export function OrderDesk({
     })),
     ...payloadItems(),
   ];
-  const dirty = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+  const dirty = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
   // Recovery storage can lag an authoritative order refresh. Render current
   // server snapshots immediately, then persist the reconciled editor state.
   useEffect(() => {
@@ -1282,6 +1479,9 @@ export function OrderDesk({
     writeRecovery(`${recoveryPrefix}:draft`, []);
     setSaved(savedDrafts(initialOrder));
     setDraft([]);
+    setPackagingAssignments(packagingAssignmentsForOrder(initialOrder));
+    setPackagingSession(null);
+    setPackagingSelectedQuantities({});
   }, [initialOrder?.id, initialOrder?.version, savedIdsMatchOrder, discardRecoveredEdits]);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => {
@@ -1300,6 +1500,9 @@ export function OrderDesk({
     rememberItemNotes([...draftForOrder.map((item) => ({ productId: item.product.id, note: item.note })), ...savedForOrder.filter((item) => item.quantity > 0 && item.note !== (item.originalNote ?? "")).map((item) => ({ productId: item.productId, note: item.note }))]);
     setDraft([]);
     setSaved(initialOrder ? savedDrafts(updatedOrder) : []);
+    setPackagingAssignments(packagingAssignmentsForOrder(initialOrder ? updatedOrder : null));
+    setPackagingSession(null);
+    setPackagingSelectedQuantities({});
     writeRecovery(`${recoveryPrefix}:version`, initialOrder ? updatedOrder.version : 0);
     setCreateAttemptKey(requestKey());
     attemptedCreateFingerprint.current = undefined;
@@ -1315,7 +1518,7 @@ export function OrderDesk({
     if (printAfterSave) await printOrderDocument(updatedOrder.id, printAfterSave);
   };
   const save = async (printAfterSave: "bar-ticket" | "receipt" | null = null) => {
-    const hasChanges = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+    const hasChanges = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
     if (!hasChanges) {
       if (printAfterSave && initialOrder) await printOrderDocument(initialOrder.id, printAfterSave);
       return;
@@ -1323,13 +1526,17 @@ export function OrderDesk({
     setBusy(true);
     setError(null);
     if (initialOrder) {
-      const isUnpaid = initialOrder.paymentStatus === "UNPAID";
+      const canReplaceItems = initialOrder.paymentStatus === "UNPAID"
+        && initialOrder.settlements.length === 0
+        && !initialOrder.items.some((item) => item.hasInventoryHistory || item.systemKey === "PACKING")
+        && !packagingAssignmentsChanged;
       const changedSaved = savedForOrder.filter((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
-      const result = await updateOpenOrder(initialOrder.id, isUnpaid
+      const result = await updateOpenOrder(initialOrder.id, canReplaceItems
         ? { expectedVersion: initialOrder.version, items: replacementItems() }
         : {
             expectedVersion: initialOrder.version,
             ...(draftForOrder.length ? { addItems: payloadItems() } : {}),
+            ...(packagingAssignmentsChanged ? { packagingAssignments } : {}),
             ...(changedSaved.length ? { itemUpdates: changedSaved.map((item) => ({
               orderItemId: item.id,
               ...(item.quantity !== item.originalQuantity ? { quantity: item.quantity } : {}),
@@ -1370,8 +1577,8 @@ export function OrderDesk({
       }
       const result = await createOpenOrder(
         channel === "TABLE"
-          ? { channel, tableId: table!.id, items: payloadItems() }
-          : { channel, items: payloadItems() },
+          ? { channel, tableId: table!.id, items: payloadItems(), packagingAssignments }
+          : { channel, items: payloadItems(), packagingAssignments },
         createAttemptKey,
         { requestId: requestKey(), ...(channel === "TABLE" ? { tableName: table!.name } : {}) },
       );
@@ -1472,6 +1679,7 @@ export function OrderDesk({
         total={orderTotal}
         onQuantity={changeDraftQuantity}
         onSavedQuantity={changeSavedQuantity}
+        packagingChanged={packagingAssignmentsChanged}
         onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
         onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
         onSave={() => void save()}
@@ -1537,7 +1745,20 @@ export function OrderDesk({
           </nav>
         </aside>
         <section className="products">
-          <div className="product-selection">
+          {packagingSession ? <PackagingWorkspace
+            session={packagingSession}
+            lines={packagingWorkspaceLines}
+            selectedQuantities={packagingSelectedQuantities}
+            onAssignmentQuantityChange={(key, quantity) => setPackagingSelectedQuantities((current) => ({ ...current, [key]: quantity }))}
+            onCancel={() => setPackagingSession(null)}
+            onConfirm={confirmPackaging}
+          /> : <div className="product-selection">
+            <div className="product-selection__toolbar">
+              <button type="button" className="button button--quiet product-selection__packaging" disabled={!categoryPackagingProduct} onClick={() => categoryPackagingProduct && openPackaging(categoryPackagingProduct)}>
+                <BagIcon />
+                افزودن بسته‌بندی
+              </button>
+            </div>
             <div className="product-grid">
               {cards.map((card) => (
                 <ProductPicker
@@ -1546,7 +1767,7 @@ export function OrderDesk({
                   expanded={expandedCard === card.key}
                   onOpen={() => setExpandedCard(card.key)}
                   onClose={() => setExpandedCard(null)}
-                  onSelectOptions={(product, options, weightGrams) => add(product, options, weightGrams ?? null)}
+                  onSelectOptions={(product, options, weightGrams) => product.systemKey === "PACKING" ? openPackaging(product, options, weightGrams ?? null) : add(product, options, weightGrams ?? null)}
                   getQuantity={(product, options, weightGrams) => draftForOrder.filter((item) => productConfigurationKey(item.product.id, item.options, item.weightGrams) === productConfigurationKey(product.id, options, weightGrams ?? null)).reduce((sum, item) => sum + item.quantity, 0)}
                   onDecrease={(product, options, weightGrams) => {
                     const signature = productConfigurationKey(product.id, options, weightGrams ?? null);
@@ -1556,7 +1777,7 @@ export function OrderDesk({
                 />
               ))}
             </div>
-          </div>
+          </div>}
         </section>
         {orderPanel}
       </div>
@@ -1612,6 +1833,7 @@ function OrderSummary({
   total,
   onQuantity,
   onSavedQuantity,
+  packagingChanged,
   onSavedNote,
   onDraftNote,
   onSave,
@@ -1630,6 +1852,7 @@ function OrderSummary({
   total: number;
   onQuantity: (key: string, delta: number) => void;
   onSavedQuantity: (id: string, delta: number) => void;
+  packagingChanged: boolean;
   onSavedNote: (id: string, note: string) => void;
   onDraftNote: (key: string, note: string) => void;
   onSave: () => void;
@@ -1647,7 +1870,7 @@ function OrderSummary({
   const [showDeferredName, setShowDeferredName] = useState(false);
   const [deferredCustomerName, setDeferredCustomerName] = useState("");
   const [deferredCustomerNameError, setDeferredCustomerNameError] = useState<string | null>(null);
-  const hasUnsavedChanges = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+  const hasUnsavedChanges = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingChanged;
   return (
     <>
       {order && (
@@ -1666,14 +1889,16 @@ function OrderSummary({
           const edit = saved.find((candidate) => candidate.id === item.id)!;
           const expanded = expandedSavedId === item.id;
           const canEditSaved = canEditSavedItem(order, item.id);
+          const canAdjustQuantity = item.systemKey !== "PACKING";
           return edit.quantity > 0 && <article className={`order-line order-line--saved${expanded ? " order-line--expanded" : ""}`} key={item.id}>
             <button className="order-line__summary" type="button" aria-expanded={expanded} onClick={() => setExpandedSavedId((current) => current === item.id ? null : item.id)}><span className="order-line__details"><b>{edit.name}{edit.weightGrams ? ` · ${englishNumber.format(edit.weightGrams)} گرم` : ""} × {englishNumber.format(edit.quantity)}</b><small>{edit.note || "بدون یادداشت"}</small></span><strong>{formatToman(editedSavedLineAmount(order, item, edit))}</strong></button>
-            {expanded && <><div className="saved-edit"><div className="quantity">{canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} disabled={edit.quantity <= minimumSavedQuantity(order, item.id)} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output><button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button></div>{canEditSaved ? <ItemNoteInput productId={edit.productId} name={edit.name} value={edit.note} onChange={(note) => onSavedNote(edit.id, note)} /> : <small className="saved-lock">پس از ثبت پرداخت، فقط می‌توانید تعداد را افزایش دهید.</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
+            {expanded && <><div className="saved-edit"><div className="quantity">{canAdjustQuantity && canEditSaved && <button type="button" aria-label={`کم کردن ${edit.name}`} disabled={edit.quantity <= minimumSavedQuantity(order, item.id)} onClick={() => onSavedQuantity(edit.id, -1)}>−</button>}<output>{englishNumber.format(edit.quantity)}</output>{canAdjustQuantity && <button type="button" aria-label={`زیاد کردن ${edit.name}`} onClick={() => onSavedQuantity(edit.id, 1)}>+</button>}</div>{canEditSaved ? <ItemNoteInput productId={edit.productId} name={edit.name} value={edit.note} onChange={(note) => onSavedNote(edit.id, note)} /> : <small className="saved-lock">پس از ثبت پرداخت، فقط می‌توانید تعداد را افزایش دهید.</small>}</div><button className="button button--quiet saved-discount" type="button" disabled={!canChangeDiscount(order!.paymentStatus, "item") || busy} onClick={() => onRequestDiscount({ type: "item", id: item.id, name: item.productNameSnapshot })}>تخفیف کالا</button></>}
           </article>;
         })}
         {draft.map((item) => {
           const expanded = expandedDraftKey === item.key;
           const unitPrice = discountedDraftLineAmount(item);
+          const canAdjustQuantity = item.product.systemKey !== "PACKING";
           return (
             <article
               className={expanded ? "order-line order-line--expanded" : "order-line"}
@@ -1707,21 +1932,21 @@ function OrderSummary({
                   id={`quantity-${item.key}`}
                   aria-label={`تعداد ${item.product.name}`}
                 >
-                  <button
+                  {canAdjustQuantity && <button
                     type="button"
                     aria-label={`کم کردن ${item.product.name}`}
                     onClick={() => onQuantity(item.key, -1)}
                   >
                     −
-                  </button>
+                  </button>}
                   <output>{englishNumber.format(item.quantity)}</output>
-                  <button
+                  {canAdjustQuantity && <button
                     type="button"
                     aria-label={`زیاد کردن ${item.product.name}`}
                     onClick={() => onQuantity(item.key, 1)}
                   >
                     +
-                  </button>
+                  </button>}
                   <strong className="quantity__total">
                     {formatToman(unitPrice)}
                   </strong>
@@ -1961,14 +2186,14 @@ export function SettlementSheet({
     ? sumAmounts(selected.map((entry) => entry.fixedAmount ?? 0))
     : sumAmounts(selected.map((entry) => settlementAllocationAmount(entry)));
   const hasAmountPartial = !historicalSettlement && order.settlements.some(settlement => !settlement.reversedAt && settlement.allocations.some(allocation => allocation.quantity === 0));
-  const [amountMode, setAmountMode] = useRecoveryState(`${paymentPrefix}:amount-mode`, hasAmountPartial);
-  const [enteredAmount, setEnteredAmount] = useRecoveryState(`${paymentPrefix}:amount`, String(order.balanceAmount ?? quantityAmount));
-  const byAmount = !historicalSettlement && (hasAmountPartial || amountMode);
-  const selectedAmount = byAmount ? positiveIntegerAmount(enteredAmount) : quantityAmount;
+  const byAmount = !historicalSettlement && hasAmountPartial;
+  const selectedAmount = byAmount ? order.balanceAmount : quantityAmount;
   const [tenders, setTenders] = useRecoveryState<TenderDraft[]>(`${paymentPrefix}:tenders`, () => historicalSettlement
     ? historicalSettlement.payments.map((payment) => ({ id: requestKey(), method: payment.method, amount: String(payment.amount), reference: payment.reference ?? "" }))
     : [{ id: requestKey(), method: "CARD_TERMINAL", amount: String(selectedAmount), reference: "" }]);
   const [showSettlementSummary, setShowSettlementSummary] = useState(false);
+  const [showPartialConfirmation, setShowPartialConfirmation] = useState(false);
+  const partialConfirmationButtonRef = useRef<HTMLButtonElement>(null);
   const [reason, setReason] = useRecoveryState(`${paymentPrefix}:reason`, "");
   const [manualBusy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1978,6 +2203,7 @@ export function SettlementSheet({
     writeRecovery(`${paymentPrefix}:tenders`, undefined);
     writeRecovery(`${paymentPrefix}:quantities`, undefined);
     writeRecovery(`${paymentPrefix}:attempt-key`, undefined);
+    // Clear state saved by the removed amount-mode controls from older sessions.
     writeRecovery(`${paymentPrefix}:amount`, undefined);
     writeRecovery(`${paymentPrefix}:amount-mode`, undefined);
     onSuccess(updated);
@@ -1989,7 +2215,25 @@ export function SettlementSheet({
   useEffect(() => { if (cardTenders.length !== 1) setUseTerminal(false); }, [cardTenders.length]);
   const busy = manualBusy || terminal.busy || terminal.loading;
   const tenderAmount = sumAmounts(tenders.map((tender) => positiveIntegerAmount(tender.amount)));
-  const isReconciled = selectedAmount > 0 && tenderAmount === selectedAmount && (!byAmount || selectedAmount <= order.balanceAmount);
+  const isReconciled = selectedAmount > 0 && tenderAmount === selectedAmount;
+  const canRecordPartialTender = !historicalSettlement && selectedAmount > 0 && tenderAmount > 0
+    && tenderAmount <= selectedAmount && tenderAmount <= order.balanceAmount;
+  const requiresPartialConfirmation = !historicalSettlement && tenderAmount > 0
+    && (tenderAmount < selectedAmount || tenderAmount < order.balanceAmount);
+  const canSubmitSettlement = isReconciled || canRecordPartialTender;
+  const settlementFeedback = selectedAmount === 0
+    ? "برای ثبت پرداخت، دست‌کم یک قلم انتخاب کنید."
+    : tenderAmount > selectedAmount
+      ? "مبلغ روش‌های پرداخت از مبلغ اقلام انتخاب‌شده بیشتر است؛ مبلغ اضافه را کم کنید."
+      : requiresPartialConfirmation
+        ? tenderAmount < selectedAmount
+          ? byAmount
+            ? "مبلغ واردشده از مانده‌ی پرداخت کمتر است؛ با تأیید، همین مبلغ ثبت می‌شود."
+            : "مبلغ واردشده از مبلغ انتخاب‌شده کمتر است؛ با تأیید، همین مبلغ ثبت می‌شود."
+          : "این مبلغ از مانده‌ی سفارش کمتر است؛ ثبت پرداخت بخشی به تأیید نیاز دارد."
+        : isReconciled
+          ? "مبلغ پرداخت با مبلغ اقلام برابر است."
+          : "مبلغ باقی‌مانده را به یکی از روش‌های پرداخت اضافه کنید.";
   const previousSelectedAmount = useRef(selectedAmount);
   useEffect(() => {
     if (previousSelectedAmount.current === selectedAmount) return;
@@ -2015,10 +2259,24 @@ export function SettlementSheet({
     resetAttempt();
     setTenders((current) => current.map((tender) => (tender.id === id ? { ...tender, ...patch } : tender)));
   };
-  const settle = async () => {
-    if (busy || terminalLocked || (useTerminal && terminal.terminalOccupied) || !isReconciled) return;
+  const settle = async (confirmedPartial = false) => {
+    if (requiresPartialConfirmation && !confirmedPartial) {
+      setShowPartialConfirmation(true);
+      return;
+    }
+    if (busy || terminalLocked || (useTerminal && terminal.terminalOccupied) || !canSubmitSettlement) return;
+    const allocateByAmount = byAmount || tenderAmount < selectedAmount;
+    const allocationInput = allocateByAmount
+      ? { allocationMode: "AMOUNT" as const, amount: tenderAmount }
+      : { allocationMode: "ITEM_QUANTITY" as const, allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })) };
     if (useTerminal) {
-      await terminal.start({ expectedVersion: order.version, ...(byAmount ? { allocationMode: "AMOUNT" as const, amount: selectedAmount } : { allocationMode: "ITEM_QUANTITY" as const, allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })) }), payments: tenders.map(tender => tender.method === "CARD_TRANSFER" && tender.reference.trim() ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() } : { method: tender.method, amount: positiveIntegerAmount(tender.amount) }) }, attemptKey);
+      await terminal.start({
+        expectedVersion: order.version,
+        ...allocationInput,
+        payments: tenders.map(tender => tender.method === "CARD_TRANSFER" && tender.reference.trim()
+          ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() }
+          : { method: tender.method, amount: positiveIntegerAmount(tender.amount) }),
+      }, attemptKey);
       return;
     }
     setBusy(true);
@@ -2032,10 +2290,7 @@ export function SettlementSheet({
       order.id,
       {
         expectedVersion: order.version,
-        ...(byAmount ? { allocationMode: "AMOUNT" as const, amount: selectedAmount } : {
-          allocationMode: "ITEM_QUANTITY" as const,
-          allocations: selected.map(({ item, quantity }) => ({ orderItemId: item.id, quantity })),
-        }),
+        ...allocationInput,
         payments: tenders.map((tender) =>
           tender.method === "CARD_TRANSFER" && tender.reference.trim()
             ? { method: tender.method, amount: positiveIntegerAmount(tender.amount), reference: tender.reference.trim() }
@@ -2056,14 +2311,20 @@ export function SettlementSheet({
   }, []);
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onClose();
+      if (event.key === "Escape" && !busy) {
+        if (showPartialConfirmation) setShowPartialConfirmation(false);
+        else onClose();
+      }
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [busy, onClose]);
+  }, [busy, onClose, showPartialConfirmation]);
+  useEffect(() => {
+    if (showPartialConfirmation) partialConfirmationButtonRef.current?.focus();
+  }, [showPartialConfirmation]);
   return (
     <div className="modal-backdrop">
-      <section className="modal-card settlement-modal" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
+      <section className="modal-card settlement-modal" role="dialog" aria-modal={showPartialConfirmation ? undefined : true} aria-hidden={showPartialConfirmation} inert={showPartialConfirmation ? true : undefined} aria-labelledby="settlement-title">
         <div className="modal-header">
           <div>
             <h2 id="settlement-title">{historicalSettlement ? "اصلاح پرداخت" : "ثبت پرداخت"} {formatOrderNumber(order.dailyOrderNumber)}</h2>
@@ -2075,31 +2336,33 @@ export function SettlementSheet({
         </div>
         {!terminalLocked && <>
         <section className="settlement-selection" aria-labelledby="settlement-items-title">
-          <div className="settlement-section-heading">
+          {!byAmount && <div className="settlement-section-heading">
             <h3 id="settlement-items-title">{historicalSettlement ? "اقلام این پرداخت" : "اقلام این پرداخت"}</h3>
-          </div>
+          </div>}
         <div className="settlement-payable" aria-live="polite">
-          <div><span>مبلغ این پرداخت</span>
+          <div><span>{byAmount ? "مانده‌ی پرداخت" : "مبلغ این پرداخت"}</span>
           <strong>{formatToman(selectedAmount)} <small>تومان</small></strong></div>
           <span className="settlement-payable-icon" aria-hidden="true"><BagIcon /></span>
         </div>
-          {!historicalSettlement && (terminal.enabled || hasAmountPartial) && <label><input type="checkbox" checked={byAmount} disabled={busy || hasAmountPartial} onChange={event => { resetAttempt(); setAmountMode(event.target.checked); }} />پرداخت بخشی از مبلغ سفارش</label>}
-          {byAmount && <label>مبلغ این بخش (تومان)<input aria-label="مبلغ این بخش (تومان)" inputMode="numeric" value={enteredAmount} disabled={busy} onChange={event => { resetAttempt(); setEnteredAmount(event.target.value.replace(/[^0-9]/g, "")); }} /><small>مانده سفارش: {formatToman(order.balanceAmount)} تومان. سرور این مبلغ را بین اقلام پرداخت‌نشده تقسیم می‌کند.</small></label>}
-          {!byAmount && available.map(({ item, availableQuantity }) => {
+          {!byAmount && available.map((entry) => {
+            const { item, availableQuantity } = entry;
             const quantity = selectedQuantities[item.id] ?? 0;
+            const itemAmount = historicalSettlement
+              ? entry.fixedAmount ?? 0
+              : settlementAllocationAmount({ item, alreadyAllocatedQuantity: entry.alreadyAllocatedQuantity, quantity: Math.max(quantity, 0) });
             return (
               <div className={`settlement-item ${quantity > 0 ? "is-selected" : ""}`} key={item.id}>
                 <button type="button" className="settlement-item-check" aria-label={`انتخاب ${item.productNameSnapshot}`} aria-pressed={quantity > 0} disabled={busy || Boolean(historicalSettlement)} onClick={() => setSelectedQuantity(item.id, quantity > 0 ? 0 : availableQuantity, availableQuantity)}><CheckIcon /></button>
                 <div className="settlement-item-info">
                   <b>{item.productNameSnapshot}</b>
-                  <span>{formatToman(settlementAllocationAmount({ item, alreadyAllocatedQuantity: available.find((entry) => entry.item.id === item.id)?.alreadyAllocatedQuantity ?? 0, quantity: Math.max(quantity, 0) }))} تومان</span>
+                  <span>{formatToman(itemAmount)} تومان</span>
                 </div>
                 <div className="settlement-item-controls">
                   <span className="settlement-available">{historicalSettlement ? "تعداد ثبت‌شده: " : "پرداخت‌نشده: "}{englishNumber.format(availableQuantity)}</span>
                   <div className="settlement-quantity" aria-label={`تعداد انتخاب‌شده برای پرداخت ${item.productNameSnapshot}`}>
-                  <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === 0} onClick={() => setSelectedQuantity(item.id, quantity - 1, availableQuantity)} aria-label={`کم کردن ${item.productNameSnapshot}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12" /></svg></button>
-                  <output>{englishNumber.format(quantity)}</output>
-                  <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === availableQuantity} onClick={() => setSelectedQuantity(item.id, quantity + 1, availableQuantity)} aria-label={`زیاد کردن ${item.productNameSnapshot}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12M10 4v12" /></svg></button>
+                    <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === 0} onClick={() => setSelectedQuantity(item.id, quantity - 1, availableQuantity)} aria-label={`کم کردن ${item.productNameSnapshot}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12" /></svg></button>
+                    <output>{englishNumber.format(quantity)}</output>
+                    <button type="button" disabled={busy || Boolean(historicalSettlement) || quantity === availableQuantity} onClick={() => setSelectedQuantity(item.id, quantity + 1, availableQuantity)} aria-label={`زیاد کردن ${item.productNameSnapshot}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12M10 4v12" /></svg></button>
                   </div>
                 </div>
               </div>
@@ -2144,10 +2407,10 @@ export function SettlementSheet({
             </div>
           ))}
         </section>
-        {(showSettlementSummary || !isReconciled) && <div className={`settlement-total ${isReconciled ? "settlement-total--matched" : "settlement-total--mismatch"}`} aria-live="polite">
-          <span>جمع اقلام انتخاب‌شده <strong>{formatToman(selectedAmount)} <small>تومان</small></strong></span>
+        {(showSettlementSummary || !isReconciled || requiresPartialConfirmation) && <div className={`settlement-total ${isReconciled && !requiresPartialConfirmation ? "settlement-total--matched" : "settlement-total--mismatch"}`} aria-live="polite">
+          <span>{byAmount ? "مانده‌ی پرداخت" : "جمع اقلام انتخاب‌شده"} <strong>{formatToman(selectedAmount)} <small>تومان</small></strong></span>
           <span>جمع مبالغ پرداخت <strong>{formatToman(tenderAmount)} <small>تومان</small></strong></span>
-          <div className="settlement-balance"><span>{tenderAmount > selectedAmount ? "مبلغ اضافه: " : "باقی‌مانده: "}<strong>{formatToman(Math.abs(selectedAmount - tenderAmount))}</strong> تومان</span><b>{isReconciled && <CheckIcon />}{selectedAmount === 0 ? "برای ثبت پرداخت، دست‌کم یک قلم انتخاب کنید." : isReconciled ? "مبلغ پرداخت با مبلغ اقلام برابر است." : tenderAmount < selectedAmount ? "مبلغ باقی‌مانده را به یکی از روش‌های پرداخت اضافه کنید." : "مبلغ اضافه را از روش‌های پرداخت کم کنید."}</b></div>
+          <div className="settlement-balance"><span>{tenderAmount > selectedAmount ? "مبلغ اضافه: " : tenderAmount < selectedAmount ? "مبلغ ثبت‌نشده: " : "باقی‌مانده: "}<strong>{formatToman(Math.abs(selectedAmount - tenderAmount))}</strong> تومان</span><b>{isReconciled && !requiresPartialConfirmation && <CheckIcon />}{settlementFeedback}</b></div>
         </div>}
         {terminal.enabled && !historicalSettlement && <label className="settlement-history-note"><input type="checkbox" checked={useTerminal} disabled={busy || cardTenders.length !== 1} onChange={event => setUseTerminal(event.target.checked)} />ارسال مبلغ به کارت‌خوان</label>}
         {useTerminal && <p>مبلغ ارسالی: {formatToman(positiveIntegerAmount(cardTenders[0]?.amount ?? "0"))} تومان. برای دو کارت بانکی، دو پرداخت جدا ثبت کنید.</p>}
@@ -2160,13 +2423,28 @@ export function SettlementSheet({
           </button>
           <button
             className="button button--primary"
-            disabled={busy || (terminalLocked ? !terminalResolved : !isReconciled || (useTerminal && (cardTenders.length !== 1 || terminal.terminalOccupied)))}
+            disabled={busy || (terminalLocked ? !terminalResolved : !canSubmitSettlement || (useTerminal && (cardTenders.length !== 1 || terminal.terminalOccupied)))}
             onClick={() => void (terminalResolved ? terminal.finish() : settle())}
           >
             {busy ? "در حال بررسی…" : terminalResolved ? "بازگشت به سفارش" : terminalLocked ? "در انتظار بررسی پرداخت" : historicalSettlement ? "ثبت اصلاح پرداخت" : useTerminal ? "شروع پرداخت با کارت‌خوان" : "ثبت پرداخت"}
           </button>
         </div>
       </section>
+      {showPartialConfirmation && <div className="modal-backdrop settlement-confirmation-backdrop">
+        <section className="modal-card settlement-partial-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="partial-settlement-title" aria-describedby="partial-settlement-description">
+          <h2 id="partial-settlement-title">تأیید مبلغ پرداخت</h2>
+          <p id="partial-settlement-description">
+            {tenderAmount < selectedAmount && !byAmount && <>مبلغ پرداخت‌شده {formatToman(tenderAmount)} تومان است؛ {formatToman(selectedAmount - tenderAmount)} تومان از مبلغ انتخاب‌شده ثبت نمی‌شود. </>}
+            مانده‌ی فعلی سفارش {formatToman(order.balanceAmount)} تومان است. پس از ثبت این پرداخت، مانده‌ی سفارش {formatToman(order.balanceAmount - tenderAmount)} تومان خواهد بود و وضعیت آن {order.balanceAmount === tenderAmount ? "تسویه‌شده" : "بخشی پرداخت‌شده"} می‌شود. ادامه می‌دهید؟
+          </p>
+          <div className="modal-actions">
+            <button className="button button--quiet" type="button" disabled={busy} onClick={() => setShowPartialConfirmation(false)}>بازگشت</button>
+            <button ref={partialConfirmationButtonRef} className="button button--primary" type="button" disabled={busy || !canSubmitSettlement || terminalLocked || (useTerminal && (cardTenders.length !== 1 || terminal.terminalOccupied))} onClick={() => { setShowPartialConfirmation(false); void settle(true); }}>
+              {busy ? "در حال بررسی…" : useTerminal ? "تأیید مبلغ و ادامه" : "تأیید و ثبت پرداخت"}
+            </button>
+          </div>
+        </section>
+      </div>}
     </div>
   );
 }
