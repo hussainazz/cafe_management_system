@@ -81,10 +81,11 @@ stage is implemented.
 - **P9 / Stage 16 — Complete.** Manager-managed explanatory product notes are
   persisted in the catalog and exposed in the public menu product detail.
 - **P10 / Stage 17 — Complete with revised scope.** Product and option price
-  history remains. Packaging material cost stays in takeaway COGS. The café
-  does not charge a separate packaging fee, so packaging revenue attribution,
-  recovery reporting, and fee price targets are retired by the 18 November 2026
-  user decision.
+  history remains. Packaging material cost stays in takeaway COGS. The 19
+  November 2026 follow-up restores the local POS order-time chooser for
+  catalog-priced `PACKING` products and their assignment to menu items. The
+  separate recovery report, fee attribution, and packaging price targets remain
+  retired.
 - **P11 / Stage 18 — Complete.** Developer-only bounded sales, contribution, and peak-hour
   analytics are implemented and locally verified; see `docs/current-left.md`.
 - **P12 / Stage 19 — Complete.** Developer-only pricing experiments and strategy
@@ -599,14 +600,19 @@ Acceptance criteria:
 
 #### P3.1 Staff Catalog, Manager Staff, And Settings APIs
 
-Implement Staff-accessible catalog writes and Manager-only Staff-account and
-café-settings APIs.
+Implement Staff-accessible catalog writes, account administration, and café
+settings through their existing route guards.
 
 Acceptance criteria:
 
 - Staff and Manager can create/update/deactivate categories, products, option
   groups, options, images, catalog sale discounts, prices, availability, and
-  display order. Table configuration and Staff accounts remain Manager-only.
+  display order. Table configuration, account administration, café settings,
+  and audit history require Manager or Developer authorization; Cashier access
+  is forbidden.
+- Account administration can create either a `STAFF` or `CASHIER` account and
+  lists both roles for update, deactivation, and reactivation. Account role is
+  selected at creation and is not changed by the existing edit form.
 - Referenced records are archived or deactivated instead of physically removed.
 - Staff users cannot access Manager Staff-account, table-configuration, or
   settings APIs.
@@ -939,10 +945,20 @@ with active-reference and positive-quantity validation. Keep the list separate
 from reusable recipe components so selecting an existing recipe for another
 product inherits only the main ingredients.
 
-### POS packaging product assignments — withdrawn 18 November 2026
+### POS packaging product assignments — restore order entry, keep report retired
 
-The café does not charge a separate packaging fee. Remove order-item assignment
-storage and its reporting, retire fee recovery and packaging price targets, and
-archive the legacy `PACKING` sale products. Preserve old orders and price history
-for audit. Continue to cost takeaway packaging materials through product recipes
-and include them in product COGS.
+Restore the chooser in local POS release `cafe-20261118-4666e31`: add a
+catalog-priced `PACKING` product to the order and assign one package unit to
+each selected takeaway product unit. Selecting one of two product units assigns
+one package; selecting both assigns two. Set each packaging line quantity to
+the sum of its assigned product quantities, and reject over-assignment or count
+mismatches. During open-order editing, allow staff to reopen an editable
+packaging line, change its assigned quantities, and remove it when those
+assignments reach zero. Keep assignments involving settled or
+inventory-recognized items immutable. Recreate assignment storage with an
+additive migration, reactivate
+the archived `PACKING` catalog products at their existing prices, and restore
+surviving assignment rows from the verified pre-release backup.
+Continue to keep packaging recovery reports, fee attribution, and packaging
+price-experiment targets retired. Product-based takeaway packaging mappings
+remain responsible for material COGS and inventory consumption.
