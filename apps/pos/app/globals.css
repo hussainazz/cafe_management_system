@@ -3196,14 +3196,15 @@ svg {
 }
 .products:has(.packaging-workspace) {
   display: flex;
-  height: min(650px, calc(100dvh - 112px));
+  align-self: start;
+  height: auto;
   max-height: min(650px, calc(100dvh - 112px));
   min-height: 0;
   overflow: hidden;
 }
 .packaging-workspace {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
@@ -3276,11 +3277,12 @@ svg {
 .packaging-workspace__list-heading > span { color: var(--text-secondary); font-size: var(--text-micro); white-space: nowrap; }
 .packaging-workspace__items {
   display: grid;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   align-content: start;
   gap: 6px;
   min-width: 0;
-  min-height: 80px;
+  min-height: 0;
+  max-height: min(40dvh, 320px);
   overflow: auto;
   padding: 1px 2px 3px;
   overscroll-behavior: contain;
@@ -3333,7 +3335,6 @@ svg {
   .packaging-workspace__footer { padding-top: 6px; }
 }
 @media (max-width: 520px) {
-  .products:has(.packaging-workspace) { min-height: 480px; }
   .packaging-workspace { gap: 9px; }
   .packaging-workspace__header { align-items: start; }
   .packaging-workspace__icon { flex-basis: 36px; width: 36px; height: 36px; }
