@@ -38,6 +38,15 @@
   only the isolated `cafe_management_test` database. No migration or production
   change was made.
 
+## Local POS follow-up for the takeaway order panel (19 November 2026)
+
+- [x] Let the open takeaway panel grow with its items, actions, and customer
+  name form on narrow or short screens. Keep the item list scrollable in the
+  desktop sidebar.
+- [x] Inspect the open order at 320 × 568, 464 × 584, 900 × 600, 1264 × 480,
+  and 1264 × 704 in the local POS browser. Open and cancel the customer name
+  form without changing the order.
+
 ## Inventory ingredient deduction concurrency — 19 November 2026
 
 - [x] Reproduced four concurrency failures in PostgreSQL covering lost stock
