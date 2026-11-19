@@ -62,11 +62,16 @@ describe("Terminal-assisted settlement", () => {
     fireEvent.click(screen.getByRole("button", { name: "بازگشت به سفارش" })); await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
     expect(bridge.sendTerminalPurchase).not.toHaveBeenCalled();
   });
-  it("supports separate partial amounts for two cards using the existing amount allocation contract", async () => {
-    await mount(); fireEvent.click(screen.getByLabelText("پرداخت بخشی از مبلغ سفارش"));
-    fireEvent.change(screen.getByLabelText("مبلغ این بخش (تومان)"), { target: { value: "4000" } });
+  it("uses the selected order items and full tender amount without a partial-payment toggle", async () => {
+    await mount();
+    expect(screen.queryByLabelText("پرداخت بخشی از مبلغ سفارش")).toBeNull();
+    expect(screen.queryByLabelText("مبلغ این بخش (تومان)")).toBeNull();
     await start();
-    expect(api.terminalPrepare.mock.calls[0]![1]).toMatchObject({ allocationMode: "AMOUNT", amount: 4000, payments: [{ method: "CARD_TERMINAL", amount: 4000 }] });
+    expect(api.terminalPrepare.mock.calls[0]![1]).toMatchObject({
+      allocationMode: "ITEM_QUANTITY",
+      allocations: [{ orderItemId: order.items[0]!.id, quantity: 1 }],
+      payments: [{ method: "CARD_TERMINAL", amount: 10000 }],
+    });
   });
   it("does not dispatch an idempotent recovery response and requires both no-charge and stopped-worker checks", async () => {
     api.terminalPrepare.mockResolvedValue({ ...ok(attempt()), replayed: true }); await mount(); await start();
