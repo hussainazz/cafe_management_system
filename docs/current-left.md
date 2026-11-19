@@ -2783,10 +2783,11 @@ or full Stage 10 exit gate.
 - [x] Record the activation window: API and POS stopped at `12:58:13Z`; the
   API process started at `12:59:48Z` and POS at `13:00:20Z`. Their stop-to-start
   intervals were 95 and 127 seconds. Both are now active with exit status 0.
-- [x] Preserve the four open unpaid orders observed during activation. The VPS
-  image directory was excluded from the artifact and untouched by the copy
-  operations; after activation it contains 32 files / 5,759,237 bytes, with
-  aggregate SHA-256
+- [x] Do not reset or replay orders. The activation snapshot had four open
+  unpaid orders; a later read-only snapshot counted six open orders as café
+  activity continued. The VPS image directory was excluded from the artifact
+  and untouched by the copy operations; after activation it contains 32 files
+  / 5,759,237 bytes, with aggregate SHA-256
   `095ef326e10251e3b8f228b7d1f9dd5c20ec765dae5a40e330a2d8ebc6d8366c`. No
   developer-local image or environment data was transferred.
 - Left: verify Cashier, account, packaging, inventory, and order-edit workflows
