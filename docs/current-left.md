@@ -2780,6 +2780,9 @@ or full Stage 10 exit gate.
   contains 144 product-card nodes. Both release endpoints report
   `cafe-20261119-7d01337` with `Cache-Control: no-store, max-age=0`.
   Unauthenticated direct and POS-proxied order routes return 401.
+- [x] Record the activation window: API and POS stopped at `12:58:13Z`; the
+  API process started at `12:59:48Z` and POS at `13:00:20Z`. Their stop-to-start
+  intervals were 95 and 127 seconds. Both are now active with exit status 0.
 - [x] Preserve the four open unpaid orders observed during activation. The VPS
   image directory was excluded from the artifact and untouched by the copy
   operations; after activation it contains 32 files / 5,759,237 bytes, with
