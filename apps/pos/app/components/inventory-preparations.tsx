@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { saveInventoryRecipe, type ApiResult, type InventoryRecipe, type InventoryStockItem } from "../lib/api-client";
+import { InventoryNumberInput, InventorySearchPicker } from "./inventory-fields";
 import { InventoryEmptyState } from "./inventory-onboarding";
 
 type Unit = "PIECE" | "GRAM" | "MILLILITER";
@@ -24,6 +25,7 @@ export function InventoryPreparations({ onOpenStock, items, recipes, mutate, onD
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const activeRecipes = recipes.filter((recipe) => recipe.isActive && !recipe.archivedAt);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   const load = (recipe: InventoryRecipe | null) => {
     if (dirty && !window.confirm("تغییرات دستور مشترک ذخیره نشده است. بدون ذخیره ادامه می‌دهید؟")) return;
@@ -53,26 +55,32 @@ export function InventoryPreparations({ onOpenStock, items, recipes, mutate, onD
   return <section className="manager-card inventory-preparations">
     <header><h2>دستورهای مشترک</h2><p>مواد ترکیبی را یک بار تعریف کنید و در محصولات دیگر به کار ببرید. برای نمونه، «کوکی بیرون‌بر» شامل دستور «کوکی» و یک بسته‌بندی است.</p></header>
     <div className="inventory-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => load(null)}>دستور مشترک جدید</button>
-      <label><span>ویرایش دستور مشترک</span><select value={editing?.id ?? ""} disabled={saving} onChange={(event) => load(recipes.find((recipe) => recipe.id === event.target.value) ?? null)}><option value="">دستور جدید</option>{recipes.filter((recipe) => recipe.isActive && !recipe.archivedAt).map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></label>
+      {activeRecipes.length > 0 && <InventorySearchPicker label="ویرایش دستور مشترک" options={activeRecipes}
+        value={editing?.id ?? ""} disabled={saving} placeholder="جست‌وجوی دستور مشترک"
+        onChange={(id) => load(activeRecipes.find((recipe) => recipe.id === id) ?? null)} />}
     </div>
     {error && <p role="alert" className="form-error">{error}</p>}
     {!items.some((item) => item.isActive && !item.archivedAt) && !recipes.some((recipe) => recipe.isActive && !recipe.archivedAt) && <InventoryEmptyState title="مواد اولین دستور را تعریف کنید" detail="مواد اولیه را در اقلام موجودی ثبت کنید؛ سپس به این صفحه برگردید و ترکیب آن‌ها را بسازید." action="تعریف مواد اولیه" onAction={onOpenStock} />}
     {!recipes.some((recipe) => recipe.isActive && !recipe.archivedAt) && items.some((item) => item.isActive && !item.archivedAt) && <p className="inventory-note">هنوز دستور مشترکی ندارید. اولین ترکیب را در فرم زیر بسازید؛ سپس می‌توانید آن را در چند محصول استفاده کنید.</p>}
-    <form className="manager-form" onSubmit={(event) => void submit(event)} onChangeCapture={() => setDirty(true)}>
+    <form className="manager-form" onSubmit={(event) => void submit(event)} onChange={() => setDirty(true)}>
       <fieldset disabled={saving} className="inventory-option-recipe"><legend>اجزای دستور مشترک</legend>
         <div className="manager-fields inventory-preparation-output">
         <label><span>نام دستور مشترک</span><input required maxLength={160} value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً کوکی بیرون‌بر" /></label>
         <label><span>واحد خروجی دستور</span><select value={unit} onChange={(event) => setUnit(event.target.value as Unit)}>{Object.entries(units).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label><span>مقدار خروجی دستور</span><input required inputMode="decimal" aria-describedby="preparation-yield-help" value={yieldQuantity} onChange={(event) => setYieldQuantity(event.target.value)} /><small id="preparation-yield-help">خروجی کل یک نوبت تهیه؛ مثلاً ۱۰ عدد کوکی یا ۱۰۰۰ گرم سس. مقدار اجزای زیر باید برای همین خروجی باشد.</small></label>
+        <label><span>مقدار خروجی دستور</span><InventoryNumberInput required aria-describedby="preparation-yield-help" value={yieldQuantity} onValueChange={setYieldQuantity} /></label>
         </div>
+        <p className="inventory-note" id="preparation-yield-help">مقدار اجزا را برای کل خروجی یک نوبت تهیه وارد کنید. برای نمونه، خروجی یک نوبت می‌تواند ۱٬۰۰۰ گرم سس باشد.</p>
         {components.map((row, index) => {
           const options = row.kind === "STOCK_ITEM" ? items : recipes.filter((recipe) => recipe.id !== editing?.id);
           const source = options.find((option) => option.id === row.id);
           const sourceUnit = row.kind === "STOCK_ITEM" ? (source as InventoryStockItem | undefined)?.baseUnit : (source as InventoryRecipe | undefined)?.outputUnit;
           return <div className="inventory-entry-row" key={row.key}>
             <label><span>نوع جزء {index + 1}</span><select value={row.kind} onChange={(event) => change(index, { kind: event.target.value as Component["kind"], id: "" })}><option value="STOCK_ITEM">قلم موجودی</option><option value="RECIPE">دستور مشترک</option></select></label>
-            <label><span>جزء {index + 1}</span><select required value={row.id} onChange={(event) => change(index, { id: event.target.value })}><option value="">انتخاب ماده</option>{options.filter((option) => (option.isActive && !option.archivedAt) || option.id === row.id).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
-            <label><span>مقدار جزء {index + 1}{sourceUnit ? ` (${units[sourceUnit as Unit]})` : ""}</span><input required inputMode="decimal" value={row.quantity} onChange={(event) => change(index, { quantity: event.target.value })} /></label>
+            <InventorySearchPicker label={`جزء ${index + 1}`}
+              options={options.filter((option) => (option.isActive && !option.archivedAt) || option.id === row.id)}
+              value={row.id} onChange={(id) => change(index, { id })}
+              placeholder={row.kind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور مشترک"} required />
+            <label><span>مقدار جزء {index + 1}{sourceUnit ? ` (${units[sourceUnit as Unit]})` : ""}</span><InventoryNumberInput required value={row.quantity} onValueChange={(quantity) => change(index, { quantity })} /></label>
             {components.length > 1 && <button type="button" className="text-button" onClick={() => { setDirty(true); setComponents(components.filter((_, i) => i !== index)); }}>حذف جزء {index + 1}</button>}
           </div>;
         })}
