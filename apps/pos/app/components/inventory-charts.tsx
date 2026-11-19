@@ -85,7 +85,8 @@ export function InventoryTrend({
         {series.map((key) => {
           const item = overviewSeries.find((entry) => entry.key === key)!;
           const value = current?.[key] ?? null;
-          return <strong key={key} style={{ color: item.color }}>{value === null ? `${item.label} محاسبه نشده` : `${item.label} ${number(value)} تومان`}</strong>;
+          const seriesClass = key === "netSalesAmount" ? "sales" : key === "theoreticalCogsAmount" ? "cost" : "profit";
+          return <strong key={key} className={`inventory-series-readout inventory-series-readout--${seriesClass}`}>{value === null ? `${item.label} محاسبه نشده` : `${item.label} ${number(value)} تومان`}</strong>;
         })}
         {series.includes("grossProfitAmount") && <small>
           {current?.grossMarginPercent == null
