@@ -109,8 +109,10 @@ export function StaffConsumption({ role, onOpenMenu, onStartOrder, menuOpen = fa
   };
   return <section className="pos-workspace staff-consumption-workspace" dir="rtl">
     <header className="workspace-header staff-consumption-header">
-      <h1>حساب پرسنل</h1>
-      <button className="menu-button" type="button" aria-label="باز کردن منو" aria-expanded={menuOpen} aria-controls="pos-navigation-drawer" onClick={onOpenMenu}><MenuIcon /></button>
+      <div className="header-actions">
+        <button className="menu-button" type="button" aria-label="باز کردن منو" aria-expanded={menuOpen} aria-controls="pos-navigation-drawer" onClick={onOpenMenu}><MenuIcon /></button>
+      </div>
+      <div className="workspace-title"><h1>حساب پرسنل</h1></div>
     </header>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="staff-consumption-layout">
