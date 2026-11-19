@@ -65,6 +65,29 @@ async function createOrderFixture() {
 }
 
 describe("database-native constraints", () => {
+  it("enforces same-order, positive, distinct, and unique packaging assignments", async () => {
+    const { order } = await createOrderFixture();
+    const { order: other } = await createOrderFixture();
+    const menuItem = order.items[0]!;
+    const product = await app.prisma.product.findUniqueOrThrow({ where: { id: menuItem.productId } });
+    const packaging = await app.prisma.product.create({
+      data: { categoryId: product.categoryId, systemKey: "PACKING", name: "DB bag", priceAmount: 20_000, preparationDeadlineMinutes: 1, displayOrder: 2, isPublic: false },
+    });
+    const packageItem = await app.prisma.orderItem.create({
+      data: { orderId: order.id, productId: packaging.id, productNameSnapshot: packaging.name, basePriceSnapshot: 20_000, quantity: 1, lineTotalAmount: 20_000, displayOrder: 1 },
+    });
+    const insert = `INSERT INTO "order_item_packaging_assignments" ("id", "orderId", "packagingItemId", "productItemId", "quantity") VALUES ($1, $2, $3, $4, $5)`;
+    const args = (packagingItemId: string, productItemId: string, quantity: number) => [randomUUID(), order.id, packagingItemId, productItemId, quantity];
+    await expectDatabaseError(insert, args(packageItem.id, other.items[0]!.id, 1), { code: "23503", constraint: "order_item_packaging_assignments_productItemId_orderId_fkey" });
+    await expectDatabaseError(insert, args(other.items[0]!.id, menuItem.id, 1), { code: "23503", constraint: "order_item_packaging_assignments_packagingItemId_orderId_fkey" });
+    await expectDatabaseError(insert, args(packageItem.id, menuItem.id, 0), { code: "23514", constraint: "order_item_packaging_assignments_quantity_positive" });
+    await expectDatabaseError(insert, args(packageItem.id, packageItem.id, 1), { code: "23514", constraint: "order_item_packaging_assignments_distinct_items" });
+    await app.prisma.orderItemPackagingAssignment.create({ data: { orderId: order.id, packagingItemId: packageItem.id, productItemId: menuItem.id, quantity: 1 } });
+    await expectDatabaseError(insert, args(packageItem.id, menuItem.id, 1), { code: "23505", constraint: "order_item_packaging_assignments_packagingItemId_productItemId_key".slice(0, 63) });
+    await app.prisma.orderItem.delete({ where: { id: packageItem.id } });
+    expect(await app.prisma.orderItemPackagingAssignment.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
   it("rejects invalid identity and authentication records", async () => {
     await expectDatabaseError(
       `INSERT INTO "users" ("id", "username", "passwordHash", "role", "updatedAt")
