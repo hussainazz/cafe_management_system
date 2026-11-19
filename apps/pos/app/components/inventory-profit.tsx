@@ -7,7 +7,6 @@ import { readGrossProfitReport, type GrossProfitReport, type ManagerCatalog } fr
 import { inventoryErrorMessage } from "../lib/inventory-errors";
 import { currentPersianDateInput, persianDateToGregorianDate } from "../lib/tehran-date";
 import { formatToman } from "../lib/pos-utils";
-import { InventoryProfitBreakdown } from "./inventory-profit-breakdown";
 import { InventoryTrend, InventoryDailyMargin } from "./inventory-charts";
 import { InventoryMetric, inventoryNumber, inventoryQuantity } from "./inventory-dashboard";
 
@@ -104,11 +103,6 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
             ? -1
             : right - left || a.productName.localeCompare(b.productName, "fa");
       }) ?? [];
-  const ranked =
-    report?.data.products
-      .filter((product) => product.grossProfitAmount !== null)
-      .sort((a, b) => b.grossProfitAmount! - a.grossProfitAmount!)
-      .slice(0, 5) ?? [];
   const priorityProducts = report?.data.products
     .filter((product) => product.incompleteCostRevenueAmount > 0)
     .sort((a, b) => b.incompleteCostRevenueAmount - a.incompleteCostRevenueAmount || a.productName.localeCompare(b.productName, "fa") || (a.channel ?? "").localeCompare(b.channel ?? "")) ?? [];
@@ -189,7 +183,6 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
       return right - left || a.productName.localeCompare(b.productName, "fa") || a.productId.localeCompare(b.productId);
     });
   const coverage = report?.data.costCoverage;
-  const maxProfit = Math.max(1, ...ranked.map((product) => Math.abs(product.grossProfitAmount!)));
   const totals = report?.data.totals;
   return (
     <div className="inventory-profit-layout" aria-busy={loading}>
@@ -491,43 +484,7 @@ export function InventoryProfitPanel({ catalog, onInspectProduct }: { catalog?: 
             </div>
           </section>
           <div className="inventory-profit-charts"><section className="manager-card"><header><h2>روند فروش، بهای تمام‌شده و سود ناخالص</h2><p>بر اساس روز تسویه‌ی کامل در تهران؛ مبالغ به تومان.</p></header><InventoryTrend daily={report.data.daily ?? []} /></section><section className="manager-card"><header><h2>سود و حاشیه‌ی سود ناخالص روزانه</h2><p>روز را انتخاب کنید تا حاشیه‌ی سود همان روز نمایش داده شود.</p></header><InventoryDailyMargin daily={report.data.daily ?? []} /></section></div>
-          <div className="inventory-profit-bottom"><InventoryProfitBreakdown report={report} {...(catalog ? {catalog} : {})} />
-            <section className="manager-card">
-              <header>
-                <h2>مقایسه‌ی سود محصولات</h2>
-                <p>پنج محصول با بیشترین سود ناخالص در کل بازه؛ مبالغ به تومان.</p>
-              </header>
-              <ol className="inventory-profit-bars">
-                {ranked.map((product) => (
-                  <li key={`${product.productId}:${product.channel ?? "TABLE"}`}>
-                    <div>
-                      <strong>{product.productName}</strong><small>{product.channel === "TAKEAWAY" ? "بیرون‌بر" : product.channel === "TABLE" ? "داخل کافه" : ""}</small>
-                      <span>
-                        {product.grossProfitAmount! < 0 && "زیان: "}
-                        <bdi>{money(product.grossProfitAmount)}</bdi>
-                      </span>
-                    </div>
-                    <div
-                      className={`inventory-profit-bar${product.grossProfitAmount! < 0 ? " is-negative" : ""}`}
-                      aria-hidden="true"
-                    >
-                      <span
-                        style={{
-                          width: `${(Math.abs(product.grossProfitAmount!) / maxProfit) * 100}%`,
-                        }}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ol>
-              {ranked.length === 0 && (
-                <p className="inventory-empty">
-                  {report.data.products.length
-                    ? "برای مقایسه‌ی سود، اطلاعات هزینه‌ی محصولات را کامل کنید. این کار هزینه‌ی سفارش‌های قبلی را تغییر نمی‌دهد."
-                    : "در این بازه سفارشی تسویه‌ی کامل نشده است."}
-                </p>
-              )}
-            </section>
+          <div className="inventory-profit-bottom">
             <section className="manager-card">
               <header>
                 <h2>پوشش محاسبه‌ی هزینه</h2>
