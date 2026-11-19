@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { InventoryOverview } from "./inventory-dashboard";
+import { InventoryOverview, InventoryStockAlerts } from "./inventory-dashboard";
 import { InventoryProfitPanel } from "./inventory-profit";
 import * as api from "../lib/api-client";
 import { persianDateToGregorianDate } from "../lib/tehran-date";
@@ -191,6 +191,7 @@ describe("inventory overview", () => {
         onNavigate={navigate}
       />,
     );
+    render(<InventoryStockAlerts items={[item, unknown, archived] as never} pending={[]} onNavigate={navigate} />);
     expect(screen.getByText("ارزش‌گذاری ناقص")).toBeTruthy();
     expect(screen.getByText("۱ قلم بدون ارزش‌گذاری کامل")).toBeTruthy();
     const list = screen.getByRole("heading", { name: "هشدارهای موجودی" }).closest("section")!;
@@ -563,6 +564,7 @@ describe("profit dashboard", () => {
         data: {
           ...report.data,
           products: [],
+          soldProducts: [],
           totals: {
             netSalesAmount: 0,
             knownCogsAmount: 0,
@@ -580,6 +582,7 @@ describe("profit dashboard", () => {
     expect(screen.getByText("حاشیه‌ی سود ناخالص").closest("div")!.textContent).toContain(
       "محاسبه نشده",
     );
-    expect(screen.getAllByText("در این بازه سفارشی تسویه‌ی کامل نشده است.")).toHaveLength(2);
+    const soldProducts = screen.getByRole("region", { name: "جدول محصولات فروخته‌شده" });
+    expect(within(soldProducts).getByText("در این بازه محصول فروخته‌شده‌ای ثبت نشده است.")).toBeTruthy();
   });
 });
