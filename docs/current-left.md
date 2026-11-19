@@ -2741,6 +2741,56 @@ or full Stage 10 exit gate.
   hardware and UX acceptance is separate from the code, build, and production
   health checks recorded above.
 
+## Phase 3 — VPS activation — 19 November 2026
+
+- [x] Upload `cafe-20261119-7d01337` and verify the uploaded artifact SHA-256
+  `7bbeb7f52af41a9c10b433db2c8f86c7d17890421f6c2dd29f962afb95b5e86a`,
+  prepared manifest, 377 payload files, Debian Prisma engine, and POS
+  `BUILD_ID`. All 377 deployed files match the manifest hashes. Runtime commit:
+  `7d01337ff5236a80fd9fb505ae9f04af6da3016d`.
+- [x] Before migration, validate a fresh PostgreSQL 17.11 custom-format dump
+  (424 `pg_restore --list` entries; SHA-256
+  `48d7f3c01e61498f1677a348cb8ef8f75a1ee00a4a462988aeb5e6b4990a9353`) and
+  same-disk coordinated runtime rollback archive (SHA-256
+  `044d1498a4c93de5cb54861bed3d8191b4288bfdf2a622e05c29c807b0c6620b`).
+  The rollback archive was extracted to a protected verification directory and
+  matched the previous runtime byte-for-byte.
+- [x] Apply the one reviewed migration,
+  `20261119120000_restore_order_packaging_assignments`, using staged Prisma.
+  Production now has 62 migrations applied with no unfinished migration. The
+  pre-existing checksum exception for
+  `20260918143000_add_pos_only_packing_products` was rechecked: the deployed
+  and staged SQL files both hash to
+  `a78fe2a2b3e9ec093899645d152b3565fce9eeb2721e23d49d199c03215cce28`; staged
+  Prisma reported only the reviewed pending migration.
+- [x] Recover the eight legacy packaging assignments from the verified
+  18 November dump into the root-private input
+  `/opt/cafe-menu-release-backups/assignment-recovery-cafe-20261119-7d01337.json`
+  (SHA-256
+  `aaa2b491da9ceb1a034226abe1d9dace0a67126ef8d11291fd36e480208cfec5`).
+  Insert and verify all eight exact rows in one transaction. Their same-order
+  links remain valid, no assigned product is over-counted, and the one audited
+  legacy packaging-quantity mismatch remains unchanged. The 16 existing
+  `PACKING` products are active and available at 20,000 Toman, remain nonpublic,
+  and are not archived.
+- [x] Activate API and POS from the artifact. API and POS are active with zero
+  restarts; web and Nginx remain active and were not restarted. Direct and
+  public API readiness, public-menu proxy, `/menu`, `/pos`, and `/pos/release`
+  checks pass. The menu API returns 16 categories and 144 products; server HTML
+  contains 144 product-card nodes. Both release endpoints report
+  `cafe-20261119-7d01337` with `Cache-Control: no-store, max-age=0`.
+  Unauthenticated direct and POS-proxied order routes return 401.
+- [x] Preserve the four open unpaid orders observed during activation. The VPS
+  image directory was excluded from the artifact and untouched by the copy
+  operations; after activation it contains 32 files / 5,759,237 bytes, with
+  aggregate SHA-256
+  `095ef326e10251e3b8f228b7d1f9dd5c20ec765dae5a40e330a2d8ebc6d8366c`. No
+  developer-local image or environment data was transferred.
+- Left: verify Cashier, account, packaging, inventory, and order-edit workflows
+  in an authenticated café POS browser, then confirm touch behavior and receipt
+  printer output. API route guards and public health checks do not replace this
+  device acceptance.
+
 ## Inventory stock alerts follow-up — 19 November 2026
 
 - [x] Move the stock warning list from the overview dashboard into the
