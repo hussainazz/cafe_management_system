@@ -183,7 +183,7 @@ export const PosTableResponseSchema = z.object({
 export const OrderItemOptionInputSchema = z
   .object({
     optionId: z.uuid(),
-    quantity: z.number().int().positive(),
+    quantity: z.int32().positive(),
   })
   .strict();
 
@@ -191,8 +191,8 @@ export const CreateOrderItemSchema = z
   .object({
     clientRef: z.uuid().optional(),
     productId: z.uuid(),
-    quantity: z.number().int().positive(),
-    weightGrams: z.number().int().positive().optional(),
+    quantity: z.int32().positive(),
+    weightGrams: z.int32().positive().optional(),
     note: z.string().trim().min(1).max(1_000).optional(),
     options: z.array(OrderItemOptionInputSchema).max(50),
   })
@@ -210,6 +210,29 @@ export const CreateOrderItemSchema = z
       optionIds.add(option.optionId);
     });
   });
+
+export const OrderItemReferenceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("EXISTING"), orderItemId: z.uuid() }).strict(),
+  z.object({ kind: z.literal("REQUEST"), clientRef: z.uuid() }).strict(),
+]);
+export type OrderItemReference = z.infer<typeof OrderItemReferenceSchema>;
+export const PackagingAssignmentInputSchema = z.object({
+  packagingItem: OrderItemReferenceSchema,
+  productItem: OrderItemReferenceSchema,
+  quantity: z.int32().positive(),
+}).strict();
+export type PackagingAssignmentInput = z.infer<typeof PackagingAssignmentInputSchema>;
+export const PackagingAssignmentSchema = z.object({
+  id: z.uuid(),
+  packagingOrderItemId: z.uuid(),
+  packagingProductId: z.uuid(),
+  packagingProductNameSnapshot: z.string(),
+  productOrderItemId: z.uuid(),
+  productId: z.uuid(),
+  productNameSnapshot: z.string(),
+  quantity: z.number().int().positive(),
+});
+export type PackagingAssignment = z.infer<typeof PackagingAssignmentSchema>;
 
 export const DiscountInputSchema = z
   .discriminatedUnion("kind", [
@@ -229,12 +252,19 @@ export const ReasonedDiscountInputSchema = z
 
 const CreateOrderBaseSchema = z.object({
   items: z.array(CreateOrderItemSchema).min(1).max(100),
+  packagingAssignments: z.array(PackagingAssignmentInputSchema).max(500).optional(),
 }).superRefine((input, context) => {
   const clientRefs = new Set<string>();
   input.items.forEach((item, index) => {
     if (!item.clientRef) return;
     if (clientRefs.has(item.clientRef)) context.addIssue({ code: "custom", path: ["items", index, "clientRef"], message: "A request item reference can appear only once." });
     clientRefs.add(item.clientRef);
+  });
+  input.packagingAssignments?.forEach((assignment, index) => {
+    for (const [field, reference] of [["packagingItem", assignment.packagingItem], ["productItem", assignment.productItem]] as const) {
+      if (reference.kind !== "REQUEST") context.addIssue({ code: "custom", path: ["packagingAssignments", index, field], message: "Order creation assignments must reference request items." });
+      else if (!clientRefs.has(reference.clientRef)) context.addIssue({ code: "custom", path: ["packagingAssignments", index, field], message: "The request item reference was not included in this order." });
+    }
   });
 });
 
@@ -253,8 +283,8 @@ export const CreateOrderRequestSchema = CreateOrderBaseSchema.extend({
   });
 
 export type CreateOrderRequest =
-  | { channel: "TABLE"; tableId: string; items: z.infer<typeof CreateOrderBaseSchema>["items"] }
-  | { channel: "TAKEAWAY"; items: z.infer<typeof CreateOrderBaseSchema>["items"] };
+  | { channel: "TABLE"; tableId: string; items: z.infer<typeof CreateOrderBaseSchema>["items"]; packagingAssignments?: z.infer<typeof PackagingAssignmentInputSchema>[] }
+  | { channel: "TAKEAWAY"; items: z.infer<typeof CreateOrderBaseSchema>["items"]; packagingAssignments?: z.infer<typeof PackagingAssignmentInputSchema>[] };
 
 export const StaffConsumptionCreateRequestSchema = z.object({
   channel: z.literal("TAKEAWAY"),
@@ -327,6 +357,7 @@ export const CreatedOrderSchema = z.object({
   balanceAmount: z.number().int().nonnegative(),
   createdAt: z.iso.datetime(),
   items: z.array(CreatedOrderItemSchema),
+  packagingAssignments: z.array(PackagingAssignmentSchema),
 });
 export type CreatedOrder = z.infer<typeof CreatedOrderSchema>;
 
@@ -376,6 +407,7 @@ export const OrderDetailSchema = CreatedOrderSchema.extend({
   discountValue: z.number().int().positive().nullable(),
   discountReason: z.string().nullable(),
   paidAmount: z.number().int().nonnegative(),
+  items: z.array(CreatedOrderItemSchema.extend({ hasInventoryHistory: z.boolean().optional() })),
   settlements: z.array(SettlementSummarySchema),
 });
 
@@ -549,9 +581,9 @@ export const AuditLogResponseSchema = z.object({
 export const ExistingOrderItemUpdateSchema = z
   .object({
     orderItemId: z.uuid(),
-    // Zero removes an entirely unpaid item only after item-quantity payments.
-    quantity: z.number().int().nonnegative().optional(),
-    weightGrams: z.number().int().positive().optional(),
+    // Zero removes an entirely unpaid item without settlement or inventory history.
+    quantity: z.int32().nonnegative().optional(),
+    weightGrams: z.int32().positive().optional(),
     note: z.string().trim().min(1).max(1_000).nullable().optional(),
     discount: ReasonedDiscountInputSchema.optional(),
   })
@@ -566,11 +598,12 @@ export const UpdateOrderRequestSchema = z
     items: z.array(CreateOrderItemSchema).min(1).max(100).optional(),
     addItems: z.array(CreateOrderItemSchema).min(1).max(100).optional(),
     itemUpdates: z.array(ExistingOrderItemUpdateSchema).min(1).max(100).optional(),
+    packagingAssignments: z.array(PackagingAssignmentInputSchema).max(500).optional(),
     orderDiscount: ReasonedDiscountInputSchema.optional(),
   })
   .strict()
   .superRefine((input, context) => {
-    if (!input.items && !input.addItems && !input.itemUpdates && input.orderDiscount === undefined) {
+    if (!input.items && !input.addItems && !input.itemUpdates && input.packagingAssignments === undefined && input.orderDiscount === undefined) {
       context.addIssue({ code: "custom", message: "At least one order change is required." });
     }
     if (input.items && (input.addItems || input.itemUpdates)) {
@@ -597,6 +630,12 @@ export const UpdateOrderRequestSchema = z
       if (!item.clientRef) return;
       if (clientRefs.has(item.clientRef)) context.addIssue({ code: "custom", path: [input.items ? "items" : "addItems", index, "clientRef"], message: "A request item reference can appear only once." });
       clientRefs.add(item.clientRef);
+    });
+    const assignmentKeys = new Set<string>();
+    input.packagingAssignments?.forEach((assignment, index) => {
+      const key = `${JSON.stringify(assignment.packagingItem)}:${JSON.stringify(assignment.productItem)}`;
+      if (assignmentKeys.has(key)) context.addIssue({ code: "custom", path: ["packagingAssignments", index], message: "A packaging item can reference an order item only once." });
+      assignmentKeys.add(key);
     });
   });
 
@@ -693,7 +732,7 @@ export const AdminProductReorderInputSchema = z.object({ productIds: z.array(z.u
 export const AdminOptionGroupInputSchema = z.object({ name: AdminNameSchema, isActive: z.boolean().optional() }).strict();
 export const AdminOptionInputSchema = z.object({ name: AdminNameSchema, priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), isAvailable: z.boolean().optional() }).strict();
 export const AdminTableInputSchema = z.object({ name: AdminNameSchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean().optional(), waiterCallEnabled: z.boolean().optional() }).strict();
-export const AdminStaffInputSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/), password: z.string().min(12).max(128) }).strict();
+export const AdminStaffInputSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/), password: z.string().min(12).max(128), role: z.enum(["STAFF", "CASHIER"]).default("STAFF") }).strict();
 export const AdminStaffUpdateSchema = z.object({ username: z.string().regex(/^[a-z0-9._-]{3,64}$/).optional(), password: z.string().min(12).max(128).optional() }).strict().refine((input) => input.username !== undefined || input.password !== undefined);
 export const AdminSettingsUpdateSchema = z.object({ tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable(), settlementReversalReasonRequired: z.boolean().optional() }).strict();
 export const AdminIdPathSchema = z.object({ id: z.uuid() });
@@ -706,7 +745,7 @@ export const AdminProductSchema = z.object({ id: z.uuid(), categoryId: z.uuid(),
 export const AdminOptionSchema = z.object({ id: z.uuid(), name: z.string(), priceAmount: AdminMoneySchema, displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), isAvailable: z.boolean(), archivedAt: z.iso.datetime().nullable() });
 export const AdminOptionGroupSchema = z.object({ id: z.uuid(), name: z.string(), isActive: z.boolean(), options: z.array(AdminOptionSchema) });
 export const AdminTableSchema = z.object({ id: z.uuid(), name: z.string(), displayOrder: AdminDisplayOrderSchema, isActive: z.boolean(), waiterCallEnabled: z.boolean(), archivedAt: z.iso.datetime().nullable() });
-export const AdminStaffSchema = z.object({ id: z.uuid(), username: z.string(), role: z.literal("STAFF"), isActive: z.boolean(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
+export const AdminStaffSchema = z.object({ id: z.uuid(), username: z.string(), role: z.enum(["STAFF", "CASHIER"]), isActive: z.boolean(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
 export const AdminSettingsSchema = z.object({ id: z.uuid(), tableSeatingLimitMinutes: TableSeatingLimitMinutesSchema.nullable(), settlementReversalReasonRequired: z.boolean(), inventoryActivatedAt: z.iso.datetime().nullable(), updatedAt: z.iso.datetime() });
 export const AdminImageResponseSchema = z.object({ data: AdminProductImageSchema, meta: AdminMetaSchema });
 export const AdminImageArchiveResponseSchema = z.object({ data: z.object({ productId: z.uuid() }), meta: AdminMetaSchema });
@@ -978,6 +1017,10 @@ export const StockItemSchema = z.object({
 
 export const StockItemsResponseSchema = z.object({
   data: z.object({ stockItems: z.array(StockItemSchema) }),
+  meta: z.object({ requestId: z.string() }),
+});
+export const InventoryStatusResponseSchema = z.object({
+  data: z.object({ turnoverEnabled: z.boolean() }),
   meta: z.object({ requestId: z.string() }),
 });
 export const StockItemResponseSchema = z.object({ data: StockItemSchema, meta: z.object({ requestId: z.string() }) });
