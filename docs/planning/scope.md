@@ -45,16 +45,26 @@ pending-consumption work. Only orders created after turnover is enabled are
 eligible for stock deductions; earlier orders are never backfilled. Details are
 in `inventory-costing.md`.
 Packaging stock can be mapped per product to takeaway sales. Cost previews and
-gross-profit reports include packaging cost only for takeaway. The café does not
-charge a separate packaging fee, so the system must not report packaging revenue
-or recovery. Packaging can depend on the product quantity in an order; separate
-takeaway ingredient recipes can include named reusable preparations such as a
-wrapped cookie.
+gross-profit reports include packaging cost only for takeaway. The cashier can
+also add catalog `PACKING` products while initializing an order and assign each
+packaging line to the products it contains. Each selected takeaway product unit
+gets exactly one package unit, while other units may remain unpackaged. A
+packaging line's quantity equals the total quantity assigned to that line, and
+the assigned quantity across packaging lines cannot exceed the menu item's
+quantity. The packaging product's catalog price is included in the order total.
+While editing an open order, staff can reopen an editable packaging line in this
+panel, adjust its per-item quantities, and remove it by reducing its
+assignments to zero. Assignments tied to settled or inventory-recognized items
+remain unchanged.
+Packaging stock cost remains in product COGS. The separate packaging recovery
+report, fee attribution, and packaging price-experiment targets remain retired.
+Packaging can depend on product quantity; separate takeaway ingredient recipes
+can include named reusable preparations such as a wrapped cookie.
 
 | Area           | Baseline decision                                                                                                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Business scope | One café and one branch. Multi-tenant SaaS behavior is outside v1.                                                                                                                                                                     |
-| Roles          | Manager, Cashier, Staff, and Developer use one POS application. Cashier inherits Manager capabilities except ingredient final-cost visibility in recipe editing and cost previews, and access to accounting, sales, and gross-margin reports. Developer has all Manager capabilities plus exclusive access to inventory overview, sales-channel, peak/contribution, gross-profit, and pricing-experiment views. Manager and Cashier cannot access those five analysis views. |
+| Roles          | Manager, Cashier, Staff, and Developer use one POS application. Cashier inherits Manager capabilities except ingredient final-cost visibility in recipe editing and cost previews, accounting/sales/gross-margin reports, and the Settings workspace. Developer has all Manager capabilities plus exclusive access to inventory overview, sales-channel, peak/contribution, gross-profit, and pricing-experiment views. Manager and Cashier cannot access those five analysis views. |
 | Customers      | Customers browse the generic menu anonymously. A table-scoped QR credential asks for a phone number on first use and creates a short table visit that authorizes only a waiter-call; OTP verification is intentionally deferred to a later phase. When Staff, Manager, or Developer explicitly holds an eligible table occupied, that table alone may temporarily bypass customer phone collection for its current QR context; returning it to available clears the bypass. Collected phones are unverified and must not be used for marketing until OTP/consent work is added. There are no order, payment, tracking, loyalty, or marketing capabilities. |
 | Currency       | Every amount is an integer count of **Toman**. Floating-point money is forbidden. Verified terminal-boundary conversion is allowed only under ADR 0012; accounting remains integer Toman.                                                                                                                                |
 | Time           | Store timestamps in UTC. Display timestamps and calculate calendar-day reports in `Asia/Tehran`.                                                                                                                                       |
@@ -97,7 +107,7 @@ acceptance gates are tracked in [`current-left.md`](../current-left.md).
 
 ## Actors, Permissions, And Workflows
 
-The POS has four roles. Staff, Manager, Cashier, and Developer use the same operational table dashboard. Cashier receives Manager capabilities except ingredient final-cost inspection and financial or sales reporting. Developer receives all Manager capabilities and five additional inventory analysis views. This is not a separate application or a second implementation of POS business rules.
+The POS has four roles. Staff, Manager, Cashier, and Developer use the same operational table dashboard. Cashier receives Manager capabilities except ingredient final-cost inspection, the Settings workspace, and financial or sales reporting. Developer receives all Manager capabilities and five additional inventory analysis views. This is not a separate application or a second implementation of POS business rules.
 
 | Capability                                                                  | Staff | Manager | Developer |
 | --------------------------------------------------------------------------- | :---: | :-----: | :-------: |
@@ -121,6 +131,12 @@ The POS has four roles. Staff, Manager, Cashier, and Developer use the same oper
 | View full audit history                                                      |  No   |   Yes   |  Yes  |
 | Correct or reverse a settlement                                             |  Yes  |   Yes   |  Yes  |
 | Change whether settlement reversals require a reason                         |  No   |   Yes   |  Yes  |
+
+The Settings workspace, including café settings, table configuration, account
+administration, and audit history, is available only to Managers and Developers.
+Manager account administration can create either a Staff or Cashier POS account.
+Both account types appear in the existing account list and can be updated,
+deactivated, and reactivated without changing their assigned role.
 
 Developer receives every Manager workspace and capability, including orders, catalog, payments, accounting, settings, staff administration, audit, and inventory operations. Developer additionally has exclusive access to نمای کلی, فروش کانال‌ها, اوج و مشارکت, سود ناخالص, and آزمایش قیمت‌گذاری in the inventory workspace. Manager retains the inventory management sections but cannot open those five views in the interface; dedicated analysis-report and pricing-experiment API routes enforce the role boundary server-side. Authorization is enforced by routes and service methods, not only by hiding buttons.
 
@@ -403,12 +419,14 @@ The guiding principle is simple: finish and verify the authoritative backend fir
 
 [ADR 0012](../adr/0012-sep-ssp1126-local-bridge.md) approves the optional single-terminal Windows bridge, authenticated attempts/results, durable recovery, and audited reconciliation. It remains disabled until browser and financial safety gates pass. Pending or unknown dispatched attempts cannot trigger another charge, post an unverified settlement, close an order, or release its table. Manual/cash/split workflows remain available subject to unresolved-attempt guards. Deployment and real payments require separate explicit authorization.
 
-## POS packaging product assignments — withdrawn 18 November 2026
+## POS packaging product assignments — restored 19 November 2026
 
-The 18 November 2026 follow-up established that the café does not charge a
-separate packaging fee. The assignment workspace, order-level assignment data,
-fee revenue attribution, recovery report, and packaging price experiment targets
-are therefore retired. Existing `PACKING` catalog records and historical orders
-remain for audit, while those products are archived from new sales. Takeaway
-packaging material remains part of the affected product's COGS and inventory
-recipe configuration.
+Restore the cashier's order-time packaging chooser from local POS release
+`cafe-20261118-4666e31`, with one package unit for every takeaway menu-product
+unit. Selecting one of two units assigns one package, and selecting both
+assigns two. A packaging line may cover multiple menu-product lines, but its
+quantity must equal the sum of assigned units. The API rejects over-assignment
+and package-line quantities that disagree with assignment totals. Keep the
+separate packaging recovery report, fee attribution, and packaging
+price-experiment targets retired. Product-based takeaway packaging mappings
+continue to determine material COGS and inventory use.
