@@ -54,7 +54,6 @@ export function InventoryOverview({
   const active = items.filter((item) => item.isActive && !item.archivedAt);
   const empty = active.filter(emptyInventoryItem);
   const low = active.filter(lowInventoryItem);
-  const attention = active.filter(item => emptyInventoryItem(item) || lowInventoryItem(item) || !item.balance.trackingStartedAt);
   const uninitialized = active.filter(
     (item) => !item.balance.trackingStartedAt || item.balance.quantityOnHand === null,
   );
@@ -129,60 +128,6 @@ export function InventoryOverview({
       <div className="inventory-overview-columns">
         <section className="manager-card">
           <header>
-            <h2><AlertIcon /> هشدارهای موجودی</h2>
-            <p>حد هشدار اختیاری مدیر، موجودی صفر و مقادیر ثبت‌نشده.</p>
-          </header>
-          {active.length === 0 ? (
-            <div className="inventory-empty">
-              <strong>هنوز کالایی در انبار ثبت نشده است</strong>
-              <p>ابتدا کالا و موجودی آغازین آن را ثبت کنید.</p>
-              <button className="primary-button" type="button" onClick={() => onNavigate("stock")}>
-                افزودن کالای انبار
-              </button>
-            </div>
-          ) : (
-            <>
-              <ul className="inventory-attention-list">
-                {attention.slice(0, 6).map((item) => (
-                  <li key={item.id}>
-                    <strong>{item.name}</strong>
-                    <span className="inventory-status inventory-status--warning">
-                      {emptyInventoryItem(item) ? "موجودی صفر" : lowInventoryItem(item) ? "کمبود موجودی" : "مقدار آغازین ثبت نشده"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {attention.length > 6 && (
-                <p className="inventory-result-count">
-                  نمایش ۶ مورد از {inventoryNumber(attention.length)} قلم نیازمند
-                  رسیدگی
-                </p>
-              )}
-              {attention.length === 0 && (
-                <p className="inventory-empty">
-                  هیچ قلمی در حد هشدار، با موجودی صفر یا مقدار آغازین ثبت‌نشده وجود ندارد.
-                </p>
-              )}
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => onNavigate("stock")}
-              >
-                بررسی اقلام موجودی
-              </button>
-            </>
-          )}
-          {pending.length > 0 && (
-            <p className="inventory-note">
-              {pendingCount} سفارش در انتظار کسر موجودی است.{" "}
-              <button className="text-button" type="button" onClick={() => onNavigate("history")}>
-                بررسی سفارش‌ها
-              </button>
-            </p>
-          )}
-        </section>
-        <section className="manager-card">
-          <header>
             <h2><ClockIcon /> آخرین تغییرهای موجودی</h2>
             <p>شش تغییر اخیر؛ شامل موجودی آغازین، خرید، شمارش و مصرف.</p>
           </header>
@@ -237,5 +182,55 @@ export function InventoryOverview({
         </section>
       </div></div>
     </div>
+  );
+}
+
+export function InventoryStockAlerts({
+  items,
+  pending,
+  pendingHasMore = false,
+  onNavigate,
+}: {
+  items: InventoryStockItem[];
+  pending: PendingInventoryConsumption[];
+  pendingHasMore?: boolean;
+  onNavigate: (view: "stock" | "purchases" | "history" | "recipes") => void;
+}) {
+  const active = items.filter((item) => item.isActive && !item.archivedAt);
+  const attention = active.filter(item => emptyInventoryItem(item) || lowInventoryItem(item) || !item.balance.trackingStartedAt);
+  const pendingCount = `${pendingHasMore ? "دست‌کم " : ""}${inventoryNumber(pending.length)}`;
+  return (
+    <section className="inventory-stock-alerts" aria-labelledby="inventory-stock-alerts-title">
+      <header>
+        <h3 id="inventory-stock-alerts-title"><AlertIcon /> هشدارهای موجودی</h3>
+        <p>حد هشدار اختیاری مدیر، موجودی صفر و مقادیر ثبت‌نشده.</p>
+      </header>
+      {active.length === 0 ? (
+        <div className="inventory-empty">
+          <strong>هنوز کالایی در انبار ثبت نشده است</strong>
+          <p>ابتدا کالا و موجودی آغازین آن را ثبت کنید.</p>
+          <button className="primary-button" type="button" onClick={() => onNavigate("stock")}>
+            افزودن کالای انبار
+          </button>
+        </div>
+      ) : (
+        <>
+          <ul className="inventory-attention-list">
+            {attention.slice(0, 6).map((item) => (
+              <li key={item.id}>
+                <strong>{item.name}</strong>
+                <span className="inventory-status inventory-status--warning">
+                  {emptyInventoryItem(item) ? "موجودی صفر" : lowInventoryItem(item) ? "کمبود موجودی" : "مقدار آغازین ثبت نشده"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {attention.length > 6 && <p className="inventory-result-count">نمایش ۶ مورد از {inventoryNumber(attention.length)} قلم نیازمند رسیدگی</p>}
+          {attention.length === 0 && <p className="inventory-empty">هیچ قلمی در حد هشدار، با موجودی صفر یا مقدار آغازین ثبت‌نشده وجود ندارد.</p>}
+          <button className="secondary-button" type="button" onClick={() => onNavigate("stock")}>بررسی اقلام موجودی</button>
+        </>
+      )}
+      {pending.length > 0 && <p className="inventory-note">{pendingCount} سفارش در انتظار کسر موجودی است.{" "}<button className="text-button" type="button" onClick={() => onNavigate("history")}>بررسی سفارش‌ها</button></p>}
+    </section>
   );
 }
