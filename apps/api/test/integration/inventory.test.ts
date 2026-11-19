@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
+import { Client } from "pg";
 import { UserRole } from "../../generated/prisma/client.js";
 import {
   GrossProfitReportResponseSchema,
@@ -64,7 +65,210 @@ async function settleAmount(staff: Record<string, string>, order: any, amount: n
   return app.inject({ method: "POST", url: `/api/v1/orders/${order.id}/record-settlement`, cookies: staff, headers: { "idempotency-key": key }, payload: { expectedVersion: order.version, allocationMode: "AMOUNT", amount, payments: [{ method: "CASH", amount }] } });
 }
 
+async function withOverlappingRequests<T>(
+  holdLock: (client: Client) => Promise<unknown>,
+  first: () => Promise<T>,
+  second: () => Promise<T>,
+) {
+  const client = new Client({ connectionString: process.env.TEST_DATABASE_URL });
+  const requests: Promise<T>[] = [];
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+    const pid = rows[0]!.pid;
+    await holdLock(client);
+
+    // Wait for actual PostgreSQL lock contention before starting each next step.
+    const expectBlocked = async (count: number) => {
+      await expect.poll(async () => {
+        const result = await client.query(`
+          WITH RECURSIVE blocked(pid) AS (
+            SELECT $1::integer
+            UNION
+            SELECT waiting.pid FROM pg_locks AS waiting
+            JOIN blocked ON blocked.pid = ANY(pg_blocking_pids(waiting.pid))
+            WHERE NOT waiting.granted
+          )
+          SELECT pid FROM blocked WHERE pid <> $1
+        `, [pid]);
+        return result.rowCount;
+      }, { interval: 15, timeout: 2_000 }).toBe(count);
+    };
+    requests.push(first());
+    await expectBlocked(1);
+    requests.push(second());
+    await expectBlocked(2);
+  } finally {
+    await client.end(); // Release the test lock and let both requests finish.
+    await Promise.allSettled(requests);
+  }
+  return Promise.all([requests[0]!, requests[1]!]);
+}
+
+async function purchaseToPost(manager: Record<string, string>, stockItemId: string, quantity: string, cost: number, key: string) {
+  const draft = await app.inject({
+    method: "POST", url: "/api/v1/admin/inventory/purchases", cookies: manager,
+    payload: { receivedAt: new Date().toISOString(), lines: [{ stockItemId, conversionId: null, purchaseUnitLabel: "GRAM", purchaseQuantity: quantity, directCostAmount: cost }] },
+  });
+  expect(draft.statusCode, draft.body).toBe(201);
+  return () => app.inject({
+    method: "POST", url: `/api/v1/admin/inventory/purchases/${draft.json().data.id}/post`, cookies: manager,
+    headers: { "idempotency-key": key }, payload: { expectedVersion: 1 },
+  });
+}
+
 describe("inventory costing and settlement integration", () => {
+  it("fully settles both concurrent checkouts when shared stock can cover only one", async () => {
+    const manager = await session(UserRole.MANAGER, "concurrent-checkout.manager");
+    const staff = await session(UserRole.STAFF, "concurrent-checkout.staff");
+    const product = await productFixture("Concurrent checkout latte");
+    const stockItemId = await stockFixture(manager, "Concurrent checkout beans", "100", 10_000);
+    await recipeFixture(manager, product.id, stockItemId);
+    const firstOrder = await orderFixture(staff, product.id, 1, "concurrent-checkout-order-one");
+    const secondOrder = await orderFixture(staff, product.id, 1, "concurrent-checkout-order-two");
+
+    const [first, second] = await withOverlappingRequests(
+      (client) => client.query('SELECT 1 FROM inventory_balances WHERE "stockItemId" = $1 FOR NO KEY UPDATE', [stockItemId]),
+      () => settleAmount(staff, firstOrder, 1_000, "concurrent-checkout-settlement-one"),
+      () => settleAmount(staff, secondOrder, 1_000, "concurrent-checkout-settlement-two"),
+    );
+    for (const response of [first, second]) {
+      expect(response.statusCode, response.body).toBe(201);
+      expect(response.json().data).toMatchObject({ paymentStatus: "PAID", state: "CLOSED" });
+    }
+    const posted = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: firstOrder.id } });
+    const pending = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: secondOrder.id } });
+    expect(posted.status).toBe("POSTED");
+    expect(pending.status).toBe("PENDING");
+    const movements = await app.prisma.inventoryMovement.findMany({ where: { stockItemId, kind: "ORDER_CONSUMPTION" } });
+    expect(movements).toMatchObject([{ orderConsumptionId: posted.id, valueDeltaAmount: -8_000 }]);
+    expect(movements[0]?.quantityDelta.toString()).toBe("-80");
+    const balance = await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } });
+    expect(balance.quantityOnHand.toString()).toBe("20");
+    expect(balance.carryingValueAmount).toBe(2_000);
+  });
+
+  it("preserves both a checkout deduction and a concurrent settlement reversal on the same stock", async () => {
+    const manager = await session(UserRole.MANAGER, "concurrent-reversal.manager");
+    const staff = await session(UserRole.STAFF, "concurrent-reversal.staff");
+    const product = await productFixture("Concurrent reversal cappuccino");
+    const stockItemId = await stockFixture(manager, "Concurrent reversal beans", "200", 20_000);
+    await recipeFixture(manager, product.id, stockItemId);
+    const paidOrder = await orderFixture(staff, product.id, 1, "concurrent-reversal-paid-order");
+    const paid = await settleAmount(staff, paidOrder, 1_000, "concurrent-reversal-paid-settlement");
+    expect(paid.statusCode, paid.body).toBe(201);
+    const { version, settlements: [settlement] } = paid.json().data;
+    const nextOrder = await orderFixture(staff, product.id, 1, "concurrent-reversal-new-order");
+
+    const [checkout, reversal] = await withOverlappingRequests(
+      (client) => client.query('SELECT 1 FROM inventory_balances WHERE "stockItemId" = $1 FOR NO KEY UPDATE', [stockItemId]),
+      () => settleAmount(staff, nextOrder, 1_000, "concurrent-reversal-new-settlement"),
+      () => app.inject({ method: "POST", url: `/api/v1/admin/settlements/${settlement.id}/reverse`, cookies: manager, payload: { expectedVersion: version } }),
+    );
+    expect(checkout.statusCode, checkout.body).toBe(201);
+    expect(reversal.statusCode, reversal.body).toBe(200);
+    const reversed = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: paidOrder.id } });
+    expect(reversed.status).toBe("CANCELLED");
+    expect(await app.prisma.inventoryMovement.count({ where: { orderConsumptionId: reversed.id, kind: "ORDER_RESTORATION" } })).toBe(1);
+    const balance = await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } });
+    expect(balance.quantityOnHand.toString()).toBe("120");
+    expect(balance.carryingValueAmount).toBe(12_000);
+  });
+
+  it.each([
+    { firstToCommit: "receipt", shouldRestore: true },
+    { firstToCommit: "deletion", shouldRestore: false },
+  ])("keeps stock correct when $firstToCommit commits first for a pending order", async ({ shouldRestore }) => {
+    const manager = await session(UserRole.MANAGER, "concurrent-receipt-delete.manager");
+    const staff = await session(UserRole.STAFF, "concurrent-receipt-delete.staff");
+    const product = await productFixture("Concurrent receipt deletion mocha");
+    const stockItemId = await stockFixture(manager, "Concurrent receipt deletion beans", "50", 5_000);
+    await recipeFixture(manager, product.id, stockItemId);
+    const order = await orderFixture(staff, product.id, 1, "concurrent-receipt-delete-order");
+    const paid = await settleAmount(staff, order, 1_000, "concurrent-receipt-delete-settlement");
+    expect(paid.statusCode, paid.body).toBe(201);
+    const pending = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(pending.status).toBe("PENDING");
+    const postPurchase = await purchaseToPost(manager, stockItemId, "50", 15_000, "concurrent-receipt-delete-purchase");
+    const deleteOrder = () => app.inject({
+      method: "POST", url: `/api/v1/orders/${order.id}/delete`, cookies: staff, payload: { expectedVersion: paid.json().data.version },
+    });
+
+    const [first, second] = await withOverlappingRequests(
+      // Both requests write their audit entries after changing consumption status.
+      (client) => client.query("LOCK TABLE audit_logs IN SHARE MODE"),
+      shouldRestore ? postPurchase : deleteOrder,
+      shouldRestore ? deleteOrder : postPurchase,
+    );
+    const [receipt, deletion] = shouldRestore ? [first, second] : [second, first];
+    expect(receipt.statusCode, receipt.body).toBe(200);
+    expect(deletion.statusCode, deletion.body).toBe(200);
+    expect(deletion.json().data.state).toBe("DELETED");
+    const cancelled = await app.prisma.orderConsumption.findUniqueOrThrow({ where: { id: pending.id } });
+    expect(cancelled.status).toBe("CANCELLED");
+    const movements = await app.prisma.inventoryMovement.findMany({ where: { orderConsumptionId: pending.id }, orderBy: { kind: "asc" } });
+    if (shouldRestore) {
+      expect(movements).toHaveLength(2);
+      const [deduction, restoration] = movements;
+      expect(deduction).toMatchObject({ kind: "ORDER_CONSUMPTION", valueDeltaAmount: -16_000 });
+      expect(restoration).toMatchObject({ kind: "ORDER_RESTORATION", valueDeltaAmount: 16_000, compensatesMovementId: deduction!.id });
+      expect(restoration?.quantityDelta.toString()).toBe("80");
+    } else {
+      expect(movements).toHaveLength(0);
+    }
+    const balance = await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } });
+    expect(balance.quantityOnHand.toString()).toBe("100");
+    expect(balance.carryingValueAmount).toBe(20_000);
+  });
+
+  it("values a checkout using the receipt that commits ahead of its deduction", async () => {
+    const manager = await session(UserRole.MANAGER, "concurrent-receipt-cost.manager");
+    const staff = await session(UserRole.STAFF, "concurrent-receipt-cost.staff");
+    const product = await productFixture("Concurrent receipt costing espresso");
+    const stockItemId = await stockFixture(manager, "Concurrent receipt costing beans", "100", 10_000);
+    await recipeFixture(manager, product.id, stockItemId);
+    const order = await orderFixture(staff, product.id, 1, "concurrent-receipt-cost-order");
+    const postPurchase = await purchaseToPost(manager, stockItemId, "100", 30_000, "concurrent-receipt-cost-purchase");
+
+    const [receipt, checkout] = await withOverlappingRequests(
+      (client) => client.query("LOCK TABLE audit_logs IN SHARE MODE"),
+      postPurchase,
+      () => settleAmount(staff, order, 1_000, "concurrent-receipt-cost-settlement"),
+    );
+    expect(receipt.statusCode, receipt.body).toBe(200);
+    expect(checkout.statusCode, checkout.body).toBe(201);
+    const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(consumption).toMatchObject({ status: "POSTED", theoreticalCogsAmount: 16_000 });
+    const movement = await app.prisma.inventoryMovement.findFirstOrThrow({ where: { orderConsumptionId: consumption.id } });
+    expect(movement.valueDeltaAmount).toBe(-16_000);
+  });
+
+  it("retries a pending checkout that commits while a receipt waits for its ingredient", async () => {
+    const manager = await session(UserRole.MANAGER, "concurrent-shortage-receipt.manager");
+    const staff = await session(UserRole.STAFF, "concurrent-shortage-receipt.staff");
+    const product = await productFixture("Concurrent shortage latte");
+    const stockItemId = await stockFixture(manager, "Concurrent shortage beans", "50", 5_000);
+    await recipeFixture(manager, product.id, stockItemId);
+    const order = await orderFixture(staff, product.id, 1, "concurrent-shortage-receipt-order");
+    const postPurchase = await purchaseToPost(manager, stockItemId, "50", 15_000, "concurrent-shortage-receipt-purchase");
+
+    const [checkout, receipt] = await withOverlappingRequests(
+      (client) => client.query("LOCK TABLE audit_logs IN SHARE MODE"),
+      () => settleAmount(staff, order, 1_000, "concurrent-shortage-receipt-settlement"),
+      postPurchase,
+    );
+    expect(checkout.statusCode, checkout.body).toBe(201);
+    expect(receipt.statusCode, receipt.body).toBe(200);
+    const consumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: order.id } });
+    expect(consumption).toMatchObject({ status: "POSTED", theoreticalCogsAmount: 8_000 });
+    const movements = await app.prisma.inventoryMovement.findMany({ where: { orderConsumptionId: consumption.id } });
+    expect(movements).toMatchObject([{ kind: "ORDER_CONSUMPTION", valueDeltaAmount: -16_000 }]);
+    const balance = await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } });
+    expect(balance.quantityOnHand.toString()).toBe("20");
+    expect(balance.carryingValueAmount).toBe(4_000);
+  });
+
   it("reports revenue-weighted coverage for discounted multi-settlement sales, mixed historical snapshots, and both channels", async () => {
     const manager = await session(UserRole.DEVELOPER, "coverage-weighted.manager");
     const staff = await session(UserRole.STAFF, "coverage-weighted.staff");
