@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as automaticRecovery from "../lib/automatic-recovery";
 import { setRecoveryUser } from "../lib/automatic-recovery";
@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   readManagerCatalog: vi.fn(), readStaffCatalog: vi.fn(), readManagerStaff: vi.fn(), readManagerSettings: vi.fn(),
   readPaymentHistory: vi.fn(), readDailyReport: vi.fn(), readAuditLog: vi.fn(), readOrder: vi.fn(), readOrderList: vi.fn(), readPosTables: vi.fn(),
   readInventoryStockItems: vi.fn(), readInventoryPurchases: vi.fn(), readInventoryRecipes: vi.fn(), readInventoryCounts: vi.fn(), readInventoryMovements: vi.fn(), readPendingInventoryConsumption: vi.fn(), readGrossProfitReport: vi.fn(), readProductCosting: vi.fn(),
+  readInventoryStatus: vi.fn(),
   deleteOpenOrder: vi.fn(), reverseSettlement: vi.fn(),
   archiveCategory: vi.fn(), archiveOption: vi.fn(), archiveProduct: vi.fn(), archiveProductImage: vi.fn(), archiveTable: vi.fn(), deactivateStaff: vi.fn(), reactivateStaff: vi.fn(), saveCategory: vi.fn(), saveOption: vi.fn(), saveOptionGroup: vi.fn(), saveProduct: vi.fn(), saveSettings: vi.fn(), activateInventory: vi.fn(), saveStaff: vi.fn(), saveTable: vi.fn(), uploadProductImage: vi.fn(), reorderCategories: vi.fn(), reorderProducts: vi.fn(),
 }));
@@ -27,6 +28,7 @@ describe("ManagerWorkspace", () => {
     api.readStaffCatalog.mockResolvedValue({ ok: true, data: catalog });
     api.readManagerStaff.mockResolvedValue({ ok: true, data: [] });
     api.readManagerSettings.mockResolvedValue({ ok: true, data: { id: "00000000-0000-4000-8000-000000000001", tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false, inventoryActivatedAt: "2026-10-15T00:00:00.000Z", updatedAt: new Date().toISOString() } });
+    api.readInventoryStatus.mockResolvedValue({ ok: true, data: false });
     api.readPaymentHistory.mockResolvedValue({ ok: true, data: [] });
     api.readPosTables.mockResolvedValue({ ok: true, data: { tableSeatingLimitMinutes: null, tables: [] } });
     api.readOrderList.mockResolvedValue({ ok: true, data: { data: { orders: [] }, meta: { page: { limit: 100, nextCursor: null, hasMore: false } } } });
@@ -70,6 +72,56 @@ describe("ManagerWorkspace", () => {
     expect(api.readDailyReport).not.toHaveBeenCalled();
     expect(api.readAuditLog).not.toHaveBeenCalled();
     expect(screen.queryByRole("heading", { name: "نمای کلی مالی" })).toBeNull();
+  });
+
+  it("denies a direct Cashier Settings route without requesting Settings, accounts, or audit data", async () => {
+    render(<ManagerWorkspace section="settings" role="CASHIER" menuOpen={false} onOpenMenu={vi.fn()} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("این بخش فقط برای مدیر و توسعه‌دهنده در دسترس است.");
+    expect(api.readStaffCatalog).toHaveBeenCalledTimes(1);
+    expect(api.readManagerCatalog).not.toHaveBeenCalled();
+    expect(api.readManagerStaff).not.toHaveBeenCalled();
+    expect(api.readManagerSettings).not.toHaveBeenCalled();
+    expect(api.readAuditLog).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "حساب‌های کارکنان" })).toBeNull();
+  });
+
+  it("shows the real inventory turnover state to Cashier without loading café Settings", async () => {
+    api.readInventoryStatus.mockResolvedValue({ ok: true, data: true });
+    render(<ManagerWorkspace section="inventory" role="CASHIER" menuOpen={false} onOpenMenu={vi.fn()} />);
+    expect(await screen.findByText("گردش موجودی فعال است")).toBeTruthy();
+    expect(api.readInventoryStatus).toHaveBeenCalledTimes(1);
+    expect(api.readStaffCatalog).toHaveBeenCalledTimes(1);
+    expect(api.readManagerCatalog).not.toHaveBeenCalled();
+    expect(api.readManagerStaff).not.toHaveBeenCalled();
+    expect(api.readManagerSettings).not.toHaveBeenCalled();
+  });
+
+  it("creates a Cashier account and shows the role for both account types", async () => {
+    const now = new Date().toISOString();
+    api.readManagerStaff.mockResolvedValue({ ok: true, data: [
+      { id: "staff-account", username: "niloofar", role: "STAFF", isActive: true, createdAt: now, updatedAt: now },
+      { id: "cashier-account", username: "sara.cashier", role: "CASHIER", isActive: true, createdAt: now, updatedAt: now },
+    ] });
+    api.saveStaff.mockResolvedValue({ ok: true });
+    render(<ManagerWorkspace section="settings" role="MANAGER" menuOpen={false} onOpenMenu={vi.fn()} />);
+
+    expect(await screen.findByRole("heading", { name: "حساب‌های کارکنان" })).toBeTruthy();
+    expect(screen.getByText("niloofar")).toBeTruthy();
+    expect(screen.getByText("پرسنل · فعال")).toBeTruthy();
+    expect(screen.getByText("sara.cashier")).toBeTruthy();
+    expect(screen.getByText("صندوقدار · فعال")).toBeTruthy();
+
+    const createForm = screen.getByRole("button", { name: "ساخت حساب" }).closest("form")!;
+    fireEvent.change(within(createForm).getByLabelText("نوع حساب"), { target: { value: "CASHIER" } });
+    fireEvent.change(within(createForm).getByLabelText("نام کاربری"), { target: { value: "new.cashier" } });
+    fireEvent.change(within(createForm).getByLabelText("رمز عبور (حداقل 12 کاراکتر)"), { target: { value: "CafePassword2026" } });
+    fireEvent.submit(createForm);
+
+    await waitFor(() => expect(api.saveStaff).toHaveBeenCalledWith(null, {
+      username: "new.cashier",
+      password: "CafePassword2026",
+      role: "CASHIER",
+    }));
   });
 
   it("saves the settlement reversal reason policy with Manager and Developer access", async () => {
