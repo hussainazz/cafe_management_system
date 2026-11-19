@@ -553,6 +553,82 @@ logs advisory warnings for `output: standalone` and the deprecated `static`
 directory. Direct and public POS smoke routes pass. Authenticated POS-browser,
 café-device, touch, and printer acceptance remains open.
 
+### Full API, contracts, and POS release — 19 November 2026
+
+Released `cafe-20261119-7d01337` from immutable runtime commit
+`7d01337ff5236a80fd9fb505ae9f04af6da3016d`. The artifact SHA-256 is
+`7bbeb7f52af41a9c10b433db2c8f86c7d17890421f6c2dd29f962afb95b5e86a`
+(9,121,181 bytes). The prepared manifest binds the release ID, source commit,
+artifact hash, and POS `BUILD_ID`; its uploaded SHA-256 was
+`2c72f954f61999b72b3ad259226669a92341501e48f6483cdece4067c9d83e2e`. All 377
+manifested files matched their hashes after VPS extraction and again in the
+active runtime. The Debian OpenSSL 3 Prisma engine and generated client load;
+contract imports, Node `v24.21.0`, pnpm `11.0.0`, Next `16.3.8`, the existing
+dependency manifests, and the POS `BUILD_ID` were verified. The runtime archive
+excludes secrets and developer-local product-image uploads.
+
+Before migration, the PostgreSQL 17.11 custom-format pre-release dump
+`/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261119-7d01337.dump`
+passed `pg_restore --list` with 424 entries; SHA-256 is
+`48d7f3c01e61498f1677a348cb8ef8f75a1ee00a4a462988aeb5e6b4990a9353`. The
+coordinated, same-disk code rollback archive
+`/opt/cafe-menu-release-backups/rollback-before-cafe-20261119-7d01337.tar.gz`
+passed tar validation and was extracted to a protected verification directory;
+its saved runtime files matched the active pre-release files byte-for-byte.
+Its SHA-256 is
+`044d1498a4c93de5cb54861bed3d8191b4288bfdf2a622e05c29c807b0c6620b`. Both
+artifacts remain root-private. Runtime rollback is code-only; the database
+stays migrated forward.
+
+The database had 61 applied migrations and no unfinished migration before
+activation. Staged Prisma reported exactly one pending migration:
+`20261119120000_restore_order_packaging_assignments`. The historically recorded
+checksum for `20260918143000_add_pos_only_packing_products` differs from the
+unchanged Git/deployed/staged migration file; the database has
+`b5b5735df52994fe72dae334b28456cafa3bc99078396924a0b5194f80b05506`, while all
+three file copies hash to
+`a78fe2a2b3e9ec093899645d152b3565fce9eeb2721e23d49d199c03215cce28`. No
+existing migration file or production metadata was changed to suppress it.
+Prisma accepted the staged deploy and applied only the reviewed migration.
+Production now reports 62 applied migrations and no unfinished migration; the
+restored composite order-item key exists, the old `products_packing_inactive`
+constraint is absent, and the assignment table exists.
+
+The verified 18 November dump retained exactly eight recoverable packaging
+assignment rows. Before retiring that source dump, the rows were extracted on
+the VPS into the root-private replay input
+`/opt/cafe-menu-release-backups/assignment-recovery-cafe-20261119-7d01337.json`
+(SHA-256
+`aaa2b491da9ceb1a034226abe1d9dace0a67126ef8d11291fd36e480208cfec5`). One SQL
+transaction inserted and checked all eight exact rows before commit. The final
+read-only comparison found eight exact rows and eight valid same-order links,
+zero product over-counts, and the one audited legacy packaging-quantity
+mismatch. The legacy order-line quantity and snapshot were left unchanged.
+The protected replay input is retained with the new full database backup.
+
+The migration restored 16 existing `PACKING` products to active and available
+at their existing 20,000 Toman catalog price; all remain nonpublic and
+unarchived. Four open unpaid orders were present during activation and remain
+stored. No production payment, checkout, print, reset, seed, full-snapshot
+restore, SEP change, service-config change, or environment-file change was
+made. Product-image storage remains at 32 files / 5,759,237 bytes. The image
+directory was never in the upload or copy scope; its post-activation aggregate
+tree SHA-256 is
+`095ef326e10251e3b8f228b7d1f9dd5c20ec765dae5a40e330a2d8ebc6d8366c`.
+
+Activation began at `2026-11-19T12:58:12Z`. The API process started at
+`12:59:48Z` and POS at `13:00:20Z`; API and POS service restarts completed with
+zero `NRestarts`, exit status 0, and active state. Web and Nginx remained active
+and were not restarted. Direct and public API readiness, `/api/public-menu`,
+`/menu`, `/pos`, and `/pos/release` all returned HTTP 200. Direct, web-proxy,
+and public menu APIs each returned 16 categories and 144 products. Local and
+public menu HTML each returned 144 server-rendered product-card nodes. Direct
+and public POS release endpoints report `cafe-20261119-7d01337` with
+`Cache-Control: no-store, max-age=0`. Direct and POS-proxied unauthenticated
+order routes returned HTTP 401. Production journal inspection recorded no
+error-level entries after activation. Authenticated browser, café-device,
+touch, and printer acceptance remains open in `docs/current-left.md`.
+
 ## Decisions Fixed Before Implementation
 
 | Decision              | Fixed default                                                                                                                                       |
