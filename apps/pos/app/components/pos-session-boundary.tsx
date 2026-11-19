@@ -27,6 +27,7 @@ type Workspace = "orders" | "deferred" | "staff-consumption" | ManagerSection;
 function restoredWorkspace(role: AuthenticatedUser["role"]): Workspace {
   const saved = readRecovery<Workspace | "manager">("workspace");
   if (role === "STAFF") return saved === "catalog" || saved === "payments" || saved === "deferred" || saved === "staff-consumption" ? saved : "orders";
+  if (role === "CASHIER" && (saved === "manager" || saved === "settings")) return "orders";
   return saved === "manager" ? "settings" : saved ?? "orders";
 }
 
@@ -244,7 +245,7 @@ export function PosSessionBoundary() {
           </>}
           {(session.user.role === "CASHIER" || session.user.role === "MANAGER" || session.user.role === "DEVELOPER") && <>
             <h2>مدیریت</h2>
-            <button className={`nav-item ${workspace === "settings" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("settings")}><SettingsIcon /><span>تنظیمات</span></button>
+            {(session.user.role === "MANAGER" || session.user.role === "DEVELOPER") && <button className={`nav-item ${workspace === "settings" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("settings")}><SettingsIcon /><span>تنظیمات</span></button>}
             <button className={`nav-item ${workspace === "finance" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("finance")}><AccountingIcon /><span>حسابداری</span></button>
             <button className={`nav-item ${workspace === "catalog" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("catalog")}><CatalogIcon /><span>منو و کالاها</span></button>
             <button className={`nav-item ${workspace === "inventory" ? "is-active" : ""}`} type="button" onClick={() => selectWorkspace("inventory")}><InventoryIcon /><span>انبار</span></button>
