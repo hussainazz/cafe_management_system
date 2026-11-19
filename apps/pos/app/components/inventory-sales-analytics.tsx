@@ -146,7 +146,7 @@ function ProductTrend({ rows, metric, productNames }: { rows: Array<SalesAnalyti
       {[0, 0.5, 1].map((ratio) => { const value = min + span * ratio; return <g key={ratio}><line x1={left} x2={width - right} y1={y(value)} y2={y(value)} className="sales-analytics-gridline" /><text x={left - 5} y={y(value) - 4} textAnchor="end">{faNumber(value)}</text></g>; })}
       {series.map((line, index) => <g key={line.id}><path d={line.values.map((value, point) => value === null ? "" : `${point === 0 || line.values[point - 1] === null ? "M" : "L"}${x(point)},${y(value)}`).filter(Boolean).join(" ")} fill="none" stroke={colors[index]} strokeWidth="2.5" />{line.values.map((value, point) => value === null ? null : <circle key={allDates[point]} cx={x(point)} cy={y(value)} r="3.2" fill={colors[index]}><title>{`${line.name}، ${allDates[point]}: ${faNumber(value)}`}</title></circle>)}</g>)}
     </svg></div>
-    <ul className="sales-analytics-legend">{series.map((line, index) => <li key={line.id}><span style={{ backgroundColor: colors[index] }} />{line.name}</li>)}</ul>
+    <ul className="sales-analytics-legend">{series.map((line, index) => <li key={line.id}><span data-series={index} style={{ backgroundColor: colors[index] }} />{line.name}</li>)}</ul>
     {grouped.size > 5 && <p className="inventory-note">۵ سری با بیشترین مقدار در نمودار دیده می‌شوند. فهرست محصول‌ها و واریانت‌ها در فیلترها قابل محدودکردن است.</p>}
   </div>;
 }
