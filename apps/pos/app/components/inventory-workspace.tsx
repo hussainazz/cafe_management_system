@@ -1,7 +1,7 @@
 "use client";
 import { InventoryPreparations } from "./inventory-preparations";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent, ReactNode } from "react";
 import { useRecoveryState } from "../lib/automatic-recovery";
 import {
@@ -35,9 +35,10 @@ import {
   type ProductCostingConfiguration,
   type ProductCostingPreview,
 } from "../lib/api-client";
-import { currentPersianDateInput, persianDateToGregorianDate } from "../lib/tehran-date";
+import { currentPersianDateInput, normalizeDigits, persianDateToGregorianDate } from "../lib/tehran-date";
 import { formatToman } from "../lib/pos-utils";
 import { inventoryErrorMessage } from "../lib/inventory-errors";
+import { InventoryNumberInput, InventorySearchPicker, inventorySearchMatches } from "./inventory-fields";
 import { InventoryStockDetail } from "./inventory-stock-detail";
 import { InventoryEmptyState, InventoryOnboarding, type InventoryManagementView } from "./inventory-onboarding";
 import { InventoryIcon, RefreshIcon } from "./icons";
@@ -45,7 +46,7 @@ import { InventoryProfitPanel } from "./inventory-profit";
 import { InventorySalesChannelsPanel } from "./inventory-sales-channels";
 import { InventorySalesAnalytics } from "./inventory-sales-analytics";
 import { InventoryPricingExperiments } from "./inventory-pricing-experiments";
-import { InventoryOverview } from "./inventory-dashboard";
+import { InventoryOverview, InventoryStockAlerts } from "./inventory-dashboard";
 import { emptyInventoryItem, lowInventoryItem, inventoryAmountTotal, inventoryNumber, inventoryQuantity, inventoryUnitLabels as unitLabels, inventoryMovementLabels as movementLabels } from "./inventory-presentation";
 
 type View = "overview" | "profit" | "sales" | "analytics" | "pricing-experiments" | "stock" | "purchases" | "preparations" | "recipes" | "counts" | "history";
@@ -90,7 +91,7 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "M
   const [recipes, setRecipes] = useState<InventoryRecipe[]>([]);
   const [pending, setPending] = useState<PendingInventoryConsumption[]>([]);
   const [pendingHasMore, setPendingHasMore] = useState(false);
-  const [historyRefreshVersion, setHistoryRefreshVersion] = useState(0);
+  const [inventoryRefreshVersion, setInventoryRefreshVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +135,7 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "M
     if (results[0]!.ok) setStockItems(results[0]!.data.data.stockItems);
     if (results[1]!.ok) setRecipes(results[1]!.data.data.recipes);
     if (results[2]!.ok) { setPending(results[2]!.data.data.consumptions); setPendingHasMore(results[2]!.data.meta?.page?.hasMore ?? false); }
-    setHistoryRefreshVersion((current) => current + 1);
+    setInventoryRefreshVersion((current) => current + 1);
     const dependencies: Partial<Record<View, number[]>> = { purchases: [0], overview: [0, 2], stock: [0], recipes: [0, 1], preparations: [0, 1], counts: [0, 2], history: [0, 2] };
     const failures: Partial<Record<View, string>> = {};
     for (const [panel, indices] of Object.entries(dependencies)) {
@@ -209,19 +210,19 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "M
         {activeView === "sales" && <InventorySalesChannelsPanel />}
         {activeView === "analytics" && <InventorySalesAnalytics catalog={catalog} />}
         {activeView === "pricing-experiments" && <InventoryPricingExperiments catalog={catalog} onDirtyChange={markDirty} />}
-        {activeView === "stock" && !readErrors.stock && <StockPanel initialSelectedId={stockSelection} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} />}
-        {activeView === "purchases" && !readErrors.purchases && <PurchasePanel onNavigate={navigate} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
+        {activeView === "stock" && !readErrors.stock && <StockPanel initialSelectedId={stockSelection} onDirtyChange={markDirty} items={stockItems} pending={pending} pendingHasMore={pendingHasMore} onNavigate={navigate} mutate={mutate} confirm={openConfirm} />}
+        {activeView === "purchases" && !readErrors.purchases && <PurchasePanel refreshVersion={inventoryRefreshVersion} onNavigate={navigate} onDirtyChange={markDirty} items={stockItems} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
         {activeView === "preparations" && !readErrors.preparations && <InventoryPreparations onOpenStock={() => navigate("stock")} items={stockItems} recipes={recipes} mutate={mutate} onDirtyChange={markDirty} />}
         {activeView === "recipes" && !readErrors.recipes && <ProductOptionRecipePanel canViewCosts={role !== "CASHIER"} onOpenStock={() => navigate("stock")} {...(costingProductSelection ? { initialProductId: costingProductSelection } : {})} onDirtyChange={markDirty} catalog={catalog} items={stockItems} recipes={recipes} mutate={mutate} />}
-        {activeView === "counts" && !readErrors.counts && <CountPanel onOpenStock={() => navigate("stock")} onDirtyChange={markDirty} items={stockItems} pending={pending} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
-        {activeView === "history" && !readErrors.history && <HistoryPanel pending={pending} items={stockItems} refreshVersion={historyRefreshVersion} />}
+        {activeView === "counts" && !readErrors.counts && <CountPanel refreshVersion={inventoryRefreshVersion} onOpenStock={() => navigate("stock")} onDirtyChange={markDirty} items={stockItems} pending={pending} mutate={mutate} confirm={openConfirm} keyFor={idempotencyKey} clearKey={clearIdempotencyKey} />}
+        {activeView === "history" && !readErrors.history && <HistoryPanel pending={pending} items={stockItems} refreshVersion={inventoryRefreshVersion} />}
       </div>}
       {confirm && <div className="manager-dialog-backdrop" role="presentation"><section className="manager-dialog" role="alertdialog" aria-modal="true" aria-labelledby="inventory-confirm-title" aria-describedby="inventory-confirm-detail" onKeyDown={handleConfirmKeyDown}><h2 id="inventory-confirm-title">{confirm.title}</h2><p id="inventory-confirm-detail">{confirm.detail}</p>{confirm.summary && <ul className="inventory-confirm-summary">{confirm.summary.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)}</ul>}{error && <p className="form-error" role="alert">{error}</p>}<div className="inventory-actions"><button className={confirm.danger ? "danger-button" : undefined} type="button" disabled={busy} onClick={() => { void confirm.run().then((ok) => { if (ok) closeConfirm(); }); }}>{confirm.actionLabel}</button><button ref={confirmCancelRef} className="secondary-button" type="button" disabled={busy} onClick={closeConfirm}>بازگشت</button></div></section></div>}
     </section>
   );
 }
 
-function StockPanel({ initialSelectedId, onDirtyChange, items, mutate, confirm }: { initialSelectedId: string | null; items: InventoryStockItem[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void } & DraftGuardProps) {
+function StockPanel({ initialSelectedId, onDirtyChange, items, pending, pendingHasMore, onNavigate, mutate, confirm }: { initialSelectedId: string | null; items: InventoryStockItem[]; pending: PendingInventoryConsumption[]; pendingHasMore: boolean; onNavigate: (view: InventoryManagementView) => void; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void } & DraftGuardProps) {
   const [dirty, setDirty] = useInventoryDraftGuard(onDirtyChange);
   const activeItems = items.filter((item) => item.isActive && !item.archivedAt);
   const [search, setSearch] = useState("");
@@ -231,7 +232,7 @@ function StockPanel({ initialSelectedId, onDirtyChange, items, mutate, confirm }
   const selected = activeItems.find(item => item.id === selectedId);
   const [threshold, setThreshold] = useState("");
   const [isPackagingMaterial, setIsPackagingMaterial] = useState(false);
-  const shownItems = activeItems.filter((item) => item.name.includes(search.trim()) && (!unit || item.baseUnit === unit) && (!stockStatus || (stockStatus === "low" ? lowInventoryItem(item) : stockStatus === "empty" ? emptyInventoryItem(item) : stockStatus === "untracked" ? !item.balance.trackingStartedAt : !!item.balance.trackingStartedAt && !emptyInventoryItem(item))));
+  const shownItems = activeItems.filter((item) => inventorySearchMatches(item.name, search) && (!unit || item.baseUnit === unit) && (!stockStatus || (stockStatus === "low" ? lowInventoryItem(item) : stockStatus === "empty" ? emptyInventoryItem(item) : stockStatus === "untracked" ? !item.balance.trackingStartedAt : !!item.balance.trackingStartedAt && !emptyInventoryItem(item))));
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<InventoryStockItem | null>(null);
   const [name, setName] = useState("");
@@ -270,25 +271,26 @@ function StockPanel({ initialSelectedId, onDirtyChange, items, mutate, confirm }
           <label><span>نام کالا</span><input ref={nameInputRef} required value={name} onChange={(event) => setName(event.target.value)} /></label>
           <div className="inventory-stock-units">
             <label><span>واحد مبنا</span><select value={baseUnit} onChange={(event) => { const nextUnit = event.target.value as Unit; setBaseUnit(nextUnit); setPiecePackQuantity(""); if (!editing) setConversions(nextUnit === "GRAM" ? [{ label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }] : nextUnit === "MILLILITER" ? [{ label: "لیتر", baseQuantityPerPack: "1000", isActive: true }] : []); }}>{Object.entries(unitLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-            {baseUnit === "PIECE" && <label><span>تعداد در هر بسته (عدد)</span><input inputMode="decimal" value={piecePackQuantity} onChange={(event) => setPiecePackQuantity(event.target.value)} placeholder="مثلاً ۲۴" /></label>}
+            {baseUnit === "PIECE" && <label><span>تعداد در هر بسته (عدد)</span><InventoryNumberInput value={piecePackQuantity} onValueChange={(value) => setPiecePackQuantity(value)} placeholder="مثلاً ۲۴" /></label>}
           </div>
         </div>
-        {(!editing || !editing.balance.trackingStartedAt) && <div className="manager-fields"><label><span>مقدار آغازین ({unitLabels[baseUnit]})</span><input required inputMode="decimal" value={openingQuantity} onChange={(event) => setOpeningQuantity(event.target.value)} /></label><label><span>ارزش موجودی آغازین (تومان)</span><input required type="number" min="0" step="1" value={openingValueAmount} onChange={(event) => setOpeningValueAmount(event.target.value)} /></label></div>}
+        {(!editing || !editing.balance.trackingStartedAt) && <div className="manager-fields"><label><span>مقدار آغازین ({unitLabels[baseUnit]})</span><InventoryNumberInput required value={openingQuantity} onValueChange={(value) => setOpeningQuantity(value)} /></label><label><span>ارزش موجودی آغازین (تومان)</span><InventoryNumberInput required integer value={openingValueAmount} onValueChange={(value) => setOpeningValueAmount(value)} /></label></div>}
         {baseUnit !== "PIECE" && <fieldset><legend>تبدیل واحد بسته‌بندی</legend>
           {conversions.map((conversion, index) => <div className="inventory-entry-row" key={conversion.id ?? index}>
             <label><span>نام بسته‌بندی</span><input value={conversion.label} onChange={(event) => setConversions((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, label: event.target.value } : row))} placeholder="مثلاً کیلوگرم" /></label>
-            <label><span>مقدار هر بسته به {unitLabels[baseUnit]}</span><input inputMode="decimal" value={conversion.baseQuantityPerPack} onChange={(event) => setConversions((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, baseQuantityPerPack: event.target.value } : row))} placeholder="1000" /></label>
+            <label><span>مقدار هر بسته به {unitLabels[baseUnit]}</span><InventoryNumberInput value={conversion.baseQuantityPerPack} onValueChange={(value) => setConversions((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, baseQuantityPerPack: value } : row))} placeholder="1000" /></label>
             <button className="text-button" type="button" onClick={() => { setDirty(true); setConversions((current) => current.filter((_, rowIndex) => rowIndex !== index)); }}>حذف تبدیل</button>
           </div>)}
           <button className="secondary-button" type="button" onClick={() => { setDirty(true); setConversions((current) => [...current, { label: "", baseQuantityPerPack: "", isActive: true }]); }}>افزودن تبدیل</button>
         </fieldset>}
         <label><span><input type="checkbox" checked={isPackagingMaterial} onChange={(event) => setIsPackagingMaterial(event.target.checked)} /> این کالا بسته‌بندی است</span><small>هزینه‌ی این کالا در دستورهای تهیه، برای گزارش هزینه‌ی بسته‌بندی جداگانه ثبت می‌شود. این تغییر روی سفارش‌های گذشته اثر ندارد.</small></label>
-        <label><span>حد هشدار موجودی ({unitLabels[baseUnit]}) · اختیاری</span><input aria-label={`حد هشدار موجودی (${unitLabels[baseUnit]}) · اختیاری`} aria-describedby="stock-threshold-hint" inputMode="decimal" value={threshold} onChange={event => setThreshold(event.target.value)} placeholder="بدون هشدار" /><small id="stock-threshold-hint">خالی بگذارید تا هشدار کمبود غیرفعال باشد؛ موجودی برابر یا کمتر از این عدد هشدار می‌گیرد.</small></label>
+        <label><span>حد هشدار موجودی ({unitLabels[baseUnit]}) · اختیاری</span><InventoryNumberInput aria-label={`حد هشدار موجودی (${unitLabels[baseUnit]}) · اختیاری`} aria-describedby="stock-threshold-hint" value={threshold} onValueChange={value => setThreshold(value)} placeholder="بدون هشدار" /><small id="stock-threshold-hint">خالی بگذارید تا هشدار کمبود غیرفعال باشد؛ موجودی برابر یا کمتر از این عدد هشدار می‌گیرد.</small></label>
         {localError && <p className="form-error" role="alert">{localError}</p>}
         <div className="inventory-actions"><button type="submit">{editing ? "ذخیره تغییرات" : "ثبت کالا"}</button>{editing && <button className="secondary-button" type="button" onClick={reset}>انصراف از ویرایش</button>}</div>
       </form>
     </ManagerCard>}
     <ManagerCard title="اقلام موجودی" hint="موجودی آغازین در زمان ثبت کالا مشخص می‌شود؛ رسیدهای خرید و شمارش‌های فیزیکی آن را به‌روز می‌کنند.">
+      <InventoryStockAlerts items={items} pending={pending} pendingHasMore={pendingHasMore} onNavigate={onNavigate} />
       <div className="inventory-toolbar">
         <label><span>جست‌وجوی کالا</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="نام ماده یا کالای انبار" /></label>
         <label><span>وضعیت موجودی</span><select value={stockStatus} onChange={(event) => setStockStatus(event.target.value)}><option value="">همه‌ی وضعیت‌ها</option><option value="available">دارای موجودی</option><option value="low">در حد هشدار مدیر</option><option value="empty">موجودی صفر</option><option value="untracked">مقدار آغازین ثبت نشده</option></select></label>
@@ -308,7 +310,7 @@ function StockPanel({ initialSelectedId, onDirtyChange, items, mutate, confirm }
   </div>;
 }
 
-function PurchasePanel({ onNavigate, onDirtyChange, items, mutate, confirm, keyFor, clearKey }: { onNavigate: (view: InventoryManagementView) => void; items: InventoryStockItem[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void; keyFor: (name: string) => string; clearKey: (name: string) => void } & DraftGuardProps) {
+function PurchasePanel({ refreshVersion, onNavigate, onDirtyChange, items, mutate, confirm, keyFor, clearKey }: { refreshVersion: number; onNavigate: (view: InventoryManagementView) => void; items: InventoryStockItem[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void; keyFor: (name: string) => string; clearKey: (name: string) => void } & DraftGuardProps) {
   const [returnDirty, setReturnDirty] = useState(false);
   const [dirty, setDirty] = useInventoryDraftGuard(onDirtyChange, returnDirty);
   const activeItems = items.filter((item) => item.isActive && !item.archivedAt);
@@ -318,12 +320,15 @@ function PurchasePanel({ onNavigate, onDirtyChange, items, mutate, confirm, keyF
   const [previousCursors, setPreviousCursors] = useState<Array<string | null>>([]);
   const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [retryVersion, setRetryVersion] = useState(0);
   const currentPersianDate = currentPersianDateInput();
   const [filters, setFilters] = useState({ search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" });
   const [appliedFilters, setAppliedFilters] = useState({ search: "", from: "", to: "", status: "" });
   const [filterError, setFilterError] = useState<string | null>(null);
-  const emptyLine = (): PurchaseLineDraft => { const item = activeItems[0]; return { stockItemId: item?.id ?? "", conversionId: "", purchaseUnitLabel: item?.baseUnit ?? "", purchaseQuantity: "1", directCostAmount: "0" }; };
+  const emptyLine = (): PurchaseLineDraft => {
+    const item = activeItems.length === 1 ? activeItems[0] : undefined;
+    return { stockItemId: item?.id ?? "", conversionId: "", purchaseUnitLabel: item?.baseUnit ?? "", purchaseQuantity: "1", directCostAmount: "0" };
+  };
   const purchaseFormRef = useRef<HTMLFormElement>(null);
   const hasFilters = !!(appliedFilters.search || appliedFilters.from || appliedFilters.to || appliedFilters.status || cursor);
   const clearFilters = () => { setFilters({ search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" }); setAppliedFilters({ search: "", from: "", to: "", status: "" }); setFilterError(null); setCursor(null); setPreviousCursors([]); };
@@ -348,10 +353,10 @@ function PurchasePanel({ onNavigate, onDirtyChange, items, mutate, confirm, keyF
       setPageLoading(false);
     });
     return () => { current = false; };
-  }, [appliedFilters, cursor, page.limit, refreshVersion]);
+  }, [appliedFilters, cursor, page.limit, refreshVersion, retryVersion]);
   const mutateAndReload = async (action: () => Promise<ApiResult<unknown>>) => {
     const ok = await mutate(action);
-    if (ok) { setCursor(null); setPreviousCursors([]); setRefreshVersion((current) => current + 1); }
+    if (ok) { setCursor(null); setPreviousCursors([]); }
     return ok;
   };
   const applyFilters = (event: FormEvent) => {
@@ -376,6 +381,8 @@ function PurchasePanel({ onNavigate, onDirtyChange, items, mutate, confirm, keyF
   };
   const startEditPurchase = (purchase: InventoryPurchase) => {
     if (dirty && !window.confirm("تغییرات خرید ذخیره نشده است. پیش‌نویس دیگری را باز می‌کنید؟")) return; setDirty(false);
+    setLocalError(null);
+    requestAnimationFrame(() => purchaseFormRef.current?.querySelector("input")?.focus());
     setEditingPurchase(purchase); setReceivedAt(localDateTime(new Date(purchase.receivedAt))); setSupplier(purchase.supplier ?? "");
     setLines(purchase.lines.map((line) => ({ stockItemId: line.stockItemId, conversionId: line.conversionId ?? "", purchaseUnitLabel: line.purchaseUnitLabel, purchaseQuantity: line.purchaseQuantity, directCostAmount: String(line.directCostAmount) })));
   };
@@ -389,18 +396,18 @@ function PurchasePanel({ onNavigate, onDirtyChange, items, mutate, confirm, keyF
   };
   return <div className="manager-grid inventory-purchase-layout">
     <ManagerCard title={editingPurchase ? "ویرایش پیش‌نویس خرید" : "پیش‌نویس خرید"} hint="ابتدا خرید را به‌صورت پیش‌نویس ذخیره کنید. پس از بررسی ردیف‌ها، «ثبت رسید در موجودی» مقدار و ارزش موجودی را به‌روز می‌کند.">
-      {activeItems.length === 0 ? <InventoryEmptyState title="ابتدا کالای خرید را تعریف کنید" detail="برای ثبت خرید، ابتدا یک قلم فعال به موجودی اضافه کنید." action="تعریف کالای خرید" onAction={() => onNavigate("stock")} /> : <form ref={purchaseFormRef} className="manager-form" onChangeCapture={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
+      {activeItems.length === 0 ? <InventoryEmptyState title="ابتدا کالای خرید را تعریف کنید" detail="برای ثبت خرید، ابتدا یک قلم فعال به موجودی اضافه کنید." action="تعریف کالای خرید" onAction={() => onNavigate("stock")} /> : <form ref={purchaseFormRef} className="manager-form" onChange={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
         {localError && <p className="form-error" role="alert">{localError}</p>}
         <div className="manager-fields"><label><span>زمان دریافت</span><input type="datetime-local" value={receivedAt} onChange={(event) => setReceivedAt(event.target.value)} required /></label><label><span>تأمین‌کننده (اختیاری)</span><input value={supplier} onChange={(event) => setSupplier(event.target.value)} /></label></div>
         {lines.map((line, index) => <div className="inventory-entry-row inventory-purchase-line" key={index}>
-          <label><span>کالا</span><select value={line.stockItemId} onChange={(event) => changeStock(index, event.target.value)}>{activeItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <InventorySearchPicker label="کالا" options={activeItems} value={line.stockItemId} onChange={(id) => { setDirty(true); changeStock(index, id); }} placeholder="جست‌وجوی کالا" required />
           <label><span>واحد خرید</span><select value={line.conversionId} onChange={(event) => { const selected = unitsFor(line).find((unit) => unit.id === event.target.value); setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, conversionId: selected?.id ?? "", purchaseUnitLabel: selected?.label ?? "" } : row)); }}>{unitsFor(line).map((unit) => <option key={`${unit.id}-${unit.label}`} value={unit.id}>{unit.title}</option>)}</select></label>
-          <label><span>مقدار خرید ({unitsFor(line).find((unit) => unit.id === line.conversionId)?.title ?? "واحد انتخابی"})</span><input required inputMode="decimal" value={line.purchaseQuantity} onChange={(event) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, purchaseQuantity: event.target.value } : row))} /></label>
-          <label><span>هزینه‌ی مستقیم (تومان)</span><input required type="number" min="0" aria-describedby="purchase-cost-help" value={line.directCostAmount} onChange={(event) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, directCostAmount: event.target.value } : row))} /></label>
+          <label><span>مقدار خرید ({unitsFor(line).find((unit) => unit.id === line.conversionId)?.title ?? "واحد انتخابی"})</span><InventoryNumberInput required value={line.purchaseQuantity} onValueChange={(value) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, purchaseQuantity: value } : row))} /></label>
+          <label><span>هزینه‌ی مستقیم (تومان)</span><InventoryNumberInput required integer aria-describedby="purchase-cost-help" value={line.directCostAmount} onValueChange={(value) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, directCostAmount: value } : row))} /></label>
           {lines.length > 1 && <button className="text-button" type="button" onClick={() => { setDirty(true); setLines((current) => current.filter((_, rowIndex) => rowIndex !== index)); }}>حذف ردیف</button>}
         </div>)}
         <p className="inventory-note" id="purchase-cost-help">هزینه‌ی مستقیم، مبلغ کل همان ردیف است؛ مثلاً برای ۲ کیلوگرم قهوه، هزینه‌ی هر ۲ کیلوگرم را وارد کنید.</p>
-        <p className="inventory-invoice-total"><span>جمع هزینه‌ی مستقیم (تومان)</span><strong>{draftTotal === null ? "مبلغ ردیف‌ها را بررسی کنید" : inventoryNumber(formatToman(draftTotal))}</strong></p>
+        <p className="inventory-invoice-total"><span>جمع هزینه‌ی مستقیم (تومان)</span><strong>{draftTotal === null ? "مبلغ ردیف‌ها را بررسی کنید" : <bdi>{inventoryQuantity(String(draftTotal))}</bdi>}</strong></p>
         <div className="inventory-actions"><button className="secondary-button" type="button" onClick={() => { setDirty(true); setLines((current) => [...current, emptyLine()]); }}>افزودن ردیف کالا</button><button type="submit">{editingPurchase ? "ذخیره پیش‌نویس" : "ایجاد پیش‌نویس خرید"}</button>{editingPurchase && <button className="secondary-button" type="button" onClick={resetPurchase}>انصراف از ویرایش</button>}</div>
       </form>}
     </ManagerCard>
@@ -418,19 +425,19 @@ function PurchasePanel({ onNavigate, onDirtyChange, items, mutate, confirm, keyF
         <div className="inventory-actions"><button type="submit">اعمال فیلترها</button><button className="secondary-button" type="button" onClick={clearFilters}>پاک‌کردن فیلترها</button></div>
       </form>
       <p className="inventory-table-hint">برای دیدن همه‌ی ستون‌ها، جدول را به طرفین بکشید.</p>
-      {pageError && <p className="form-error" role="alert">{pageError}</p>}
-      {pageLoading ? <p className="manager-empty" role="status">در حال بارگذاری خریدها…</p> : <div className="inventory-table-wrap" role="region" aria-label="جدول خریدها" tabIndex={0}><table className="inventory-table inventory-purchase-table"><thead><tr><th scope="col">تأمین‌کننده / دریافت</th><th scope="col">اقلام</th><th scope="col">هزینه‌ی مستقیم (تومان)</th><th scope="col">وضعیت</th><th scope="col">عملیات و جزئیات</th></tr></thead><tbody>{purchases.map((purchase) => <tr key={purchase.id}>
+      {pageError && <p className="form-error" role="alert">{pageError} <button type="button" onClick={() => setRetryVersion((current) => current + 1)}>بارگذاری دوباره</button></p>}
+      {pageLoading ? <p className="manager-empty" role="status">در حال بارگذاری خریدها…</p> : !pageError && <div className="inventory-table-wrap" role="region" aria-label="جدول خریدها" tabIndex={0}><table className="inventory-table inventory-purchase-table"><thead><tr><th scope="col">تأمین‌کننده / دریافت</th><th scope="col">اقلام</th><th scope="col">هزینه‌ی مستقیم (تومان)</th><th scope="col">وضعیت</th><th scope="col">عملیات و جزئیات</th></tr></thead><tbody>{purchases.map((purchase) => <tr key={purchase.id}>
         <th scope="row">{purchase.supplier || "بدون نام تأمین‌کننده"}<small className="inventory-cell-note">{new Date(purchase.receivedAt).toLocaleString("fa-IR", { timeZone: "Asia/Tehran", dateStyle: "short", timeStyle: "short" })}</small></th>
         <td>{inventoryNumber(purchase.lines.length)} قلم</td><td><bdi>{inventoryAmountTotal(purchase.lines.map((line) => line.directCostAmount)) === null ? "خارج از محدوده‌ی نمایش" : inventoryNumber(formatToman(inventoryAmountTotal(purchase.lines.map((line) => line.directCostAmount))!))}</bdi></td><td><span className={`inventory-status${purchase.status === "POSTED" ? " inventory-status--success" : ""}`}>{purchase.status === "POSTED" ? "رسید ثبت‌شده" : "پیش‌نویس"}</span></td>
         <td><details className="inventory-purchase-details" open={returning?.purchase.id === purchase.id || undefined}><summary>اقلام خرید</summary><ul>{purchase.lines.map((line) => <li key={line.id}>{items.find((item) => item.id === line.stockItemId)?.name ?? "قلم بایگانی‌شده"}: {inventoryQuantity(line.baseQuantityReceived)} {unitLabels[(items.find((item) => item.id === line.stockItemId)?.baseUnit ?? "PIECE") as Unit]}، {inventoryNumber(formatToman(line.directCostAmount))} تومان</li>)}</ul></details>
         <div className="inventory-actions">{purchase.status === "DRAFT" ? <><button className="secondary-button" type="button" onClick={() => startEditPurchase(purchase)}>ویرایش پیش‌نویس</button><button type="button" onClick={() => confirm({ title: "بررسی رسید خرید", detail: "با ثبت رسید، مقدار و ارزش موجودی بر اساس این ردیف‌ها به‌روز می‌شود.", summary: [...purchase.lines.map((line) => { const item = items.find((entry) => entry.id === line.stockItemId); return `${item?.name ?? "قلم بایگانی‌شده"}: ${line.baseQuantityReceived} ${unitLabels[(item?.baseUnit ?? "PIECE") as Unit]}، ${formatToman(line.directCostAmount)}`; }), `جمع هزینه‌ی مستقیم: ${formatToman(purchase.lines.reduce((total, line) => total + line.directCostAmount, 0))}`], actionLabel: "ثبت رسید در موجودی", run: () => { const key = `purchase:post:${purchase.id}`; return mutateAndReload(async () => { const result = await postInventoryPurchase(purchase.id, purchase.version, keyFor(key)); if (result.ok) clearKey(key); return result; }); } })}>ثبت رسید در موجودی</button></> : <button className="secondary-button" type="button" onClick={() => { const line = purchase.lines[0]; if (line) { setReturning({ purchase, lineId: line.id }); setReturnQuantity(""); setReturnReason(""); } }}>ثبت برگشت خرید</button>}</div>
-        {returning?.purchase.id === purchase.id && <form className="inventory-return-form" onChangeCapture={() => setReturnDirty(true)} onSubmit={(event) => { event.preventDefault(); const key = `purchase:return:${purchase.id}:${returning.lineId}`; void mutateAndReload(async () => { const result = await returnInventoryPurchase(purchase.id, { purchaseLineId: returning.lineId, baseQuantity: returnQuantity, occurredAt: new Date().toISOString(), reason: returnReason }, keyFor(key)); if (result.ok) { clearKey(key); setReturning(null); setReturnDirty(false); } return result; }); }}><label><span>ردیف خرید</span><select value={returning.lineId} onChange={(event) => { setReturning({ purchase, lineId: event.target.value }); setReturnQuantity(""); }}>{purchase.lines.map((line) => <option key={line.id} value={line.id}>{items.find((item) => item.id === line.stockItemId)?.name ?? "کالا"} · {line.baseQuantityReceived} {unitLabels[(items.find((item) => item.id === line.stockItemId)?.baseUnit ?? "PIECE") as Unit]}</option>)}</select></label><p>مقدار مرجوعی را با واحد مبنا وارد کنید.</p><label><span>مقدار برگشتی</span><input required inputMode="decimal" value={returnQuantity} onChange={(event) => setReturnQuantity(event.target.value)} /></label><label><span>دلیل</span><input required value={returnReason} onChange={(event) => setReturnReason(event.target.value)} /></label><div className="inventory-actions"><button type="submit">ثبت مرجوعی</button><button className="secondary-button" type="button" onClick={() => { setReturning(null); setReturnDirty(false); }}>انصراف</button></div></form>}
+        {returning?.purchase.id === purchase.id && <form className="inventory-return-form" onChangeCapture={() => setReturnDirty(true)} onSubmit={(event) => { event.preventDefault(); const key = `purchase:return:${purchase.id}:${returning.lineId}`; void mutateAndReload(async () => { const result = await returnInventoryPurchase(purchase.id, { purchaseLineId: returning.lineId, baseQuantity: returnQuantity, occurredAt: new Date().toISOString(), reason: returnReason }, keyFor(key)); if (result.ok) { clearKey(key); setReturning(null); setReturnDirty(false); } return result; }); }}><label><span>ردیف خرید</span><select value={returning.lineId} onChange={(event) => { setReturning({ purchase, lineId: event.target.value }); setReturnQuantity(""); }}>{purchase.lines.map((line) => <option key={line.id} value={line.id}>{items.find((item) => item.id === line.stockItemId)?.name ?? "کالا"} · {line.baseQuantityReceived} {unitLabels[(items.find((item) => item.id === line.stockItemId)?.baseUnit ?? "PIECE") as Unit]}</option>)}</select></label><p>مقدار مرجوعی را با واحد مبنا وارد کنید.</p><label><span>مقدار برگشتی</span><InventoryNumberInput required value={returnQuantity} onValueChange={(value) => setReturnQuantity(value)} /></label><label><span>دلیل</span><input required value={returnReason} onChange={(event) => setReturnReason(event.target.value)} /></label><div className="inventory-actions"><button type="submit">ثبت مرجوعی</button><button className="secondary-button" type="button" onClick={() => { setReturning(null); setReturnDirty(false); }}>انصراف</button></div></form>}
       </td></tr>)}</tbody></table></div>}
       {!pageLoading && !pageError && purchases.length === 0 && <InventoryEmptyState title={hasFilters ? "خریدی با این فیلترها پیدا نشد." : "هنوز خریدی ثبت نشده است"} detail={hasFilters ? "فیلترها را پاک کنید تا همه‌ی خریدها و پیش‌نویس‌ها نمایش داده شوند." : "اولین خرید را پیش‌نویس کنید. پس از بررسی ردیف‌ها، با ثبت رسید، موجودی به‌روز می‌شود."} action={hasFilters ? "نمایش همه‌ی خریدها" : activeItems.length ? "شروع پیش‌نویس خرید" : "افزودن کالا برای اولین خرید"} onAction={() => { if (hasFilters) clearFilters(); else if (!activeItems.length) onNavigate("stock"); else purchaseFormRef.current?.querySelector<HTMLInputElement>("input")?.focus(); }} />}
       <div className="inventory-actions inventory-history-pagination">
-        <button className="secondary-button" type="button" disabled={pageLoading || previousCursors.length === 0} onClick={() => { const previous = previousCursors[previousCursors.length - 1] ?? null; setPreviousCursors((current) => current.slice(0, -1)); setCursor(previous); }}>صفحه‌ی قبل</button>
+        <button className="secondary-button" type="button" disabled={pageLoading || !!pageError || previousCursors.length === 0} onClick={() => { const previous = previousCursors[previousCursors.length - 1] ?? null; setPreviousCursors((current) => current.slice(0, -1)); setCursor(previous); }}>صفحه‌ی قبل</button>
         <span>صفحه‌ی {previousCursors.length + 1}</span>
-        <button className="secondary-button" type="button" disabled={pageLoading || !page.hasMore || !page.nextCursor} onClick={() => { if (!page.nextCursor) return; setPreviousCursors((current) => [...current, cursor]); setCursor(page.nextCursor); }}>صفحه‌ی بعد</button>
+        <button className="secondary-button" type="button" disabled={pageLoading || !!pageError || !page.hasMore || !page.nextCursor} onClick={() => { if (!page.nextCursor) return; setPreviousCursors((current) => [...current, cursor]); setCursor(page.nextCursor); }}>صفحه‌ی بعد</button>
       </div>
     </ManagerCard>
   </div>;
@@ -443,6 +450,7 @@ type ServedAlongsideDraft = { key: string; sourceKind: "STOCK_ITEM" | "RECIPE"; 
 function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, recipes, mutate, initialProductId, canViewCosts = true }: { onOpenStock: () => void; catalog: ManagerCatalog; items: InventoryStockItem[]; recipes: InventoryRecipe[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; initialProductId?: string; canViewCosts?: boolean } & DraftGuardProps) {
   const activeProducts = catalog.products.filter((product) => product.isActive && !product.archivedAt);
   const [productSearch, setProductSearch] = useState("");
+  const matchingProducts = activeProducts.filter((item) => inventorySearchMatches(item.name, productSearch));
   const [dirty, setDirty] = useInventoryDraftGuard(onDirtyChange);
   const [saved, setSaved] = useState(false);
   const selectProduct = (id: string) => { if (id === productId) return; if (dirty && !window.confirm("تغییرات دستور تهیه ذخیره نشده است. بدون ذخیره به محصول دیگری می‌روید؟")) return; setProductId(id); setDirty(false); setSaved(false); };
@@ -527,8 +535,13 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
   const changeEntry = (optionId: string, patch: Partial<MenuOptionRecipeDraft>, channel = "TABLE") => { setDirty(true); setSaved(false); invalidatePreview(); (channel === "TAKEAWAY" ? setTakeawayEntries : setEntries)((current) => current.map((entry) => entry.optionId === optionId ? { ...entry, ...patch } : entry)); };
   const changeIngredient = (optionId: string, index: number, patch: Partial<OptionIngredientDraft>, channel = "TABLE") => { setDirty(true); setSaved(false); invalidatePreview(); (channel === "TAKEAWAY" ? setTakeawayEntries : setEntries)((current) => current.map((entry) => entry.optionId === optionId ? { ...entry, components: entry.components.map((component, i) => i === index ? { ...component, ...patch } : component) } : entry)); };
   const changeServedAlongside = (index: number, patch: Partial<ServedAlongsideDraft>) => { setDirty(true); setSaved(false); invalidatePreview(); setServedAlongside((current) => current.map((entry, i) => i === index ? { ...entry, ...patch } : entry)); };
+  const validPreviewNumber = (value: string) => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0;
   const runOptionPreview = async (entry: MenuOptionRecipeDraft) => {
     if (!product || previewInFlight.current || dirty) return;
+    if (!validPreviewNumber(previewQuantity) || (product.pricingMode === "WEIGHTED_PER_KG" && !validPreviewNumber(weightGrams))) {
+      setError("تعداد و وزن هر واحد را به‌صورت عدد صحیح بزرگ‌تر از صفر وارد کنید.");
+      return;
+    }
     const version = ++previewVersion.current;
     previewInFlight.current = true;
     setPreviewing(true);
@@ -586,9 +599,9 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
     });
   };
 
-  return <div className="inventory-recipe-layout"><aside className="manager-card inventory-product-picker" aria-label="انتخاب محصول برای دستور تهیه"><header><h2>محصولات منو</h2><p>محصول را انتخاب کنید و مواد هر گزینه را تنظیم کنید.</p></header><label><span>جست‌وجوی محصول منو</span><input type="search" value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="نام محصول" /></label><div className="inventory-product-list">{activeProducts.filter((item) => item.name.includes(productSearch.trim())).map((item) => <button className="secondary-button" type="button" key={item.id} aria-pressed={item.id === productId} onClick={() => selectProduct(item.id)}>{item.name}<small>{item.pricingMode === "WEIGHTED_PER_KG" ? "وزنی" : "واحدی"}</small></button>)}{activeProducts.length > 0 && !activeProducts.some((item) => item.name.includes(productSearch.trim())) && <p className="inventory-empty">محصولی با این نام پیدا نشد.</p>}</div></aside><ManagerCard title="دستور تهیه و هزینه" hint="محصول منو را انتخاب کنید و مواد لازم برای هر گزینه‌ی منو را ثبت کنید.">
+  return <div className="inventory-recipe-layout"><aside className="manager-card inventory-product-picker" aria-label="انتخاب محصول برای دستور تهیه"><header><h2>محصولات منو</h2><p>محصول را انتخاب کنید و مواد هر گزینه را تنظیم کنید.</p></header><label><span>جست‌وجوی محصول منو</span><input type="search" value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="نام محصول" /></label><div className="inventory-product-list">{matchingProducts.map((item) => <button className="secondary-button" type="button" key={item.id} aria-pressed={item.id === productId} onClick={() => selectProduct(item.id)}>{item.name}<small>{item.pricingMode === "WEIGHTED_PER_KG" ? "وزنی" : "واحدی"}</small></button>)}{activeProducts.length > 0 && matchingProducts.length === 0 && <p className="inventory-empty">محصولی با این نام پیدا نشد.</p>}</div></aside><ManagerCard title="دستور تهیه و هزینه" hint="محصول منو را انتخاب کنید و مواد لازم برای هر گزینه‌ی منو را ثبت کنید.">
+    {activeProducts.length > 0 && <div className="inventory-compact-product-picker"><InventorySearchPicker label="محصول منو" options={activeProducts} value={productId} onChange={selectProduct} placeholder="جست‌وجوی محصول منو" /></div>}
     {activeProducts.length === 0 ? <InventoryEmptyState title="محصول فعالی برای دستور تهیه وجود ندارد" detail="برای شروع، ابتدا یک محصول فعال در بخش مدیریت منو بسازید. سپس به این صفحه برگردید و مواد مصرفی آن را مشخص کنید." /> : !product && initialProductId ? <p className="inventory-note" role="status">محصول تاریخی انتخاب‌شده دیگر فعال نیست؛ برای دیدن هزینه‌ی فعلی، محصول فعالی را از فهرست انتخاب کنید.</p> : <>
-      <div className="manager-fields inventory-compact-product-picker"><label><span>محصول منو</span><select value={productId} onChange={(event) => selectProduct(event.target.value)}>{activeProducts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
       {!items.some((item) => item.isActive && !item.archivedAt) && <InventoryEmptyState title="کالای فعالی در انبار نیست" detail="برای افزودن ماده‌ی اولیه، آن را در اقلام موجودی تعریف کنید. دستورهای مشترک ذخیره‌شده نیز از فهرست نوع ماده قابل انتخاب‌اند." action="تعریف مواد اولیه در انبار" onAction={onOpenStock} />}
       {dirty && <p className="inventory-note" role="status">تغییرات ذخیره نشده است. پس از تکمیل مواد، دستور تهیه را ذخیره کنید.</p>}{saved && <p className="inventory-success" role="status">دستور تهیه ذخیره شد.</p>}
       {loadingConfig ? <p className="manager-empty">در حال بارگذاری گزینه‌های منو…</p> : <>
@@ -604,8 +617,8 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
             const sourceUnit = component.sourceKind === "STOCK_ITEM" ? items.find((item) => item.id === component.sourceId)?.baseUnit : recipes.find((recipe) => recipe.id === component.sourceId)?.outputUnit;
             return <div className="inventory-entry-row" key={component.componentKey}>
               <label><span>نوع ماده</span><select value={component.sourceKind} onChange={(event) => { const sourceKind = event.target.value as OptionIngredientDraft["sourceKind"]; const sourceId = sourceKind === "STOCK_ITEM" ? items.find((item) => item.isActive && !item.archivedAt)?.id ?? "" : recipes.find((recipe) => recipe.isActive && !recipe.archivedAt && recipe.id !== entry.recipeId)?.id ?? ""; changeIngredient(entry.optionId, index, { sourceKind, sourceId }, entry.channel); }}><option value="STOCK_ITEM">قلم موجودی</option><option value="RECIPE">دستور تهیه‌ی موجود</option></select></label>
-              <label><span>{component.sourceKind === "STOCK_ITEM" ? "قلم موجودی" : "دستور تهیه"}</span><SearchableSourcePicker options={sourceItems.map((source) => ({ id: source.id, name: source.name }))} value={component.sourceId} onChange={(sourceId) => changeIngredient(entry.optionId, index, { sourceId }, entry.channel)} placeholder={component.sourceKind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور تهیه"} /></label>
-              <label><span>مقدار{sourceUnit ? ` (${unitLabels[sourceUnit as Unit]})` : ""}</span><input required inputMode="decimal" value={component.quantity} placeholder={sourceUnit ? `مقدار به ${unitLabels[sourceUnit as Unit]}` : "مقدار"} onChange={(event) => changeIngredient(entry.optionId, index, { quantity: event.target.value }, entry.channel)} /></label>
+              <InventorySearchPicker label={component.sourceKind === "STOCK_ITEM" ? "قلم موجودی" : "دستور تهیه"} options={sourceItems.map((source) => ({ id: source.id, name: source.name }))} value={component.sourceId} onChange={(sourceId) => changeIngredient(entry.optionId, index, { sourceId }, entry.channel)} placeholder={component.sourceKind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور تهیه"} required />
+              <label><span>مقدار{sourceUnit ? ` (${unitLabels[sourceUnit as Unit]})` : ""}</span><InventoryNumberInput required value={component.quantity} placeholder={sourceUnit ? `مقدار به ${unitLabels[sourceUnit as Unit]}` : "مقدار"} onValueChange={(value) => changeIngredient(entry.optionId, index, { quantity: value }, entry.channel)} /></label>
               {entry.components.length > 1 && <button className="text-button" type="button" onClick={() => changeEntry(entry.optionId, { components: entry.components.filter((_, i) => i !== index) }, entry.channel)}>حذف ماده</button>}
             </div>;
           })}
@@ -629,8 +642,8 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
                   : recipes.find((recipe) => recipe.isActive && !recipe.archivedAt)?.id ?? "";
                 changeServedAlongside(index, { sourceKind, sourceId });
               }}><option value="STOCK_ITEM">قلم موجودی</option><option value="RECIPE">دستور تهیه‌ی موجود</option></select></label>
-              <label><span>{entry.sourceKind === "STOCK_ITEM" ? "قلم افزودنی" : "دستور افزودنی"}</span><SearchableSourcePicker options={sources.map((source) => ({ id: source.id, name: source.name }))} value={entry.sourceId} onChange={(sourceId) => changeServedAlongside(index, { sourceId })} placeholder={entry.sourceKind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور تهیه"} /></label>
-              <label><span>مقدار برای هر واحد{sourceUnit ? ` (${unitLabels[sourceUnit as Unit]})` : ""}</span><input required inputMode="decimal" value={entry.quantity} placeholder={sourceUnit ? `مقدار به ${unitLabels[sourceUnit as Unit]}` : "مقدار"} onChange={(event) => changeServedAlongside(index, { quantity: event.target.value })} /></label>
+              <InventorySearchPicker label={entry.sourceKind === "STOCK_ITEM" ? "قلم افزودنی" : "دستور افزودنی"} options={sources.map((source) => ({ id: source.id, name: source.name }))} value={entry.sourceId} onChange={(sourceId) => changeServedAlongside(index, { sourceId })} placeholder={entry.sourceKind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور تهیه"} required />
+              <label><span>مقدار برای هر واحد{sourceUnit ? ` (${unitLabels[sourceUnit as Unit]})` : ""}</span><InventoryNumberInput required value={entry.quantity} placeholder={sourceUnit ? `مقدار به ${unitLabels[sourceUnit as Unit]}` : "مقدار"} onValueChange={(value) => changeServedAlongside(index, { quantity: value })} /></label>
               <button className="text-button" type="button" onClick={() => { setServedAlongside((current) => current.filter((_, i) => i !== index)); setDirty(true); setSaved(false); invalidatePreview(); }}>حذف افزودنی {index + 1}</button>
             </div>;
           })}
@@ -644,11 +657,12 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
           <legend>بسته‌بندی بیرون‌بر</legend>
           <p className="inventory-note">لیوان، ظرف یا هولدر را ابتدا در اقلام موجودی ثبت کنید. مقدار هر قلم برای یک واحد فروش است؛ برای محصول وزنی هم به تعداد واحدها محاسبه می‌شود. این هزینه فقط به سفارش بیرون‌بر اضافه می‌شود. گروه کامل با جمع تعداد همین محصول در سفارش محاسبه می‌شود؛ گروه ناقص بسته‌بندی نمی‌گیرد. حداقل و حداکثر اختیاری هستند.</p>
           {packaging.map((entry, index) => <div className="inventory-entry-row" key={index}>
-            <label><span>قلم بسته‌بندی {index + 1}</span><select required value={entry.stockItemId} onChange={(event) => changePackaging(packaging.map((row, i) => i === index ? { ...row, stockItemId: event.target.value } : row))}>
-              <option value="">انتخاب قلم</option>
-              {items.filter((item) => (item.isActive && !item.archivedAt) || item.id === entry.stockItemId).map((item) => <option key={item.id} value={item.id}>{item.name}{!item.isActive || item.archivedAt ? " (بایگانی‌شده)" : ""}</option>)}
-            </select></label>
-            <label><span>مقدار بسته‌بندی {index + 1} ({unitLabels[(items.find((item) => item.id === entry.stockItemId)?.baseUnit ?? "PIECE") as Unit]})</span><input required inputMode="decimal" value={entry.quantity} onChange={(event) => changePackaging(packaging.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row))} /></label>
+            <InventorySearchPicker label={`قلم بسته‌بندی ${index + 1}`}
+              options={items.filter((item) => (item.isActive && !item.archivedAt) || item.id === entry.stockItemId)
+                .map((item) => ({ id: item.id, name: item.isActive && !item.archivedAt ? item.name : `${item.name} (بایگانی‌شده)` }))}
+              value={entry.stockItemId} onChange={(id) => changePackaging(packaging.map((row, i) => i === index ? { ...row, stockItemId: id } : row))}
+              placeholder="جست‌وجوی قلم بسته‌بندی" required />
+            <label><span>مقدار بسته‌بندی {index + 1} ({unitLabels[(items.find((item) => item.id === entry.stockItemId)?.baseUnit ?? "PIECE") as Unit]})</span><InventoryNumberInput required value={entry.quantity} onValueChange={(value) => changePackaging(packaging.map((row, i) => i === index ? { ...row, quantity: value } : row))} /></label>
             <label><span>روش محاسبه‌ی بسته‌بندی {index + 1}</span><select value={entry.mode ?? "PER_UNIT"} onChange={(event) => changePackaging(packaging.map((row, i) => { if (i !== index) return row; const { groupSize, ...rest } = row; return { ...rest, mode: event.target.value as "PER_UNIT" | "PER_GROUP" | "PER_ORDER", ...(event.target.value === "PER_GROUP" ? { groupSize: 2 } : {}) }; }))}><option value="PER_UNIT">برای هر واحد محصول</option><option value="PER_GROUP">برای هر گروه کامل</option><option value="PER_ORDER">یک بار برای محصول در سفارش</option></select></label>
             {entry.mode === "PER_GROUP" && <label><span>تعداد واحد در هر گروه {index + 1}</span><input required type="number" min="2" max="10000" value={entry.groupSize ?? 2} onChange={(event) => changePackaging(packaging.map((row, i) => i === index ? { ...row, groupSize: Number(event.target.value) } : row))} /></label>}
             <label><span>حداقل تعداد محصول برای بسته‌بندی {index + 1}</span><input type="number" min="1" max="1000000" value={entry.minQuantity ?? ""} onChange={(event) => changePackaging(packaging.map((row, i) => { if (i !== index) return row; const { minQuantity, ...rest } = row; return event.target.value ? { ...rest, minQuantity: Number(event.target.value) } : rest; }))} /></label>
@@ -663,8 +677,8 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
         <label><span>نوع سفارش برای محاسبه‌ی هزینه</span><select value={previewChannel} disabled={previewing} onChange={(event) => { invalidatePreview(); setPreviewChannel(event.target.value as "TABLE" | "TAKEAWAY"); }}><option value="TABLE">داخل کافه</option><option value="TAKEAWAY">بیرون‌بر</option></select></label>
         <h3>هزینه‌ی دستور ذخیره‌شده</h3><p className="inventory-cell-note">این محاسبه از دستور ذخیره‌شده انجام می‌شود؛ تغییرات فرم را ابتدا ذخیره کنید.</p>
         <div className="manager-fields">
-          <label><span>تعداد</span><input type="number" min="1" value={previewQuantity} disabled={previewing} onChange={(event) => { invalidatePreview(); setPreviewQuantity(event.target.value); }} /></label>
-          {product?.pricingMode === "WEIGHTED_PER_KG" && <label><span>وزن هر واحد (گرم)</span><input type="number" min="1" value={weightGrams} disabled={previewing} onChange={(event) => { invalidatePreview(); setWeightGrams(event.target.value); }} /></label>}
+          <label><span>تعداد</span><InventoryNumberInput integer value={previewQuantity} disabled={previewing} onValueChange={(value) => { invalidatePreview(); setPreviewQuantity(value); }} /></label>
+          {product?.pricingMode === "WEIGHTED_PER_KG" && <label><span>وزن هر واحد (گرم)</span><InventoryNumberInput integer value={weightGrams} disabled={previewing} onValueChange={(value) => { invalidatePreview(); setWeightGrams(value); }} /></label>}
         </div>
         {entries.map((entry) => { const preview = previews[entry.optionId || "base"]; return <div className="inventory-option-preview" key={entry.optionId}>
           <button className="secondary-button" type="button" disabled={loadingConfig || dirty || previewing} onClick={() => void runOptionPreview(entry)}>{previewing ? "در حال محاسبه‌ی هزینه…" : `محاسبه‌ی هزینه‌ی ${entry.optionName}`}</button>
@@ -676,42 +690,6 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
   </ManagerCard></div>;
 }
 
-function SearchableSourcePicker({ options, value, onChange, placeholder }: { options: Array<{ id: string; name: string }>; value: string; onChange: (value: string) => void; placeholder: string }) {
-  const listId = useId();
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const filteredOptions = options.filter((option) => option.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
-  const selectedName = options.find((option) => option.id === value)?.name ?? "";
-  const selectOption = (option: { id: string; name: string }) => { onChange(option.id); setSearch(""); setOpen(false); };
-  return <div className="inventory-search-picker" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setOpen(false); setSearch(""); } }}>
-    <input
-      type="text"
-      role="combobox"
-      aria-autocomplete="list"
-      aria-expanded={open}
-      aria-controls={listId}
-      aria-activedescendant={open && filteredOptions[activeIndex] ? `${listId}-${activeIndex}` : undefined}
-      autoComplete="off"
-      required
-      value={open ? search : selectedName}
-      placeholder={placeholder}
-      onFocus={() => { setOpen(true); setSearch(""); setActiveIndex(0); }}
-      onChange={(event) => { setSearch(event.target.value); setOpen(true); setActiveIndex(0); }}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowDown") { event.preventDefault(); setOpen(true); setActiveIndex((current) => Math.min(current + 1, Math.max(filteredOptions.length - 1, 0))); }
-        else if (event.key === "ArrowUp") { event.preventDefault(); setOpen(true); setActiveIndex((current) => Math.max(current - 1, 0)); }
-        else if (event.key === "Enter" && open && filteredOptions[activeIndex]) { event.preventDefault(); selectOption(filteredOptions[activeIndex]!); }
-        else if (event.key === "Escape") { setSearch(""); setOpen(false); }
-      }}
-    />
-    {open && <div className="inventory-search-picker__list" id={listId} role="listbox">
-      {filteredOptions.map((option, index) => <button id={`${listId}-${index}`} type="button" role="option" aria-selected={option.id === value} className={index === activeIndex ? "is-active" : ""} key={option.id} onMouseDown={(event) => event.preventDefault()} onClick={() => selectOption(option)}>{option.name}</button>)}
-      {filteredOptions.length === 0 && <p>موردی با این نام پیدا نشد.</p>}
-    </div>}
-  </div>;
-}
-
 function prettyMissingReason(reason: string) {
   if (reason.startsWith("missing-costing:")) return `هزینه‌ی ${reason.slice("missing-costing:".length)} تنظیم نشده است`;
   if (reason.startsWith("missing-recipe:")) return "دستور تهیه‌ی یکی از مواد موجود نیست";
@@ -721,7 +699,7 @@ function prettyMissingReason(reason: string) {
   return "برای تکمیل محاسبه، بخشی از اطلاعات لازم است";
 }
 
-function CountPanel({ onOpenStock, onDirtyChange, items, pending, mutate, confirm, keyFor, clearKey }: { onOpenStock: () => void; items: InventoryStockItem[]; pending: PendingInventoryConsumption[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void; keyFor: (name: string) => string; clearKey: (name: string) => void } & DraftGuardProps) {
+function CountPanel({ refreshVersion, onOpenStock, onDirtyChange, items, pending, mutate, confirm, keyFor, clearKey }: { refreshVersion: number; onOpenStock: () => void; items: InventoryStockItem[]; pending: PendingInventoryConsumption[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; confirm: (value: InventoryConfirm) => void; keyFor: (name: string) => string; clearKey: (name: string) => void } & DraftGuardProps) {
   const [dirty, setDirty] = useInventoryDraftGuard(onDirtyChange);
   const activeItems = items.filter((item) => item.isActive && !item.archivedAt);
   const [counts, setCounts] = useState<InventoryCount[]>([]);
@@ -730,7 +708,7 @@ function CountPanel({ onOpenStock, onDirtyChange, items, pending, mutate, confir
   const [previousCursors, setPreviousCursors] = useState<Array<string | null>>([]);
   const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [retryVersion, setRetryVersion] = useState(0);
   const currentPersianDate = currentPersianDateInput();
   const [filters, setFilters] = useState({ search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" });
   const [appliedFilters, setAppliedFilters] = useState({ search: "", from: "", to: "", status: "" });
@@ -738,11 +716,20 @@ function CountPanel({ onOpenStock, onDirtyChange, items, pending, mutate, confir
   const [editingCount, setEditingCount] = useState<InventoryCount | null>(null);
   const [lines, setLines] = useState<Array<{ stockItemId: string; expectedQuantity: string; observedQuantity: string; observedValueAmount: string }>>([]);
   const countFormRef = useRef<HTMLFormElement>(null);
+  const [itemSearch, setItemSearch] = useState("");
   const hasFilters = !!(appliedFilters.search || appliedFilters.from || appliedFilters.to || appliedFilters.status || cursor);
   const clearFilters = () => { setFilters({ search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" }); setAppliedFilters({ search: "", from: "", to: "", status: "" }); setFilterError(null); setCursor(null); setPreviousCursors([]); };
   const [reason, setReason] = useState("");
   const [reconcile, setReconcile] = useState<string[]>([]);
   const eligibleLines = () => activeItems.filter((item) => !!item.balance.trackingStartedAt).map((item) => ({ stockItemId: item.id, expectedQuantity: item.balance.quantityOnHand ?? "0", observedQuantity: item.balance.quantityOnHand ?? "0", observedValueAmount: String(item.balance.carryingValueAmount ?? 0) }));
+  const countOptions = eligibleLines();
+  const activeItemsById = new Map(activeItems.map((item) => [item.id, item]));
+  const matchingCountOptions = countOptions.filter((line) =>
+    inventorySearchMatches(activeItemsById.get(line.stockItemId)?.name ?? "", itemSearch));
+  const matchingCountIds = new Set(matchingCountOptions.map((line) => line.stockItemId));
+  const orderedLines = itemSearch.trim()
+    ? [...lines.filter((line) => matchingCountIds.has(line.stockItemId)), ...lines.filter((line) => !matchingCountIds.has(line.stockItemId))]
+    : lines;
   const hasQuantityDifference = lines.some((line) => {
     const observed = normalizeInventoryQuantity(line.observedQuantity);
     const currentQuantity = items.find((item) => item.id === line.stockItemId)?.balance.quantityOnHand;
@@ -759,10 +746,10 @@ function CountPanel({ onOpenStock, onDirtyChange, items, pending, mutate, confir
       setPageLoading(false);
     });
     return () => { current = false; };
-  }, [appliedFilters, cursor, page.limit, refreshVersion]);
+  }, [appliedFilters, cursor, page.limit, refreshVersion, retryVersion]);
   const mutateAndReload = async (action: () => Promise<ApiResult<unknown>>) => {
     const ok = await mutate(action);
-    if (ok) { setCursor(null); setPreviousCursors([]); setRefreshVersion((current) => current + 1); }
+    if (ok) { setCursor(null); setPreviousCursors([]); }
     return ok;
   };
   const applyFilters = (event: FormEvent) => {
@@ -777,15 +764,42 @@ function CountPanel({ onOpenStock, onDirtyChange, items, pending, mutate, confir
     setAppliedFilters({ search: filters.search.trim(), from: from ? tehranDayBoundary(from) : "", to: to ? tehranDayBoundary(to, true) : "", status: filters.status });
   };
   useEffect(() => { if (lines.length === 0) setLines(eligibleLines()); }, [activeItems.length]);
-  const startEdit = (count: InventoryCount) => { if (dirty && !window.confirm("تغییرات شمارش ذخیره نشده است. شمارش دیگری را باز می‌کنید؟")) return; setDirty(false); setEditingCount(count); setReason(count.reason ?? ""); setLines(count.lines.map((line) => ({ stockItemId: line.stockItemId, expectedQuantity: line.expectedQuantity ?? "0", observedQuantity: line.observedQuantity, observedValueAmount: String(line.observedValueAmount) }))); };
-  const resetCountDraft = () => { setDirty(false); setEditingCount(null); setReason(""); setLines(eligibleLines()); };
+  const startEdit = (count: InventoryCount) => { if (dirty && !window.confirm("تغییرات شمارش ذخیره نشده است. شمارش دیگری را باز می‌کنید؟")) return; setDirty(false); setItemSearch(""); requestAnimationFrame(() => countFormRef.current?.querySelector<HTMLInputElement>("[data-inventory-number]")?.focus()); setEditingCount(count); setReason(count.reason ?? ""); setLines(count.lines.map((line) => ({ stockItemId: line.stockItemId, expectedQuantity: line.expectedQuantity ?? "0", observedQuantity: line.observedQuantity, observedValueAmount: String(line.observedValueAmount) }))); };
+  const resetCountDraft = () => { setDirty(false); setEditingCount(null); setItemSearch(""); setReason(""); setLines(eligibleLines()); };
   const submit = async (event: FormEvent) => { event.preventDefault(); const countLines = lines.map((line) => ({ stockItemId: line.stockItemId, observedQuantity: line.observedQuantity, observedValueAmount: Number(line.observedValueAmount) })); const countInput = { lines: countLines, ...(reason.trim() ? { reason: reason.trim() } : {}) }; const result = await mutateAndReload(() => editingCount ? updateInventoryCount(editingCount.id, { ...countInput, expectedVersion: editingCount.version }) : createInventoryCount({ ...countInput, kind: "PHYSICAL" })); if (result) resetCountDraft(); };
   return <div className="manager-grid">
     <ManagerCard title="شمارش فیزیکی موجودی" hint="مقدار و ارزش ثبت‌شده را با شمارش واقعی جایگزین کنید. اگر سفارشی هنوز از موجودی کم نشده، پیش از ثبت شمارش آن را انتخاب کنید.">
       <p className="inventory-note">مقدارها با موجودی ثبت‌شده پر شده‌اند. مقدار واقعی هر قلم و ارزش کل آن را بررسی کنید؛ ذخیره‌ی پیش‌نویس، موجودی را تغییر نمی‌دهد.</p>
-      <form ref={countFormRef} className="manager-form inventory-count-form" onChangeCapture={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
-        <fieldset className="inventory-option-choices"><legend>اقلام این شمارش</legend>{eligibleLines().map((eligible) => <label key={eligible.stockItemId}><input type="checkbox" checked={lines.some((line) => line.stockItemId === eligible.stockItemId)} onChange={(event) => setLines((current) => event.target.checked ? [...current, eligible] : current.filter((line) => line.stockItemId !== eligible.stockItemId))} />شمارش {activeItems.find((item) => item.id === eligible.stockItemId)?.name}</label>)}</fieldset>
-        {lines.map((line, index) => { const item = activeItems.find((entry) => entry.id === line.stockItemId); return <div className="inventory-count-line" role="group" aria-label={item?.name ?? "کالا"} key={line.stockItemId}><strong>{item?.name ?? "کالا"}</strong><label><span>مقدار {item ? unitLabels[item.baseUnit as Unit] : ""}</span><input required inputMode="decimal" value={line.observedQuantity} onChange={(event) => setLines((current) => current.map((row, i) => i === index ? { ...row, observedQuantity: event.target.value } : row))} /></label><label><span>ارزش موجودی (تومان)</span><input required type="number" min="0" value={line.observedValueAmount} onChange={(event) => setLines((current) => current.map((row, i) => i === index ? { ...row, observedValueAmount: event.target.value } : row))} /></label></div>; })}
+      <form ref={countFormRef} className="manager-form inventory-count-form" onChange={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
+        {countOptions.length > 0 && <fieldset className="inventory-option-choices inventory-count-options">
+          <legend>اقلام این شمارش</legend>
+          <label className="inventory-count-search">
+            <span>جست‌وجوی قلم برای شمارش</span>
+            <input type="search" value={itemSearch} placeholder="نام قلم موجودی"
+              onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) event.preventDefault(); }}
+              onChange={(event) => { event.stopPropagation(); setItemSearch(event.target.value); }} />
+          </label>
+          <p className="inventory-cell-note" role="status">{inventoryNumber(lines.length)} قلم برای شمارش انتخاب شده است.</p>
+          <div className="inventory-count-options__list">
+            {matchingCountOptions.map((eligible) => <label key={eligible.stockItemId}>
+              <input type="checkbox" checked={lines.some((line) => line.stockItemId === eligible.stockItemId)}
+                onChange={(event) => setLines((current) => event.target.checked ? [...current, eligible] : current.filter((line) => line.stockItemId !== eligible.stockItemId))} />
+              شمارش {activeItemsById.get(eligible.stockItemId)?.name}
+            </label>)}
+          </div>
+          {matchingCountOptions.length === 0 && <p className="inventory-cell-note" role="status">قلمی با این نام پیدا نشد.</p>}
+        </fieldset>}
+        {orderedLines.map((line) => {
+          const item = activeItemsById.get(line.stockItemId);
+          const unitLabel = item ? unitLabels[item.baseUnit as Unit] : "";
+          const changeLine = (patch: Partial<Pick<typeof line, "observedQuantity" | "observedValueAmount">>) =>
+            setLines((current) => current.map((row) => row.stockItemId === line.stockItemId ? { ...row, ...patch } : row));
+          return <div className="inventory-count-line" role="group" aria-label={item?.name ?? "کالا"} key={line.stockItemId}>
+            <div><strong>{item?.name ?? "کالا"}</strong><small className="inventory-cell-note">مقدار ثبت‌شده <bdi>{inventoryQuantity(line.expectedQuantity)}</bdi> {unitLabel}</small></div>
+            <label><span>مقدار {unitLabel}</span><InventoryNumberInput required value={line.observedQuantity} onValueChange={(observedQuantity) => changeLine({ observedQuantity })} /></label>
+            <label><span>ارزش موجودی (تومان)</span><InventoryNumberInput required integer value={line.observedValueAmount} onValueChange={(observedValueAmount) => changeLine({ observedValueAmount })} /></label>
+          </div>;
+        })}
         {lines.length === 0 && (eligibleLines().length === 0 ? <InventoryEmptyState title="هنوز کالایی آماده‌ی شمارش نیست" detail="ابتدا مقدار و ارزش آغازین یک کالای فعال را در اقلام موجودی ثبت کنید؛ سپس آن را اینجا بشمارید." action="تکمیل موجودی آغازین" onAction={onOpenStock} /> : <p className="inventory-note">برای ثبت شمارش، حداقل یک قلم را از فهرست «اقلام این شمارش» انتخاب کنید.</p>)}
         {hasQuantityDifference && <label><span>دلیل اختلاف موجودی (برای کل شمارش)</span><textarea required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="علت تفاوت مقدار شمارش‌شده با موجودی ثبت‌شده را بنویسید" /></label>}
         <div className="inventory-actions"><button type="submit" disabled={!lines.length || (hasQuantityDifference && !reason.trim())}>{editingCount ? "ذخیره پیش‌نویس شمارش" : "ایجاد پیش‌نویس شمارش"}</button>{editingCount && <button className="secondary-button" type="button" onClick={resetCountDraft}>انصراف از ویرایش</button>}</div>
@@ -796,14 +810,14 @@ function CountPanel({ onOpenStock, onDirtyChange, items, pending, mutate, confir
         <div className="manager-fields">
           <label><span>جست‌وجوی کالا</span><input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="نام کالا" /></label>
           <label><span>وضعیت</span><select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">همه‌ی وضعیت‌ها</option><option value="DRAFT">پیش‌نویس</option><option value="POSTED">ثبت‌شده</option></select></label>
-          <label><span>از تاریخ شمسی</span><div className="inventory-date-input"><input inputMode="numeric" value={filters.fromValue} onChange={(event) => setFilters((current) => ({ ...current, fromValue: event.target.value }))} placeholder="ماه/روز" /><input inputMode="numeric" aria-label="سال شروع" value={filters.fromYear} onChange={(event) => setFilters((current) => ({ ...current, fromYear: event.target.value }))} /></div></label>
-          <label><span>تا تاریخ شمسی</span><div className="inventory-date-input"><input inputMode="numeric" value={filters.toValue} onChange={(event) => setFilters((current) => ({ ...current, toValue: event.target.value }))} placeholder="ماه/روز" /><input inputMode="numeric" aria-label="سال پایان" value={filters.toYear} onChange={(event) => setFilters((current) => ({ ...current, toYear: event.target.value }))} /></div></label>
+          <label><span>از تاریخ شمسی</span><div className="inventory-date-input"><input inputMode="numeric" aria-label="ماه و روز آغاز" dir="ltr" value={filters.fromValue} onChange={(event) => setFilters((current) => ({ ...current, fromValue: event.target.value }))} placeholder="ماه/روز" /><input inputMode="numeric" aria-label="سال شروع" value={filters.fromYear} onChange={(event) => setFilters((current) => ({ ...current, fromYear: event.target.value }))} /></div></label>
+          <label><span>تا تاریخ شمسی</span><div className="inventory-date-input"><input inputMode="numeric" aria-label="ماه و روز پایان" dir="ltr" value={filters.toValue} onChange={(event) => setFilters((current) => ({ ...current, toValue: event.target.value }))} placeholder="ماه/روز" /><input inputMode="numeric" aria-label="سال پایان" value={filters.toYear} onChange={(event) => setFilters((current) => ({ ...current, toYear: event.target.value }))} /></div></label>
         </div>
         {filterError && <p className="form-error" role="alert">{filterError}</p>}
         <div className="inventory-actions"><button type="submit">اعمال فیلترها</button><button className="secondary-button" type="button" onClick={clearFilters}>پاک‌کردن فیلترها</button></div>
       </form>
-      {pageError && <p className="form-error" role="alert">{pageError}</p>}
-      {pageLoading ? <p className="manager-empty">در حال بارگذاری شمارش‌ها…</p> : <ul className="inventory-list">{counts.map((count) => <li key={count.id}><div><strong>شمارش فیزیکی · {count.status === "POSTED" ? "ثبت‌شده" : "پیش‌نویس"}</strong><small>{new Date(count.createdAt).toLocaleString("fa-IR-u-nu-latn")}</small><small>{count.lines.map((line) => { const item = items.find((entry) => entry.id === line.stockItemId); return `${item?.name ?? "کالا"}: ${line.observedQuantity}${line.differenceQuantity === null ? "" : ` (اختلاف ${line.differenceQuantity})`}`; }).join("، ")}</small>{count.reason && <small>دلیل اختلاف: {count.reason}</small>}</div>
+      {pageError && <p className="form-error" role="alert">{pageError} <button type="button" onClick={() => setRetryVersion((current) => current + 1)}>بارگذاری دوباره</button></p>}
+      {pageLoading ? <p className="manager-empty" role="status">در حال بارگذاری شمارش‌ها…</p> : !pageError && <ul className="inventory-list">{counts.map((count) => <li key={count.id}><div><strong>شمارش فیزیکی · {count.status === "POSTED" ? "ثبت‌شده" : "پیش‌نویس"}</strong><small>{new Date(count.createdAt).toLocaleString("fa-IR-u-nu-latn")}</small><small>{count.lines.map((line) => { const item = items.find((entry) => entry.id === line.stockItemId); return `${item?.name ?? "کالا"}: ${line.observedQuantity}${line.differenceQuantity === null ? "" : ` (اختلاف ${line.differenceQuantity})`}`; }).join("، ")}</small>{count.reason && <small>دلیل اختلاف: {count.reason}</small>}</div>
         {count.status === "DRAFT" && <div className="inventory-count-actions">
           <button className="secondary-button" type="button" onClick={() => startEdit(count)}>ویرایش شمارش</button>
           {count.kind === "PHYSICAL" && pending.length > 0 && <fieldset><legend>سفارش‌هایی که هنوز از موجودی کم نشده‌اند</legend>{pending.map((entry) => <label key={entry.id}><input type="checkbox" checked={reconcile.includes(entry.id)} onChange={(event) => setReconcile((current) => event.target.checked ? [...current, entry.id] : current.filter((id) => id !== entry.id))} />سفارش {entry.orderNumber} · هزینه‌ی محاسبه‌شده {formatToman(entry.knownCogsAmount)}</label>)}</fieldset>}
@@ -811,12 +825,13 @@ function CountPanel({ onOpenStock, onDirtyChange, items, pending, mutate, confir
         </div>}
       </li>)}</ul>}
       {!pageLoading && !pageError && counts.length === 0 && <InventoryEmptyState title={hasFilters ? "شمارشی با این فیلترها پیدا نشد." : "هنوز شمارش فیزیکی ثبت نشده است"} detail={hasFilters ? "فیلترها را پاک کنید تا پیش‌نویس‌ها و شمارش‌های ثبت‌شده را ببینید." : "کالاهای شمرده‌شده را در فرم انتخاب کنید و مقدار واقعی را وارد کنید. پیش‌نویس پس از ذخیره در این فهرست می‌آید."} action={hasFilters ? "نمایش همه‌ی شمارش‌ها" : "شروع شمارش"} onAction={() => { if (hasFilters) clearFilters(); else countFormRef.current?.querySelector<HTMLInputElement | HTMLButtonElement>("input, button")?.focus(); }} />}
-      <div className="inventory-actions inventory-history-pagination"><button className="secondary-button" type="button" disabled={pageLoading || previousCursors.length === 0} onClick={() => { const previous = previousCursors[previousCursors.length - 1] ?? null; setPreviousCursors((current) => current.slice(0, -1)); setCursor(previous); }}>صفحه‌ی قبل</button><span>صفحه‌ی {previousCursors.length + 1}</span><button className="secondary-button" type="button" disabled={pageLoading || !page.hasMore || !page.nextCursor} onClick={() => { if (!page.nextCursor) return; setPreviousCursors((current) => [...current, cursor]); setCursor(page.nextCursor); }}>صفحه‌ی بعد</button></div>
+      <div className="inventory-actions inventory-history-pagination"><button className="secondary-button" type="button" disabled={pageLoading || !!pageError || previousCursors.length === 0} onClick={() => { const previous = previousCursors[previousCursors.length - 1] ?? null; setPreviousCursors((current) => current.slice(0, -1)); setCursor(previous); }}>صفحه‌ی قبل</button><span>صفحه‌ی {previousCursors.length + 1}</span><button className="secondary-button" type="button" disabled={pageLoading || !!pageError || !page.hasMore || !page.nextCursor} onClick={() => { if (!page.nextCursor) return; setPreviousCursors((current) => [...current, cursor]); setCursor(page.nextCursor); }}>صفحه‌ی بعد</button></div>
     </ManagerCard>
   </div>;
 }
 
 function HistoryPanel({ pending, items, refreshVersion }: { pending: PendingInventoryConsumption[]; items: InventoryStockItem[]; refreshVersion: number }) {
+  const inventoryItemsById = new Map(items.map((item) => [item.id, item]));
   const currentPersianDate = currentPersianDateInput();
   const [filters, setFilters] = useState({ searchBy: "PRODUCT" as "PRODUCT" | "ORDER_NUMBER" | "KIND", search: "", kind: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "" });
   const [applied, setApplied] = useState({ searchBy: "PRODUCT" as "PRODUCT" | "ORDER_NUMBER" | "KIND", search: "", kind: "", from: "", to: "" });
@@ -857,7 +872,13 @@ function HistoryPanel({ pending, items, refreshVersion }: { pending: PendingInve
     setFilterError(null);
     setCursor(null);
     setPreviousCursors([]);
-    setApplied({ searchBy: filters.searchBy, search: filters.search.trim(), kind: filters.kind, from: from ? tehranDayBoundary(from) : "", to: to ? tehranDayBoundary(to, true) : "" });
+    setApplied({
+      searchBy: filters.searchBy,
+      search: filters.searchBy === "KIND" ? "" : filters.searchBy === "ORDER_NUMBER" ? normalizeDigits(filters.search.trim()).replace(/^#/, "") : filters.search.trim(),
+      kind: filters.searchBy === "KIND" ? filters.kind : "",
+      from: from ? tehranDayBoundary(from) : "",
+      to: to ? tehranDayBoundary(to, true) : "",
+    });
   };
   const clearFilters = () => {
     const empty = { searchBy: "PRODUCT" as const, search: "", kind: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "" };
@@ -873,18 +894,37 @@ function HistoryPanel({ pending, items, refreshVersion }: { pending: PendingInve
     <ManagerCard title="گردش موجودی" hint="شماره‌ی سفارش در تغییرهای ناشی از سفارش نمایش داده می‌شود. جست‌وجو را بر اساس کالا، شماره‌ی سفارش یا نوع تغییر انتخاب کنید.">
       <form className="manager-form inventory-history-filter" onSubmit={applyFilters}>
         <div className="manager-fields">
-          <label><span>جست‌وجو بر اساس</span><select value={filters.searchBy} onChange={(event) => setFilters((current) => ({ ...current, searchBy: event.target.value as typeof current.searchBy }))}><option value="PRODUCT">نام کالا</option><option value="ORDER_NUMBER">شماره‌ی سفارش</option><option value="KIND">نوع تغییر</option></select></label>
-          {filters.searchBy === "KIND" ? <label><span>نوع تغییر</span><select value={filters.kind} onChange={(event) => setFilters((current) => ({ ...current, kind: event.target.value }))}><option value="">همه‌ی انواع تغییر</option>{Object.entries(movementLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label> : <label><span>{filters.searchBy === "ORDER_NUMBER" ? "شماره‌ی سفارش" : "نام کالا"}</span><input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder={filters.searchBy === "ORDER_NUMBER" ? "مثلاً ۱۲۳۴" : "نام کالا"} /></label>}
-          <label><span>از تاریخ شمسی</span><div className="inventory-date-input"><input inputMode="numeric" value={filters.fromValue} onChange={(event) => setFilters((current) => ({ ...current, fromValue: event.target.value }))} placeholder="ماه/روز" /><input inputMode="numeric" aria-label="سال شروع" value={filters.fromYear} onChange={(event) => setFilters((current) => ({ ...current, fromYear: event.target.value }))} /></div></label>
-          <label><span>تا تاریخ شمسی</span><div className="inventory-date-input"><input inputMode="numeric" value={filters.toValue} onChange={(event) => setFilters((current) => ({ ...current, toValue: event.target.value }))} placeholder="ماه/روز" /><input inputMode="numeric" aria-label="سال پایان" value={filters.toYear} onChange={(event) => setFilters((current) => ({ ...current, toYear: event.target.value }))} /></div></label>
+          <label><span>جست‌وجو بر اساس</span><select value={filters.searchBy} onChange={(event) => setFilters((current) => ({ ...current, searchBy: event.target.value as typeof current.searchBy, search: "", kind: "" }))}><option value="PRODUCT">نام کالا</option><option value="ORDER_NUMBER">شماره‌ی سفارش</option><option value="KIND">نوع تغییر</option></select></label>
+          {filters.searchBy === "KIND" ? <label><span>نوع تغییر</span><select value={filters.kind} onChange={(event) => setFilters((current) => ({ ...current, kind: event.target.value }))}><option value="">همه‌ی انواع تغییر</option>{Object.entries(movementLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label> : <label><span>{filters.searchBy === "ORDER_NUMBER" ? "شماره‌ی سفارش" : "نام کالا"}</span><input type="search" inputMode={filters.searchBy === "ORDER_NUMBER" ? "numeric" : "search"} value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder={filters.searchBy === "ORDER_NUMBER" ? "مثلاً ۱۲۳۴" : "نام کالا"} /></label>}
+          <label><span>از تاریخ شمسی</span><div className="inventory-date-input"><input inputMode="numeric" aria-label="ماه و روز آغاز" dir="ltr" value={filters.fromValue} onChange={(event) => setFilters((current) => ({ ...current, fromValue: event.target.value }))} placeholder="ماه/روز" /><input inputMode="numeric" aria-label="سال شروع" value={filters.fromYear} onChange={(event) => setFilters((current) => ({ ...current, fromYear: event.target.value }))} /></div></label>
+          <label><span>تا تاریخ شمسی</span><div className="inventory-date-input"><input inputMode="numeric" aria-label="ماه و روز پایان" dir="ltr" value={filters.toValue} onChange={(event) => setFilters((current) => ({ ...current, toValue: event.target.value }))} placeholder="ماه/روز" /><input inputMode="numeric" aria-label="سال پایان" value={filters.toYear} onChange={(event) => setFilters((current) => ({ ...current, toYear: event.target.value }))} /></div></label>
         </div>
         {filterError && <p className="form-error" role="alert">{filterError}</p>}
         <div className="inventory-actions"><button type="submit">اعمال فیلترها</button><button className="secondary-button" type="button" onClick={clearFilters}>پاک‌کردن فیلترها</button></div>
       </form>
       {error && <p className="form-error" role="alert">{error} <button type="button" disabled={loading} onClick={() => setRetryVersion((current) => current + 1)}>بارگذاری دوباره</button></p>}
-      <p className="inventory-table-hint">برای دیدن همه‌ی ستون‌ها، جدول را به طرفین بکشید.</p><div className="inventory-table-wrap" role="region" aria-label="جدول گردش موجودی" tabIndex={0}><table className="inventory-table"><thead><tr><th scope="col">زمان تغییر</th><th scope="col">کالا</th><th scope="col">شماره‌ی سفارش</th><th scope="col">نوع تغییر</th><th scope="col">مقدار</th><th scope="col">تغییر ارزش موجودی</th></tr></thead><tbody>{movements.map((movement) => <tr key={movement.id}><td>{new Date(movement.occurredAt).toLocaleString("fa-IR-u-nu-latn")}</td><td>{items.find((item) => item.id === movement.stockItemId)?.name ?? "قلم بایگانی‌شده"}</td><td>{movement.orderNumber ? `#${movement.orderNumber}` : "—"}</td><td>{movementLabels[movement.kind] ?? movement.kind}</td><td>{movement.quantityDelta}</td><td>{movement.valueDeltaAmount < 0 ? `−${formatToman(-movement.valueDeltaAmount)}` : formatToman(movement.valueDeltaAmount)}</td></tr>)}{loading && <tr><td colSpan={6}>در حال بارگذاری گردش موجودی…</td></tr>}</tbody></table></div>
+      <p className="inventory-table-hint">برای دیدن همه‌ی ستون‌ها، جدول را به طرفین بکشید.</p>
+      <div className="inventory-table-wrap" role="region" aria-label="جدول گردش موجودی" tabIndex={0} aria-busy={loading}>
+        <table className="inventory-table">
+          <thead><tr><th scope="col">زمان تغییر</th><th scope="col">کالا</th><th scope="col">شماره‌ی سفارش</th><th scope="col">نوع تغییر</th><th scope="col">مقدار</th><th scope="col">تغییر ارزش موجودی (تومان)</th></tr></thead>
+          <tbody>
+            {!loading && !error && movements.map((movement) => {
+              const item = inventoryItemsById.get(movement.stockItemId);
+              return <tr key={movement.id}>
+                <td>{new Date(movement.occurredAt).toLocaleString("fa-IR", { timeZone: "Asia/Tehran", dateStyle: "short", timeStyle: "short" })}</td>
+                <td>{item?.name ?? "قلم بایگانی‌شده"}</td>
+                <td>{movement.orderNumber ? <bdi>#{movement.orderNumber}</bdi> : "—"}</td>
+                <td>{movementLabels[movement.kind] ?? movement.kind}</td>
+                <td><bdi>{inventoryQuantity(movement.quantityDelta)}</bdi> {item ? unitLabels[item.baseUnit as Unit] : ""}</td>
+                <td><bdi>{movement.valueDeltaAmount < 0 ? "−" : ""}{inventoryNumber(formatToman(Math.abs(movement.valueDeltaAmount)))}</bdi></td>
+              </tr>;
+            })}
+            {loading && <tr><td colSpan={6}><span role="status">در حال بارگذاری گردش موجودی…</span></td></tr>}
+          </tbody>
+        </table>
+      </div>
       {!loading && !error && movements.length === 0 && <InventoryEmptyState title={hasFilters ? "تغییری با این فیلترها پیدا نشد." : "هنوز گردشی ثبت نشده است"} detail={hasFilters ? "جست‌وجو یا بازه‌ی زمانی را تغییر دهید، یا فیلترها را پاک کنید." : "ثبت موجودی آغازین، رسید خرید، شمارش نهایی و مصرف سفارش‌ها در این جدول سابقه ایجاد می‌کند. پیش‌نویس‌ها تغییری در موجودی نمی‌دهند."} {...(hasFilters ? { action: "نمایش همه‌ی گردش‌ها", onAction: clearFilters } : {})} />}
-      <div className="inventory-actions inventory-history-pagination"><button className="secondary-button" type="button" disabled={loading || previousCursors.length === 0} onClick={() => { const previous = previousCursors[previousCursors.length - 1] ?? null; setPreviousCursors((current) => current.slice(0, -1)); setCursor(previous); }}>صفحه‌ی قبل</button><span>صفحه‌ی {previousCursors.length + 1}</span><button className="secondary-button" type="button" disabled={loading || !page.hasMore || !page.nextCursor} onClick={() => { if (!page.nextCursor) return; setPreviousCursors((current) => [...current, cursor]); setCursor(page.nextCursor); }}>صفحه‌ی بعد</button></div>
+      <div className="inventory-actions inventory-history-pagination"><button className="secondary-button" type="button" disabled={loading || !!error || previousCursors.length === 0} onClick={() => { const previous = previousCursors[previousCursors.length - 1] ?? null; setPreviousCursors((current) => current.slice(0, -1)); setCursor(previous); }}>صفحه‌ی قبل</button><span>صفحه‌ی {previousCursors.length + 1}</span><button className="secondary-button" type="button" disabled={loading || !!error || !page.hasMore || !page.nextCursor} onClick={() => { if (!page.nextCursor) return; setPreviousCursors((current) => [...current, cursor]); setCursor(page.nextCursor); }}>صفحه‌ی بعد</button></div>
     </ManagerCard>
     <ManagerCard title="سفارش‌های در انتظار کسر از موجودی" hint="هزینه‌ی سفارش تسویه‌شده فقط وقتی از موجودی کم می‌شود که همه‌ی مواد لازم موجود باشند.">
       <ul className="inventory-list">{pending.map((entry) => <li key={entry.id}><div><strong>سفارش #{entry.orderNumber}</strong><small>ثبت در {new Date(entry.recognizedAt).toLocaleString("fa-IR-u-nu-latn")} · هزینه‌ی محاسبه‌شده {formatToman(entry.knownCogsAmount)}</small><small>{entry.isCostComplete ? "هزینه‌ی مواد کامل محاسبه شده است" : "هزینه‌ی مواد به‌طور کامل محاسبه نشده است"} · اقلام ناموجود: {entry.missingStockItemIds.length}</small></div></li>)}{pending.length === 0 && <li>سفارشی در انتظار کسر از موجودی نیست.</li>}</ul>
