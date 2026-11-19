@@ -1,10 +1,138 @@
+## Phase 1 — source publication and local release preparation (19 November 2026)
+
+- [x] Publish the current API, contracts, POS, and documentation changes on
+  `main` in per-file commits, including the terminal-payment test correction.
+- [x] Verify the full API suite (30 files / 288 tests), full POS suite
+  (35 files / 270 tests), contracts suite (10 files / 32 tests), all workspace
+  typechecks, and all 62 migration checks against the isolated local test DB.
+- [x] Build and checksum the coordinated API/contracts/POS release artifact
+  locally with its matching release ID and Debian Prisma engine. No production
+  access, upload, or activation occurred in this phase.
+- Left: use the separately authorized VPS handoff to review the production
+  backup/migration plan, restore the eight packaging assignments after the
+  migration, and decide whether to activate the prepared release. Café-device,
+  browser, and receipt-printer acceptance remains open.
+
+## Inventory ingredient deduction concurrency — 19 November 2026
+
+- [x] Reproduced four concurrency failures in PostgreSQL covering lost stock
+  updates, cancellation of a just-posted deduction, stale checkout costs, and
+  pending orders missed by an overlapping purchase receipt.
+- [x] Read checkout balances and costs under the ingredient locks, use those
+  locks for restoration, and guard pending status changes before posting or
+  cancelling a deduction. Receipt posting sees pending orders committed while
+  it waited for stock and still checks the draft version and idempotency key.
+- [x] Verified all six new concurrency cases, inventory activation and
+  packaging, orders, terminal payments, and the inventory benchmark. The full
+  isolated API suite passes 288 tests across 30 files; API typecheck and
+  `git diff --check` pass.
+
+## Completed local POS refinement — inventory management workflows (19 November 2026)
+
+- [x] Walk through all six management tabs at desktop and phone widths. Add
+  keyboard-searchable purchase items, recipe sources, reusable recipes, and
+  the compact menu-product picker. Match Persian and Arabic keyboard variants.
+- [x] Group prices, weights, and quantities during entry while preserving
+  integer Toman and exact decimal API values.
+- [x] Bring saved purchase and count drafts into focus, put matching count
+  rows first, and show recorded quantities beside observed values. Correct
+  movement filter changes and show grouped values with units.
+- [x] Verify the local read, draft-edit, and receipt-review flows in the
+  browser. POS typecheck, 47 inventory workspace tests, and
+  `git diff --check` pass. Browser verification used unsaved edits.
+
+## POS partial-payment settlement panel — 19 November 2026
+
+- [x] Keep valid underpayments submit-ready, ask for confirmation, and record
+  the received amount through the existing amount-allocation path. The order
+  balance and `PARTIALLY_PAID` status update remain server-owned.
+- [x] Keep amount-partially-paid orders UI-only: show the overall
+  «مانده‌ی پرداخت» amount, without the amount-mode toggle, helper copy, or
+  per-item balance rows.
+- [x] Previewed the local 420,000 Toman order with 220,000 Toman remaining, then
+  previewed a 100,000 Toman tender and its 120,000 Toman post-payment balance.
+  Canceled without recording.
+- [x] Contracts build, API typecheck, and `git diff --check` pass.
+- [x] POS typecheck passes, and the full POS suite passes 270/270 including
+  the updated terminal-payment regression test.
+
+## Completed local POS UI refinement — deferred orders (19 November 2026)
+
+- [x] Strengthen deferred-order hierarchy and align its and staff-account menu
+  buttons with the order-taking workspace header.
+- [x] Review deferred orders, staff account, and order-taking at 658×584; the
+  menu button stays at the same upper-left anchor across all three panels.
+
+## Completed delivery — POS inventory theme sync (19 November 2026)
+
+- [x] Add a warm light palette for inventory and preserve its charcoal dark
+  palette. Both follow the POS theme attribute set by the hamburger toggle.
+- [x] Adapt inventory forms, navigation, tables, status colors and analysis
+  charts for both modes. Update the product, design and surface notes.
+- [x] Inspect the local inventory panel in light and dark mode. No backend,
+  database or business-data changes were made. Automated tests were not run.
+
+## Active follow-up — create Cashier accounts (19 November 2026)
+
+- [x] Extend the existing account form and API to create Cashier accounts
+  alongside Staff accounts; show each role in the list and preserve it through
+  username/password updates and account status changes.
+- [x] Verify cashier creation, listing, sign-in, deactivation/reactivation,
+  invalid-role rejection, and Staff authorization. API admin integration tests
+  pass 23/23; POS Manager workspace tests pass 26/26. Contracts, API, and POS
+  typechecks pass.
+- Left: include this feature, the Settings permission correction, and the
+  packaging restoration in the separately prepared release activation.
+
+## Completed permission correction — Cashier Settings access (19 November 2026)
+
+- [x] Hide the Settings workspace from Cashier and discard stale saved Settings
+  selections on Cashier sign-in. Deny direct Cashier access to café settings,
+  table configuration, account administration, and full audit history.
+- [x] Preserve Cashier catalog, finance history, and inventory access; expose
+  only the turnover-enabled status required by the inventory screen.
+- [x] API admin integration passes 24/24; POS role boundary tests pass 38/38.
+  Contracts build and API/POS typechecks pass.
+- Left: include this correction with the other uncommitted work in the next POS
+  release. No commit or push has been made.
+
+## Active correction — cashier packaging during order initialization (19 November 2026)
+
+- [x] Confirm the earlier `main` implementation: choose a category's active
+  `PACKING` catalog product, charge its catalog price, and assign quantities to
+  menu items in the order.
+- [x] Validate the pre-release database backup with PostgreSQL 17.11: it
+  contains 16 `PACKING` products, all active/available and not archived at
+  20,000 Toman, plus 8 saved packaging assignments.
+- [x] Restore the POS chooser, order API/contracts, and assignment model with
+  an additive migration; leave fee/recovery reports and price targets retired.
+- [x] Set each packaging line quantity to the selected product-unit total.
+  Keep selection optional per unit, default to all still-unpackaged units, and
+  reject assignment overcounts or packaging-line quantity mismatches.
+- [x] Let staff reopen an editable saved packaging line from the packaging
+  panel, change its assigned quantities, and remove it when its count reaches
+  zero. Keep assignments tied to settled items locked.
+- [x] Review checkout, order edits, reversal, storage, and gross profit.
+  Preserve historical order lines and assignments on reopen. Allow unchanged
+  legacy charges to retain their original quantities. Include packaging
+  charges in gross sales and cost the stock materials through menu-item
+  mappings. Restore stock when a physical count recorded zero on hand. Use
+  the day an order reaches full payment when removing unpaid packaging closes it.
+- [x] Apply all 62 migrations on the isolated test database. Pass 188 API
+  checks across nine relevant suites, 93 focused POS checks, 32 contract
+  checks, workspace typechecks, and `git diff --check`. The full POS suite
+  passes 269 of 270 checks. Its terminal test still expects the removed
+  partial-payment toggle.
+- Left: restore the eight assignments from the verified backup after
+  migration, then activate and verify the corrective VPS release.
+
 ## Completed delivery — retire separate packaging-fee reporting (18 November 2026)
 
 - [x] Update approved scope and API contracts: takeaway packaging remains a
   product cost; separate fee revenue, recovery, and pricing targets are retired.
-- [x] Remove the packaging-economics report and order-assignment UI/API/model.
-  New orders reject legacy `PACKING` sale products, and new source categories
-  no longer create them.
+- [x] Remove the separate packaging-economics report, fee attribution, and
+  pricing targets. This release also removed order assignment, which the
+  corrective delivery above restores.
 - [x] Add a migration that archives existing `PACKING` sale products, drops
   assignment storage, and prevents those products from being reactivated. Keep
   historical orders and price-history records unchanged.
@@ -96,11 +224,11 @@
   `ip route get 1.1.1.1` selects `singbox_tun`.
 - No application/authentication code, database data, or production service changed.
 
-## Withdrawn delivery — POS packaging product assignments (18 November 2026)
+## Historical delivery — POS packaging product assignments (restored 19 November 2026)
 
-This delivery was retired by the separate packaging-fee reporting decision
-recorded at the top of this checklist. Its test and browser notes below are
-historical evidence for the removed implementation.
+The order-time chooser and assignment persistence described below are restored
+by the active correction at the top of this checklist. Separate recovery
+reporting, fee attribution, and price-experiment targets remain retired.
 
 - Browser feedback refinement: removed the packaging type/price/quantity section;
   new assignments default to all editable current product units. Existing assignments
@@ -2612,3 +2740,37 @@ or full Stage 10 exit gate.
   including the real browser, touch interaction, and receipt printer. This
   hardware and UX acceptance is separate from the code, build, and production
   health checks recorded above.
+
+## Inventory stock alerts follow-up — 19 November 2026
+
+- [x] Move the stock warning list from the overview dashboard into the
+  “اقلام موجودی” card, retaining the warning statuses and pending-consumption
+  history link. The overview keeps its summary metrics and recent movement
+  list. Automated checks were not run for this UI-only change.
+
+## Gross-profit view refinement — 19 November 2026
+
+- [x] Remove the separate top-five product-profit comparison; the existing
+  sold-products table remains the product-level view.
+- Automated checks were not run for this UI-only change.
+
+## Gross-profit category breakdown removal — 19 November 2026
+
+- [x] Remove the current-menu-category profit widget and its POS-only category
+  aggregation. The gross-profit API does not return category aggregates; its
+  shared consumption query now omits product/category details for this report
+  while preserving those details for sales analytics and pricing experiments.
+- Automated checks were not run for this UI/API query change.
+
+## Takeaway order panel action layout — 19 November 2026
+
+- [x] Constrain wide action buttons within the takeaway panel and remove the
+  empty action-grid cell by stacking unpaid and delete controls beside the
+  discount action. Automated checks were not run.
+
+## POS selection color alignment — 19 November 2026
+
+- [x] Use the existing espresso/amber accent for generic selected states in
+  light theme, including category navigation and packaging assignments. Keep
+  green for semantic success and occupied-table status. Visually checked at
+  the supplied mobile-sized viewport; automated tests were not run.
