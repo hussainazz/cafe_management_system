@@ -224,6 +224,7 @@ describe("Manager administration", () => {
     expect((await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: staff, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: true } })).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/tables", cookies: staff })).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/users", cookies: staff })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: staff, payload: { username: "forbidden.cashier", password: "CafePassword2026", role: "CASHIER" } })).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/audit-log", cookies: staff })).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/reports/daily?fromDate=2026-10-01&toDate=2026-10-22", cookies: manager })).statusCode).toBe(200);
     const defaults = await app.inject({ method: "GET", url: "/api/v1/admin/settings", cookies: manager });
@@ -238,6 +239,28 @@ describe("Manager administration", () => {
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/settings", cookies: manager })).json().data.settlementReversalReasonRequired).toBe(true);
     const disabled = await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: manager, payload: { tableSeatingLimitMinutes: null, settlementReversalReasonRequired: false } });
     expect(disabled.json().data.settlementReversalReasonRequired).toBe(false);
+  });
+
+  it("keeps Settings and its administration routes Manager/Developer-only while Cashier retains inventory status", async () => {
+    const cashier = await session(UserRole.CASHIER, "settings-access.cashier");
+    const manager = await session(UserRole.MANAGER, "settings-access.manager");
+    const developer = await session(UserRole.DEVELOPER, "settings-access.developer");
+    const settingsReads = ["/api/v1/admin/settings", "/api/v1/admin/tables", "/api/v1/admin/users", "/api/v1/admin/audit-log"];
+
+    for (const path of settingsReads) {
+      expect((await app.inject({ method: "GET", url: path, cookies: cashier })).statusCode).toBe(403);
+      expect((await app.inject({ method: "GET", url: path, cookies: manager })).statusCode).toBe(200);
+      expect((await app.inject({ method: "GET", url: path, cookies: developer })).statusCode).toBe(200);
+    }
+    expect((await app.inject({ method: "PATCH", url: "/api/v1/admin/settings", cookies: cashier, payload: { tableSeatingLimitMinutes: null } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/api/v1/admin/settings/inventory/activate", cookies: cashier, payload: {} })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/api/v1/admin/tables", cookies: cashier, payload: { name: "Restricted table", displayOrder: 1 } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: cashier, payload: { username: "restricted.cashier", password: "CafePassword2026", role: "CASHIER" } })).statusCode).toBe(403);
+
+    const status = await app.inject({ method: "GET", url: "/api/v1/admin/inventory/status", cookies: cashier });
+    expect(status.statusCode).toBe(200);
+    const currentSettings = await app.prisma.cafeSettings.findUnique({ where: { singletonKey: true }, select: { inventoryActivatedAt: true } });
+    expect(status.json().data).toEqual({ turnoverEnabled: currentSettings?.inventoryActivatedAt !== null && currentSettings?.inventoryActivatedAt !== undefined });
   });
 
   it.each([UserRole.STAFF, UserRole.MANAGER])("lets %s append catalog records and persist contiguous, validated category and product reorders", async (role) => {
@@ -299,18 +322,51 @@ describe("Manager administration", () => {
     expect(afterRemoval.json().data.categories.find((category: any) => category.id === source.json().data.id).products).toContainEqual(expect.objectContaining({ id: productId }));
   });
 
-  it("manages Staff accounts only and revokes sessions on deactivation", async () => {
+  it("creates and manages Staff and Cashier accounts without changing their role", async () => {
     const manager = await session(UserRole.MANAGER, "accounts.manager");
-    const created = await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: manager, payload: { username: "new.staff", password: "CafePassword2026" } });
-    expect(created.statusCode).toBe(200);
-    const userId = created.json().data.id;
-    expect(created.json().data).not.toHaveProperty("passwordHash");
-    const active = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: "new.staff", password: "CafePassword2026" } });
-    const cookies = Object.fromEntries(active.cookies.map((cookie) => [cookie.name, cookie.value]));
-    expect((await app.inject({ method: "POST", url: `/api/v1/admin/users/${userId}/deactivate`, cookies: manager })).statusCode).toBe(200);
+    const createdStaff = await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: manager, payload: { username: "new.staff", password: "CafePassword2026" } });
+    expect(createdStaff.statusCode).toBe(200);
+    expect(createdStaff.json().data).toMatchObject({ username: "new.staff", role: "STAFF" });
+    expect(createdStaff.json().data).not.toHaveProperty("passwordHash");
+
+    const createdCashier = await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: manager, payload: { username: "new.cashier", password: "CafePassword2026", role: "CASHIER" } });
+    expect(createdCashier.statusCode).toBe(200);
+    expect(createdCashier.json().data).toMatchObject({ username: "new.cashier", role: "CASHIER", isActive: true });
+    expect(await app.prisma.user.findUniqueOrThrow({ where: { username: "new.cashier" } })).toMatchObject({ role: UserRole.CASHIER });
+
+    const listed = await app.inject({ method: "GET", url: "/api/v1/admin/users", cookies: manager });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().data.staff).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: createdStaff.json().data.id, role: "STAFF" }),
+      expect.objectContaining({ id: createdCashier.json().data.id, role: "CASHIER" }),
+    ]));
+
+    const userId = createdCashier.json().data.id;
+    const active = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: "new.cashier", password: "CafePassword2026" } });
+    const initialCookies = Object.fromEntries(active.cookies.map((cookie) => [cookie.name, cookie.value]));
+    expect(active.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", cookies: initialCookies })).json().data.role).toBe("CASHIER");
+    const updated = await app.inject({ method: "PATCH", url: `/api/v1/admin/users/${userId}`, cookies: manager, payload: { username: "renamed.cashier", password: "DifferentPassword2026" } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().data).toMatchObject({ username: "renamed.cashier", role: "CASHIER" });
+    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", cookies: initialCookies })).statusCode).toBe(401);
+    const renamedLogin = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: "renamed.cashier", password: "DifferentPassword2026" } });
+    expect(renamedLogin.statusCode).toBe(200);
+    const cookies = Object.fromEntries(renamedLogin.cookies.map((cookie) => [cookie.name, cookie.value]));
+    const deactivated = await app.inject({ method: "POST", url: `/api/v1/admin/users/${userId}/deactivate`, cookies: manager });
+    expect(deactivated.statusCode).toBe(200);
+    expect(deactivated.json().data).toMatchObject({ role: "CASHIER", isActive: false });
     expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", cookies })).statusCode).toBe(401);
-    expect((await app.inject({ method: "POST", url: `/api/v1/admin/users/${userId}/reactivate`, cookies: manager })).statusCode).toBe(200);
-    expect((await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: "new.staff", password: "CafePassword2026" } })).statusCode).toBe(200);
+    const reactivated = await app.inject({ method: "POST", url: `/api/v1/admin/users/${userId}/reactivate`, cookies: manager });
+    expect(reactivated.statusCode).toBe(200);
+    expect(reactivated.json().data).toMatchObject({ role: "CASHIER", isActive: true });
+    expect((await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: "renamed.cashier", password: "DifferentPassword2026" } })).statusCode).toBe(200);
+
+    const invalidRole = await app.inject({ method: "POST", url: "/api/v1/admin/users", cookies: manager, payload: { username: "invalid.account.role", password: "CafePassword2026", role: "MANAGER" } });
+    expect(invalidRole.statusCode).toBe(400);
+    const roleChange = await app.inject({ method: "PATCH", url: `/api/v1/admin/users/${userId}`, cookies: manager, payload: { role: "STAFF" } });
+    expect(roleChange.statusCode).toBe(400);
+    expect(await app.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { role: true } })).toEqual({ role: UserRole.CASHIER });
   });
 
   it("revokes an existing Staff session when a Manager resets its password", async () => {
