@@ -25,6 +25,19 @@
 - Left: authenticated POS-browser, café-device, touch, and receipt-printer
   acceptance.
 
+## Responsive takeaway panel release — 19 November 2026
+
+- [x] Commit and push the responsive takeaway panel at
+  `f4228c901d706e15adbc8c2f578e632ba20f1116`.
+- [x] Deploy coordinated API/contracts/POS release
+  `cafe-20261119-f4228c9`. Direct and public API readiness, menu, POS, and
+  release-identity probes returned HTTP 200. Production remains current at 62
+  migrations with no schema change.
+- [x] Confirm all services active with zero recorded restarts and the
+  product-image storage fingerprint unchanged. Release
+  evidence is in [`production-gates.md`](planning/production-gates.md).
+- Left: authenticated production POS-browser and café-device acceptance.
+
 ## Completed local POS delivery — packaging layout and unpaid takeaway orders (19 November 2026)
 
 - [x] Size the packaging workspace to its content and keep longer item lists
