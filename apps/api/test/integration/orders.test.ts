@@ -318,6 +318,57 @@ describe("Staff order creation", () => {
     expect(paid.statusCode).toBe(201);
     expect(paid.json().data).toMatchObject({ state: "CLOSED", paymentStatus: "PAID", balanceAmount: 0 });
   });
+  it("sets aside the remaining balance after item-quantity or amount-based partial payment", async () => {
+    const cases = [
+      { key: "item-partial", quantity: 2, totalAmount: 100_000, amount: 50_000, allocationMode: "ITEM_QUANTITY" as const },
+      { key: "amount-partial", quantity: 1, totalAmount: 50_000, amount: 30_000, allocationMode: "AMOUNT" as const },
+    ];
+
+    for (const [index, partial] of cases.entries()) {
+      const cookies = await userSession(UserRole.STAFF, `defer-${partial.key}.staff`);
+      const { product } = await sellableProduct();
+      const created = await createOrderRequest(
+        cookies,
+        { channel: "TAKEAWAY", items: [{ productId: product.id, quantity: partial.quantity, options: [] }] },
+        `defer-${partial.key}-create-001`,
+      );
+      expect(created.statusCode).toBe(201);
+      const order = created.json().data;
+      const paymentPayload = partial.allocationMode === "ITEM_QUANTITY"
+        ? { expectedVersion: order.version, allocations: [{ orderItemId: order.items[0].id, quantity: 1 }], payments: [{ method: "CASH", amount: partial.amount }] }
+        : { expectedVersion: order.version, allocationMode: "AMOUNT", amount: partial.amount, payments: [{ method: "CASH", amount: partial.amount }] };
+      const paid = await app.inject({
+        method: "POST",
+        url: `/api/v1/orders/${order.id}/record-settlement`,
+        cookies,
+        headers: { "idempotency-key": `defer-${partial.key}-payment-001` },
+        payload: paymentPayload,
+      });
+      expect(paid.statusCode, paid.body).toBe(201);
+      expect(paid.json().data).toMatchObject({ state: "OPEN", paymentStatus: "PARTIALLY_PAID" });
+
+      const deferred = await app.inject({
+        method: "POST",
+        url: `/api/v1/orders/${order.id}/defer`,
+        cookies,
+        payload: { expectedVersion: paid.json().data.version, customerName: `مشتری ${index + 1}` },
+      });
+      expect(deferred.statusCode, deferred.body).toBe(200);
+      expect(deferred.json().data).toMatchObject({
+        state: "OPEN",
+        paymentStatus: "PARTIALLY_PAID",
+        channel: "TAKEAWAY",
+        tableId: null,
+        balanceAmount: partial.totalAmount - partial.amount,
+      });
+      const list = await app.inject({ method: "GET", url: "/api/v1/orders?state=OPEN&deferred=true", cookies });
+      expect(list.json().data.orders).toEqual(expect.arrayContaining([expect.objectContaining({
+        id: order.id,
+        balanceAmount: partial.totalAmount - partial.amount,
+        deferredCustomerName: `مشتری ${index + 1}`,
+      })]));
+    }
+  });
   it("validates the request DTO and returns the documented structured error envelope", async () => {
     const cookies = await userSession(UserRole.STAFF, "invalid-dto.staff");
     const response = await createOrderRequest(cookies, { channel: "TABLE", items: [] }, "invalid-dto-create-0001");
