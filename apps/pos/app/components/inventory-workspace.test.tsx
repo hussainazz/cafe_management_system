@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InventoryWorkspace } from "./inventory-workspace";
 import * as api from "../lib/api-client";
@@ -25,6 +26,12 @@ const catalog = { categories: [], products: [], optionGroups: [], options: [] } 
 
 function list(data: unknown, key: string) { const page = { limit: 20, nextCursor: null, hasMore: false }; return ok({ data: { [key]: data, page }, meta: { requestId: "test", page } }); }
 
+function chooseInventoryOption(label: string, name: string) {
+  const picker = screen.getByRole("combobox", { name: label });
+  fireEvent.change(picker, { target: { value: name } });
+  fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name }));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([], "stockItems") as never);
@@ -47,6 +54,69 @@ beforeEach(() => {
 });
 
 afterEach(() => cleanup());
+
+it("searches purchase items with Persian keyboard variants and submits ungrouped prices and decimal weights", async () => {
+  const anotherStock = { ...stock, id: "stock-2", name: "کیک شکلاتی" };
+  vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock, anotherStock], "stockItems") as never);
+  vi.mocked(api.createInventoryPurchase).mockResolvedValue(ok({ data: {} }) as never);
+  const user = userEvent.setup();
+  render(<InventoryWorkspace catalog={catalog} />);
+  const picker = await screen.findByRole("combobox", { name: "کالا" });
+  expect((picker as HTMLInputElement).value).toBe("");
+  fireEvent.change(picker, { target: { value: "كيك" } });
+  expect(screen.getByRole("option", { name: anotherStock.name })).toBeTruthy();
+  fireEvent.keyDown(picker, { key: "ArrowDown" });
+  fireEvent.keyDown(picker, { key: "Enter" });
+  expect((picker as HTMLInputElement).value).toBe(anotherStock.name);
+  const amount = screen.getByLabelText("هزینه‌ی مستقیم (تومان)") as HTMLInputElement;
+  fireEvent.change(amount, { target: { value: "1,5" } });
+  expect(amount.value).toBe("1,5");
+  expect(amount.validity.patternMismatch).toBe(true);
+  await user.clear(amount);
+  await user.type(amount, "1234567");
+  expect(amount.value).toBe("1,234,567");
+  await user.keyboard("{Home}{ArrowRight}{Delete}");
+  expect(amount.selectionStart).toBe(2);
+  await user.keyboard("9");
+  expect(amount.value).toBe("19,234,567");
+  const quantity = screen.getByLabelText("مقدار خرید (گرم)") as HTMLInputElement;
+  fireEvent.change(quantity, { target: { value: "۱۲٬۳۴۵٫۶۷۸۹۰۱" } });
+  expect(quantity.value).toBe("12,345.678901");
+  await user.click(screen.getByRole("button", { name: "ایجاد پیش‌نویس خرید" }));
+  await waitFor(() => expect(api.createInventoryPurchase).toHaveBeenCalledWith(expect.objectContaining({
+    lines: [expect.objectContaining({ stockItemId: anotherStock.id, directCostAmount: 19234567, purchaseQuantity: "12345.678901" })],
+  })));
+});
+
+it("moves matching count rows up without changing selected quantities or marking the draft dirty", async () => {
+  const anotherStock = { ...stock, id: "milk", name: "شیر" };
+  vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock, anotherStock], "stockItems") as never);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  try {
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "شمارش انبار" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "جست‌وجوی قلم برای شمارش" }), { target: { value: "شير" } });
+    expect(screen.getByRole("checkbox", { name: "شمارش شیر" })).toHaveProperty("checked", true);
+    expect(screen.queryByRole("checkbox", { name: "شمارش قهوه" })).toBeNull();
+    expect(screen.getAllByRole("group", { name: /قهوه|شیر/ })[0]).toBe(screen.getByRole("group", { name: "شیر" }));
+    expect(screen.getByRole("group", { name: "قهوه" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "گردش موجودی" }));
+    expect(confirm).not.toHaveBeenCalled();
+  } finally { confirm.mockRestore(); }
+});
+
+it("applies Persian order numbers and clears the query when the movement filter changes", async () => {
+  render(<InventoryWorkspace catalog={catalog} />);
+  fireEvent.click(await screen.findByRole("button", { name: "گردش موجودی" }));
+  const method = screen.getByLabelText("جست‌وجو بر اساس");
+  fireEvent.change(method, { target: { value: "ORDER_NUMBER" } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "شماره‌ی سفارش" }), { target: { value: "#۱۲۳۴" } });
+  fireEvent.click(screen.getByRole("button", { name: "اعمال فیلترها" }));
+  await waitFor(() => expect(api.readInventoryMovements).toHaveBeenLastCalledWith({ limit: "20", searchBy: "ORDER_NUMBER", search: "1234" }));
+  fireEvent.change(method, { target: { value: "KIND" } });
+  fireEvent.click(screen.getByRole("button", { name: "اعمال فیلترها" }));
+  await waitFor(() => expect(api.readInventoryMovements).toHaveBeenLastCalledWith({ limit: "20" }));
+});
 
 it("takes a new operator from a missing purchase prerequisite to the stock form without writing data", async () => {
   render(<InventoryWorkspace catalog={catalog} />);
@@ -144,7 +214,7 @@ it("prevents duplicate recipe previews and ignores a result for a previously sel
   fireEvent.click(preview);
   expect(api.previewProductCosting).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("button", { name: "در حال محاسبه‌ی هزینه…" }).hasAttribute("disabled")).toBe(true);
-  fireEvent.change(screen.getByLabelText("محصول منو"), { target: { value: "product-2" } });
+  chooseInventoryOption("محصول منو", "لاته");
   await waitFor(() => expect(api.readProductCosting).toHaveBeenLastCalledWith("product-2"));
   await act(async () => { finish(ok({ data: { isComplete: true, knownCostAmount: 987654, components: [], missingReasons: [] } })); });
   expect(screen.queryByText(/987,654/)).toBeNull();
@@ -585,7 +655,7 @@ it("loads, edits, saves and removes takeaway packaging while preserving the base
   fireEvent.click(await screen.findByRole("button", { name: "مدیریت انبار" }));
   fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
   const packaging = await screen.findByLabelText("قلم بسته‌بندی 1");
-  expect((packaging as HTMLSelectElement).value).toBe("cup-1");
+  expect((packaging as HTMLInputElement).value).toBe(cupStock.name);
   expect((screen.getByLabelText("مقدار (گرم)") as HTMLInputElement).value).toBe("18");
   fireEvent.change(screen.getByLabelText("مقدار بسته‌بندی 1 (عدد)"), { target: { value: "2" } });
   fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
@@ -616,7 +686,7 @@ it("blocks duplicate packaging rows without saving recipes or configuration", as
   fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
   await screen.findByLabelText("قلم بسته‌بندی 1");
   fireEvent.click(screen.getByRole("button", { name: "افزودن بسته‌بندی بیرون‌بر" }));
-  fireEvent.change(screen.getByLabelText("قلم بسته‌بندی 2"), { target: { value: "cup-1" } });
+  chooseInventoryOption("قلم بسته‌بندی 2", cupStock.name);
   fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
   await screen.findByRole("alert");
   expect(api.saveInventoryRecipe).not.toHaveBeenCalled();
@@ -639,9 +709,9 @@ it("creates a reusable takeaway cookie from a nested preparation and wrapper wit
   fireEvent.click(await screen.findByRole("button", { name: "دستورهای مشترک" }));
   fireEvent.change(screen.getByLabelText("نام دستور مشترک"), { target: { value: "کوکی بیرون‌بر" } });
   fireEvent.change(screen.getByLabelText("نوع جزء 1"), { target: { value: "RECIPE" } });
-  fireEvent.change(screen.getByLabelText("جزء 1"), { target: { value: "recipe-1" } });
+  chooseInventoryOption("جزء 1", baseRecipe.name);
   fireEvent.click(screen.getByRole("button", { name: "افزودن جزء به دستور مشترک" }));
-  fireEvent.change(screen.getByLabelText("جزء 2"), { target: { value: "cup-1" } });
+  chooseInventoryOption("جزء 2", cupStock.name);
   fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستور مشترک" }));
   await waitFor(() => expect(api.saveInventoryRecipe).toHaveBeenCalledWith(null, expect.objectContaining({ name: "کوکی بیرون‌بر", outputUnit: "PIECE", yieldQuantity: "1", components: [expect.objectContaining({ sourceKind: "RECIPE", nestedRecipeId: "recipe-1", quantity: "1" }), expect.objectContaining({ sourceKind: "STOCK_ITEM", stockItemId: "cup-1", quantity: "1" })] })));
   expect(api.saveProductCosting).not.toHaveBeenCalled();
