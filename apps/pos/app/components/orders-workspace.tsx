@@ -1022,7 +1022,7 @@ export function TableBoard({
   );
 }
 
-function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint, onTransfer, title, closeButtonRef }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onCheckout: () => void; onPrint: (kind: Exclude<PrintKind, "settlement">) => void; onTransfer?: () => void; title?: string; closeButtonRef?: RefObject<HTMLButtonElement | null> }) {
+function OccupiedTablePanel({ table, order, onClose, onEdit, onDefer, onCheckout, onPrint, onTransfer, title, closeButtonRef }: { table: PosTable | null; order: OrderDetail; onClose: () => void; onEdit: () => void; onDefer?: () => void; onCheckout: () => void; onPrint: (kind: Exclude<PrintKind, "settlement">) => void; onTransfer?: () => void; title?: string; closeButtonRef?: RefObject<HTMLButtonElement | null> }) {
   const status = order.paymentStatus === "PAID" ? "تسویه‌شده" : order.paymentStatus === "PARTIALLY_PAID" ? "بخشی پرداخت‌شده" : "پرداخت‌نشده";
   const settledQuantities = new Map<string, number>();
   const settledAmounts = new Map<string, number>();
@@ -1092,6 +1092,7 @@ function OccupiedTablePanel({ table, order, onClose, onEdit, onCheckout, onPrint
         <button className="button button--quiet button--wide" onClick={() => onPrint("receipt")}>چاپ رسید</button>
       </div>
       <button className="button button--quiet button--wide occupied-panel__edit" onClick={onEdit}>ویرایش سفارش</button>
+      {onDefer && order.balanceAmount > 0 && <button className="button button--quiet button--wide" onClick={onDefer}>انتقال به تسویه‌نشده</button>}
       {onTransfer && <button className="button button--quiet button--wide occupied-panel__transfer" onClick={onTransfer}>انتقال سفارش به میز دیگر</button>}
     </footer>
   </aside>;
@@ -1151,6 +1152,7 @@ export function OrderDesk({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [discountTarget, setDiscountTarget] = useState<DiscountTarget | null>(null);
   const [deferredCustomerNames, setDeferredCustomerNames] = useState<string[]>([]);
+  const [deferredNameOpen, setDeferredNameOpen] = useState(false);
   const discountTriggerRef = useRef<HTMLElement | null>(null);
   const takeawayCloseRef = useRef<HTMLButtonElement>(null);
   const takeawayOrderPanelOpen = channel === "TAKEAWAY" && initialOrder !== null;
@@ -1628,15 +1630,41 @@ export function OrderDesk({
     );
   };
   const defer = async (customerName: string) => {
-    if (!initialOrder || dirty) return;
     const normalizedCustomerName = customerName.trim().replace(/\s+/g, " ");
     if (!normalizedCustomerName) { setError("نام مشتری را وارد کنید."); return; }
+    const canDeferDraft = !initialOrder && channel === "TAKEAWAY" && !staffOrderTarget && draftForOrder.length > 0;
+    if ((!initialOrder && !canDeferDraft) || (initialOrder && dirty)) return;
     setBusy(true);
     setError(null);
-    const result = await deferOpenOrder(initialOrder.id, initialOrder.version, normalizedCustomerName);
+    let orderToDefer = initialOrder;
+    if (!orderToDefer) {
+      attemptedCreateFingerprint.current = createRequestFingerprint;
+      writeRecovery(`${recoveryPrefix}:create-fingerprint`, createRequestFingerprint);
+      const created = await createOpenOrder(
+        { channel: "TAKEAWAY", items: payloadItems(), packagingAssignments },
+        createAttemptKey,
+        { requestId: requestKey() },
+      );
+      if (!created.ok) {
+        setBusy(false);
+        setError(created.error.message);
+        return;
+      }
+      const detail = await readOrder(created.data.id);
+      if (!detail.ok) {
+        setBusy(false);
+        setError(detail.error.message);
+        return;
+      }
+      orderToDefer = detail.data;
+    }
+    const result = await deferOpenOrder(orderToDefer.id, orderToDefer.version, normalizedCustomerName);
     setBusy(false);
     if (!result.ok) { setError(result.error.message); return; }
+    clearDeskRecoveryPrefix(recoveryPrefix);
+    clearPaymentRecovery(orderToDefer.id, orderToDefer.version);
     setDeferredCustomerNames(rememberDeferredCustomerName(normalizedCustomerName));
+    setDeferredNameOpen(false);
     onDone("سفارش به فهرست تسویه‌نشده منتقل شد.");
   };
   useEffect(() => {
@@ -1656,6 +1684,10 @@ export function OrderDesk({
       closeButtonRef={takeawayCloseRef}
       onClose={onCloseTakeawayPanel}
       onEdit={() => setTakeawayEditing(true)}
+        onDefer={() => {
+          setTakeawayEditing(true);
+          setDeferredNameOpen(true);
+        }}
       onCheckout={() => setCheckout(true)}
       onPrint={(kind) => {
         void printDocument(printRoute(initialOrder.id, kind)).catch((printError: unknown) => {
@@ -1694,6 +1726,9 @@ export function OrderDesk({
         onRequestDelete={() => setDeleteDialogOpen(true)}
         onRequestDefer={(customerName) => void defer(customerName)}
         deferredCustomerNames={deferredCustomerNames}
+        deferredNameOpen={deferredNameOpen}
+        onDeferredNameOpenChange={setDeferredNameOpen}
+        allowDraftDefer={channel === "TAKEAWAY" && !staffOrderTarget}
         onRequestDiscount={(target) => { discountTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setDiscountTarget(target); }}
         busy={busy}
       />
@@ -1843,6 +1878,9 @@ function OrderSummary({
   onRequestDelete,
   onRequestDefer,
   deferredCustomerNames,
+  deferredNameOpen,
+  onDeferredNameOpenChange,
+  allowDraftDefer,
   onRequestDiscount,
   busy,
 }: {
@@ -1862,12 +1900,14 @@ function OrderSummary({
   onRequestDelete: () => void;
   onRequestDefer: (customerName: string) => void;
   deferredCustomerNames: string[];
+  deferredNameOpen: boolean;
+  onDeferredNameOpenChange: (open: boolean) => void;
+  allowDraftDefer: boolean;
   onRequestDiscount: (target: DiscountTarget) => void;
   busy: boolean;
 }) {
   const [expandedDraftKey, setExpandedDraftKey] = useState<string | null>(null);
   const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null);
-  const [showDeferredName, setShowDeferredName] = useState(false);
   const [deferredCustomerName, setDeferredCustomerName] = useState("");
   const [deferredCustomerNameError, setDeferredCustomerNameError] = useState<string | null>(null);
   const hasUnsavedChanges = draft.length > 0 || saved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingChanged;
@@ -1975,6 +2015,7 @@ function OrderSummary({
       )}
       {!order && draft.length > 0 && (
         <>
+          {allowDraftDefer && <button className="button button--quiet button--wide" type="button" disabled={busy} onClick={() => onDeferredNameOpenChange(true)}>ثبت سفارش در فهرست تسویه‌نشده</button>}
           <button className="button button--quiet button--wide" type="button" disabled={busy} onClick={() => onConfirmAndPrint("bar-ticket")}>
             {busy ? "در حال ثبت…" : "تأیید سفارش و چاپ فیش بار"}
           </button>
@@ -2002,14 +2043,14 @@ function OrderSummary({
             تخفیف سفارش
           </button>
           <div className="order-actions__unpaid-row">
-            <button className="button button--quiet" type="button" disabled={busy || hasUnsavedChanges || order.balanceAmount === 0} onClick={() => setShowDeferredName(true)}>تسویه نشده</button>
+            <button className="button button--quiet" type="button" disabled={busy || hasUnsavedChanges || order.balanceAmount === 0} onClick={() => onDeferredNameOpenChange(true)}>تسویه نشده</button>
             <button className="button button--quiet order-actions__delete" type="button" disabled={busy} onClick={onRequestDelete}>
               حذف سفارش
             </button>
           </div>
         </div>
       )}
-      {order && showDeferredName && <form className="deferred-order-name-form" onSubmit={(event) => {
+      {(order || allowDraftDefer) && deferredNameOpen && <form className="deferred-order-name-form" onSubmit={(event) => {
         event.preventDefault();
         const name = deferredCustomerName.trim();
         if (!name) { setDeferredCustomerNameError("نام مشتری را وارد کنید."); return; }
@@ -2042,7 +2083,7 @@ function OrderSummary({
         </datalist>
         <small id="deferred-customer-name-help">وارد کردن نام الزامی است؛ می‌توانید نام‌های قبلی را از پیشنهادها انتخاب کنید.</small>
         {deferredCustomerNameError && <p id="deferred-customer-name-error" className="pricing-field-error" role="alert">{deferredCustomerNameError}</p>}
-        <div className="modal-actions"><button className="button button--quiet" type="button" disabled={busy} onClick={() => setShowDeferredName(false)}>انصراف</button><button className="button button--primary" type="submit" disabled={busy}>{busy ? "در حال انتقال…" : "انتقال به سفارش‌های تسویه‌نشده"}</button></div>
+        <div className="modal-actions"><button className="button button--quiet" type="button" disabled={busy} onClick={() => onDeferredNameOpenChange(false)}>انصراف</button><button className="button button--primary" type="submit" disabled={busy}>{busy ? "در حال انتقال…" : "انتقال به سفارش‌های تسویه‌نشده"}</button></div>
       </form>}
     </>
   );
