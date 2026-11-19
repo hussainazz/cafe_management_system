@@ -17,6 +17,8 @@ import {
   type TransferOrderTableRequest,
   type UpdateOrderRequest,
   type DiscountInput,
+  type PackagingAssignmentInput,
+  type OrderItemReference,
 } from "@cafe/contracts";
 import { ApplicationError, ErrorCodes } from "../../errors/application-error.js";
 import type { AuthenticatedUser } from "../auth/auth.service.js";
@@ -35,6 +37,64 @@ const IDEMPOTENCY_RETENTION_MS = 24 * 60 * 60 * 1_000;
 async function lockOperationalKeys(transaction: Prisma.TransactionClient, keys: string[]) {
   for (const key of [...new Set(keys)].sort()) {
     await transaction.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}::text))`);
+  }
+}
+
+function requestItemReferenceIds(assignments: PackagingAssignmentInput[], requestItemIds: Map<string, string>) {
+  const seen = new Set<string>();
+  return assignments.map((assignment) => {
+    const packagingItemId = resolveItemReference(assignment.packagingItem, requestItemIds);
+    const productItemId = resolveItemReference(assignment.productItem, requestItemIds);
+    if (!packagingItemId || !productItemId) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must reference items in this order request.");
+    }
+    if (packagingItemId === productItemId) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging item cannot be assigned to itself.");
+    }
+    const key = packagingAssignmentKey(packagingItemId, productItemId);
+    if (seen.has(key)) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An order item can only be assigned once to each packaging item.");
+    }
+    seen.add(key);
+    return { packagingItemId, productItemId, quantity: assignment.quantity };
+  });
+}
+
+type PackagingAssignmentRow = { packagingItemId: string; productItemId: string; quantity: number };
+
+function validatePackagingAssignmentQuantities(
+  items: Array<{ id: string; quantity: number; systemKey: string | null }>,
+  assignments: PackagingAssignmentRow[],
+  unchangedQuantities = new Map<string, number>(),
+) {
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const packagedUnitCounts = new Map<string, number>();
+  const assignedUnitCounts = new Map<string, number>();
+
+  for (const assignment of assignments) {
+    const packagingItem = itemById.get(assignment.packagingItemId);
+    const productItem = itemById.get(assignment.productItemId);
+    if (!packagingItem || !productItem) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must reference items in this order.");
+    }
+    if (packagingItem.systemKey !== "PACKING" || productItem.systemKey === "PACKING") {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging assignment must link a packaging product to a menu product.");
+    }
+    packagedUnitCounts.set(packagingItem.id, (packagedUnitCounts.get(packagingItem.id) ?? 0) + assignment.quantity);
+    assignedUnitCounts.set(productItem.id, (assignedUnitCounts.get(productItem.id) ?? 0) + assignment.quantity);
+  }
+
+  for (const item of items) {
+    if (unchangedQuantities.get(item.id) === item.quantity) continue;
+    const assignedQuantity = item.systemKey === "PACKING"
+      ? packagedUnitCounts.get(item.id) ?? 0
+      : assignedUnitCounts.get(item.id) ?? 0;
+    if (item.systemKey === "PACKING" && assignedQuantity !== item.quantity) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A packaging item's quantity must equal the total assigned product quantity.");
+    }
+    if (item.systemKey !== "PACKING" && assignedQuantity > item.quantity) {
+      throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An order item cannot be assigned to more packaging units than its quantity.");
+    }
   }
 }
 
@@ -127,6 +187,16 @@ type CreatedOrder = {
       quantity: number;
     }>;
   }>;
+  packagingAssignments: Array<{
+    id: string;
+    packagingOrderItemId: string;
+    packagingProductId: string;
+    packagingProductNameSnapshot: string;
+    productOrderItemId: string;
+    productId: string;
+    productNameSnapshot: string;
+    quantity: number;
+  }>;
 };
 
 type OrderTraceTable = { id: string; name: string };
@@ -148,6 +218,43 @@ function stableJson(value: unknown): string {
 
 function requestFingerprint(input: unknown): string {
   return createHash("sha256").update(stableJson(input)).digest("hex");
+}
+
+function resolveItemReference(reference: OrderItemReference, requestItemIds: Map<string, string>): string | undefined {
+  return reference.kind === "EXISTING" ? reference.orderItemId : requestItemIds.get(reference.clientRef);
+}
+
+function packagingAssignmentKey(packagingItemId: string, productItemId: string): string {
+  return `${packagingItemId}:${productItemId}`;
+}
+
+async function savePackagingAssignmentChanges(
+  transaction: Prisma.TransactionClient,
+  orderId: string,
+  resolved: PackagingAssignmentRow[],
+  previous: Array<PackagingAssignmentRow & { id: string }>,
+  immutableItemIds: Set<string>,
+) {
+  const key = (row: PackagingAssignmentRow) => packagingAssignmentKey(row.packagingItemId, row.productItemId);
+  const oldByKey = new Map(previous.map((row) => [key(row), row]));
+  const newByKey = new Map(resolved.map((row) => [key(row), row]));
+  const isFrozen = (row: PackagingAssignmentRow) => immutableItemIds.has(row.packagingItemId) || immutableItemIds.has(row.productItemId);
+  if (previous.some((row) => isFrozen(row) && newByKey.get(key(row))?.quantity !== row.quantity)
+    || resolved.some((row) => isFrozen(row) && oldByKey.get(key(row))?.quantity !== row.quantity)) {
+    throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments for settled or inventory-recognized items cannot be changed.");
+  }
+
+  const removedIds = previous.filter((row) => !newByKey.has(key(row))).map((row) => row.id);
+  if (removedIds.length) await transaction.orderItemPackagingAssignment.deleteMany({ where: { orderId, id: { in: removedIds } } });
+  const added = [];
+  for (const row of resolved) {
+    const old = oldByKey.get(key(row));
+    if (!old) added.push({ orderId, ...row });
+    else if (old.quantity !== row.quantity) {
+      await transaction.orderItemPackagingAssignment.update({ where: { id: old.id }, data: { quantity: row.quantity } });
+    }
+  }
+  if (added.length) await transaction.orderItemPackagingAssignment.createMany({ data: added });
 }
 
 const tehranBusinessDateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -177,6 +284,7 @@ async function nextDailyOrderNumber(transaction: Prisma.TransactionClient, creat
 function isAvailableProduct(product: ProductForOrder): boolean {
   return (
     product.isActive &&
+    (product.systemKey !== "PACKING" || product.isAvailable) &&
     !product.archivedAt &&
     product.category.kind === "SOURCE" &&
     !product.category.archivedAt
@@ -186,6 +294,13 @@ function isAvailableProduct(product: ProductForOrder): boolean {
 function catalogSaleDiscount(product: ProductForOrder): DiscountInput {
   if (!product.saleDiscountKind || !product.saleDiscountValue) return null;
   return { kind: product.saleDiscountKind, value: product.saleDiscountValue };
+}
+
+function checkedOrderAmount(amount: number): number {
+  if (!Number.isSafeInteger(amount) || amount > 2_147_483_647) {
+    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The order amount exceeds the supported Toman range.");
+  }
+  return amount;
 }
 
 function calculateLinePricing(input: {
@@ -201,14 +316,14 @@ function calculateLinePricing(input: {
       throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Fixed-price products cannot include a weight.");
     }
     const baseAmount = input.basePrice * input.quantity;
-    return { baseAmount, optionAmount, grossLineAmount: baseAmount + optionAmount };
+    return { baseAmount, grossLineAmount: checkedOrderAmount(baseAmount + optionAmount) };
   }
   if (!input.weightGrams || !Number.isSafeInteger(input.weightGrams) || input.weightGrams <= 0) {
     throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A positive weight is required for this product.");
   }
   const baseAmount = Math.floor((input.basePrice * input.weightGrams * input.quantity) / 1000);
   const weightedOptionAmount = Math.floor((optionAmount * input.weightGrams * input.quantity) / 1000);
-  return { baseAmount, optionAmount: weightedOptionAmount, grossLineAmount: baseAmount + weightedOptionAmount };
+  return { baseAmount, grossLineAmount: checkedOrderAmount(baseAmount + weightedOptionAmount) };
 }
 
 function resultFromSnapshot<T>(snapshot: Prisma.JsonValue): T {
@@ -333,6 +448,14 @@ function toCreatedOrder(order: {
       quantity: number;
     }>;
   }>;
+  packagingAssignments: Array<{
+    id: string;
+    packagingItemId: string;
+    productItemId: string;
+    quantity: number;
+    packagingItem: { productId: string; productNameSnapshot: string };
+    productItem: { productId: string; productNameSnapshot: string };
+  }>;
 }): CreatedOrder {
   return {
     ...order,
@@ -368,6 +491,16 @@ function toCreatedOrder(order: {
         quantity: option.quantity,
       })),
     })),
+    packagingAssignments: order.packagingAssignments.map((assignment) => ({
+      id: assignment.id,
+      packagingOrderItemId: assignment.packagingItemId,
+      packagingProductId: assignment.packagingItem.productId,
+      packagingProductNameSnapshot: assignment.packagingItem.productNameSnapshot,
+      productOrderItemId: assignment.productItemId,
+      productId: assignment.productItem.productId,
+      productNameSnapshot: assignment.productItem.productNameSnapshot,
+      quantity: assignment.quantity,
+    })),
   } as CreatedOrder;
 }
 
@@ -383,14 +516,16 @@ export async function createOrder(
 ): Promise<OrderCreationResult> {
   requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
 
-  const fingerprint = staffConsumption ? requestFingerprint({ input, staffConsumptionName: staffConsumptionName?.trim() || null }) : requestFingerprint(input);
+  const { packagingAssignments, ...orderFields } = input;
+  const canonicalInput = packagingAssignments?.length ? input : orderFields;
+  const fingerprint = staffConsumption ? requestFingerprint({ input: canonicalInput, staffConsumptionName: staffConsumptionName?.trim() || null }) : requestFingerprint(canonicalInput);
   const operation = staffConsumption ? "CREATE_STAFF_CONSUMPTION" : CREATE_ORDER_OPERATION;
   const previous = await existingIdempotencyResult<CreatedOrder>(prisma, actor.id, idempotencyKey, fingerprint, operation);
   if (previous) {
     const resolvedTable = previous.tableId
       ? await prisma.cafeTable.findUnique({ where: { id: previous.tableId }, select: { id: true, name: true } })
       : null;
-    return { order: { ...previous, items: previous.items.map((item) => ({ ...item, systemKey: item.systemKey ?? null })) }, replayed: true, resolvedTable };
+    return { order: { ...previous, items: previous.items.map((item) => ({ ...item, systemKey: item.systemKey ?? null })), packagingAssignments: previous.packagingAssignments ?? [] }, replayed: true, resolvedTable };
   }
 
   try {
@@ -417,12 +552,15 @@ export async function createOrder(
 
       for (const item of input.items) {
         const product = productById.get(item.productId);
-        if (!product || product.systemKey === "PACKING" || !isAvailableProduct(product)) {
+        if (!product || !isAvailableProduct(product)) {
           throw new ApplicationError(
             422,
             ErrorCodes.UNAVAILABLE_PRODUCT,
             "One or more selected products are unavailable.",
           );
+        }
+        if (product.systemKey === "PACKING" && staffConsumption) {
+          throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Packaging charges are unavailable for staff consumption.");
         }
         validateOptionSelections(product as ProductForOrder, item.options, item.quantity);
       }
@@ -491,7 +629,17 @@ export async function createOrder(
         };
       });
       const preparedIds: string[] = preparedItems.map(() => randomUUID());
-      const subtotalAmount = preparedItems.reduce((total, item) => total + item.lineTotalAmount, 0);
+      const requestItemIds = new Map<string, string>();
+      preparedItems.forEach((item, index) => {
+        if (item.clientRef) requestItemIds.set(item.clientRef, preparedIds[index]!);
+      });
+      const assignmentRows = requestItemReferenceIds(input.packagingAssignments ?? [], requestItemIds);
+      validatePackagingAssignmentQuantities(preparedItems.map((item, index) => ({
+        id: preparedIds[index]!,
+        quantity: item.quantity,
+        systemKey: productById.get(item.productId)!.systemKey,
+      })), assignmentRows);
+      const subtotalAmount = checkedOrderAmount(preparedItems.reduce((total, item) => total + item.lineTotalAmount, 0));
       const createdAt = new Date();
 
       const dailySequence = await nextDailyOrderNumber(transaction, createdAt);
@@ -523,6 +671,11 @@ export async function createOrder(
           },
         },
       });
+      if (assignmentRows.length) {
+        await transaction.orderItemPackagingAssignment.createMany({
+          data: assignmentRows.map((assignment) => ({ id: randomUUID(), orderId: created.id, ...assignment })),
+        });
+      }
       const createdWithItems = await transaction.order.findUniqueOrThrow({
         where: { id: created.id },
         include: {
@@ -530,6 +683,7 @@ export async function createOrder(
             orderBy: { displayOrder: "asc" },
             include: { options: { orderBy: { id: "asc" } }, product: { select: { systemKey: true } } },
           },
+          packagingAssignments: { include: { packagingItem: { select: { productId: true, productNameSnapshot: true } }, productItem: { select: { productId: true, productNameSnapshot: true } } }, orderBy: { id: "asc" } },
         },
       });
       await updateOrderCostingSnapshots(transaction, created.id);
@@ -595,8 +749,9 @@ const orderDetailInclude = {
   table: { select: { name: true } },
   items: {
     orderBy: { displayOrder: "asc" },
-    include: { options: { orderBy: { id: "asc" } }, product: { select: { systemKey: true } } },
+    include: { options: { orderBy: { id: "asc" } }, product: { select: { systemKey: true } }, _count: { select: { consumptionItems: true } } },
   },
+  packagingAssignments: { include: { packagingItem: { select: { productId: true, productNameSnapshot: true } }, productItem: { select: { productId: true, productNameSnapshot: true } } }, orderBy: { id: "asc" } },
   paymentSettlements: {
     orderBy: { recordedAt: "asc" },
     include: {
@@ -633,6 +788,7 @@ function orderDetailDto(order: OrderDetailRecord) {
       id: item.id,
       productId: item.productId,
       systemKey: item.product.systemKey,
+      hasInventoryHistory: item._count.consumptionItems > 0,
       productNameSnapshot: item.productNameSnapshot,
       basePriceSnapshot: item.basePriceSnapshot,
       pricingModeSnapshot: item.pricingModeSnapshot,
@@ -650,6 +806,16 @@ function orderDetailDto(order: OrderDetailRecord) {
         priceSnapshot: option.priceSnapshot,
         quantity: option.quantity,
       })),
+    })),
+    packagingAssignments: order.packagingAssignments.map((assignment) => ({
+      id: assignment.id,
+      packagingOrderItemId: assignment.packagingItemId,
+      packagingProductId: assignment.packagingItem.productId,
+      packagingProductNameSnapshot: assignment.packagingItem.productNameSnapshot,
+      productOrderItemId: assignment.productItemId,
+      productId: assignment.productItem.productId,
+      productNameSnapshot: assignment.productItem.productNameSnapshot,
+      quantity: assignment.quantity,
     })),
     settlements: order.paymentSettlements.map((settlement) => ({
       id: settlement.id,
@@ -803,6 +969,9 @@ export async function updateOrder(
     if (!order) throw new ApplicationError(404, ErrorCodes.NOT_FOUND, "The requested order was not found.");
     if (order.state !== OrderState.OPEN) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only open orders can be edited.");
     if (order.version !== input.expectedVersion) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
+    if (input.items && order.packagingAssignments.length > 0 && input.packagingAssignments === undefined) {
+      throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments must be retained when replacing order contents.");
+    }
     const activeAllocations = new Map<string, number>();
     const activeAllocatedAmounts = new Map<string, number>();
     order.paymentSettlements.filter((settlement) => !settlement.reversal).forEach((settlement) => settlement.allocations.forEach((allocation) => {
@@ -811,12 +980,14 @@ export async function updateOrder(
     }));
     const hasActiveAllocations = activeAllocations.size > 0 || activeAllocatedAmounts.size > 0;
     const activeSettlements = order.paymentSettlements.filter((settlement) => !settlement.reversal);
+    const isUnpaid = order.paymentStatus === PaymentStatus.UNPAID;
     const allowsUnpaidItemEdits = order.paymentStatus === PaymentStatus.PARTIALLY_PAID
       && activeSettlements.length > 0
       && activeSettlements.every((settlement) => settlement.allocationMode === "ITEM_QUANTITY");
     const removedItems: OrderDetailRecord["items"] = [];
+    const requestItemIds = new Map<string, string>();
     let editsUnpaidItem = false;
-    if (input.items && hasActiveAllocations) {
+    if (input.items && (order.paymentSettlements.length > 0 || order.items.some((item) => item._count.consumptionItems > 0))) {
       throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Order contents cannot be replaced after settlement.");
     }
     const catalogItems = input.items ?? input.addItems;
@@ -833,7 +1004,7 @@ export async function updateOrder(
       const nextDisplayOrder = order.items.reduce((highest, item) => Math.max(highest, item.displayOrder), -1) + 1;
       const prepared = catalogItems.map((requested, index) => {
         const product = productById.get(requested.productId);
-        if (!product || product.systemKey === "PACKING" || !isAvailableProduct(product)) throw new ApplicationError(422, ErrorCodes.UNAVAILABLE_PRODUCT, "One or more selected products are unavailable.");
+        if (!product || !isAvailableProduct(product)) throw new ApplicationError(422, ErrorCodes.UNAVAILABLE_PRODUCT, "One or more selected products are unavailable.");
         const allowedOptions = validateOptionSelections(product as ProductForOrder, requested.options, requested.quantity);
         const options = requested.options.map((selected) => {
           const option = allowedOptions.get(selected.optionId);
@@ -870,11 +1041,13 @@ export async function updateOrder(
       }
       const previousEnteredAt = new Map(order.items.map((item) => [item.id, item.enteredAt]));
       const preparedIds = prepared.map((item) => existingIds.get(preparationKey(item))?.shift() ?? randomUUID());
+      prepared.forEach((item, index) => { if (item.clientRef) requestItemIds.set(item.clientRef, preparedIds[index]!); });
       const newItemsEnteredAt = new Date();
       const enteredAtById = new Map(preparedIds.map((id) => [id, previousEnteredAt.has(id) ? previousEnteredAt.get(id)! : newItemsEnteredAt]));
       if (input.items) {
         // Option snapshots are dependent rows with a restrictive foreign key.
         // Remove them before replacing unpaid order items as one transaction.
+        await transaction.orderItemPackagingAssignment.deleteMany({ where: { orderId } });
         await transaction.orderItemOption.deleteMany({
           where: { orderItem: { orderId } },
         });
@@ -899,10 +1072,13 @@ export async function updateOrder(
       }
       if (allowsUnpaidItemEdits && !hasActiveAllocation) editsUnpaidItem = true;
       if (change.quantity === 0) {
-        if (!allowsUnpaidItemEdits || hasActiveAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only entirely unpaid items after item-quantity payments can be removed.");
+        if ((!isUnpaid && !allowsUnpaidItemEdits) || hasActiveAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only entirely unpaid items can be removed.");
         if (change.note !== undefined || change.discount !== undefined || change.weightGrams !== undefined) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An item removal cannot include other item changes.");
+        if (input.packagingAssignments === undefined && order.packagingAssignments.some((assignment) => assignment.packagingItemId === item.id || assignment.productItemId === item.id)) {
+          throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments must be updated when removing an assigned order item.");
+        }
         const hasSettlementHistory = order.paymentSettlements.some((settlement) => settlement.allocations.some((allocation) => allocation.orderItemId === item.id));
-        if (hasSettlementHistory || await transaction.orderConsumptionItem.count({ where: { orderItemId: item.id } })) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "An item referenced by payment or inventory history cannot be removed.");
+        if (hasSettlementHistory || item._count.consumptionItems > 0) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "An item referenced by payment or inventory history cannot be removed.");
         await transaction.orderItemOption.deleteMany({ where: { orderItemId: item.id } });
         await transaction.orderItemCostingSnapshot.deleteMany({ where: { orderItemId: item.id } });
         await transaction.orderItem.delete({ where: { id: item.id } });
@@ -919,7 +1095,7 @@ export async function updateOrder(
       const quantity = change.quantity ?? item.quantity;
       // Entirely unpaid lines retain their selected options per unit. Never
       // rescale an option snapshot belonging to an active settlement.
-      const options = allowsUnpaidItemEdits && !hasActiveAllocation && item.pricingModeSnapshot === "FIXED"
+      const options = (isUnpaid || allowsUnpaidItemEdits) && !hasActiveAllocation && item.pricingModeSnapshot === "FIXED"
         ? item.options.map((option) => ({ ...option, quantity: option.quantity * quantity / item.quantity }))
         : item.options;
       if (options.some((option) => !Number.isSafeInteger(option.quantity) || option.quantity <= 0 || option.quantity > quantity)) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The selected options cannot be preserved at this item quantity.");
@@ -940,8 +1116,37 @@ export async function updateOrder(
         ...(changesPricing ? { discountAmount, lineTotalAmount } : {}),
       } });
     }
-    const items = await transaction.orderItem.findMany({ where: { orderId }, include: { options: true } });
-    const subtotalAmount = items.reduce((total, item) => total + item.lineTotalAmount, 0);
+    const previousAssignments = order.packagingAssignments.map(({ id, packagingItemId, productItemId, quantity }) => ({ id, packagingItemId, productItemId, quantity }));
+    const resolvedPackagingAssignments = input.packagingAssignments === undefined
+      ? previousAssignments.map(({ packagingItemId, productItemId, quantity }) => ({ packagingItemId, productItemId, quantity }))
+      : requestItemReferenceIds(input.packagingAssignments, requestItemIds);
+    const items = await transaction.orderItem.findMany({ where: { orderId }, include: { product: { select: { systemKey: true } } } });
+    if (!items.length) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An order must contain at least one item.");
+    if (input.items || input.addItems || input.itemUpdates?.some((change) => change.quantity !== undefined) || input.packagingAssignments !== undefined) {
+      // Older orders allowed a package to cover multiple units or had no
+      // assignment rows. Apply the new counts only to lines that changed.
+      const unchangedQuantities = new Map(order.items.map((item) => [item.id, item.quantity]));
+      const assignmentSignature = (row: PackagingAssignmentRow) => `${packagingAssignmentKey(row.packagingItemId, row.productItemId)}:${row.quantity}`;
+      const oldKeys = new Set(previousAssignments.map(assignmentSignature));
+      const newKeys = new Set(resolvedPackagingAssignments.map(assignmentSignature));
+      for (const changed of [
+        ...previousAssignments.filter((row) => !newKeys.has(assignmentSignature(row))),
+        ...resolvedPackagingAssignments.filter((row) => !oldKeys.has(assignmentSignature(row))),
+      ]) {
+        unchangedQuantities.delete(changed.packagingItemId);
+        unchangedQuantities.delete(changed.productItemId);
+      }
+      validatePackagingAssignmentQuantities(items.map((item) => ({ id: item.id, quantity: item.quantity, systemKey: item.product.systemKey })), resolvedPackagingAssignments, unchangedQuantities);
+    }
+    if (input.packagingAssignments !== undefined) {
+      const immutableItemIds = new Set([
+        ...activeAllocations.keys(),
+        ...activeAllocatedAmounts.keys(),
+        ...order.items.filter((item) => item._count.consumptionItems > 0).map((item) => item.id),
+      ]);
+      await savePackagingAssignmentChanges(transaction, orderId, resolvedPackagingAssignments, input.items ? [] : previousAssignments, immutableItemIds);
+    }
+    const subtotalAmount = checkedOrderAmount(items.reduce((total, item) => total + item.lineTotalAmount, 0));
     if (input.orderDiscount !== undefined && hasActiveAllocations) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The order discount cannot change after settlement.");
     const activeOrderDiscount = input.orderDiscount === undefined
       ? order.discountKind && order.discountValue ? { kind: order.discountKind, value: order.discountValue } as DiscountInput : null
@@ -982,7 +1187,7 @@ export async function updateOrder(
         await transaction.waiterCall.updateMany({ where: { tableId: order.tableId, status: "PENDING" }, data: { status: "RESOLVED", acknowledgedAt: closedAt, resolvedAt: closedAt, version: { increment: 1 } } });
       }
     }
-    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, ...(removedItems.length ? { beforeSnapshot: { removedItems } } : {}), afterSnapshot: { version: input.expectedVersion + 1, ...(removedItems.length ? { removedItemIds: removedItems.map((item) => item.id) } : {}) } } });
+    await transaction.auditLog.create({ data: { actorId: actor.id, requestId, operation: "UPDATE_ORDER", entityType: "ORDER", entityId: orderId, ...(removedItems.length || input.packagingAssignments !== undefined ? { beforeSnapshot: { ...(removedItems.length ? { removedItems } : {}), ...(input.packagingAssignments !== undefined ? { packagingAssignments: order.packagingAssignments.map((assignment) => ({ packagingItemId: assignment.packagingItemId, productItemId: assignment.productItemId, quantity: assignment.quantity })) } : {}) } } : {}), afterSnapshot: { version: input.expectedVersion + 1, ...(removedItems.length ? { removedItemIds: removedItems.map((item) => item.id) } : {}), ...(input.packagingAssignments !== undefined ? { packagingAssignments: resolvedPackagingAssignments } : {}) } } });
     return orderDetailDto(await transaction.order.findUniqueOrThrow({ where: { id: orderId }, include: orderDetailInclude }));
   });
 }
@@ -1406,15 +1611,6 @@ function tehranDisplayTime(value: Date): string {
   return `${year}/${month}/${day}  •  ${hour}:${minute}`;
 }
 
-function tehranClockTime(value: Date): string {
-  return new Intl.DateTimeFormat("fa-IR-u-ca-persian-nu-arabext", {
-    timeZone: "Asia/Tehran",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(value);
-}
-
 const receiptInclude = {
   table: { select: { name: true } },
   items: { orderBy: { displayOrder: "asc" }, include: { options: { orderBy: { id: "asc" } } } },
@@ -1427,6 +1623,15 @@ const receiptInclude = {
     },
   },
 } as const satisfies Prisma.OrderInclude;
+
+function tehranClockTime(value: Date): string {
+  return new Intl.DateTimeFormat("fa-IR-u-ca-persian-nu-arabext", {
+    timeZone: "Asia/Tehran",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(value);
+}
 
 export async function barTicket(prisma: PrismaClient, actor: AuthenticatedUser, orderId: string) {
   requireRole(actor, ["STAFF", "CASHIER", "MANAGER", "DEVELOPER"]);
