@@ -35,6 +35,7 @@ import {
   EditSettlementResponseSchema,
   ProductSaleDiscountResponseSchema,
   StockItemsResponseSchema,
+  InventoryStatusResponseSchema,
   StockItemResponseSchema,
   PurchasesResponseSchema,
   PurchaseResponseSchema,
@@ -672,6 +673,10 @@ export async function uploadProductImage(
 }
 export const archiveProductImage = (productId: string) => managerMutation(`/admin/products/${productId}/image/archive`, "POST", {}, AdminImageArchiveResponseSchema, "پاسخ حذف تصویر معتبر نیست.");
 
+export async function readInventoryStatus(): Promise<ApiResult<boolean>> {
+  const parsed = await managerResponse("/admin/inventory/status", InventoryStatusResponseSchema, "وضعیت گردش موجودی دریافت نشد.");
+  return parsed.ok ? { ok: true, data: parsed.data.data.turnoverEnabled, replayed: parsed.replayed } : parsed;
+}
 export const readInventoryStockItems = () => managerResponse("/admin/inventory/stock-items", StockItemsResponseSchema, "فهرست اقلام انبار دریافت نشد.");
 export const saveInventoryStockItem = (id: string | null, body: unknown) => managerMutation(id ? `/admin/inventory/stock-items/${id}` : "/admin/inventory/stock-items", id ? "PATCH" : "POST", body, StockItemResponseSchema, "اطلاعات قلم انبار دریافت نشد.");
 export const archiveInventoryStockItem = (id: string, expectedVersion: number) => managerMutation(`/admin/inventory/stock-items/${id}/archive`, "POST", { expectedVersion }, StockItemResponseSchema, "وضعیت بایگانی قلم دریافت نشد.");
