@@ -6,12 +6,9 @@
   (35 files / 270 tests), contracts suite (10 files / 32 tests), all workspace
   typechecks, and all 62 migration checks against the isolated local test DB.
 - [x] Build and checksum the coordinated API/contracts/POS release artifact
-  locally with its matching release ID and Debian Prisma engine. No production
-  access, upload, or activation occurred in this phase.
-- Left: use the separately authorized VPS handoff to review the production
-  backup/migration plan, restore the eight packaging assignments after the
-  migration, and decide whether to activate the prepared release. Café-device,
-  browser, and receipt-printer acceptance remains open.
+  locally with its matching release ID and Debian Prisma engine. Production
+  activation and recovery are completed in Phase 3 below. Café-device, browser,
+  and receipt-printer acceptance remains open.
 
 ## Inventory ingredient deduction concurrency — 19 November 2026
 
@@ -81,8 +78,8 @@
   invalid-role rejection, and Staff authorization. API admin integration tests
   pass 23/23; POS Manager workspace tests pass 26/26. Contracts, API, and POS
   typechecks pass.
-- Left: include this feature, the Settings permission correction, and the
-  packaging restoration in the separately prepared release activation.
+- [x] Deployed and verified in Phase 3 below as part of
+  `cafe-20261119-7d01337`.
 
 ## Completed permission correction — Cashier Settings access (19 November 2026)
 
@@ -93,8 +90,8 @@
   only the turnover-enabled status required by the inventory screen.
 - [x] API admin integration passes 24/24; POS role boundary tests pass 38/38.
   Contracts build and API/POS typechecks pass.
-- Left: include this correction with the other uncommitted work in the next POS
-  release. No commit or push has been made.
+- [x] Deployed and verified in Phase 3 below as part of
+  `cafe-20261119-7d01337`.
 
 ## Active correction — cashier packaging during order initialization (19 November 2026)
 
@@ -120,11 +117,10 @@
   the day an order reaches full payment when removing unpaid packaging closes it.
 - [x] Apply all 62 migrations on the isolated test database. Pass 188 API
   checks across nine relevant suites, 93 focused POS checks, 32 contract
-  checks, workspace typechecks, and `git diff --check`. The full POS suite
-  passes 269 of 270 checks. Its terminal test still expects the removed
-  partial-payment toggle.
-- Left: restore the eight assignments from the verified backup after
-  migration, then activate and verify the corrective VPS release.
+  checks, workspace typechecks, and `git diff --check`. The final corrected
+  full POS suite passes 270/270 checks.
+- [x] Deployed and verified in Phase 3 below as part of
+  `cafe-20261119-7d01337`; all eight legacy packaging assignments were restored.
 
 ## Completed delivery — retire separate packaging-fee reporting (18 November 2026)
 
