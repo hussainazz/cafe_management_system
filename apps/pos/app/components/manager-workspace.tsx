@@ -14,6 +14,7 @@ import {
   readDailyReport,
   readManagerCatalog,
   readStaffCatalog,
+  readInventoryStatus,
   readManagerSettings,
   readManagerStaff,
   readOrderList,
@@ -157,12 +158,13 @@ export function ManagerWorkspace({
   menuOpen: boolean;
 }) {
   const [settingsPanel, setSettingsPanel] = useRecoveryState<SettingsPanel>("manager-settings-panel", "settings");
-  const panel: Panel = section === "settings" ? settingsPanel : section;
-  const hasManagerAccess = role !== "STAFF";
-  const pageTitle = section === "settings" ? "تنظیمات" : section === "finance" ? "حسابداری" : section === "payments" ? "تاریخچه‌ی پرداخت" : section === "catalog" ? "منو و کالاها" : "انبار";
+  const canManageSettings = role === "MANAGER" || role === "DEVELOPER";
+  const panel: Panel = section === "settings" ? canManageSettings ? settingsPanel : "settings" : section;
+  const pageTitle = section === "settings" ? canManageSettings ? "تنظیمات" : "دسترسی محدود" : section === "finance" ? "حسابداری" : section === "payments" ? "تاریخچه‌ی پرداخت" : section === "catalog" ? "منو و کالاها" : "انبار";
   const [catalog, setCatalog] = useState<ManagerCatalog | null>(null);
   const [staff, setStaff] = useState<ManagerStaff | null>(null);
   const [settings, setSettings] = useState<ManagerSettings | null>(null);
+  const [inventoryTurnoverEnabled, setInventoryTurnoverEnabled] = useState<boolean | null>(null);
   const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(true);
@@ -185,15 +187,15 @@ export function ManagerWorkspace({
     return () => { cancelRecovery?.(); window.removeEventListener("run-cafe:api-failure", failed); window.removeEventListener(recoveryNoticeEvent, notified); };
   }, []);
   useEffect(() => {
-    if (loading || failure || !catalog || (hasManagerAccess && (!staff || !settings))) return;
+    if (loading || failure || !catalog || (canManageSettings && (!staff || !settings)) || (role === "CASHIER" && section === "inventory" && inventoryTurnoverEnabled === null)) return;
     const healthy = window.setTimeout(finishRecoveryEpisode, 30_000);
     return () => window.clearTimeout(healthy);
-  }, [loading, failure, catalog, staff, settings, role, hasManagerAccess]);
+  }, [loading, failure, catalog, staff, settings, role, section, inventoryTurnoverEnabled, canManageSettings]);
   const reloadCatalog = useCallback(async () => {
-    const result = hasManagerAccess ? await readManagerCatalog() : await readStaffCatalog();
+    const result = canManageSettings ? await readManagerCatalog() : await readStaffCatalog();
     if (result.ok) setCatalog(result.data);
     return result;
-  }, [hasManagerAccess]);
+  }, [canManageSettings]);
   const reloadStaff = useCallback(async () => {
     const result = await readManagerStaff();
     if (result.ok) setStaff(result.data);
@@ -204,15 +206,21 @@ export function ManagerWorkspace({
     if (result.ok) setSettings(result.data);
     return result;
   }, []);
+  const reloadInventoryStatus = useCallback(async () => {
+    const result = await readInventoryStatus();
+    if (result.ok) setInventoryTurnoverEnabled(result.data);
+    return result;
+  }, []);
   const reloadAll = useCallback(async () => {
     setLoading(true);
-    const results = hasManagerAccess
-      ? await Promise.all([reloadCatalog(), reloadStaff(), reloadSettings()])
-      : [await reloadCatalog()];
+    const refreshes: Array<Promise<{ ok: true; error?: never } | { ok: false; error: ApiFailure }>> = [reloadCatalog()];
+    if (canManageSettings) refreshes.push(reloadStaff(), reloadSettings());
+    if (role === "CASHIER" && section === "inventory") refreshes.push(reloadInventoryStatus());
+    const results = await Promise.all(refreshes);
     const failed = results.find((result) => !result.ok);
     setFailure(failed && !failed.ok ? failed.error : null);
     setLoading(false);
-  }, [reloadCatalog, reloadSettings, reloadStaff, hasManagerAccess]);
+  }, [reloadCatalog, reloadSettings, reloadStaff, reloadInventoryStatus, canManageSettings, role, section]);
   useEffect(() => {
     void reloadAll();
   }, [reloadAll]);
@@ -279,7 +287,7 @@ export function ManagerWorkspace({
           <h1>{pageTitle}</h1>
         </div>
       </header>
-      {section === "settings" && hasManagerAccess && <nav className="manager-tabs" aria-label="بخش‌های تنظیمات">
+      {section === "settings" && canManageSettings && <nav className="manager-tabs" aria-label="بخش‌های تنظیمات">
         {([
           ["settings", "تنظیمات"],
           ["tables", "میزها"],
@@ -295,6 +303,7 @@ export function ManagerWorkspace({
           </button>
         ))}
       </nav>}
+      {!loading && section === "settings" && !canManageSettings && <div className="manager-empty" role="alert">این بخش فقط برای مدیر و توسعه‌دهنده در دسترس است.</div>}
       {loading && <div className="manager-empty">در حال دریافت اطلاعات مدیریت…</div>}
       {!loading && panel === "catalog" && catalog && (
         <CatalogPanel
@@ -305,11 +314,11 @@ export function ManagerWorkspace({
         />
       )}
       {!loading && panel === "tables" && catalog && <TablesPanel catalog={catalog} mutate={mutate} reload={reloadCatalog} requestConfirm={setConfirm} />}
-      {!loading && panel === "inventory" && catalog && <InventoryWorkspace catalog={catalog} turnoverEnabled={settings?.inventoryActivatedAt !== null && settings?.inventoryActivatedAt !== undefined} role={role} />}
+      {!loading && panel === "inventory" && catalog && <InventoryWorkspace catalog={catalog} turnoverEnabled={role === "CASHIER" ? inventoryTurnoverEnabled === true : settings?.inventoryActivatedAt !== null && settings?.inventoryActivatedAt !== undefined} role={role} />}
       {!loading && (panel === "finance" || panel === "payments" || panel === "audit") && (
         <FinancePanel panel={panel} role={role === "DEVELOPER" ? "MANAGER" : role} tables={catalog?.tables ?? []} mutate={mutate} requestConfirm={setConfirm} />
       )}
-      {!loading && panel === "settings" && hasManagerAccess && settings && (
+      {!loading && panel === "settings" && canManageSettings && settings && (
         <SettingsPanel settings={settings} staff={staff} mutate={mutate} reload={reloadSettings} reloadStaff={reloadStaff} requestConfirm={setConfirm} />
       )}
       {confirm && <ConfirmDialog confirm={confirm} close={() => setConfirm(null)} />}
@@ -564,7 +573,7 @@ function StaffPanel({
   requestConfirm: (confirm: Confirm) => void;
 }) {
   return (
-    <ManagerCard title="حساب‌های پرسنل" hint="حساب مدیر در این فهرست نمایش داده نمی‌شود.">
+    <ManagerCard title="حساب‌های کارکنان" hint="حساب‌های مدیر و توسعه‌دهنده در این فهرست نمایش داده نمی‌شوند.">
       <EntityForm
         submit={(data) =>
           mutate(
@@ -572,6 +581,7 @@ function StaffPanel({
               saveStaff(null, {
                 username: text(data.get("username")),
                 password: text(data.get("password")),
+                role: text(data.get("role")),
               }),
             reload,
           )
@@ -579,15 +589,16 @@ function StaffPanel({
         fields={[
           ["username", "نام کاربری", "text"],
           ["password", "رمز عبور (حداقل 12 کاراکتر)", "password"],
+          ["role", "نوع حساب", "select", "STAFF", [["STAFF", "پرسنل"], ["CASHIER", "صندوقدار"]]],
         ]}
-        action="ساخت حساب پرسنل"
+        action="ساخت حساب"
       />
       <ul className="manager-list">
         {staff.map((row) => (
           <li key={row.id}>
             <details>
               <summary>
-                {row.username} <small>{row.isActive ? "فعال" : "غیرفعال"}</small>
+                {row.username} <small>{row.role === "CASHIER" ? "صندوقدار" : "پرسنل"} · {row.isActive ? "فعال" : "غیرفعال"}</small>
               </summary>
               <EntityForm
                 submit={(data) => {
@@ -612,7 +623,7 @@ function StaffPanel({
                   label="غیرفعال‌سازی"
                   onClick={() =>
                     requestConfirm({
-                      title: "غیرفعال‌سازی پرسنل",
+                      title: "غیرفعال‌سازی حساب",
                       detail: `حساب «${row.username}» غیرفعال می‌شود و همه‌ی نشست‌های فعال این حساب پایان می‌یابد.`,
                       run: async () => {
                         await mutate(() => deactivateStaff(row.id), reload);
@@ -748,7 +759,7 @@ function FinancePanel({
     void Promise.all([
       loadPayments(appliedPaymentFilters, paymentListFilter === "PREVIOUS_UNPAID" ? undefined : paymentListFilter ?? undefined),
       ...(canViewAccountingReport ? [loadReport(appliedPaymentFilters)] : []),
-      ...(role !== "STAFF" ? [loadAudit()] : []),
+      ...(role === "MANAGER" ? [loadAudit()] : []),
     ]);
   }, [appliedPaymentFilters, loadAudit, loadPayments, loadReport, paymentListFilter, role]);
   useEffect(() => {
@@ -760,7 +771,7 @@ function FinancePanel({
     void loadPreviousUnpaidOrders();
   }, [paymentListFilter, loadPreviousUnpaidOrders]);
   useEffect(() => {
-    if (role !== "STAFF" || paymentListFilter !== "PREVIOUS_UNPAID") return;
+    if (role === "MANAGER" || paymentListFilter !== "PREVIOUS_UNPAID") return;
     let cancelled = false;
     void readPosTables().then((result) => {
       if (cancelled) return;
@@ -935,7 +946,7 @@ function FinancePanel({
                     <tr key={order.id}>
                       <td><strong>{formatOrderNumber(order.dailyOrderNumber)}</strong></td>
                       <td>{new Date(order.createdAt).toLocaleString("fa-IR-u-nu-latn")}</td>
-                      <td>{order.channel === "TABLE" ? `میز ${(role === "STAFF" ? staffTables : tables).find((table) => table.id === order.tableId)?.name ?? "—"}` : "بیرون‌بر"}</td>
+                      <td>{order.channel === "TABLE" ? `میز ${(role === "MANAGER" ? tables : staffTables).find((table) => table.id === order.tableId)?.name ?? "—"}` : "بیرون‌بر"}</td>
                       <td><span className="payment-status is-warning">پرداخت‌نشده</span></td>
                       <td className="payment-amount">{formatToman(order.totalAmount)} <small>تومان</small></td>
                       <td className="payment-amount">{formatToman(order.balanceAmount)} <small>تومان</small></td>
@@ -1332,11 +1343,20 @@ function EntityForm({
       }}
     >
       <div className="manager-fields">
-        {fields.map(([name, label, type, value]) => (
+        {fields.map(([name, label, type, value, options]) => (
           <label key={name}>
             {type === "checkbox" ? (
               <>
                 <input name={name} type="checkbox" defaultChecked={Boolean(value)} /> {label}
+              </>
+            ) : type === "select" ? (
+              <>
+                <span>{label}</span>
+                <select name={name} defaultValue={value ?? ""} required>
+                  {(options ?? []).map(([optionValue, optionLabel]: [string, string]) => (
+                    <option key={optionValue} value={optionValue}>{optionLabel}</option>
+                  ))}
+                </select>
               </>
             ) : (
               <>
