@@ -12,6 +12,7 @@ import {
   GrossProfitReportResponseSchema,
   IdempotencyRequestHeadersSchema,
   InventoryCountPathSchema,
+  InventoryStatusResponseSchema,
   InventoryCountResponseSchema,
   InventoryCountsResponseSchema,
   InventoryCountListQuerySchema,
@@ -57,6 +58,7 @@ import {
 } from "@cafe/contracts";
 import { zodToJsonSchema } from "../../contracts/openapi.js";
 import { requireDeveloperRoute, requireInventoryRoute } from "../auth/authorization.js";
+import { inventoryActivation } from "./inventory-activation.js";
 import { grossProfitReport } from "./gross-profit.service.js";
 import { salesChannelReport } from "./sales-channel-report.service.js";
 import { salesAnalyticsReport } from "./sales-analytics.service.js";
@@ -101,6 +103,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   } };
   const developer = { preHandler: requireDeveloperRoute };
 
+  app.get("/admin/inventory/status", { ...manager, schema: { tags: ["Manager inventory"], headers, response: { 200: zodToJsonSchema(InventoryStatusResponseSchema), ...errors } } }, async (request) => ({ data: { turnoverEnabled: (await inventoryActivation(app.prisma)) !== null }, meta: meta(request) }));
   app.get("/admin/inventory/stock-items", { ...manager, schema: { tags: ["Manager inventory"], headers, response: { 200: zodToJsonSchema(StockItemsResponseSchema), ...errors } } }, async (request) => ({ data: { stockItems: await listStockItems(app.prisma) }, meta: meta(request) }));
   app.post("/admin/inventory/stock-items", { ...manager, schema: { tags: ["Manager inventory"], headers, body: zodToJsonSchema(CreateStockItemRequestSchema), response: { 201: zodToJsonSchema(StockItemResponseSchema), ...errors } } }, async (request: any, reply) => { const data = await createStockItem(app.prisma, request.authenticatedUser!, parsed(CreateStockItemRequestSchema, request.body), request.id); reply.code(201); return { data, meta: meta(request) }; });
   app.patch("/admin/inventory/stock-items/:stockItemId", { ...manager, schema: { tags: ["Manager inventory"], headers, params: zodToJsonSchema(StockItemPathSchema), body: zodToJsonSchema(UpdateStockItemRequestSchema), response: { 200: zodToJsonSchema(StockItemResponseSchema), ...errors } } }, async (request: any) => ({ data: await updateStockItem(app.prisma, request.authenticatedUser!, pathId(request.params), parsed(UpdateStockItemRequestSchema, request.body), request.id), meta: meta(request) }));
