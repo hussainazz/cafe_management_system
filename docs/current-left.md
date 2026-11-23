@@ -60,6 +60,10 @@
 - [x] Pass 98 focused API integration tests and all 275 POS tests. Rerun all 35
   order-desk tests after the final editor adjustment. API, contracts, and POS
   typechecks and `git diff --check` pass.
+- [x] Apply an open packaging selection when staff submit a new or edited
+  order. Confirming only the packaging step closes that editor and keeps the
+  order panel open. The POS typecheck and all 35 order-desk tests pass.
+- Left: commit this follow-up and merge `feat/packaging` into `main`.
 
 ## Responsive takeaway panel release — 19 November 2026
 
