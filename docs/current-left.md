@@ -25,6 +25,42 @@
 - Left: authenticated POS-browser, café-device, touch, and receipt-printer
   acceptance.
 
+## Active follow-up — shared order packaging and configurable price (23 November 2026)
+
+- [x] Create the session branch `feat/packaging` in the existing checkout.
+- [x] Revise the approved scope: one order-header chooser works across menu
+  categories; the feature is not controlled by category-level packaging
+  products or toggles. Managers and Developers configure one café-wide price.
+- [x] Keep the chooser in the product-selection header and make it
+  category-independent. Hide its internal rows from menu editing and reject
+  per-category catalog removal of the shared feature.
+- [x] Add the café-wide packaging price to settings storage, API contracts and
+  Manager Settings. Apply it to new packaging lines on the server and preserve
+  order-line price snapshots.
+- [x] Apply `20261118160000_retire_packaging_fee_sales`,
+  `20261119120000_restore_order_packaging_assignments`, and
+  `20261123120000_shared_packaging_price` to the local development database;
+  pass API, contracts, and POS typechecks. The assignment table was recreated
+  locally by the earlier lifecycle migrations. The shared-price default is
+  20,000 Toman.
+- Left: review the resulting order/settings flow in the local POS. No
+  production changes were made.
+
+## Local follow-up — packaging edits on open orders (23 November 2026)
+
+- [x] Let staff edit pack assignments on saved menu items regardless of the
+  menu item's settlement or inventory history. Keep protection on paid and
+  inventory-recognized packaging charges.
+- [x] Add a removal action in the packaging editor and allow staff to re-add
+  packs in a later edit after either partial-payment mode.
+- [x] Check a partially paid local POS order. Adding two draft packs increased
+  the total by 40,000 Toman, removing them restored the total, and reopening
+  the chooser made both units selectable again. The browser check used draft
+  edits, and API integration checks verified persisted removal and re-addition.
+- [x] Pass 98 focused API integration tests and all 275 POS tests. Rerun all 35
+  order-desk tests after the final editor adjustment. API, contracts, and POS
+  typechecks and `git diff --check` pass.
+
 ## Responsive takeaway panel release — 19 November 2026
 
 - [x] Commit and push the responsive takeaway panel at
