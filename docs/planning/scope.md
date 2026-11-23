@@ -45,17 +45,20 @@ pending-consumption work. Only orders created after turnover is enabled are
 eligible for stock deductions; earlier orders are never backfilled. Details are
 in `inventory-costing.md`.
 Packaging stock can be mapped per product to takeaway sales. Cost previews and
-gross-profit reports include packaging cost only for takeaway. The cashier can
-also add catalog `PACKING` products while initializing an order and assign each
-packaging line to the products it contains. Each selected takeaway product unit
-gets exactly one package unit, while other units may remain unpackaged. A
-packaging line's quantity equals the total quantity assigned to that line, and
-the assigned quantity across packaging lines cannot exceed the menu item's
-quantity. The packaging product's catalog price is included in the order total.
-While editing an open order, staff can reopen an editable packaging line in this
-panel, adjust its per-item quantities, and remove it by reducing its
-assignments to zero. Assignments tied to settled or inventory-recognized items
-remain unchanged.
+gross-profit reports include packaging cost only for takeaway. During order
+initialization, staff can open one shared packaging workspace from the product
+selection header, regardless of the selected menu category. Packaging is a
+café-wide feature and cannot be enabled or removed per category. Staff can
+assign one package unit to each selected takeaway product unit, while leaving
+other units unpackaged. A packaging line's quantity equals the total quantity
+assigned to it, and assignments across packaging lines cannot exceed a menu
+item's quantity. New packaging lines use the café-wide price in Settings and
+snapshot that price into the order. While editing an open order, staff can
+assign packs to any menu item, including items with payment or inventory
+history. Staff can change, remove, and later re-add unpaid packs after either
+kind of partial payment. Packaging charges with active allocations or inventory
+history keep their assignments. Existing order lines retain their saved prices
+and names.
 Packaging stock cost remains in product COGS. The separate packaging recovery
 report, fee attribution, and packaging price-experiment targets remain retired.
 Packaging can depend on product quantity; separate takeaway ingredient recipes
@@ -419,14 +422,22 @@ The guiding principle is simple: finish and verify the authoritative backend fir
 
 [ADR 0012](../adr/0012-sep-ssp1126-local-bridge.md) approves the optional single-terminal Windows bridge, authenticated attempts/results, durable recovery, and audited reconciliation. It remains disabled until browser and financial safety gates pass. Pending or unknown dispatched attempts cannot trigger another charge, post an unverified settlement, close an order, or release its table. Manual/cash/split workflows remain available subject to unresolved-attempt guards. Deployment and real payments require separate explicit authorization.
 
-## POS packaging product assignments — restored 19 November 2026
+## POS packaging assignments and shared price — revised 23 November 2026
 
-Restore the cashier's order-time packaging chooser from local POS release
-`cafe-20261118-4666e31`, with one package unit for every takeaway menu-product
-unit. Selecting one of two units assigns one package, and selecting both
-assigns two. A packaging line may cover multiple menu-product lines, but its
-quantity must equal the sum of assigned units. The API rejects over-assignment
-and package-line quantities that disagree with assignment totals. Keep the
-separate packaging recovery report, fee attribution, and packaging
-price-experiment targets retired. Product-based takeaway packaging mappings
-continue to determine material COGS and inventory use.
+Expose one packaging chooser in the order-initialization product-selection
+header. It must work from every menu category and must not depend on a
+category-level packaging toggle or removable category product. Assign one
+package unit to each selected takeaway product unit; selecting one of two units
+assigns one, and selecting both assigns two. A packaging line may cover
+multiple menu-product lines, but its quantity must equal the sum of assigned
+units. The API rejects over-assignment and package-line quantity mismatches.
+Managers and Developers set one café-wide packaging price in Settings; the
+server snapshots that configured Toman amount on each new packaging line.
+Existing saved order lines keep their original snapshots. Menu-item eligibility
+for packaging is independent of payment and inventory history. Staff can edit
+or remove unpaid packs on open orders after quantity- or amount-based payments,
+and can add more packs on a later edit. Preserve allocations and inventory
+history on the packaging charge itself. Keep the separate packaging recovery
+report, fee attribution, and packaging price-experiment targets retired.
+Product-based takeaway packaging mappings continue to determine material COGS
+and inventory use.
