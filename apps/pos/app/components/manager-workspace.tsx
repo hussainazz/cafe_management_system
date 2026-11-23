@@ -1229,10 +1229,12 @@ function SettingsPanel({
     settings.tableSeatingLimitMinutes !== null,
   );
   const [settlementReversalReasonRequired, setSettlementReversalReasonRequired] = useState(settings.settlementReversalReasonRequired);
+  const [packagingPriceAmount, setPackagingPriceAmount] = useState(settings.packagingPriceAmount);
   useEffect(() => setSettlementReversalReasonRequired(settings.settlementReversalReasonRequired), [settings.settlementReversalReasonRequired]);
+  useEffect(() => setPackagingPriceAmount(settings.packagingPriceAmount), [settings.packagingPriceAmount]);
   return (
     <div className="manager-grid">
-    <ManagerCard title="تنظیمات کافه" hint="ثبت مدت حضور مشتری روی میز اختیاری است و با فعال‌سازی این گزینه در سفارش‌ها نمایش داده می‌شود.">
+    <ManagerCard title="تنظیمات کافه" hint="قیمت هر واحد بسته‌بندی برای همه‌ی دسته‌ها یکسان است. ثبت مدت حضور مشتری روی میز هم اختیاری است.">
       <form
         className="manager-form"
         onSubmit={(event) => {
@@ -1242,6 +1244,7 @@ function SettingsPanel({
             () => saveSettings({
               tableSeatingLimitMinutes: seatingLimitEnabled ? number(data.get("minutes")) : null,
               settlementReversalReasonRequired,
+              packagingPriceAmount,
             }),
             reload,
           );
@@ -1275,6 +1278,19 @@ function SettingsPanel({
               required={seatingLimitEnabled}
               disabled={!seatingLimitEnabled}
               defaultValue={settings.tableSeatingLimitMinutes ?? ""}
+            />
+          </label>
+          <label>
+            <span>قیمت هر واحد بسته‌بندی (تومان)</span>
+            <input
+              name="packagingPriceAmount"
+              type="number"
+              min="0"
+              max="2147483647"
+              step="1"
+              required
+              value={packagingPriceAmount}
+              onChange={(event) => setPackagingPriceAmount(Number(event.currentTarget.value))}
             />
           </label>
         </div>

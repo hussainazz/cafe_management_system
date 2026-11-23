@@ -125,6 +125,22 @@ type ProductForOrder = {
   }>;
 };
 
+const DEFAULT_PACKAGING_PRICE_AMOUNT = 20_000;
+
+async function currentPackagingPriceAmount(transaction: Prisma.TransactionClient) {
+  const settings = await transaction.cafeSettings.findUnique({
+    where: { singletonKey: true },
+    select: { packagingPriceAmount: true },
+  });
+  return settings?.packagingPriceAmount ?? DEFAULT_PACKAGING_PRICE_AMOUNT;
+}
+
+function withPackagingPrice(product: ProductForOrder, amount: number): ProductForOrder {
+  return product.systemKey === "PACKING"
+    ? { ...product, priceAmount: amount, saleDiscountKind: null, saleDiscountValue: null }
+    : product;
+}
+
 function catalogOptions(product: ProductForOrder) {
   return new Map(product.productOptionGroups
     .filter(({ optionGroup }) => optionGroup.isActive && !optionGroup.archivedAt)
@@ -233,15 +249,15 @@ async function savePackagingAssignmentChanges(
   orderId: string,
   resolved: PackagingAssignmentRow[],
   previous: Array<PackagingAssignmentRow & { id: string }>,
-  immutableItemIds: Set<string>,
+  immutablePackagingIds: Set<string>,
 ) {
   const key = (row: PackagingAssignmentRow) => packagingAssignmentKey(row.packagingItemId, row.productItemId);
   const oldByKey = new Map(previous.map((row) => [key(row), row]));
   const newByKey = new Map(resolved.map((row) => [key(row), row]));
-  const isFrozen = (row: PackagingAssignmentRow) => immutableItemIds.has(row.packagingItemId) || immutableItemIds.has(row.productItemId);
+  const isFrozen = (row: PackagingAssignmentRow) => immutablePackagingIds.has(row.packagingItemId);
   if (previous.some((row) => isFrozen(row) && newByKey.get(key(row))?.quantity !== row.quantity)
     || resolved.some((row) => isFrozen(row) && oldByKey.get(key(row))?.quantity !== row.quantity)) {
-    throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments for settled or inventory-recognized items cannot be changed.");
+    throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Assignments on a settled or inventory-recognized packaging charge cannot be changed.");
   }
 
   const removedIds = previous.filter((row) => !newByKey.has(key(row))).map((row) => row.id);
@@ -548,7 +564,13 @@ export async function createOrder(
           },
         },
       });
-      const productById = new Map(products.map((product) => [product.id, product]));
+      const packagingPriceAmount = products.some((product) => product.systemKey === "PACKING")
+        ? await currentPackagingPriceAmount(transaction)
+        : DEFAULT_PACKAGING_PRICE_AMOUNT;
+      const productById = new Map(products.map((product) => [
+        product.id,
+        withPackagingPrice(product as ProductForOrder, packagingPriceAmount),
+      ]));
 
       for (const item of input.items) {
         const product = productById.get(item.productId);
@@ -1000,7 +1022,13 @@ export async function updateOrder(
           productOptionGroups: { include: { optionGroup: true, allowedOptions: { include: { option: true } } } },
         },
       });
-      const productById = new Map(products.map((product) => [product.id, product as ProductForOrder]));
+      const packagingPriceAmount = products.some((product) => product.systemKey === "PACKING")
+        ? await currentPackagingPriceAmount(transaction)
+        : DEFAULT_PACKAGING_PRICE_AMOUNT;
+      const productById = new Map(products.map((product) => [
+        product.id,
+        withPackagingPrice(product as ProductForOrder, packagingPriceAmount),
+      ]));
       const nextDisplayOrder = order.items.reduce((highest, item) => Math.max(highest, item.displayOrder), -1) + 1;
       const prepared = catalogItems.map((requested, index) => {
         const product = productById.get(requested.productId);
@@ -1041,6 +1069,35 @@ export async function updateOrder(
       }
       const previousEnteredAt = new Map(order.items.map((item) => [item.id, item.enteredAt]));
       const preparedIds = prepared.map((item) => existingIds.get(preparationKey(item))?.shift() ?? randomUUID());
+      prepared.forEach((item, index) => {
+        const existing = order.items.find((candidate) => candidate.id === preparedIds[index]);
+        if (existing?.product.systemKey !== "PACKING" || productById.get(item.productId)?.systemKey !== "PACKING") return;
+        item.productNameSnapshot = existing.productNameSnapshot;
+        item.basePriceSnapshot = existing.basePriceSnapshot;
+        item.pricingModeSnapshot = existing.pricingModeSnapshot;
+        item.discountKind = existing.discountKind;
+        item.discountValue = existing.discountValue;
+        Object.assign(item, { discountReason: existing.discountReason });
+        item.options = item.options.map((option) => {
+          const savedOption = existing.options.find((candidate) => candidate.optionId === option.optionId);
+          return savedOption
+            ? { ...option, optionNameSnapshot: savedOption.optionNameSnapshot, priceSnapshot: savedOption.priceSnapshot }
+            : option;
+        });
+        const pricing = calculateLinePricing({
+          pricingMode: existing.pricingModeSnapshot,
+          basePrice: existing.basePriceSnapshot,
+          options: item.options.map((option) => ({ price: option.priceSnapshot, quantity: option.quantity })),
+          quantity: item.quantity,
+          weightGrams: item.weightGrams,
+        });
+        const savedDiscount = existing.discountKind && existing.discountValue
+          ? { kind: existing.discountKind, value: existing.discountValue }
+          : null;
+        const { discountAmount, finalAmount } = discountedFinalAmount(pricing.grossLineAmount, savedDiscount);
+        item.discountAmount = discountAmount;
+        item.lineTotalAmount = finalAmount;
+      });
       prepared.forEach((item, index) => { if (item.clientRef) requestItemIds.set(item.clientRef, preparedIds[index]!); });
       const newItemsEnteredAt = new Date();
       const enteredAtById = new Map(preparedIds.map((id) => [id, previousEnteredAt.has(id) ? previousEnteredAt.get(id)! : newItemsEnteredAt]));
@@ -1066,13 +1123,17 @@ export async function updateOrder(
       const allocatedAmount = activeAllocatedAmounts.get(item.id) ?? 0;
       const hasActiveAllocation = allocated > 0 || allocatedAmount > 0;
       const reducesQuantity = change.quantity !== undefined && change.quantity < item.quantity;
+      const editsPackagingQuantity = item.product.systemKey === "PACKING"
+        && change.quantity !== undefined && input.packagingAssignments !== undefined;
+      const allowsUnpaidLineEdit = allowsUnpaidItemEdits || editsPackagingQuantity;
       if (order.paymentStatus === PaymentStatus.PARTIALLY_PAID && !hasActiveAllocation
         && (reducesQuantity || change.note !== undefined || change.weightGrams !== undefined)) {
-        if (!allowsUnpaidItemEdits) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Unpaid items can be edited only after item-quantity payments.");
+        if (!allowsUnpaidLineEdit) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Unpaid items can be edited only after item-quantity payments.");
       }
-      if (allowsUnpaidItemEdits && !hasActiveAllocation) editsUnpaidItem = true;
+      if (order.paymentStatus === PaymentStatus.PARTIALLY_PAID && !hasActiveAllocation
+        && (allowsUnpaidItemEdits || (editsPackagingQuantity && reducesQuantity))) editsUnpaidItem = true;
       if (change.quantity === 0) {
-        if ((!isUnpaid && !allowsUnpaidItemEdits) || hasActiveAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only entirely unpaid items can be removed.");
+        if ((!isUnpaid && !allowsUnpaidLineEdit) || hasActiveAllocation) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Only entirely unpaid items can be removed.");
         if (change.note !== undefined || change.discount !== undefined || change.weightGrams !== undefined) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An item removal cannot include other item changes.");
         if (input.packagingAssignments === undefined && order.packagingAssignments.some((assignment) => assignment.packagingItemId === item.id || assignment.productItemId === item.id)) {
           throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Packaging assignments must be updated when removing an assigned order item.");
@@ -1095,7 +1156,7 @@ export async function updateOrder(
       const quantity = change.quantity ?? item.quantity;
       // Entirely unpaid lines retain their selected options per unit. Never
       // rescale an option snapshot belonging to an active settlement.
-      const options = (isUnpaid || allowsUnpaidItemEdits) && !hasActiveAllocation && item.pricingModeSnapshot === "FIXED"
+      const options = (isUnpaid || allowsUnpaidLineEdit) && !hasActiveAllocation && item.pricingModeSnapshot === "FIXED"
         ? item.options.map((option) => ({ ...option, quantity: option.quantity * quantity / item.quantity }))
         : item.options;
       if (options.some((option) => !Number.isSafeInteger(option.quantity) || option.quantity <= 0 || option.quantity > quantity)) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The selected options cannot be preserved at this item quantity.");
@@ -1139,12 +1200,12 @@ export async function updateOrder(
       validatePackagingAssignmentQuantities(items.map((item) => ({ id: item.id, quantity: item.quantity, systemKey: item.product.systemKey })), resolvedPackagingAssignments, unchangedQuantities);
     }
     if (input.packagingAssignments !== undefined) {
-      const immutableItemIds = new Set([
+      const immutablePackagingIds = new Set([
         ...activeAllocations.keys(),
         ...activeAllocatedAmounts.keys(),
         ...order.items.filter((item) => item._count.consumptionItems > 0).map((item) => item.id),
       ]);
-      await savePackagingAssignmentChanges(transaction, orderId, resolvedPackagingAssignments, input.items ? [] : previousAssignments, immutableItemIds);
+      await savePackagingAssignmentChanges(transaction, orderId, resolvedPackagingAssignments, input.items ? [] : previousAssignments, immutablePackagingIds);
     }
     const subtotalAmount = checkedOrderAmount(items.reduce((total, item) => total + item.lineTotalAmount, 0));
     if (input.orderDiscount !== undefined && hasActiveAllocations) throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "The order discount cannot change after settlement.");

@@ -1,38 +1,43 @@
 import type { PrismaClient } from "../../../generated/prisma/client.js";
 
 export async function readPosCatalog(prisma: PrismaClient) {
-  const categories = await prisma.category.findMany({
-    where: { kind: "SOURCE", archivedAt: null },
-    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
-    include: {
-      products: {
-        where: { isActive: true, archivedAt: null },
-        orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
-        include: {
-          image: { select: { storageKey: true, altText: true } },
-          productOptionGroups: {
-            orderBy: { displayOrder: "asc" },
-            include: {
-              optionGroup: {
-                select: {
-                  id: true,
-                  name: true,
-                  isActive: true,
-                  archivedAt: true,
+  const [categories, settings] = await Promise.all([
+    prisma.category.findMany({
+      where: { kind: "SOURCE", archivedAt: null },
+      orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+      include: {
+        products: {
+          where: { isActive: true, archivedAt: null },
+          orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+          include: {
+            image: { select: { storageKey: true, altText: true } },
+            productOptionGroups: {
+              orderBy: { displayOrder: "asc" },
+              include: {
+                optionGroup: {
+                  select: {
+                    id: true,
+                    name: true,
+                    isActive: true,
+                    archivedAt: true,
+                  },
                 },
-              },
-              allowedOptions: {
-                orderBy: { displayOrder: "asc" },
-                include: { option: { select: { id: true, name: true, priceAmount: true, isAvailable: true, isActive: true, archivedAt: true } } },
+                allowedOptions: {
+                  orderBy: { displayOrder: "asc" },
+                  include: { option: { select: { id: true, name: true, priceAmount: true, isAvailable: true, isActive: true, archivedAt: true } } },
+                },
               },
             },
           },
         },
       },
-    },
-  });
+    }),
+    prisma.cafeSettings.findUnique({ where: { singletonKey: true }, select: { packagingPriceAmount: true } }),
+  ]);
+  const packagingPriceAmount = settings?.packagingPriceAmount ?? 20_000;
 
   return {
+    packagingPriceAmount,
     categories: categories.map((category) => ({
       id: category.id,
       name: category.name,
@@ -40,10 +45,10 @@ export async function readPosCatalog(prisma: PrismaClient) {
         id: product.id,
         systemKey: product.systemKey,
         name: product.name,
-        priceAmount: product.priceAmount,
+        priceAmount: product.systemKey === "PACKING" ? packagingPriceAmount : product.priceAmount,
         pricingMode: product.pricingMode,
-        saleDiscountKind: product.saleDiscountKind,
-        saleDiscountValue: product.saleDiscountValue,
+        saleDiscountKind: product.systemKey === "PACKING" ? null : product.saleDiscountKind,
+        saleDiscountValue: product.systemKey === "PACKING" ? null : product.saleDiscountValue,
         preparationDeadlineMinutes: product.preparationDeadlineMinutes,
         isAvailable: product.isAvailable,
         image: product.image ? { storageKey: product.image.storageKey, altText: product.name } : null,

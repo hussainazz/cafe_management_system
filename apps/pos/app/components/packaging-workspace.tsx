@@ -3,8 +3,6 @@
 import type { PosCatalogProduct } from "@cafe/contracts";
 import { BagIcon, CloseIcon } from "./icons";
 
-export type PackagingCatalogProduct = PosCatalogProduct & { categoryName: string };
-
 export type PackagingItemReference =
   | { kind: "EXISTING"; orderItemId: string }
   | { kind: "REQUEST"; clientRef: string };
@@ -22,12 +20,11 @@ export type PackagingWorkspaceLine = {
   optionsLabel: string;
   quantity: number;
   remainingQuantity: number;
-  locked: boolean;
   existingAssignments: Array<{ packagingName: string; quantity: number }>;
 };
 
 export type PackagingWorkspaceSession = {
-  product: PackagingCatalogProduct;
+  product: PosCatalogProduct | null;
   options: PosCatalogProduct["optionGroups"][number]["options"];
   weightGrams: number | null;
   packagingItem: PackagingItemReference;
@@ -43,15 +40,21 @@ export function PackagingWorkspace({
   session,
   lines,
   selectedQuantities,
+  editablePackages,
+  onEditPackage,
   onAssignmentQuantityChange,
   onCancel,
+  onRemove,
   onConfirm,
 }: {
   session: PackagingWorkspaceSession;
   lines: PackagingWorkspaceLine[];
   selectedQuantities: Record<string, number>;
+  editablePackages: Array<{ reference: PackagingItemReference; name: string }>;
+  onEditPackage: (reference: PackagingItemReference) => void;
   onAssignmentQuantityChange: (referenceKey: string, quantity: number) => void;
   onCancel: () => void;
+  onRemove: () => void;
   onConfirm: () => void;
 }) {
   const selectedTotal = lines.reduce((total, line) => total + Math.min(line.remainingQuantity, selectedQuantities[line.key] ?? 0), 0);
@@ -73,6 +76,22 @@ export function PackagingWorkspace({
         </button>
       </header>
 
+      {editablePackages.length > 1 ? (
+        <label className="field">
+          <span>بسته‌بندی برای ویرایش</span>
+          <select value={packagingReferenceKey(session.packagingItem)} onChange={(event) => {
+            const selected = editablePackages.find(({ reference }) => packagingReferenceKey(reference) === event.currentTarget.value);
+            if (selected) onEditPackage(selected.reference);
+          }}>
+            {editablePackages.map(({ reference, name }, index) => (
+              <option key={packagingReferenceKey(reference)} value={packagingReferenceKey(reference)}>
+                {name} ({(index + 1).toLocaleString("fa-IR")})
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
       <div className="packaging-workspace__list-heading">
         <div><h3>کالاهای سفارش</h3><p>تعداد واحدهایی را که با این نوع بسته‌بندی ثبت می‌شوند انتخاب کنید.</p></div>
         <span>{lines.length} کالا</span>
@@ -82,7 +101,7 @@ export function PackagingWorkspace({
         {lines.map((line) => {
           const quantity = selectedQuantities[line.key] ?? 0;
           const selected = quantity > 0;
-          const disabled = line.locked || line.remainingQuantity <= 0;
+          const disabled = line.remainingQuantity <= 0;
           return (
             <article className={`packaging-item${selected ? " is-selected" : ""}${disabled ? " is-locked" : ""}`} key={line.key}>
               <label className="packaging-item__select">
@@ -109,6 +128,9 @@ export function PackagingWorkspace({
 
       <footer className="packaging-workspace__footer">
         <div>
+          {session.editingExisting && session.minimumQuantity === 0 ? (
+            <button type="button" className="button button--quiet" onClick={onRemove}>حذف بسته‌بندی</button>
+          ) : null}
           <button type="button" className="button button--quiet" onClick={onCancel}>انصراف</button>
           <button type="button" className="button button--primary" disabled={!canConfirm} onClick={onConfirm}>ثبت بسته‌بندی</button>
         </div>

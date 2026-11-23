@@ -81,11 +81,11 @@ stage is implemented.
 - **P9 / Stage 16 — Complete.** Manager-managed explanatory product notes are
   persisted in the catalog and exposed in the public menu product detail.
 - **P10 / Stage 17 — Complete with revised scope.** Product and option price
-  history remains. Packaging material cost stays in takeaway COGS. The 19
-  November 2026 follow-up restores the local POS order-time chooser for
-  catalog-priced `PACKING` products and their assignment to menu items. The
-  separate recovery report, fee attribution, and packaging price targets remain
-  retired.
+  history remains. Packaging material cost stays in takeaway COGS. The 23
+  November 2026 follow-up replaces category-derived packaging prices with one
+  café-wide Settings price while retaining order-time assignment to menu items.
+  The separate recovery report, fee attribution, and packaging price targets
+  remain retired.
 - **P11 / Stage 18 — Complete.** Developer-only bounded sales, contribution, and peak-hour
   analytics are implemented and locally verified; see `docs/current-left.md`.
 - **P12 / Stage 19 — Complete.** Developer-only pricing experiments and strategy
@@ -945,20 +945,22 @@ with active-reference and positive-quantity validation. Keep the list separate
 from reusable recipe components so selecting an existing recipe for another
 product inherits only the main ingredients.
 
-### POS packaging product assignments — restore order entry, keep report retired
+### POS packaging assignments and shared price — revised 23 November 2026
 
-Restore the chooser in local POS release `cafe-20261118-4666e31`: add a
-catalog-priced `PACKING` product to the order and assign one package unit to
-each selected takeaway product unit. Selecting one of two product units assigns
-one package; selecting both assigns two. Set each packaging line quantity to
-the sum of its assigned product quantities, and reject over-assignment or count
-mismatches. During open-order editing, allow staff to reopen an editable
-packaging line, change its assigned quantities, and remove it when those
-assignments reach zero. Keep assignments involving settled or
-inventory-recognized items immutable. Recreate assignment storage with an
-additive migration, reactivate
-the archived `PACKING` catalog products at their existing prices, and restore
-surviving assignment rows from the verified pre-release backup.
-Continue to keep packaging recovery reports, fee attribution, and packaging
-price-experiment targets retired. Product-based takeaway packaging mappings
-remain responsible for material COGS and inventory consumption.
+Keep one chooser in the order-initialization product-selection header. It is
+available for all menu categories and is not controlled by category-level
+packaging products or toggles. Assign one package unit to each selected
+takeaway product unit. A packaging line may cover multiple menu-product lines;
+its quantity equals the sum of assigned units, with server rejection of
+over-assignment and line-quantity mismatches. Let Managers and Developers
+configure one café-wide Toman packaging price in Settings, validate it as a
+nonnegative integer, and apply it only when creating new packaging lines. Save
+the applied amount on the order line so later setting changes cannot alter
+history. Allow open-order packaging changes for any menu item. Support
+removing and re-adding unpaid packs after either partial-payment mode. Preserve
+payment allocations and inventory history on the packaging charge itself. Keep
+packaging stock cost in takeaway COGS, and keep separate recovery reports, fee
+attribution, and packaging price-experiment targets retired.
+
+Left: authenticated local POS-browser review of the Settings price and
+category-independent order chooser, as recorded in `docs/current-left.md`.

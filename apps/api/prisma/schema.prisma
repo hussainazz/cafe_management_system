@@ -842,6 +842,7 @@ model CafeSettings {
   singletonKey             Boolean  @unique @default(true)
   tableSeatingLimitMinutes Int?
   settlementReversalReasonRequired Boolean @default(false)
+  packagingPriceAmount     Int      @default(20000)
   inventoryActivatedAt     DateTime?
   updatedById              String?
   updatedAt                DateTime @updatedAt

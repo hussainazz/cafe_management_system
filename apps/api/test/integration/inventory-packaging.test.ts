@@ -81,6 +81,76 @@ async function orderWithPackagingCharge(f: Fixture, quantity: number, assignedQu
 }
 
 describe("takeaway packaging", () => {
+  it.each(["ITEM_QUANTITY", "AMOUNT"] as const)("removes and re-adds packs for a product with a %s payment", async (mode) => {
+    const f = await fixture();
+    const { created, packaging } = await orderWithPackagingCharge(f, 2, 1);
+    const [assignment] = created.packagingAssignments;
+    const target = { kind: "EXISTING", orderItemId: assignment.productOrderItemId };
+    const partial = mode === "AMOUNT"
+      ? await pay(f, created, 10_000)
+      : await request(f.manager, "POST", `/orders/${created.id}/record-settlement`, {
+        expectedVersion: created.version,
+        allocations: [{ orderItemId: target.orderItemId, quantity: 1 }],
+        payments: [{ method: "CASH", amount: 10_000 }],
+      }, 201, randomUUID());
+    const path = `/orders/${created.id}`;
+    const removed = await request(f.manager, "PATCH", path, {
+      expectedVersion: partial.version,
+      itemUpdates: [{ orderItemId: assignment.packagingOrderItemId, quantity: 0 }],
+      packagingAssignments: [],
+    });
+    expect(removed).toMatchObject({
+      state: "OPEN", paymentStatus: "PARTIALLY_PAID", totalAmount: 20_000, paidAmount: 10_000,
+      balanceAmount: 10_000, settlements: partial.settlements, packagingAssignments: [],
+      items: [expect.objectContaining({ id: target.orderItemId, quantity: 2 })],
+    });
+
+    const reloaded = await request(f.manager, "GET", path);
+    const clientRef = randomUUID();
+    const restored = await request(f.manager, "PATCH", path, {
+      expectedVersion: reloaded.version,
+      addItems: [{ clientRef, productId: packaging.id, quantity: 2, options: [] }],
+      packagingAssignments: [{ packagingItem: { kind: "REQUEST", clientRef }, productItem: target, quantity: 2 }],
+    });
+    expect(restored).toMatchObject({
+      state: "OPEN", paymentStatus: "PARTIALLY_PAID", totalAmount: 60_000, paidAmount: 10_000,
+      balanceAmount: 50_000, settlements: partial.settlements,
+      packagingAssignments: [expect.objectContaining({ productOrderItemId: target.orderItemId, quantity: 2 })],
+    });
+    expect((await request(f.manager, "GET", path)).packagingAssignments).toEqual(restored.packagingAssignments);
+  });
+
+  it("keeps a paid pack and accepts another pack for a product with a free unit", async () => {
+    const f = await fixture();
+    const { created, packaging } = await orderWithPackagingCharge(f, 2, 1);
+    const [assignment] = created.packagingAssignments;
+    const path = `/orders/${created.id}`;
+    const partial = await request(f.manager, "POST", `${path}/record-settlement`, {
+      expectedVersion: created.version,
+      allocations: [{ orderItemId: assignment.packagingOrderItemId, quantity: 1 }],
+      payments: [{ method: "CASH", amount: 20_000 }],
+    }, 201, randomUUID());
+    await request(f.manager, "PATCH", path, {
+      expectedVersion: partial.version,
+      itemUpdates: [{ orderItemId: assignment.packagingOrderItemId, quantity: 0 }],
+      packagingAssignments: [],
+    }, 409);
+
+    const clientRef = randomUUID();
+    const productItem = { kind: "EXISTING", orderItemId: assignment.productOrderItemId };
+    const added = await request(f.manager, "PATCH", path, {
+      expectedVersion: partial.version,
+      addItems: [{ clientRef, productId: packaging.id, quantity: 1, options: [] }],
+      packagingAssignments: [
+        { packagingItem: { kind: "EXISTING", orderItemId: assignment.packagingOrderItemId }, productItem, quantity: 1 },
+        { packagingItem: { kind: "REQUEST", clientRef }, productItem, quantity: 1 },
+      ],
+    });
+    expect(added).toMatchObject({ paymentStatus: "PARTIALLY_PAID", paidAmount: 20_000, balanceAmount: 40_000, settlements: partial.settlements });
+    expect(added.packagingAssignments).toHaveLength(2);
+    expect(added.packagingAssignments).toContainEqual(assignment);
+  });
+
   it("charges for selected packaging without duplicating stock cost and preserves assignments across reversal and repayment", async () => {
     const f = await fixture(true);
     const { created, packaging } = await orderWithPackagingCharge(f, 2, 1);
@@ -121,17 +191,23 @@ describe("takeaway packaging", () => {
     }, 409);
     const newPackageRef = randomUUID();
     const target = { kind: "EXISTING", orderItemId: assignment.productOrderItemId };
-    await request(f.manager, "PATCH", `/orders/${created.id}`, {
+    const withExtraPack = await request(f.manager, "PATCH", `/orders/${created.id}`, {
       expectedVersion: reopened.version,
       addItems: [{ clientRef: newPackageRef, productId: packaging.id, quantity: 1, options: [] }],
       packagingAssignments: [
         { packagingItem: { kind: "EXISTING", orderItemId: assignment.packagingOrderItemId }, productItem: target, quantity: 1 },
         { packagingItem: { kind: "REQUEST", clientRef: newPackageRef }, productItem: target, quantity: 1 },
       ],
-    }, 409);
+    });
+    const addedAssignment = withExtraPack.packagingAssignments.find((row: { id: string }) => row.id !== assignment.id);
+    expect(addedAssignment).toMatchObject({ productOrderItemId: target.orderItemId, quantity: 1 });
     const edited = await request(f.manager, "PATCH", `/orders/${created.id}`, {
-      expectedVersion: reopened.version,
-      itemUpdates: [{ orderItemId: assignment.productOrderItemId, note: "Corrected note" }],
+      expectedVersion: withExtraPack.version,
+      itemUpdates: [
+        { orderItemId: assignment.productOrderItemId, note: "Corrected note" },
+        { orderItemId: addedAssignment.packagingOrderItemId, quantity: 0 },
+      ],
+      packagingAssignments: [{ packagingItem: { kind: "EXISTING", orderItemId: assignment.packagingOrderItemId }, productItem: target, quantity: 1 }],
     });
     expect(edited.packagingAssignments).toEqual([assignment]);
     expect(edited.items).toHaveLength(2);

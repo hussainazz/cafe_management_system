@@ -47,7 +47,7 @@ import { AccountingIcon, CheckIcon, AlertIcon, ServiceBellIcon, BagIcon, ClockIc
 import type { PosActivity } from "./release-update-guard";
 import { useTerminalPayment, TerminalPaymentStatus } from "./terminal-payment";
 import { ProductPicker } from "./product-picker";
-import { PackagingWorkspace, packagingReferenceKey, type PackagingAssignmentDraft, type PackagingCatalogProduct, type PackagingItemReference, type PackagingWorkspaceLine, type PackagingWorkspaceSession } from "./packaging-workspace";
+import { PackagingWorkspace, packagingReferenceKey, type PackagingAssignmentDraft, type PackagingItemReference, type PackagingWorkspaceLine, type PackagingWorkspaceSession } from "./packaging-workspace";
 import { InventoryAlertsButton } from "./inventory-alerts-button";
 
 type Channel = "TABLE" | "TAKEAWAY";
@@ -136,8 +136,10 @@ function discountedDraftLineAmount(item: Draft): number {
 function editedSavedLineAmount(order: OrderDetail, item: OrderDetail["items"][number], edit: SavedDraft): number {
   if (edit.quantity <= 0) return 0;
   if (edit.quantity === item.quantity && edit.weightGrams === item.weightGrams) return item.lineTotalAmount;
+  const scalesOptions = item.pricingModeSnapshot === "FIXED"
+    && (item.systemKey === "PACKING" ? canEditSavedPackaging(order, item) : canEditSavedItem(order, item.id));
   const optionAmount = item.options.reduce(
-    (sum, option) => sum + option.priceSnapshot * (item.pricingModeSnapshot === "FIXED" && canEditSavedItem(order, item.id) ? option.quantity * edit.quantity / item.quantity : option.quantity),
+    (sum, option) => sum + option.priceSnapshot * (scalesOptions ? option.quantity * edit.quantity / item.quantity : option.quantity),
     0,
   );
   const grossAmount = item.pricingModeSnapshot === "WEIGHTED_PER_KG"
@@ -176,6 +178,12 @@ function canEditSavedItem(order: OrderDetail, itemId: string): boolean {
     && !active.some((settlement) => settlement.allocations.some((allocation) => allocation.orderItemId === itemId));
 }
 
+function canEditSavedPackaging(order: OrderDetail, item: OrderDetail["items"][number]): boolean {
+  return order.state === "OPEN" && !item.hasInventoryHistory
+    && !order.settlements.some((settlement) => !settlement.reversedAt
+      && settlement.allocations.some((allocation) => allocation.orderItemId === item.id));
+}
+
 function minimumSavedQuantity(order: OrderDetail, itemId: string): number {
   // Historical receipts must keep their referenced item even after reversal.
   return order.items.some((item) => item.id === itemId && item.hasInventoryHistory)
@@ -191,7 +199,7 @@ const orderEditErrorMessages: Record<string, string> = {
   "This edit would change an item's settled amount.": "این ویرایش سهم تخفیف کالای پرداخت‌شده را تغییر می‌دهد و قابل ثبت نیست.",
   "A packaging item's quantity must equal the total assigned product quantity.": "تعداد بسته‌بندی باید با مجموع واحدهای کالای اختصاص‌یافته برابر باشد.",
   "An order item cannot be assigned to more packaging units than its quantity.": "تعداد بسته‌بندی انتخاب‌شده نمی‌تواند از تعداد کالای سفارش بیشتر باشد.",
-  "Packaging assignments for settled or inventory-recognized items cannot be changed.": "بسته‌بندی کالایی که پرداخت یا مصرف انباری برای آن ثبت شده است، قابل ویرایش نیست.",
+  "Assignments on a settled or inventory-recognized packaging charge cannot be changed.": "برای خود بسته‌بندی پرداخت یا مصرف انبار ثبت شده است و نمی‌توان آن را ویرایش کرد.",
 };
 
 function savedDrafts(order: OrderDetail | null): SavedDraft[] {
@@ -1189,10 +1197,9 @@ export function OrderDesk({
   const savedForOrder = initialOrder && (!savedIdsMatchOrder || discardRecoveredEdits) ? savedDrafts(initialOrder) : saved;
   const category = posCatalog.find((x) => x.id === categoryId) ?? posCatalog[0];
   const cards = useMemo(() => productCards((category?.products ?? []).filter((product) => product.systemKey !== "PACKING")), [category?.products]);
-  const categoryPackagingProduct = staffOrderTarget ? undefined : category?.products.find((product) => product.systemKey === "PACKING" && product.isAvailable);
   const packagingProducts = useMemo(() => staffOrderTarget ? [] : posCatalog.flatMap((category) => category.products
-    .filter((product) => product.systemKey === "PACKING")
-    .map((product): PackagingCatalogProduct => ({ ...product, categoryName: category.name }))), [posCatalog, staffOrderTarget]);
+    .filter((product) => product.systemKey === "PACKING")), [posCatalog, staffOrderTarget]);
+  const orderPackagingProduct = packagingProducts.find((product) => product.isAvailable);
   useEffect(() => {
     const nav = categoryNavRef.current;
     const list = categoryListRef.current;
@@ -1252,57 +1259,59 @@ export function OrderDesk({
     });
     setExpandedCard(null);
   };
-  const isPackagingItemLocked = (reference: PackagingItemReference) => {
+  const isSavedPackagingLocked = (reference: PackagingItemReference) => {
     if (reference.kind !== "EXISTING" || !initialOrder) return false;
-    return !canEditSavedItem(initialOrder, reference.orderItemId)
-      || initialOrder.items.some((item) => item.id === reference.orderItemId && item.hasInventoryHistory);
+    const item = initialOrder.items.find((candidate) => candidate.id === reference.orderItemId);
+    return Boolean(item && !canEditSavedPackaging(initialOrder, item));
   };
-  const openPackaging = (product: PosCatalogProduct, options: Option[] = [], weightGrams: number | null = null) => {
-    const catalogProduct = packagingProducts.find((candidate) => candidate.id === product.id);
-    if (!catalogProduct) { setError("نوع بسته‌بندی در فهرست فعال محصولات پیدا نشد."); return; }
-    const draftPackage = [...draftForOrder].reverse().find((item) => item.product.systemKey === "PACKING" && item.product.id === product.id);
-    const savedPackage = !draftPackage && initialOrder
-      ? [...initialOrder.items].reverse().find((item) => item.systemKey === "PACKING"
-        && item.productId === product.id
-        && !isPackagingItemLocked({ kind: "EXISTING", orderItemId: item.id })
-        && savedForOrder.some((candidate) => candidate.id === item.id && candidate.quantity > 0))
+  const editablePackages = [
+    ...(initialOrder?.items ?? []).flatMap((item) => {
+      if (item.systemKey !== "PACKING" || !canEditSavedPackaging(initialOrder!, item)
+        || !savedForOrder.some((candidate) => candidate.id === item.id && candidate.quantity > 0)) return [];
+      return [{ reference: { kind: "EXISTING", orderItemId: item.id } as const, name: item.productNameSnapshot }];
+    }),
+    ...draftForOrder.filter((item) => item.product.systemKey === "PACKING").map((item) => ({
+      reference: { kind: "REQUEST", clientRef: item.clientRef } as const,
+      name: item.product.name,
+    })),
+  ];
+  const openPackaging = (existingReference = editablePackages.at(-1)?.reference) => {
+    const draftPackage = existingReference?.kind === "REQUEST"
+      ? draftForOrder.find((item) => item.clientRef === existingReference.clientRef)
       : undefined;
-    const packagingItem: PackagingItemReference = draftPackage
-      ? { kind: "REQUEST", clientRef: draftPackage.clientRef }
-      : savedPackage
-        ? { kind: "EXISTING", orderItemId: savedPackage.id }
-        : { kind: "REQUEST", clientRef: requestItemRef() };
-    const editingExisting = Boolean(draftPackage || savedPackage);
+    const packagingItem: PackagingItemReference = existingReference ?? { kind: "REQUEST", clientRef: requestItemRef() };
+    const product = draftPackage?.product ?? orderPackagingProduct ?? null;
+    if (packagingItem.kind === "REQUEST" && !product) return;
+    const editingExisting = Boolean(existingReference);
     setPackagingSession({
-      product: catalogProduct,
-      options: draftPackage?.options ?? options,
-      weightGrams: draftPackage?.weightGrams ?? weightGrams,
+      product,
+      options: draftPackage?.options ?? [],
+      weightGrams: draftPackage?.weightGrams ?? null,
       packagingItem,
       editingExisting,
-      minimumQuantity: savedPackage ? minimumSavedQuantity(initialOrder!, savedPackage.id) : 0,
+      minimumQuantity: packagingItem.kind === "EXISTING" && initialOrder ? minimumSavedQuantity(initialOrder, packagingItem.orderItemId) : 0,
     });
+    const packagingKey = packagingReferenceKey(packagingItem);
     setPackagingSelectedQuantities(Object.fromEntries(packagingWorkspaceLines.map((line) => {
-      const packagingKey = packagingReferenceKey(packagingItem);
       const selected = packagingAssignments
         .filter((assignment) => packagingReferenceKey(assignment.packagingItem) === packagingKey
-          && packagingReferenceKey(assignment.productItem) === packagingReferenceKey(line.reference))
+          && packagingReferenceKey(assignment.productItem) === line.key)
         .reduce((total, assignment) => total + assignment.quantity, 0);
       const assignedElsewhere = assignedPackagingQuantity(line.reference) - selected;
       const available = Math.max(0, line.quantity - assignedElsewhere);
-      return [line.key, editingExisting || line.locked ? selected : available];
+      return [line.key, editingExisting ? Math.min(selected, available) : available];
     })));
     setExpandedCard(null);
   };
   const packagingProductLabel = (productId: string, productName: string) => {
-    const categoryName = packagingProducts.find((product) => product.id === productId)?.categoryName;
-    return categoryName ? `${categoryName} · ${productName}` : productName;
+    return packagingProducts.some((product) => product.id === productId) ? "بسته‌بندی" : productName;
   };
-  const assignedPackagingQuantity = (productItem: PackagingItemReference, assignments = packagingAssignments) => assignments
+  const assignedPackagingQuantity = (productItem: PackagingItemReference) => packagingAssignments
     .filter((assignment) => packagingReferenceKey(assignment.productItem) === packagingReferenceKey(productItem))
     .reduce((total, assignment) => total + assignment.quantity, 0);
-  const availablePackagingQuantity = (productItem: PackagingItemReference, itemQuantity: number) => {
+  const availablePackagingQuantity = (productItem: PackagingItemReference, itemQuantity: number, assignments = packagingAssignments) => {
     const activePackagingKey = packagingSession ? packagingReferenceKey(packagingSession.packagingItem) : null;
-    const assignedElsewhere = packagingAssignments
+    const assignedElsewhere = assignments
       .filter((assignment) => packagingReferenceKey(assignment.productItem) === packagingReferenceKey(productItem)
         && packagingReferenceKey(assignment.packagingItem) !== activePackagingKey)
       .reduce((total, assignment) => total + assignment.quantity, 0);
@@ -1312,7 +1321,7 @@ export function OrderDesk({
     if (quantity >= assignedPackagingQuantity(reference)) return;
     const referenceKey = packagingReferenceKey(reference);
     const targetsItem = (assignment: PackagingAssignmentDraft) => packagingReferenceKey(assignment.productItem) === referenceKey;
-    const locked = (assignment: PackagingAssignmentDraft) => isPackagingItemLocked(assignment.productItem) || isPackagingItemLocked(assignment.packagingItem);
+    const locked = (assignment: PackagingAssignmentDraft) => isSavedPackagingLocked(assignment.packagingItem);
     const affectedPackagingKeys = new Set<string>();
     let remainingAssignedQuantity = quantity - packagingAssignments.filter((assignment) => targetsItem(assignment) && locked(assignment))
       .reduce((sum, assignment) => sum + assignment.quantity, 0);
@@ -1346,9 +1355,8 @@ export function OrderDesk({
     }));
     setPackagingSelectedQuantities((current) => ({
       ...current,
-      [referenceKey]: Math.min(current[referenceKey] ?? 0, Math.max(0, quantity - assignedPackagingQuantity(reference, nextAssignments))),
+      [referenceKey]: Math.min(current[referenceKey] ?? 0, availablePackagingQuantity(reference, quantity, nextAssignments)),
     }));
-    setPackagingSession((current) => current && quantity <= 0 && packagingReferenceKey(current.packagingItem) === referenceKey ? null : current);
   };
   const changeDraftQuantity = (key: string, delta: number) => {
     const item = draftForOrder.find((candidate) => candidate.key === key);
@@ -1364,7 +1372,7 @@ export function OrderDesk({
     const reference = { kind: "EXISTING" as const, orderItemId: id };
     const frozenQuantity = packagingAssignments
       .filter((assignment) => packagingReferenceKey(assignment.productItem) === packagingReferenceKey(reference)
-        && (isPackagingItemLocked(reference) || isPackagingItemLocked(assignment.packagingItem)))
+        && isSavedPackagingLocked(assignment.packagingItem))
       .reduce((sum, assignment) => sum + assignment.quantity, 0);
     const quantity = Math.max(minimumSavedQuantity(initialOrder, id), frozenQuantity, item.quantity + delta);
     reconcileAssignmentsForQuantity(reference, quantity);
@@ -1376,7 +1384,7 @@ export function OrderDesk({
       if (!edit || edit.quantity <= 0 || item.systemKey === "PACKING") return [];
       const reference: PackagingItemReference = { kind: "EXISTING", orderItemId: item.id };
       const key = packagingReferenceKey(reference);
-      return [{ key, reference, productName: item.productNameSnapshot, optionsLabel: item.options.map((option) => option.optionNameSnapshot).join("، "), quantity: edit.quantity, remainingQuantity: availablePackagingQuantity(reference, edit.quantity), locked: isPackagingItemLocked(reference), existingAssignments: packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.productItem) === key).map((assignment) => {
+      return [{ key, reference, productName: item.productNameSnapshot, optionsLabel: item.options.map((option) => option.optionNameSnapshot).join("، "), quantity: edit.quantity, remainingQuantity: availablePackagingQuantity(reference, edit.quantity), existingAssignments: packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.productItem) === key).map((assignment) => {
         const packageReference = assignment.packagingItem;
         const draftPackage = packageReference.kind === "REQUEST" ? draftForOrder.find((draftItem) => draftItem.clientRef === packageReference.clientRef) : undefined;
         const savedPackage = packageReference.kind === "EXISTING" ? initialOrder!.packagingAssignments.find((row) => row.packagingOrderItemId === packageReference.orderItemId) : undefined;
@@ -1386,7 +1394,7 @@ export function OrderDesk({
     ...draftForOrder.filter((item) => item.product.systemKey !== "PACKING").map((item) => {
       const reference: PackagingItemReference = { kind: "REQUEST", clientRef: item.clientRef };
       const key = packagingReferenceKey(reference);
-      return { key, reference, productName: item.product.name, optionsLabel: item.options.map((option) => option.name).join("، "), quantity: item.quantity, remainingQuantity: availablePackagingQuantity(reference, item.quantity), locked: false, existingAssignments: packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.productItem) === key).map((assignment) => {
+      return { key, reference, productName: item.product.name, optionsLabel: item.options.map((option) => option.name).join("، "), quantity: item.quantity, remainingQuantity: availablePackagingQuantity(reference, item.quantity), existingAssignments: packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.productItem) === key).map((assignment) => {
         const packageReference = assignment.packagingItem;
         const draftPackage = packageReference.kind === "REQUEST" ? draftForOrder.find((draftItem) => draftItem.clientRef === packageReference.clientRef) : undefined;
         const savedPackage = packageReference.kind === "EXISTING" ? initialOrder?.packagingAssignments.find((row) => row.packagingOrderItemId === packageReference.orderItemId) : undefined;
@@ -1394,42 +1402,46 @@ export function OrderDesk({
       }) };
     }),
   ];
-  const confirmPackaging = () => {
-    if (!packagingSession) return;
+  const resolvePackagingSelection = (selectedQuantities: Record<string, number>) => {
+    if (!packagingSession) return null;
     const packageRef = packagingSession.packagingItem;
-    const preservedLockedAssignments = packagingAssignments.filter((assignment) =>
-      packagingReferenceKey(assignment.packagingItem) === packagingReferenceKey(packageRef)
-      && packagingWorkspaceLines.some((line) => line.locked && packagingReferenceKey(line.reference) === packagingReferenceKey(assignment.productItem)));
-    const productRows = packagingWorkspaceLines.flatMap((line) => {
-      const quantity = Math.min(packagingSelectedQuantities[line.key] ?? 0, line.remainingQuantity);
-      return quantity > 0 && !line.locked ? [{ line, quantity }] : [];
+    const confirmedAssignments = packagingWorkspaceLines.flatMap((line) => {
+      const quantity = Math.min(selectedQuantities[line.key] ?? 0, line.remainingQuantity);
+      return quantity > 0 ? [{ packagingItem: packageRef, productItem: line.reference, quantity }] : [];
     });
-    const confirmedAssignments = [
-      ...preservedLockedAssignments,
-      ...productRows.map(({ line, quantity }) => ({ packagingItem: packageRef, productItem: line.reference, quantity })),
-    ];
     const packagingQuantity = confirmedAssignments.reduce((total, assignment) => total + assignment.quantity, 0);
-    if (packagingQuantity < packagingSession.minimumQuantity || (packagingQuantity === 0 && !packagingSession.editingExisting)) return;
+    if (packagingQuantity < packagingSession.minimumQuantity || (packagingQuantity === 0 && !packagingSession.editingExisting)) return null;
+    let nextDraft = draftForOrder;
+    let nextSaved = savedForOrder;
     if (packageRef.kind === "REQUEST") {
+      const { product, options, weightGrams } = packagingSession;
+      if (!product) return null;
       const clientRef = packageRef.clientRef;
       const key = `packaging:${clientRef}`;
-      setDraft((current) => {
-        const existing = current.find((item) => item.clientRef === clientRef);
-        if (packagingQuantity <= 0) return current.filter((item) => item.clientRef !== clientRef);
-        const next: Draft = { key, clientRef, product: packagingSession.product, options: packagingSession.options, quantity: packagingQuantity, weightGrams: packagingSession.weightGrams, note: existing?.note ?? "" };
-        return existing ? current.map((item) => item.clientRef === next.clientRef ? next : item) : [...current, next];
-      });
+      const existing = nextDraft.find((item) => item.clientRef === clientRef);
+      const next: Draft = { key, clientRef, product, options, quantity: packagingQuantity, weightGrams, note: existing?.note ?? "" };
+      nextDraft = existing
+        ? nextDraft.map((item) => item.clientRef === next.clientRef ? next : item)
+        : [...nextDraft, next];
     } else {
-      setSaved((current) => current.map((item) => item.id === packageRef.orderItemId ? { ...item, quantity: packagingQuantity } : item));
+      nextSaved = nextSaved.map((item) => item.id === packageRef.orderItemId ? { ...item, quantity: packagingQuantity } : item);
     }
-    setPackagingAssignments((current) => [
-      ...current.filter((assignment) => packagingReferenceKey(assignment.packagingItem) !== packagingReferenceKey(packageRef)),
+    const nextAssignments = [
+      ...packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.packagingItem) !== packagingReferenceKey(packageRef)),
       ...confirmedAssignments,
-    ]);
+    ];
+    return { draft: nextDraft, saved: nextSaved, assignments: nextAssignments };
+  };
+  const confirmPackaging = (selectedQuantities: Record<string, number>) => {
+    const selection = resolvePackagingSelection(selectedQuantities);
+    if (!selection) return;
+    setDraft(selection.draft);
+    setSaved(selection.saved);
+    setPackagingAssignments(selection.assignments);
     setPackagingSession(null);
   };
-  const payloadItems = () =>
-    draftForOrder.map((item) => ({
+  const payloadItems = (draftItems = draftForOrder) =>
+    draftItems.map((item) => ({
       clientRef: item.clientRef,
       productId: item.product.id,
       quantity: item.quantity,
@@ -1458,20 +1470,7 @@ export function OrderDesk({
     writeRecovery(`${recoveryPrefix}:create-fingerprint`, undefined);
     setCreateAttemptKey(requestKey());
   }, [createRequestFingerprint]);
-  const replacementItems = () => [
-    ...savedForOrder.filter((item) => item.quantity > 0).map((item) => ({
-      clientRef: item.id,
-      productId: item.productId, quantity: item.quantity,
-      ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
-      ...(item.note.trim() ? { note: item.note.trim() } : {}),
-      options: item.options.map((option) => ({
-        ...option,
-        quantity: item.pricingModeSnapshot === "FIXED" ? item.quantity : 1,
-      })),
-    })),
-    ...payloadItems(),
-  ];
-  const dirty = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
+  const dirty = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged || packagingSession !== null;
   // Recovery storage can lag an authoritative order refresh. Render current
   // server snapshots immediately, then persist the reconciled editor state.
   useEffect(() => {
@@ -1520,7 +1519,12 @@ export function OrderDesk({
     if (printAfterSave) await printOrderDocument(updatedOrder.id, printAfterSave);
   };
   const save = async (printAfterSave: "bar-ticket" | "receipt" | null = null) => {
-    const hasChanges = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
+    const pendingPackaging = packagingSession ? resolvePackagingSelection(packagingSelectedQuantities) : null;
+    const saveDraft = pendingPackaging?.draft ?? draftForOrder;
+    const saveSaved = pendingPackaging?.saved ?? savedForOrder;
+    const saveAssignments = pendingPackaging?.assignments ?? packagingAssignments;
+    const assignmentsChanged = assignmentSignature(saveAssignments) !== assignmentSignature(persistedAssignments);
+    const hasChanges = saveDraft.length > 0 || saveSaved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || assignmentsChanged;
     if (!hasChanges) {
       if (printAfterSave && initialOrder) await printOrderDocument(initialOrder.id, printAfterSave);
       return;
@@ -1531,14 +1535,19 @@ export function OrderDesk({
       const canReplaceItems = initialOrder.paymentStatus === "UNPAID"
         && initialOrder.settlements.length === 0
         && !initialOrder.items.some((item) => item.hasInventoryHistory || item.systemKey === "PACKING")
-        && !packagingAssignmentsChanged;
-      const changedSaved = savedForOrder.filter((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+        && !assignmentsChanged;
+      const changedSaved = saveSaved.filter((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
       const result = await updateOpenOrder(initialOrder.id, canReplaceItems
-        ? { expectedVersion: initialOrder.version, items: replacementItems() }
+        ? { expectedVersion: initialOrder.version, items: [...saveSaved.filter((item) => item.quantity > 0).map((item) => ({
+          clientRef: item.id, productId: item.productId, quantity: item.quantity,
+          ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
+          ...(item.note.trim() ? { note: item.note.trim() } : {}),
+          options: item.options.map((option) => ({ ...option, quantity: item.pricingModeSnapshot === "FIXED" ? item.quantity : 1 })),
+        })), ...payloadItems(saveDraft)] }
         : {
             expectedVersion: initialOrder.version,
-            ...(draftForOrder.length ? { addItems: payloadItems() } : {}),
-            ...(packagingAssignmentsChanged ? { packagingAssignments } : {}),
+            ...(saveDraft.length ? { addItems: payloadItems(saveDraft) } : {}),
+            ...(assignmentsChanged ? { packagingAssignments: saveAssignments } : {}),
             ...(changedSaved.length ? { itemUpdates: changedSaved.map((item) => ({
               orderItemId: item.id,
               ...(item.quantity !== item.originalQuantity ? { quantity: item.quantity } : {}),
@@ -1553,12 +1562,13 @@ export function OrderDesk({
       await finishSuccessfulSave(result.data, printAfterSave);
       setBusy(false);
     } else {
-      attemptedCreateFingerprint.current = createRequestFingerprint;
-      writeRecovery(`${recoveryPrefix}:create-fingerprint`, createRequestFingerprint);
+      const requestFingerprint = JSON.stringify({ channel, tableId: channel === "TABLE" ? table?.id ?? null : null, items: payloadItems(saveDraft), packagingAssignments: saveAssignments });
+      attemptedCreateFingerprint.current = requestFingerprint;
+      writeRecovery(`${recoveryPrefix}:create-fingerprint`, requestFingerprint);
       if (staffOrderTarget) {
         const result = await createStaffConsumption({
           channel: "TAKEAWAY",
-          items: payloadItems(),
+          items: payloadItems(saveDraft),
         }, createAttemptKey, staffOrderTarget.id);
         if (!result.ok) {
           setBusy(false);
@@ -1579,8 +1589,8 @@ export function OrderDesk({
       }
       const result = await createOpenOrder(
         channel === "TABLE"
-          ? { channel, tableId: table!.id, items: payloadItems(), packagingAssignments }
-          : { channel, items: payloadItems(), packagingAssignments },
+          ? { channel, tableId: table!.id, items: payloadItems(saveDraft), packagingAssignments: saveAssignments }
+          : { channel, items: payloadItems(saveDraft), packagingAssignments: saveAssignments },
         createAttemptKey,
         { requestId: requestKey(), ...(channel === "TABLE" ? { tableName: table!.name } : {}) },
       );
@@ -1711,7 +1721,7 @@ export function OrderDesk({
         total={orderTotal}
         onQuantity={changeDraftQuantity}
         onSavedQuantity={changeSavedQuantity}
-        packagingChanged={packagingAssignmentsChanged}
+        packagingChanged={packagingAssignmentsChanged || packagingSession !== null}
         onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
         onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
         onSave={() => void save()}
@@ -1784,12 +1794,15 @@ export function OrderDesk({
             session={packagingSession}
             lines={packagingWorkspaceLines}
             selectedQuantities={packagingSelectedQuantities}
+            editablePackages={editablePackages}
+            onEditPackage={openPackaging}
             onAssignmentQuantityChange={(key, quantity) => setPackagingSelectedQuantities((current) => ({ ...current, [key]: quantity }))}
             onCancel={() => setPackagingSession(null)}
-            onConfirm={confirmPackaging}
+            onRemove={() => confirmPackaging({})}
+            onConfirm={() => confirmPackaging(packagingSelectedQuantities)}
           /> : <div className="product-selection">
             <div className="product-selection__toolbar">
-              <button type="button" className="button button--quiet product-selection__packaging" disabled={!categoryPackagingProduct} onClick={() => categoryPackagingProduct && openPackaging(categoryPackagingProduct)}>
+              <button type="button" className="button button--quiet product-selection__packaging" disabled={!orderPackagingProduct && editablePackages.length === 0} onClick={() => openPackaging()}>
                 <BagIcon />
                 افزودن بسته‌بندی
               </button>
@@ -1802,7 +1815,7 @@ export function OrderDesk({
                   expanded={expandedCard === card.key}
                   onOpen={() => setExpandedCard(card.key)}
                   onClose={() => setExpandedCard(null)}
-                  onSelectOptions={(product, options, weightGrams) => product.systemKey === "PACKING" ? openPackaging(product, options, weightGrams ?? null) : add(product, options, weightGrams ?? null)}
+                  onSelectOptions={(product, options, weightGrams) => add(product, options, weightGrams ?? null)}
                   getQuantity={(product, options, weightGrams) => draftForOrder.filter((item) => productConfigurationKey(item.product.id, item.options, item.weightGrams) === productConfigurationKey(product.id, options, weightGrams ?? null)).reduce((sum, item) => sum + item.quantity, 0)}
                   onDecrease={(product, options, weightGrams) => {
                     const signature = productConfigurationKey(product.id, options, weightGrams ?? null);
