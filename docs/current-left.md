@@ -63,7 +63,7 @@
 - [x] Apply an open packaging selection when staff submit a new or edited
   order. Confirming only the packaging step closes that editor and keeps the
   order panel open. The POS typecheck and all 35 order-desk tests pass.
-- Left: commit this follow-up and merge `feat/packaging` into `main`.
+- [x] Commit the follow-up and merge `feat/packaging` into `main`.
 
 ## Responsive takeaway panel release — 19 November 2026
 
