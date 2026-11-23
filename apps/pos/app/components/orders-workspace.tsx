@@ -1402,37 +1402,46 @@ export function OrderDesk({
       }) };
     }),
   ];
-  const confirmPackaging = (selectedQuantities: Record<string, number>) => {
-    if (!packagingSession) return;
+  const resolvePackagingSelection = (selectedQuantities: Record<string, number>) => {
+    if (!packagingSession) return null;
     const packageRef = packagingSession.packagingItem;
     const confirmedAssignments = packagingWorkspaceLines.flatMap((line) => {
       const quantity = Math.min(selectedQuantities[line.key] ?? 0, line.remainingQuantity);
       return quantity > 0 ? [{ packagingItem: packageRef, productItem: line.reference, quantity }] : [];
     });
     const packagingQuantity = confirmedAssignments.reduce((total, assignment) => total + assignment.quantity, 0);
-    if (packagingQuantity < packagingSession.minimumQuantity || (packagingQuantity === 0 && !packagingSession.editingExisting)) return;
+    if (packagingQuantity < packagingSession.minimumQuantity || (packagingQuantity === 0 && !packagingSession.editingExisting)) return null;
+    let nextDraft = draftForOrder;
+    let nextSaved = savedForOrder;
     if (packageRef.kind === "REQUEST") {
       const { product, options, weightGrams } = packagingSession;
-      if (!product) return;
+      if (!product) return null;
       const clientRef = packageRef.clientRef;
       const key = `packaging:${clientRef}`;
-      setDraft((current) => {
-        const existing = current.find((item) => item.clientRef === clientRef);
-        if (packagingQuantity <= 0) return current.filter((item) => item.clientRef !== clientRef);
-        const next: Draft = { key, clientRef, product, options, quantity: packagingQuantity, weightGrams, note: existing?.note ?? "" };
-        return existing ? current.map((item) => item.clientRef === next.clientRef ? next : item) : [...current, next];
-      });
+      const existing = nextDraft.find((item) => item.clientRef === clientRef);
+      const next: Draft = { key, clientRef, product, options, quantity: packagingQuantity, weightGrams, note: existing?.note ?? "" };
+      nextDraft = existing
+        ? nextDraft.map((item) => item.clientRef === next.clientRef ? next : item)
+        : [...nextDraft, next];
     } else {
-      setSaved((current) => current.map((item) => item.id === packageRef.orderItemId ? { ...item, quantity: packagingQuantity } : item));
+      nextSaved = nextSaved.map((item) => item.id === packageRef.orderItemId ? { ...item, quantity: packagingQuantity } : item);
     }
-    setPackagingAssignments((current) => [
-      ...current.filter((assignment) => packagingReferenceKey(assignment.packagingItem) !== packagingReferenceKey(packageRef)),
+    const nextAssignments = [
+      ...packagingAssignments.filter((assignment) => packagingReferenceKey(assignment.packagingItem) !== packagingReferenceKey(packageRef)),
       ...confirmedAssignments,
-    ]);
+    ];
+    return { draft: nextDraft, saved: nextSaved, assignments: nextAssignments };
+  };
+  const confirmPackaging = (selectedQuantities: Record<string, number>) => {
+    const selection = resolvePackagingSelection(selectedQuantities);
+    if (!selection) return;
+    setDraft(selection.draft);
+    setSaved(selection.saved);
+    setPackagingAssignments(selection.assignments);
     setPackagingSession(null);
   };
-  const payloadItems = () =>
-    draftForOrder.map((item) => ({
+  const payloadItems = (draftItems = draftForOrder) =>
+    draftItems.map((item) => ({
       clientRef: item.clientRef,
       productId: item.product.id,
       quantity: item.quantity,
@@ -1461,20 +1470,7 @@ export function OrderDesk({
     writeRecovery(`${recoveryPrefix}:create-fingerprint`, undefined);
     setCreateAttemptKey(requestKey());
   }, [createRequestFingerprint]);
-  const replacementItems = () => [
-    ...savedForOrder.filter((item) => item.quantity > 0).map((item) => ({
-      clientRef: item.id,
-      productId: item.productId, quantity: item.quantity,
-      ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
-      ...(item.note.trim() ? { note: item.note.trim() } : {}),
-      options: item.options.map((option) => ({
-        ...option,
-        quantity: item.pricingModeSnapshot === "FIXED" ? item.quantity : 1,
-      })),
-    })),
-    ...payloadItems(),
-  ];
-  const dirty = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
+  const dirty = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged || packagingSession !== null;
   // Recovery storage can lag an authoritative order refresh. Render current
   // server snapshots immediately, then persist the reconciled editor state.
   useEffect(() => {
@@ -1523,7 +1519,12 @@ export function OrderDesk({
     if (printAfterSave) await printOrderDocument(updatedOrder.id, printAfterSave);
   };
   const save = async (printAfterSave: "bar-ticket" | "receipt" | null = null) => {
-    const hasChanges = draftForOrder.length > 0 || savedForOrder.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || packagingAssignmentsChanged;
+    const pendingPackaging = packagingSession ? resolvePackagingSelection(packagingSelectedQuantities) : null;
+    const saveDraft = pendingPackaging?.draft ?? draftForOrder;
+    const saveSaved = pendingPackaging?.saved ?? savedForOrder;
+    const saveAssignments = pendingPackaging?.assignments ?? packagingAssignments;
+    const assignmentsChanged = assignmentSignature(saveAssignments) !== assignmentSignature(persistedAssignments);
+    const hasChanges = saveDraft.length > 0 || saveSaved.some((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? "")) || assignmentsChanged;
     if (!hasChanges) {
       if (printAfterSave && initialOrder) await printOrderDocument(initialOrder.id, printAfterSave);
       return;
@@ -1534,14 +1535,19 @@ export function OrderDesk({
       const canReplaceItems = initialOrder.paymentStatus === "UNPAID"
         && initialOrder.settlements.length === 0
         && !initialOrder.items.some((item) => item.hasInventoryHistory || item.systemKey === "PACKING")
-        && !packagingAssignmentsChanged;
-      const changedSaved = savedForOrder.filter((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
+        && !assignmentsChanged;
+      const changedSaved = saveSaved.filter((item) => item.quantity !== item.originalQuantity || item.note !== (item.originalNote ?? ""));
       const result = await updateOpenOrder(initialOrder.id, canReplaceItems
-        ? { expectedVersion: initialOrder.version, items: replacementItems() }
+        ? { expectedVersion: initialOrder.version, items: [...saveSaved.filter((item) => item.quantity > 0).map((item) => ({
+          clientRef: item.id, productId: item.productId, quantity: item.quantity,
+          ...(item.weightGrams === null ? {} : { weightGrams: item.weightGrams }),
+          ...(item.note.trim() ? { note: item.note.trim() } : {}),
+          options: item.options.map((option) => ({ ...option, quantity: item.pricingModeSnapshot === "FIXED" ? item.quantity : 1 })),
+        })), ...payloadItems(saveDraft)] }
         : {
             expectedVersion: initialOrder.version,
-            ...(draftForOrder.length ? { addItems: payloadItems() } : {}),
-            ...(packagingAssignmentsChanged ? { packagingAssignments } : {}),
+            ...(saveDraft.length ? { addItems: payloadItems(saveDraft) } : {}),
+            ...(assignmentsChanged ? { packagingAssignments: saveAssignments } : {}),
             ...(changedSaved.length ? { itemUpdates: changedSaved.map((item) => ({
               orderItemId: item.id,
               ...(item.quantity !== item.originalQuantity ? { quantity: item.quantity } : {}),
@@ -1556,12 +1562,13 @@ export function OrderDesk({
       await finishSuccessfulSave(result.data, printAfterSave);
       setBusy(false);
     } else {
-      attemptedCreateFingerprint.current = createRequestFingerprint;
-      writeRecovery(`${recoveryPrefix}:create-fingerprint`, createRequestFingerprint);
+      const requestFingerprint = JSON.stringify({ channel, tableId: channel === "TABLE" ? table?.id ?? null : null, items: payloadItems(saveDraft), packagingAssignments: saveAssignments });
+      attemptedCreateFingerprint.current = requestFingerprint;
+      writeRecovery(`${recoveryPrefix}:create-fingerprint`, requestFingerprint);
       if (staffOrderTarget) {
         const result = await createStaffConsumption({
           channel: "TAKEAWAY",
-          items: payloadItems(),
+          items: payloadItems(saveDraft),
         }, createAttemptKey, staffOrderTarget.id);
         if (!result.ok) {
           setBusy(false);
@@ -1582,8 +1589,8 @@ export function OrderDesk({
       }
       const result = await createOpenOrder(
         channel === "TABLE"
-          ? { channel, tableId: table!.id, items: payloadItems(), packagingAssignments }
-          : { channel, items: payloadItems(), packagingAssignments },
+          ? { channel, tableId: table!.id, items: payloadItems(saveDraft), packagingAssignments: saveAssignments }
+          : { channel, items: payloadItems(saveDraft), packagingAssignments: saveAssignments },
         createAttemptKey,
         { requestId: requestKey(), ...(channel === "TABLE" ? { tableName: table!.name } : {}) },
       );
@@ -1714,7 +1721,7 @@ export function OrderDesk({
         total={orderTotal}
         onQuantity={changeDraftQuantity}
         onSavedQuantity={changeSavedQuantity}
-        packagingChanged={packagingAssignmentsChanged}
+        packagingChanged={packagingAssignmentsChanged || packagingSession !== null}
         onSavedNote={(id, note) => setSaved((items) => items.map((item) => item.id === id ? { ...item, note } : item))}
         onDraftNote={(key, note) => setDraft((items) => items.map((item) => item.key === key ? { ...item, note } : item))}
         onSave={() => void save()}
