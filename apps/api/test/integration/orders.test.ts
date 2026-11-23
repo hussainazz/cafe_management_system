@@ -97,6 +97,7 @@ describe("Staff order creation", () => {
         name: "پاکت",
         priceAmount: 20_000,
         systemKey: "PACKING",
+        isPublic: false,
         preparationDeadlineMinutes: 1,
         displayOrder: 1,
       },
@@ -182,8 +183,9 @@ describe("Staff order creation", () => {
   it("rejects invalid package assignments without creating an order", async () => {
     const cookies = await staffSession();
     const { product } = await sellableProduct();
+    const packageCategory = await app.prisma.category.create({ data: { name: "Packaging", displayOrder: 2 } });
     const packageProduct = await app.prisma.product.create({
-      data: { categoryId: product.categoryId, name: "Bag", priceAmount: 20_000, systemKey: "PACKING", isPublic: false, preparationDeadlineMinutes: 1, displayOrder: 2 },
+      data: { categoryId: packageCategory.id, name: "Bag", priceAmount: 20_000, systemKey: "PACKING", isPublic: false, preparationDeadlineMinutes: 1, displayOrder: 2 },
     });
     const menu = { clientRef: randomUUID(), productId: product.id, quantity: 2, options: [] };
     const pack = { clientRef: randomUUID(), productId: packageProduct.id, quantity: 1, options: [] };
@@ -221,7 +223,7 @@ describe("Staff order creation", () => {
       ...payload, packagingAssignments: [{ ...valid, quantity: 2_147_483_648 }],
     }, randomUUID());
     expect(oversizedAssignment.statusCode, oversizedAssignment.body).toBe(400);
-    await app.prisma.product.update({ where: { id: packageProduct.id }, data: { isAvailable: false } });
+    await app.prisma.category.update({ where: { id: packageCategory.id }, data: { isActive: false, archivedAt: new Date() } });
     const unavailable = await createOrderRequest(cookies, payload, randomUUID());
     expect(unavailable.statusCode, unavailable.body).toBe(422);
     expect(unavailable.json().error.code).toBe("UNAVAILABLE_PRODUCT");
@@ -246,7 +248,7 @@ describe("Staff order creation", () => {
     const cookies = await staffSession();
     const { product } = await sellableProduct();
     const pack = await app.prisma.product.create({ data: {
-      categoryId: product.categoryId, name: "Legacy pack", priceAmount: 20_000, systemKey: "PACKING", preparationDeadlineMinutes: 1, displayOrder: 2,
+      categoryId: product.categoryId, name: "Legacy pack", priceAmount: 20_000, systemKey: "PACKING", isPublic: false, preparationDeadlineMinutes: 1, displayOrder: 2,
     } });
     const menuRef = randomUUID();
     const packRef = randomUUID();
