@@ -264,9 +264,9 @@ implementation change.
 
 | Method | Path | Access | Stage | Purpose |
 | ------ | ---- | ------ | ----- | ------- |
-| `GET` | `/api/v1/admin/inventory/stock-items` | Manager, Developer | 12, 17 | List stock items, base units, pack conversions, packaging-material classification, tracking state, optional Manager-configured low-stock threshold in base units, and current valuation. |
-| `POST` | `/api/v1/admin/inventory/stock-items` | Manager, Developer | 12, 17 | Create a stock item with explicit base unit, optional packaging-material classification, opening quantity/value, and item-specific pack conversions; initialize the balance and opening ledger entry. |
-| `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager, Developer | 12, 17 | Version-check editable configuration, packaging-material classification, and one-time opening quantity/value initialization only while the item is untracked. |
+| `GET` | `/api/v1/admin/inventory/stock-items` | Manager, Developer | 12, 17 | List stock items, base units, pack conversions, optional reference purchase package and price, packaging-material classification, tracking state, optional Manager-configured low-stock threshold in base units, and current valuation. |
+| `POST` | `/api/v1/admin/inventory/stock-items` | Manager, Developer | 12, 17 | Create a stock item with explicit base unit, optional packaging-material classification, item-specific pack conversions, reference purchase package, and either complete-package-plus-loose or direct-total opening quantity; calculate opening Toman value server-side and initialize the balance and opening ledger entry. |
+| `PATCH` | `/api/v1/admin/inventory/stock-items/:stockItemId` | Manager, Developer | 12, 17 | Version-check editable configuration, packaging-material classification, and reference purchase package; initialize an untracked item's opening balance once from the package-count or direct-total method, without resetting tracked stock. |
 | `POST` | `/api/v1/admin/inventory/stock-items/:stockItemId/archive` | Manager, Developer | 12 | Archive an unused or referenced item without deleting ledger history. |
 | `GET` | `/api/v1/admin/inventory/purchases` | Manager, Developer | 12 | Cursor-page purchases with optional supplier/item search, status, and received-time filters. |
 | `POST` | `/api/v1/admin/inventory/purchases` | Manager, Developer | 12 | Create a received-purchase draft with supplier text and itemized direct costs. |
@@ -277,18 +277,18 @@ implementation change.
 | `POST` | `/api/v1/admin/inventory/recipes` | Manager, Developer | 12 | Create a precise recipe variant and shared ingredient name after validating component units and cycle-free references. |
 | `PATCH` | `/api/v1/admin/inventory/recipes/:recipeId` | Manager, Developer | 12 | Version-check a precise recipe and shared ingredient name edit without changing saved order snapshots. |
 | `POST` | `/api/v1/admin/inventory/recipes/:recipeId/archive` | Manager, Developer | 12 | Archive a recipe while retaining referenced configurations and history. |
-| `GET` | `/api/v1/admin/products/:productId/costing` | Manager, Developer | 12 | Read a product's recipe or purchased-item costing configuration and option rules. |
-| `PUT` | `/api/v1/admin/products/:productId/costing` | Manager, Developer | 12 | Version-check and replace a product's costing configuration and option rules; resolve that product's incomplete item snapshots on eligible pending paid orders and retry each affected whole order. |
-| `POST` | `/api/v1/admin/products/:productId/costing/preview` | Manager, Developer | 12 | Resolve selected options and return known ingredient quantities, cost, and incompleteness reasons. |
+| `GET` | `/api/v1/admin/products/:productId/costing` | Manager, Developer | 12, 21 | Read a product's recipe, purchased-item, or enabled estimated-cost configuration and option rules, including independent served-alongside estimates. |
+| `PUT` | `/api/v1/admin/products/:productId/costing` | Manager, Developer | 12, 21 | Version-check product costing and option rules; estimate-mode toggles retain the saved ingredient configuration. Resolve incomplete item snapshots on eligible pending paid orders and retry each affected whole order. |
+| `POST` | `/api/v1/admin/products/:productId/costing/preview` | Manager, Developer | 12, 21 | Resolve selected options and return known ingredient quantities, estimated costs, total known cost, and incompleteness reasons. |
 | `GET` | `/api/v1/admin/inventory/counts` | Manager, Developer | 12 | Cursor-page counts with optional stock-item search, kind/status, and created-time filters. |
 | `POST` | `/api/v1/admin/inventory/counts` | Manager, Developer | 12 | Create a physical-count draft with observed quantities and values; require one shared reason if any observed quantity differs from its recorded balance. |
 | `PATCH` | `/api/v1/admin/inventory/counts/:countId` | Manager, Developer | 12 | Version-check edits to a physical-count draft and its shared discrepancy reason. |
 | `POST` | `/api/v1/admin/inventory/counts/:countId/post` | Manager, Developer | 12 | Post a count once, explicitly reconcile selected pending orders, and establish counted balances. |
 | `GET` | `/api/v1/admin/inventory/movements` | Manager, Developer | 12 | Cursor-page inventory history with date-range, stock-item, movement-type, or POS order-number filters; include the visible order number on order-related movements. |
-| `GET` | `/api/v1/admin/inventory/pending-consumption` | Manager, Developer | 12 | Read whole orders awaiting stock or count reconciliation. |
-| `GET` | `/api/v1/admin/reports/gross-profit` | Developer | 13, 17 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, and compatible inventory consumption estimates. Takeaway packaging is included in product COGS; no separate packaging revenue is reported. |
+| `GET` | `/api/v1/admin/inventory/pending-consumption` | Manager, Developer | 12, 21 | Read whole orders awaiting stock or count reconciliation, including safe-integer COGS totals. |
+| `GET` | `/api/v1/admin/reports/gross-profit` | Developer | 13, 17, 21 | Report bounded Tehran-date net sales, theoretical COGS, gross profit/margin, coverage, pending status, and compatible inventory consumption estimates. Product and served-alongside estimates contribute to COGS but never to stock movements. Takeaway packaging is included in product COGS; no separate packaging revenue is reported. Report totals use safe-integer amounts. |
 | `GET` | `/api/v1/admin/reports/sales-channels` | Developer | 18 | Report bounded dine-in/takeaway revenue, order distribution, AOV, and channel origin. |
-| `GET` | `/api/v1/admin/reports/sales-analytics` | Developer | 18 | Report bounded order/item demand, contribution, and peak-hour analytics. |
+| `GET` | `/api/v1/admin/reports/sales-analytics` | Developer | 18, 21 | Report bounded order/item demand, contribution, and peak-hour analytics with safe-integer estimated-cost totals. |
 | `GET` | `/api/v1/admin/price-history` | Manager, Developer | 17 | Cursor-page price baseline and change records by bounded Tehran-date range, product, option, or price dimension. Include stable event IDs, before/after amounts and discounts, actor, source, and whether effective time is known. |
 
 ## Developer Pricing Experiments (Stage 19, ADR 0013)
@@ -313,6 +313,23 @@ Stock-item setup creates the opening ledger entry, or initializes an existing
 untracked item once; tracked items cannot be reopened. Manager count drafts are
 physical counts over selected tracked items. If any observed quantity differs
 from the recorded quantity, the count must retain one non-empty shared reason.
+When a reference purchase package is supplied, the API resolves its conversion
+for the same stock item and calculates opening value from package price and
+opening quantity. Positive opening stock without a usable reference package is
+rejected by the calculated-value path. The saved reference is a draft default
+for later purchases; each purchase still records its own conversion, quantity,
+and direct cost. Changing the reference has no stock-ledger or historical
+purchase effect.
+When a draft is edited, send each retained line's `id`; omit `id` for a new
+line. The API matches snapshots by line ID and keeps the saved conversion
+factor when the stock item and unit stay the same. A deliberate refresh against
+the active conversion can set `useCurrentConversion: true`. In a mixed update,
+ID-less lines are new and use the current active conversion. Fully legacy
+updates without line IDs or `useCurrentConversion` retain exact matching by
+stock item, unit, and quantity; a legacy replacement that should use a changed
+conversion must set `useCurrentConversion: true`. This keeps metadata edits and
+row deletion from changing a different saved line after a conversion is renamed
+or recalibrated.
 
 ## Realtime Events
 
@@ -394,6 +411,37 @@ These product-level additions apply to every option selection and channel in
 previews and order snapshots. Omitted rows retain the saved list on update;
 explicit `[]` clears it. They are not part of a reusable recipe, so selecting
 that recipe elsewhere inherits only its main ingredients.
+
+Product costing accepts `useEstimatedCost` and `estimatedCostAmount`. When the
+toggle is enabled, an integer Toman estimate is required; zero is valid. The
+amount is per sold unit, or per kilogram for a weighted product. The recipe or
+purchased-item fields are optional while the estimate is enabled. The saved
+underlying costing mode and ingredient/option configuration remain unchanged
+while estimate mode is active, so disabling it restores the previous
+configuration. Estimated product cost replaces the main product/option recipe
+cost and does not create ingredient requirements. Existing takeaway packaging
+and served-alongside entries remain independently costed.
+
+A served-alongside estimated entry has the shape
+`{ sourceKind: ESTIMATED_COST, name, estimatedCostAmount, previousSource? }`.
+The amount is an integer Toman cost per parent sold unit. Optional
+`previousSource` stores the alternate stock-item/recipe mapping and quantity
+when switching an existing row, so the user can return to ingredient costing
+without losing that setup. Estimated entries contribute to preview totals and
+order snapshots but are excluded from ingredient components and stock
+deduction. Ingredient-based served-alongside entries keep their existing
+validation, valuation, and deduction behavior. Older servedAlongside rows remain
+valid without a mode field.
+
+Cost previews return estimated amounts in `knownCostAmount`; the `components`
+array continues to list only inventory-backed ingredient quantities. Saved
+order-consumption snapshots include the estimated Toman amount and breakdown.
+Complete estimated costs count toward cost coverage, gross profit, gross margin,
+sales analytics, and pricing analysis. Historical snapshots are not rewritten
+by later costing changes. Estimated-only orders can be recognized as complete
+without a pending-consumption row or inventory movement; recipe-based
+side-add-ons on those orders still require sufficient tracked stock after
+inventory turnover is enabled.
 
 Cost preview accepts optional `channel: TABLE | TAKEAWAY`, default TABLE.
 TAKEAWAY adds packaging to resolved ingredient/option requirements. Costing
