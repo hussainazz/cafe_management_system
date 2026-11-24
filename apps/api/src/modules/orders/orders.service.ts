@@ -1008,6 +1008,8 @@ export async function updateOrder(
       && activeSettlements.every((settlement) => settlement.allocationMode === "ITEM_QUANTITY");
     const removedItems: OrderDetailRecord["items"] = [];
     const requestItemIds = new Map<string, string>();
+    let retainedOrderItemIds: string[] = [];
+    let replacementPackagingProductIds: string[] = [];
     let editsUnpaidItem = false;
     if (input.items && (order.paymentSettlements.length > 0 || order.items.some((item) => item._count.consumptionItems > 0))) {
       throw new ApplicationError(409, ErrorCodes.INVALID_STATE, "Order contents cannot be replaced after settlement.");
@@ -1063,12 +1065,57 @@ export async function updateOrder(
         JSON.stringify({ productId: item.productId, pricingMode: item.pricingModeSnapshot, weightGrams: item.weightGrams, note: item.note,
           options: item.options.map((option) => ({ id: option.optionId, quantity: item.pricingModeSnapshot === "FIXED" ? option.quantity / item.quantity : option.quantity })).sort((a, b) => a.id.localeCompare(b.id) || a.quantity - b.quantity) });
       const existingIds = new Map<string, string[]>();
+      const existingById = new Map(order.items.map((item) => [item.id, item]));
       if (input.items) for (const item of order.items) {
         const key = preparationKey(item);
         existingIds.set(key, [...(existingIds.get(key) ?? []), item.id]);
       }
       const previousEnteredAt = new Map(order.items.map((item) => [item.id, item.enteredAt]));
-      const preparedIds = prepared.map((item) => existingIds.get(preparationKey(item))?.shift() ?? randomUUID());
+      const usedExistingIds = new Set<string>();
+      const clientRefMatches = new Map<number, string>();
+      if (input.items) prepared.forEach((item, index) => {
+        const id = item.clientRef;
+        const existing = id ? existingById.get(id) : undefined;
+        if (id && existing && preparationKey(existing) === preparationKey(item) && !usedExistingIds.has(id)) {
+          clientRefMatches.set(index, id);
+          usedExistingIds.add(id);
+        }
+      });
+      const preparedIds = prepared.map((item, index) => {
+        const clientRefMatch = clientRefMatches.get(index);
+        if (clientRefMatch) return clientRefMatch;
+        // POS supplies clientRef for both saved lines and new drafts. An
+        // unmatched reference means this is a new line; do not adopt a removed
+        // duplicate's identity or its historical cost snapshot.
+        if (input.items && item.clientRef) return randomUUID();
+        const candidates = existingIds.get(preparationKey(item)) ?? [];
+        const candidateIndex = candidates.findIndex((id) => !usedExistingIds.has(id));
+        if (candidateIndex < 0) return randomUUID();
+        const [id] = candidates.splice(candidateIndex, 1);
+        usedExistingIds.add(id!);
+        return id!;
+      });
+      const costingInputKey = (item: { productId: string; pricingModeSnapshot: string; quantity: number; weightGrams: number | null; options: Array<{ optionId: string; quantity: number }> }) =>
+        JSON.stringify({ productId: item.productId, pricingMode: item.pricingModeSnapshot, quantity: item.quantity, weightGrams: item.weightGrams,
+          options: item.options.map((option) => ({ id: option.optionId, quantity: option.quantity })).sort((a, b) => a.id.localeCompare(b.id) || a.quantity - b.quantity) });
+      retainedOrderItemIds = prepared.flatMap((item, index) => {
+        const id = preparedIds[index]!;
+        const existing = existingById.get(id);
+        return existing && costingInputKey(existing) === costingInputKey(item) ? [id] : [];
+      });
+      const previousProductQuantities = new Map<string, number>();
+      for (const item of order.items) previousProductQuantities.set(item.productId, (previousProductQuantities.get(item.productId) ?? 0) + item.quantity);
+      const replacementProductQuantities = new Map<string, number>();
+      for (const item of prepared) replacementProductQuantities.set(item.productId, (replacementProductQuantities.get(item.productId) ?? 0) + item.quantity);
+      const previousProductLines = new Map<string, string[]>();
+      for (const item of [...order.items].sort((a, b) => a.displayOrder - b.displayOrder)) {
+        previousProductLines.set(item.productId, [...(previousProductLines.get(item.productId) ?? []), `${item.id}:${item.quantity}`]);
+      }
+      const replacementProductLines = new Map<string, string[]>();
+      prepared.forEach((item, index) => replacementProductLines.set(item.productId, [...(replacementProductLines.get(item.productId) ?? []), `${preparedIds[index]}:${item.quantity}`]));
+      replacementPackagingProductIds = [...new Set([...previousProductQuantities.keys(), ...replacementProductQuantities.keys()])]
+        .filter((productId) => (previousProductQuantities.get(productId) ?? 0) !== (replacementProductQuantities.get(productId) ?? 0)
+          || JSON.stringify(previousProductLines.get(productId) ?? []) !== JSON.stringify(replacementProductLines.get(productId) ?? []));
       prepared.forEach((item, index) => {
         const existing = order.items.find((candidate) => candidate.id === preparedIds[index]);
         if (existing?.product.systemKey !== "PACKING" || productById.get(item.productId)?.systemKey !== "PACKING") return;
@@ -1101,6 +1148,9 @@ export async function updateOrder(
       prepared.forEach((item, index) => { if (item.clientRef) requestItemIds.set(item.clientRef, preparedIds[index]!); });
       const newItemsEnteredAt = new Date();
       const enteredAtById = new Map(preparedIds.map((id) => [id, previousEnteredAt.has(id) ? previousEnteredAt.get(id)! : newItemsEnteredAt]));
+      const retainedCostSnapshots = retainedOrderItemIds.length
+        ? await transaction.orderItemCostingSnapshot.findMany({ where: { orderItemId: { in: retainedOrderItemIds } } })
+        : [];
       if (input.items) {
         // Option snapshots are dependent rows with a restrictive foreign key.
         // Remove them before replacing unpaid order items as one transaction.
@@ -1114,6 +1164,17 @@ export async function updateOrder(
       await transaction.orderItem.createMany({ data: prepared.map(({ options: _options, clientRef: _clientRef, ...item }, index) => ({ ...item, id: preparedIds[index]!, orderId, enteredAt: enteredAtById.get(preparedIds[index]!)! })) });
       for (const [index, item] of prepared.entries()) {
         await transaction.orderItemOption.createMany({ data: item.options.map((option) => ({ ...option, orderItemId: preparedIds[index]! })) });
+      }
+      if (retainedCostSnapshots.length) {
+        await transaction.orderItemCostingSnapshot.createMany({ data: retainedCostSnapshots.map((row) => ({
+          id: row.id,
+          orderItemId: row.orderItemId,
+          configurationVersion: row.configurationVersion,
+          snapshot: row.snapshot as Prisma.InputJsonValue,
+          isComplete: row.isComplete,
+          ...(row.missingReasons === null ? {} : { missingReasons: row.missingReasons as Prisma.InputJsonValue }),
+          updatedAt: row.updatedAt,
+        })) });
       }
     }
     for (const change of input.itemUpdates ?? []) {
@@ -1238,7 +1299,23 @@ export async function updateOrder(
     const updated = await transaction.order.updateMany({ where: { id: orderId, version: input.expectedVersion, state: OrderState.OPEN }, data: { subtotalAmount, discountAmount: orderDiscountAmount, ...(input.orderDiscount === undefined ? {} : { discountKind: input.orderDiscount?.kind ?? null, discountValue: input.orderDiscount?.value ?? null, discountReason: input.orderDiscount?.reason ?? null }), totalAmount, balanceAmount, paymentStatus, ...(closesOrder ? { state: OrderState.CLOSED } : {}), version: { increment: 1 } } });
     if (updated.count !== 1) throw new ApplicationError(409, ErrorCodes.STALE_VERSION, "The order has changed.");
     if (input.items || input.addItems || input.itemUpdates?.some((change) => change.quantity !== undefined || change.weightGrams !== undefined)) {
-      await updateOrderCostingSnapshots(transaction, orderId);
+      const changedItemIds = new Set((input.itemUpdates ?? [])
+        .filter((change) => change.quantity !== undefined || change.weightGrams !== undefined)
+        .map((change) => change.orderItemId));
+      const packagingAffectedProductIds = new Set([
+        ...(input.items ? replacementPackagingProductIds : []),
+        ...(input.addItems ?? [])
+          .filter((item) => order.items.some((existing) => existing.productId === item.productId))
+          .map((item) => item.productId),
+        ...(input.itemUpdates ?? [])
+          .filter((change) => change.quantity !== undefined || change.weightGrams !== undefined)
+          .map((change) => order.items.find((item) => item.id === change.orderItemId)?.productId)
+          .filter((productId): productId is string => !!productId),
+      ]);
+      const preserveExistingItemIds = input.items
+        ? retainedOrderItemIds
+        : order.items.filter((item) => !changedItemIds.has(item.id)).map((item) => item.id);
+      await updateOrderCostingSnapshots(transaction, orderId, preserveExistingItemIds, [...packagingAffectedProductIds]);
     }
     if (closesOrder) {
       const closedAt = new Date();
