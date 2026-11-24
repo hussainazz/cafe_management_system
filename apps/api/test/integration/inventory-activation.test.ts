@@ -90,7 +90,7 @@ describe("permanent stock turnover activation", () => {
     expect((await report(manager)).totals.netSalesAmount).toBe(0);
     const final = await app.inject({ method: "POST", url: `/api/v1/orders/${created.id}/record-settlement`, cookies: manager, headers: { "idempotency-key": "costing-final-payment-01" }, payload: { expectedVersion: partial.json().data.version, allocationMode: "AMOUNT", amount: 6000, payments: [{ method: "CASH", amount: 6000 }] } });
     expect(final.statusCode, final.body).toBe(201);
-    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.id } })).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 200, isCostComplete: true });
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.id } })).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 200n, isCostComplete: true });
     expect((await report(manager)).totals).toMatchObject({ netSalesAmount: 10000, theoreticalCogsAmount: 200, grossProfitAmount: 9800 });
     expect((await report(manager)).inventoryConsumption.amount).toBeNull();
     await activate(manager);
@@ -131,12 +131,15 @@ describe("permanent stock turnover activation", () => {
     await activate(manager);
     const edit = await app.inject({ method: "PATCH", url: `/api/v1/orders/${older.id}`, cookies: manager, payload: { expectedVersion: older.version, items: [{ productId: item.id, quantity: 2, options: [] }] } });
     expect(edit.statusCode, edit.body).toBe(200);
+    const editedItem = await app.prisma.orderItem.findFirstOrThrow({ where: { orderId: older.id }, include: { costingSnapshot: true } });
+    expect(editedItem.quantity).toBe(2);
+    expect(editedItem.costingSnapshot?.snapshot).toMatchObject({ components: [expect.objectContaining({ quantity: "20" })] });
     await settle(manager, edit.json().data, "preactivation-paid-after-01");
-    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: older.id } })).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 200 });
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: older.id } })).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 200n });
     await expectNoOrderMovements(older.id);
     const newer = await order(manager, item.id, "postactivation-new-order-01");
     await settle(manager, newer, "postactivation-new-payment-01");
-    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: newer.id } })).toMatchObject({ status: "POSTED", theoreticalCogsAmount: 100 });
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: newer.id } })).toMatchObject({ status: "POSTED", theoreticalCogsAmount: 100n });
     expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } })).quantityOnHand.toString()).toBe("90");
     expect((await report(manager)).totals).toMatchObject({ netSalesAmount: 30000, theoreticalCogsAmount: 300, grossProfitAmount: 29700 });
     expect((await report(manager)).inventoryConsumption.amount).toBeNull();
@@ -202,7 +205,7 @@ describe("permanent stock turnover activation", () => {
     const { item, stockItemId } = await setupCosting(manager);
     const created = await app.inject({ method: "POST", url: "/api/v1/staff-consumption", cookies: manager, headers: { "idempotency-key": "untracked-staff-consumption" }, payload: { channel: "TAKEAWAY", items: [{ productId: item.id, quantity: 1, options: [] }] } });
     expect(created.statusCode, created.body).toBe(201);
-    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.json().data.id } })).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 100 });
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.json().data.id } })).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 100n });
     expect((await report(manager)).totals.netSalesAmount).toBe(0);
     await expectNoOrderMovements(created.json().data.id);
     expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } })).quantityOnHand.toString()).toBe("100");
@@ -213,7 +216,7 @@ describe("permanent stock turnover activation", () => {
     const response = await app.inject({ method: "POST", url: "/api/v1/orders", cookies: manager, headers: { "idempotency-key": "untracked-shortage-order-01" }, payload: { channel: "TAKEAWAY", items: [{ productId: item.id, quantity: 20, options: [] }] } });
     expect(response.statusCode, response.body).toBe(201);
     await settle(manager, response.json().data, "untracked-shortage-payment-01");
-    expect(await app.prisma.orderConsumption.findFirst()).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 2000, isCostComplete: true });
+    expect(await app.prisma.orderConsumption.findFirst()).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 2000n, isCostComplete: true });
     await expectNoOrderMovements(response.json().data.id);
     expect((await app.prisma.inventoryBalance.findUniqueOrThrow({ where: { stockItemId } })).quantityOnHand.toString()).toBe("100");
   });
@@ -225,12 +228,12 @@ describe("permanent stock turnover activation", () => {
     const component = await app.prisma.recipeComponent.findFirstOrThrow();
     await app.prisma.recipeComponent.update({ where: { id: component.id }, data: { quantity: "20" } });
     await settle(manager, saved, "saved-costing-recipe-payment");
-    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: saved.id } })).toMatchObject({ theoreticalCogsAmount: 100 });
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: saved.id } })).toMatchObject({ theoreticalCogsAmount: 100n });
     const legacy = await order(manager, item.id, "legacy-costing-recipe-order");
     await app.prisma.orderItemCostingSnapshot.deleteMany({ where: { orderItem: { orderId: legacy.id } } });
     await settle(manager, legacy, "legacy-costing-recipe-payment");
     expect(await app.prisma.orderItemCostingSnapshot.count({ where: { orderItem: { orderId: legacy.id } } })).toBe(1);
-    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: legacy.id } })).toMatchObject({ theoreticalCogsAmount: 200 });
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: legacy.id } })).toMatchObject({ theoreticalCogsAmount: 200n });
   });
 
 });
