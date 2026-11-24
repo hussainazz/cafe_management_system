@@ -130,7 +130,22 @@ export function InventoryStockDetail({
                   ? "موجودی به حد هشدار تعیین‌شده رسیده است. خرید این کالا را بررسی کنید."
                   : "موجودی بالاتر از حد هشدار تعیین‌شده است."}
           </p>
-          <h3>بسته‌بندی‌های خرید</h3>
+          <h3>بسته‌ی مرجع خرید</h3>
+          {item.referencePurchase ? (
+            <ul className="inventory-attention-list">
+              <li>
+                <strong>
+                  {inventoryQuantity(item.referencePurchase.packageQuantity)} {item.referencePurchase.conversionLabel === item.baseUnit
+                    ? inventoryUnitLabels[item.baseUnit]
+                    : item.referencePurchase.conversionLabel}
+                </strong>
+                <span>{inventoryNumber(formatToman(item.referencePurchase.priceAmount))} تومان</span>
+              </li>
+            </ul>
+          ) : (
+            <p className="inventory-note">برای این قلم هنوز بسته‌ی مرجع و قیمت خرید ثبت نشده است.</p>
+          )}
+          <h3>واحدهای خرید و تبدیل</h3>
           <ul className="inventory-attention-list">
             {item.conversions
               .filter((c) => c.isActive)
