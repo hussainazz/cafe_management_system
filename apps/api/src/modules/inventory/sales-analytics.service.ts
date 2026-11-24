@@ -5,7 +5,7 @@ import { tehranReportRange } from "../admin/daily-report.service.js";
 import { activeRevenue, hasCompleteCostSnapshot, loadRecognizedConsumptions, saleOptions, salesVariantKey, recognizedContribution } from "./gross-profit.service.js";
 import { isEligibleSettledOrder, salesChannel } from "./sales-report-eligibility.js";
 
-const MAX_AMOUNT = 2_147_483_647n;
+const MAX_AMOUNT = BigInt(Number.MAX_SAFE_INTEGER);
 const OPENING_HOUR = 8;
 const CLOSING_HOUR = 0;
 const OPERATING_HOURS_PER_DAY = 16;
@@ -33,7 +33,7 @@ const periodKey = (clock: Clock) => `${clock.date}:${clock.hour}:${clock.minute}
 
 function checkedAmount(amount: bigint, signed = false): number {
   if ((!signed && amount < 0n) || amount < -MAX_AMOUNT || amount > MAX_AMOUNT) {
-    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reported amount exceeds the supported Toman range.");
+    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reported total exceeds the safe integer range.");
   }
   return Number(amount);
 }
