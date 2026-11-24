@@ -866,6 +866,10 @@ model BarTicketPreparation {
 
 model StockItem {
   lowStockThreshold Decimal? @db.Decimal(20, 6)
+  referencePurchaseQuantity Decimal? @db.Decimal(20, 6)
+  referencePurchasePriceAmount Int?
+  referencePurchaseUnitLabel String?
+  referencePurchaseConversionId String? @unique
   id           String        @id @default(uuid())
   name         String        @unique
   archivedName String?
@@ -881,6 +885,7 @@ model StockItem {
 
   createdBy         User                            @relation("StockItemCreatedBy", fields: [createdById], references: [id])
   conversions       StockUnitConversion[]
+  referencePurchaseConversion StockUnitConversion? @relation("StockItemReferencePurchase", fields: [referencePurchaseConversionId], references: [id], onDelete: Restrict)
   balance           InventoryBalance?
   purchaseLines     PurchaseLine[]
   recipeComponents  RecipeComponent[]               @relation("StockRecipeComponents")
@@ -904,6 +909,7 @@ model StockUnitConversion {
   updatedAt           DateTime @updatedAt
 
   stockItem     StockItem      @relation(fields: [stockItemId], references: [id])
+  referencedByStockItem StockItem? @relation("StockItemReferencePurchase")
   purchaseLines PurchaseLine[]
 
   @@unique([stockItemId, label])
@@ -1014,6 +1020,8 @@ model ProductCostingConfiguration {
   id                   String             @id @default(uuid())
   productId            String             @unique
   mode                 ProductCostingMode
+  useEstimatedCost     Boolean            @default(false)
+  estimatedCostAmount  Int?
   recipeId             String?
   recipeQuantity       Decimal?           @db.Decimal(20, 6)
   purchasedStockItemId String?
@@ -1232,8 +1240,8 @@ model OrderConsumption {
   status                OrderConsumptionStatus @default(PENDING)
   recognizedById        String
   recognizedAt          DateTime
-  theoreticalCogsAmount Int?
-  knownCogsAmount       Int                    @default(0)
+  theoreticalCogsAmount BigInt?
+  knownCogsAmount       BigInt                 @default(0)
   isCostComplete        Boolean                @default(false)
   costSnapshot          Json
   resolvedAt            DateTime?
@@ -1260,8 +1268,8 @@ model OrderConsumptionItem {
   productNameSnapshot   String
   quantity              Int
   weightGrams           Int?
-  theoreticalCogsAmount Int?
-  knownCogsAmount       Int     @default(0)
+  theoreticalCogsAmount BigInt?
+  knownCogsAmount       BigInt  @default(0)
   isCostComplete        Boolean @default(false)
   costSnapshot          Json
 
