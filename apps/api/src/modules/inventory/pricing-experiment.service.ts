@@ -13,7 +13,7 @@ import {
 import { isEligibleSettledOrder, salesChannel } from "./sales-report-eligibility.js";
 
 const FIXED_MONTHLY_COST = 265_000_000n;
-const MAX_AMOUNT = 2_147_483_647n;
+const MAX_AMOUNT = BigInt(Number.MAX_SAFE_INTEGER);
 const SCALE = 1_000_000n;
 const tehranDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Tehran", calendar: "gregory", year: "numeric", month: "2-digit", day: "2-digit",
@@ -53,6 +53,10 @@ function signedAmount(value: bigint): number {
 }
 function amount(value: bigint): number {
   if (value < 0n || value > MAX_AMOUNT) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reported amount exceeds the supported Toman range.");
+  return Number(value);
+}
+function unitPriceAmount(value: bigint): number {
+  if (value < 0n || value > 2_147_483_647n) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A proposed unit price exceeds the supported Toman range.");
   return Number(value);
 }
 function roundedDivide(numerator: bigint, denominator: bigint): bigint {
@@ -886,8 +890,8 @@ export async function simulatePricingScenario(prisma: PrismaClient, input: Prici
         : product?.priceAmount ?? 0;
     const proposed = currentPrice + rule.adjustmentAmount;
     if (proposed < 0) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Scenario prices cannot be negative.");
-    amount(BigInt(proposed));
-    for (const row of categoryRows) amount(BigInt(row.priceAmount) + BigInt(rule.adjustmentAmount));
+    unitPriceAmount(BigInt(proposed));
+    for (const row of categoryRows) unitPriceAmount(BigInt(row.priceAmount) + BigInt(rule.adjustmentAmount));
     const label = rule.targetKind === "OPTION" ? `${product!.name}، ${option!.name}`
       : rule.targetKind === "CATEGORY" ? `دسته‌ی ${category!.name}` : product!.name;
     const affectedUnits = [...summary.groups.values()].filter((group) => {
