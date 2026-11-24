@@ -75,11 +75,11 @@ async function financialOrder(input: {
   const totalCost = itemCost === null ? null : itemCost;
   await app.prisma.orderConsumption.create({ data: {
     orderId: order.id, cycleNumber: 1, paymentSettlementId: settlements.at(-1)!.id, status: "POSTED", recognizedById: input.actorId,
-    recognizedAt: date, resolvedAt: date, theoreticalCogsAmount: totalCost, knownCogsAmount: totalCost ?? (input.knownProductCost ?? 0),
+    recognizedAt: date, resolvedAt: date, theoreticalCogsAmount: totalCost === null ? null : BigInt(totalCost), knownCogsAmount: BigInt(totalCost ?? (input.knownProductCost ?? 0)),
     isCostComplete: totalCost !== null, costSnapshot: { orderChannel: "TAKEAWAY" },
     items: { create: [
-      { orderItemId: menuItem.id, productNameSnapshot: input.productName, quantity: 1, theoreticalCogsAmount: totalCost,
-        knownCogsAmount: totalCost ?? (input.knownProductCost ?? 0), isCostComplete: totalCost !== null,
+      { orderItemId: menuItem.id, productNameSnapshot: input.productName, quantity: 1, theoreticalCogsAmount: totalCost === null ? null : BigInt(totalCost),
+        knownCogsAmount: BigInt(totalCost ?? (input.knownProductCost ?? 0)), isCostComplete: totalCost !== null,
         costSnapshot: { orderChannel: "TAKEAWAY", components: [{ quantity: String(totalCost ?? 0), knownCostAmount: totalCost }] } },
     ] },
   } });
@@ -226,7 +226,7 @@ describe("Developer pricing experiments", () => {
 
     const afterConsumption = await app.prisma.orderConsumption.findFirstOrThrow({ where: { orderId: afterCoffee.id }, include: { items: true } });
     const coffeeItem = await app.prisma.orderItem.findFirstOrThrow({ where: { orderId: afterCoffee.id, productId: coffee.id } });
-    await app.prisma.orderConsumptionItem.updateMany({ where: { orderConsumptionId: afterConsumption.id, orderItemId: coffeeItem.id }, data: { theoreticalCogsAmount: null, knownCogsAmount: 2_000, isCostComplete: false } });
+    await app.prisma.orderConsumptionItem.updateMany({ where: { orderConsumptionId: afterConsumption.id, orderItemId: coffeeItem.id }, data: { theoreticalCogsAmount: null, knownCogsAmount: 2_000n, isCostComplete: false } });
     await app.prisma.orderConsumption.updateMany({ where: { orderId: afterCoffee.id }, data: { theoreticalCogsAmount: null, isCostComplete: false } });
     const incompleteResponse = await app.inject({ method: "GET", url: `/api/v1/admin/pricing-experiments/${id}`, cookies: manager.cookies });
     const incomplete = PricingExperimentReportResponseSchema.parse(incompleteResponse.json()).data;
@@ -234,5 +234,40 @@ describe("Developer pricing experiments", () => {
     expect(incomplete.periods.after).toMatchObject({ contributionAmount: null, operatingSurplusAmount: null });
     expect(incomplete.periods.after.knownContributionAmount).toBe(11_000);
     expect(incomplete.decomposition.reconciles).toBe(false);
+  });
+
+  it("keeps pricing-period estimate aggregates within JavaScript's safe integer range", async () => {
+    const manager = await login("DEVELOPER"); const staff = await login("STAFF");
+    const category = await app.prisma.category.create({ data: { name: `Large cost ${randomUUID()}`, displayOrder: 1 } });
+    const productRow = await product(category.id, "Large estimated cost", 1_100_000_000);
+    const effectiveAt = new Date("2026-11-02T08:30:00.000Z");
+    await recordPriceChange({ actorId: manager.user.id, productId: productRow.id, productName: productRow.name, effectiveAt,
+      dimension: "PRODUCT_BASE_PRICE", previousAmount: 1_000_000_000, newAmount: 1_100_000_000, previousEffectivePriceAmount: 1_000_000_000, newEffectivePriceAmount: 1_100_000_000 });
+    await financialOrder({ actorId: staff.user.id, managerId: manager.user.id, date: "2026-11-01", productId: productRow.id, productName: productRow.name,
+      listedProductPrice: 1_000_000_000, productRevenue: 1_000_000_000, productCost: 1_000_000_000 });
+    await financialOrder({ actorId: staff.user.id, managerId: manager.user.id, date: "2026-11-08", productId: productRow.id, productName: productRow.name,
+      listedProductPrice: 1_100_000_000, productRevenue: 1_100_000_000, productCost: 2_200_000_000 });
+    const created = await app.inject({ method: "POST", url: "/api/v1/admin/pricing-experiments", cookies: manager.cookies, payload: {
+      name: "Large estimated cost range", effectiveAt: effectiveAt.toISOString(), expectedEvaluationDays: 7, comparisonDays: 7,
+      targets: [{ targetKind: "PRODUCT", productId: productRow.id, previousPriceAmount: 1_000_000_000, proposedPriceAmount: 1_100_000_000 }],
+    } });
+    expect(created.statusCode, created.body).toBe(201);
+    const experimentId = created.json().data.experiment.id as string;
+    const reportResponse = await app.inject({ method: "GET", url: `/api/v1/admin/pricing-experiments/${experimentId}`, cookies: manager.cookies });
+    expect(reportResponse.statusCode, reportResponse.body).toBe(200);
+    const report = PricingExperimentReportResponseSchema.parse(reportResponse.json()).data;
+    expect(report.periods.after).toMatchObject({ netRevenueAmount: 1_100_000_000, ingredientCogsAmount: 2_200_000_000, knownContributionAmount: -1_100_000_000 });
+    expect(report.products.find((row) => row.productId === productRow.id && row.channel === "TAKEAWAY")).toMatchObject({ unitCostAfterAmount: 2_200_000_000 });
+  });
+
+  it("rejects simulated unit prices that exceed the Int32 catalog price field", async () => {
+    const manager = await login("DEVELOPER");
+    const category = await app.prisma.category.create({ data: { name: `Unit price bound ${randomUUID()}`, displayOrder: 1 } });
+    const productRow = await product(category.id, "Maximum catalog price", 2_147_483_647);
+    const response = await app.inject({ method: "POST", url: "/api/v1/admin/reports/pricing-experiments/simulate", cookies: manager.cookies, payload: {
+      fromDate: "2026-11-01", toDate: "2026-11-01",
+      rules: [{ targetKind: "PRODUCT", productId: productRow.id, adjustmentAmount: 1 }],
+    } });
+    expect(response.statusCode, response.body).toBe(422);
   });
 });
