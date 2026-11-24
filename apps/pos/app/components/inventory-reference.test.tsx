@@ -23,6 +23,7 @@ const item = {
   isActive: true,
   archivedAt: null,
   conversions: [],
+  referencePurchase: null,
   balance: {
     trackingStartedAt: "2026-11-01",
     quantityOnHand: "12.125001",
