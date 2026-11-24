@@ -88,6 +88,102 @@ it("searches purchase items with Persian keyboard variants and submits ungrouped
   })));
 });
 
+it("uses the reference package size and price as defaults for a new purchase", async () => {
+  const configuredStock = {
+    ...stock,
+    referencePurchase: { conversionId: "kg-conversion", conversionLabel: "کیلوگرم", packageQuantity: "2", baseQuantityPerPack: "1000", priceAmount: 400_000 },
+    conversions: [{ id: "kg-conversion", label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }],
+  };
+  vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([configuredStock], "stockItems") as never);
+  vi.mocked(api.createInventoryPurchase).mockResolvedValue(ok({ data: {} }) as never);
+  render(<InventoryWorkspace catalog={catalog} />);
+  const quantity = await screen.findByLabelText("مقدار خرید (کیلوگرم)") as HTMLInputElement;
+  const cost = screen.getByLabelText("هزینه‌ی مستقیم (تومان)") as HTMLInputElement;
+  expect(quantity.value).toBe("2");
+  expect(cost.value).toBe("400,000");
+  fireEvent.click(screen.getByRole("button", { name: "ایجاد پیش‌نویس خرید" }));
+  await waitFor(() => expect(api.createInventoryPurchase).toHaveBeenCalledWith(expect.objectContaining({
+    lines: [expect.objectContaining({ stockItemId: stock.id, conversionId: "kg-conversion", purchaseUnitLabel: "کیلوگرم", purchaseQuantity: "2", directCostAmount: 400_000 })],
+  })));
+});
+
+it("keeps a draft receipt's saved unit snapshot selected after its stock conversion changes", async () => {
+  const updatedStock = {
+    ...stock,
+    referencePurchase: { conversionId: "kg-conversion", conversionLabel: "sack", packageQuantity: "1", baseQuantityPerPack: "2000", priceAmount: 500_000 },
+    conversions: [{ id: "kg-conversion", label: "sack", baseQuantityPerPack: "2000", isActive: true }],
+  };
+  const draft = {
+    id: "purchase-draft-1", status: "DRAFT", receivedAt: "2026-11-24T08:00:00.000Z", supplier: "Old supplier", version: 1, postedAt: null,
+    lines: [{ id: "purchase-line-1", stockItemId: stock.id, conversionId: "kg-conversion", purchaseUnitLabel: "kg", purchaseQuantity: "2", directCostAmount: 400_000, baseQuantityPerPack: "1000", baseQuantityReceived: "2000" }],
+  };
+  vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([updatedStock], "stockItems") as never);
+  vi.mocked(api.readInventoryPurchases).mockResolvedValue(list([draft], "purchases") as never);
+  vi.mocked(api.updateInventoryPurchase).mockResolvedValue(ok({ data: draft }) as never);
+  render(<InventoryWorkspace catalog={catalog} />);
+  fireEvent.click(await screen.findByRole("button", { name: "ویرایش پیش‌نویس" }));
+  const unit = await screen.findByLabelText("واحد خرید") as HTMLSelectElement;
+  expect(unit.value).toBe("snapshot:kg-conversion");
+  expect(unit.selectedOptions[0]?.textContent).toContain("ثبت‌شده");
+  fireEvent.change(screen.getByLabelText("تأمین‌کننده (اختیاری)"), { target: { value: "Updated supplier" } });
+  fireEvent.click(screen.getByRole("button", { name: "ذخیره پیش‌نویس" }));
+  await waitFor(() => expect(api.updateInventoryPurchase).toHaveBeenCalledWith(draft.id, expect.objectContaining({
+    supplier: "Updated supplier",
+    lines: [{ id: "purchase-line-1", stockItemId: stock.id, conversionId: "kg-conversion", purchaseUnitLabel: "kg", purchaseQuantity: "2", directCostAmount: 400_000 }],
+  })));
+});
+
+it("marks an explicit switch from a saved draft unit to the current conversion", async () => {
+  const updatedStock = {
+    ...stock,
+    referencePurchase: { conversionId: "kg-conversion", conversionLabel: "kg", packageQuantity: "1", baseQuantityPerPack: "2000", priceAmount: 500_000 },
+    conversions: [{ id: "kg-conversion", label: "kg", baseQuantityPerPack: "2000", isActive: true }],
+  };
+  const draft = {
+    id: "purchase-draft-2", status: "DRAFT", receivedAt: "2026-11-24T08:00:00.000Z", supplier: "Old supplier", version: 1, postedAt: null,
+    lines: [{ id: "purchase-line-2", stockItemId: stock.id, conversionId: "kg-conversion", purchaseUnitLabel: "kg", purchaseQuantity: "2", directCostAmount: 400_000, baseQuantityPerPack: "1000", baseQuantityReceived: "2000" }],
+  };
+  vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([updatedStock], "stockItems") as never);
+  vi.mocked(api.readInventoryPurchases).mockResolvedValue(list([draft], "purchases") as never);
+  vi.mocked(api.updateInventoryPurchase).mockResolvedValue(ok({ data: draft }) as never);
+  render(<InventoryWorkspace catalog={catalog} />);
+  fireEvent.click(await screen.findByRole("button", { name: "ویرایش پیش‌نویس" }));
+  const unit = await screen.findByLabelText("واحد خرید") as HTMLSelectElement;
+  expect(unit.value).toBe("snapshot:kg-conversion");
+  fireEvent.change(unit, { target: { value: "" } });
+  fireEvent.change(unit, { target: { value: "kg-conversion" } });
+  fireEvent.click(screen.getByRole("button", { name: "ذخیره پیش‌نویس" }));
+  await waitFor(() => expect(api.updateInventoryPurchase).toHaveBeenCalledWith(draft.id, expect.objectContaining({
+    lines: [expect.objectContaining({ id: "purchase-line-2", conversionId: "kg-conversion", purchaseUnitLabel: "kg", useCurrentConversion: true })],
+  })));
+});
+
+it("keeps a replacement purchase row on the current conversion after unit changes", async () => {
+  const updatedStock = {
+    ...stock,
+    referencePurchase: { conversionId: "kg-conversion", conversionLabel: "kg", packageQuantity: "1", baseQuantityPerPack: "2000", priceAmount: 500_000 },
+    conversions: [{ id: "kg-conversion", label: "kg", baseQuantityPerPack: "2000", isActive: true }],
+  };
+  const draft = {
+    id: "purchase-draft-3", status: "DRAFT", receivedAt: "2026-11-24T08:00:00.000Z", supplier: "Old supplier", version: 1, postedAt: null,
+    lines: [{ id: "purchase-line-3", stockItemId: stock.id, conversionId: "kg-conversion", purchaseUnitLabel: "kg", purchaseQuantity: "1", directCostAmount: 400_000, baseQuantityPerPack: "1000", baseQuantityReceived: "1000" }],
+  };
+  vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([updatedStock], "stockItems") as never);
+  vi.mocked(api.readInventoryPurchases).mockResolvedValue(list([draft], "purchases") as never);
+  vi.mocked(api.updateInventoryPurchase).mockResolvedValue(ok({ data: draft }) as never);
+  render(<InventoryWorkspace catalog={catalog} />);
+  fireEvent.click(await screen.findByRole("button", { name: "ویرایش پیش‌نویس" }));
+  fireEvent.click(screen.getByRole("button", { name: "افزودن ردیف کالا" }));
+  const units = screen.getAllByLabelText("واحد خرید") as HTMLSelectElement[];
+  fireEvent.change(units[1]!, { target: { value: "" } });
+  fireEvent.change(units[1]!, { target: { value: "kg-conversion" } });
+  fireEvent.click(screen.getAllByRole("button", { name: "حذف ردیف" })[0]!);
+  fireEvent.click(screen.getByRole("button", { name: "ذخیره پیش‌نویس" }));
+  await waitFor(() => expect(api.updateInventoryPurchase).toHaveBeenCalledWith(draft.id, expect.objectContaining({
+    lines: [{ stockItemId: stock.id, conversionId: "kg-conversion", purchaseUnitLabel: "kg", purchaseQuantity: "1", directCostAmount: 500_000, useCurrentConversion: true }],
+  })));
+});
+
 it("moves matching count rows up without changing selected quantities or marking the draft dirty", async () => {
   const anotherStock = { ...stock, id: "milk", name: "شیر" };
   vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock, anotherStock], "stockItems") as never);
@@ -303,11 +399,124 @@ describe("InventoryWorkspace", () => {
     render(<InventoryWorkspace catalog={catalog} />);
     fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
     fireEvent.change(screen.getByLabelText("نام کالا"), { target: { value: "قهوه تازه" } });
-    fireEvent.change(screen.getByLabelText("نام بسته‌بندی"), { target: { value: "کیسه" } });
-    fireEvent.change(screen.getByLabelText("مقدار هر بسته به گرم"), { target: { value: "یک کیلو" } });
+    fireEvent.change(screen.getByLabelText("مقدار هر بسته"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("قیمت هر بسته (تومان)"), { target: { value: "1000" } });
+    fireEvent.change(screen.getByLabelText("نام واحد خرید"), { target: { value: "کیسه" } });
+    fireEvent.change(screen.getByLabelText("معادل یک واحد به گرم"), { target: { value: "یک کیلو" } });
     fireEvent.click(screen.getByRole("button", { name: "ثبت کالا" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("مقدار تبدیل");
+    expect(api.saveInventoryStockItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps a renamed reference conversion selected while editing an untracked stock item", async () => {
+    const legacy = {
+      ...stock,
+      balance: { quantityOnHand: null, carryingValueAmount: null, movingAverageCostPerBaseUnit: null, trackingStartedAt: null },
+      conversions: [{ id: "kg-conversion", label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }],
+      referencePurchase: null,
+    };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([legacy], "stockItems") as never);
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.click(screen.getByRole("button", { name: "ویرایش قهوه" }));
+    fireEvent.click(screen.getByText("تنظیم واحدهای خرید و تبدیل"));
+    fireEvent.change(screen.getByLabelText("نام واحد خرید"), { target: { value: "کیسه" } });
+    expect((screen.getByLabelText("واحد بسته") as HTMLSelectElement).value).toBe("کیسه");
+    fireEvent.change(screen.getByLabelText("مقدار هر بسته"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("قیمت هر بسته (تومان)"), { target: { value: "100" } });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره تغییرات" }));
+    await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(legacy.id, expect.objectContaining({
+      referencePurchase: { conversionLabel: "کیسه", packageQuantity: "1", priceAmount: 100 },
+      conversions: [{ id: "kg-conversion", label: "کیسه", baseQuantityPerPack: "1000", isActive: true }],
+    })));
+  });
+
+  it("clears the selected named conversion before it can collide with the base-unit token", async () => {
+    const legacy = {
+      ...stock,
+      balance: { quantityOnHand: null, carryingValueAmount: null, movingAverageCostPerBaseUnit: null, trackingStartedAt: null },
+      conversions: [{ id: "kg-conversion", label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }],
+      referencePurchase: { conversionId: "kg-conversion", conversionLabel: "کیلوگرم", packageQuantity: "2", baseQuantityPerPack: "1000", priceAmount: 400_000 },
+    };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([legacy], "stockItems") as never);
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.click(screen.getByRole("button", { name: "ویرایش قهوه" }));
+    fireEvent.click(screen.getByText("تنظیم واحدهای خرید و تبدیل"));
+    fireEvent.change(screen.getByLabelText("نام واحد خرید"), { target: { value: "GRAM" } });
+    expect((screen.getByLabelText("واحد بسته") as HTMLSelectElement).value).toBe("");
+    expect(screen.getByText("هزینه‌ی هر گرم").parentElement?.textContent).toContain("—");
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره تغییرات" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("نام واحد تبدیل");
+    expect(api.saveInventoryStockItem).not.toHaveBeenCalled();
+  });
+
+  it("allows a zero opening balance after removing a selected package from an untracked legacy item", async () => {
+    const legacy = {
+      ...stock,
+      isPackagingMaterial: true,
+      balance: { quantityOnHand: null, carryingValueAmount: null, movingAverageCostPerBaseUnit: null, trackingStartedAt: null },
+      conversions: [{ id: "old-pack", label: "جعبه", baseQuantityPerPack: "12", isActive: true }],
+      referencePurchase: null,
+    };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([legacy], "stockItems") as never);
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.click(screen.getByRole("button", { name: "ویرایش قهوه" }));
+    fireEvent.click(screen.getByText("تنظیم واحدهای خرید و تبدیل"));
+    fireEvent.click(screen.getByRole("button", { name: "حذف واحد" }));
+    expect((screen.getByLabelText("واحد بسته") as HTMLSelectElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره تغییرات" }));
+    await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(legacy.id, expect.objectContaining({
+      isPackagingMaterial: true,
+      openingStock: { method: "PACKAGE_COUNT", packageCount: 0, looseQuantity: "0" },
+      conversions: [],
+    })));
+  });
+
+  it("moves the base-unit package selection with an editable untracked item's base unit", async () => {
+    const legacy = {
+      ...stock,
+      balance: { quantityOnHand: null, carryingValueAmount: null, movingAverageCostPerBaseUnit: null, trackingStartedAt: null },
+      conversions: [],
+      referencePurchase: null,
+    };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([legacy], "stockItems") as never);
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.click(screen.getByRole("button", { name: "ویرایش قهوه" }));
+    fireEvent.change(screen.getByLabelText("واحد مبنا"), { target: { value: "PIECE" } });
+    expect((screen.getByLabelText("واحد بسته") as HTMLSelectElement).value).toBe("PIECE");
+  });
+
+  it("allows unrelated edits to a legacy conversion that already used its base-unit token", async () => {
+    const legacy = {
+      ...stock,
+      conversions: [{ id: "legacy-base-token", label: "GRAM", baseQuantityPerPack: "1000", isActive: true }],
+      referencePurchase: null,
+    };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([legacy], "stockItems") as never);
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.click(screen.getByRole("button", { name: "ویرایش قهوه" }));
+    fireEvent.change(screen.getByLabelText("حد هشدار موجودی (گرم) · اختیاری"), { target: { value: "25" } });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره تغییرات" }));
+    await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(legacy.id, expect.objectContaining({
+      lowStockThreshold: "25",
+      conversions: [{ id: "legacy-base-token", label: "GRAM", baseQuantityPerPack: "1000", isActive: true }],
+    })));
+  });
+
+  it("keeps an oversized pasted package price from crashing preview arithmetic", async () => {
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.change(screen.getByLabelText("نام کالا"), { target: { value: "قهوه تازه" } });
+    fireEvent.change(screen.getByLabelText("مقدار هر بسته"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("قیمت هر بسته (تومان)"), { target: { value: "9".repeat(310) } });
+    expect(screen.getByText("هزینه‌ی هر گرم").parentElement?.textContent).toContain("—");
+    fireEvent.click(screen.getByRole("button", { name: "ثبت کالا" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("اندازه، واحد و قیمت بسته‌ی خرید");
     expect(api.saveInventoryStockItem).not.toHaveBeenCalled();
   });
 
@@ -315,12 +524,17 @@ describe("InventoryWorkspace", () => {
     render(<InventoryWorkspace catalog={catalog} />);
     fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
     fireEvent.change(screen.getByLabelText("نام کالا"), { target: { value: "قهوه تازه" } });
-    fireEvent.change(screen.getByLabelText("نام بسته‌بندی"), { target: { value: "بسته" } });
-    fireEvent.change(screen.getByLabelText("مقدار هر بسته به گرم"), { target: { value: "250.125" } });
+    fireEvent.change(screen.getByLabelText("نام واحد خرید"), { target: { value: "بسته" } });
+    fireEvent.change(screen.getByLabelText("معادل یک واحد به گرم"), { target: { value: "250.125" } });
+    fireEvent.change(screen.getByLabelText("واحد بسته"), { target: { value: "بسته" } });
+    fireEvent.change(screen.getByLabelText("مقدار هر بسته"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("قیمت هر بسته (تومان)"), { target: { value: "50000" } });
     fireEvent.click(screen.getByRole("button", { name: "ثبت کالا" }));
 
     await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(null, expect.objectContaining({
-      name: "قهوه تازه", baseUnit: "GRAM", conversions: [{ label: "بسته", baseQuantityPerPack: "250.125", isActive: true }],
+      name: "قهوه تازه", baseUnit: "GRAM", referencePurchase: { conversionLabel: "بسته", packageQuantity: "1", priceAmount: 50000 },
+      openingStock: { method: "PACKAGE_COUNT", packageCount: 0, looseQuantity: "0" },
+      conversions: [{ label: "بسته", baseQuantityPerPack: "250.125", isActive: true }],
     })));
   });
 
@@ -329,10 +543,55 @@ describe("InventoryWorkspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
     fireEvent.change(screen.getByLabelText("نام کالا"), { target: { value: "لیوان کاغذی" } });
     fireEvent.change(screen.getByLabelText("واحد مبنا"), { target: { value: "PIECE" } });
-    fireEvent.change(screen.getByLabelText("تعداد در هر بسته (عدد)"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("مقدار هر بسته"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("قیمت هر بسته (تومان)"), { target: { value: "100000" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /این کالا بسته‌بندی است/ }));
     fireEvent.click(screen.getByRole("button", { name: "ثبت کالا" }));
-    await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(null, expect.objectContaining({ name: "لیوان کاغذی", isPackagingMaterial: true })));
+    await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(null, expect.objectContaining({ name: "لیوان کاغذی", isPackagingMaterial: true, referencePurchase: { conversionLabel: "PIECE", packageQuantity: "50", priceAmount: 100000 } })));
+  });
+
+  it("preserves opening quantity when switching between package and direct entry", async () => {
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.change(screen.getByLabelText("نام کالا"), { target: { value: "پودر هات چاکلت" } });
+    fireEvent.change(screen.getByLabelText("مقدار هر بسته"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("قیمت هر بسته (تومان)"), { target: { value: "400000" } });
+    fireEvent.change(screen.getByLabelText("تعداد بسته‌های کامل"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("مقدار باز (گرم)"), { target: { value: "300" } });
+    expect(screen.getByText("هزینه‌ی هر گرم").parentElement?.textContent).toContain("۲۰۰");
+    expect(screen.getByText("موجودی کل (گرم)").parentElement?.textContent).toContain("۶٬۳۰۰");
+    expect(screen.getByText("ارزش موجودی برآوردی").parentElement?.textContent).toContain("۱,۲۶۰,۰۰۰");
+
+    fireEvent.change(screen.getByLabelText("روش ثبت موجودی"), { target: { value: "TOTAL_QUANTITY" } });
+    expect((screen.getByLabelText("مقدار کل (گرم)") as HTMLInputElement).value).toBe("6,300");
+    fireEvent.change(screen.getByLabelText("روش ثبت موجودی"), { target: { value: "PACKAGE_COUNT" } });
+    expect((screen.getByLabelText("تعداد بسته‌های کامل") as HTMLInputElement).value).toBe("3");
+    expect((screen.getByLabelText("مقدار باز (گرم)") as HTMLInputElement).value).toBe("300");
+
+    fireEvent.click(screen.getByRole("button", { name: "ثبت کالا" }));
+    await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(null, expect.objectContaining({
+      openingStock: { method: "PACKAGE_COUNT", packageCount: 3, looseQuantity: "300" },
+    })));
+  });
+
+  it("preserves a large direct total when its derived package count would exceed the safe integer range", async () => {
+    render(<InventoryWorkspace catalog={catalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "اقلام موجودی" }));
+    fireEvent.change(screen.getByLabelText("نام کالا"), { target: { value: "ریز بسته" } });
+    fireEvent.change(screen.getByLabelText("نام واحد خرید"), { target: { value: "ریز" } });
+    fireEvent.change(screen.getByLabelText("معادل یک واحد به گرم"), { target: { value: "0.000001" } });
+    fireEvent.change(screen.getByLabelText("واحد بسته"), { target: { value: "ریز" } });
+    fireEvent.change(screen.getByLabelText("مقدار هر بسته"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("قیمت هر بسته (تومان)"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText("روش ثبت موجودی"), { target: { value: "TOTAL_QUANTITY" } });
+    fireEvent.change(screen.getByLabelText("مقدار کل (گرم)"), { target: { value: "10000000000" } });
+    fireEvent.change(screen.getByLabelText("روش ثبت موجودی"), { target: { value: "PACKAGE_COUNT" } });
+    expect((screen.getByLabelText("تعداد بسته‌های کامل") as HTMLInputElement).value).toBe("0");
+    expect((screen.getByLabelText("مقدار باز (گرم)") as HTMLInputElement).value).toBe("10,000,000,000");
+    fireEvent.click(screen.getByRole("button", { name: "ثبت کالا" }));
+    await waitFor(() => expect(api.saveInventoryStockItem).toHaveBeenCalledWith(null, expect.objectContaining({
+      openingStock: { method: "PACKAGE_COUNT", packageCount: 0, looseQuantity: "10000000000" },
+    })));
   });
 
   it("loads and updates an existing packaging-material classification", async () => {
@@ -504,12 +763,172 @@ describe("InventoryWorkspace", () => {
     await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({
       servedAlongside: [{ sourceKind: "STOCK_ITEM", stockItemId: cookie.id, quantity: "1" }],
     })));
-    expect(api.saveInventoryRecipe).toHaveBeenCalledWith(baseRecipe.id, expect.objectContaining({
-      components: [expect.objectContaining({ stockItemId: stock.id, quantity: "18" })],
-    }));
-    expect(api.saveInventoryRecipe).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      components: expect.arrayContaining([expect.objectContaining({ stockItemId: cookie.id })]),
-    }));
+    expect(api.saveInventoryRecipe).not.toHaveBeenCalled();
+  });
+
+  it("saves a product estimate without rewriting its recipe and restores the recipe when toggled off", async () => {
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [] }], optionGroups: [], categories: [], options: [] } as never;
+    const baseRecipe = { id: "base-recipe", name: "Espresso", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, nestedRecipeId: null, quantity: "18", displayOrder: 0 }] };
+    const config = { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "2", useEstimatedCost: false, estimatedCostAmount: null, extrasRecipeId: null, servedAlongside: [], takeawayPackaging: [], optionRecipes: [], optionRules: [], combinations: [], version: 1 };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+    vi.mocked(api.readInventoryRecipes).mockResolvedValue(list([baseRecipe], "recipes") as never);
+    vi.mocked(api.readProductCosting).mockResolvedValue(ok({ data: config }) as never);
+    vi.mocked(api.saveInventoryRecipe).mockResolvedValue(ok({ data: baseRecipe }) as never);
+    vi.mocked(api.saveProductCosting)
+      .mockResolvedValueOnce(ok({ data: { ...config, useEstimatedCost: true, estimatedCostAmount: 2_500, version: 2 } }) as never)
+      .mockResolvedValueOnce(ok({ data: { ...config, useEstimatedCost: false, estimatedCostAmount: 2_500, version: 3 } }) as never);
+
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    const toggle = await screen.findByLabelText("هزینه‌ی نهایی را به‌صورت تخمینی ثبت می‌کنم");
+    fireEvent.click(toggle);
+    expect(screen.queryByLabelText("مقدار (گرم)")).toBeNull();
+    fireEvent.change(screen.getByLabelText("هزینه‌ی تخمینی هر واحد (تومان)"), { target: { value: "2500" } });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenNthCalledWith(1, "product-1", expect.objectContaining({ useEstimatedCost: true, estimatedCostAmount: 2500, expectedVersion: 1 })));
+    expect(vi.mocked(api.saveProductCosting).mock.calls[0]?.[1]).not.toHaveProperty("recipeId");
+    expect(api.saveInventoryRecipe).not.toHaveBeenCalled();
+
+    fireEvent.click(toggle);
+    expect(await screen.findByLabelText("مقدار (گرم)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenNthCalledWith(2, "product-1", expect.objectContaining({ mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "2", useEstimatedCost: false, expectedVersion: 2 })));
+    expect(api.saveInventoryRecipe).not.toHaveBeenCalled();
+  });
+
+  it("restores a saved recipe while skipping untouched inherited option drafts", async () => {
+    const costingCatalog = {
+      products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [{ optionGroupId: "group-1", minSelections: 0, options: [{ optionId: "option-1" }] }] }],
+      optionGroups: [{ id: "group-1", name: "اندازه", options: [{ id: "option-1", name: "دبل", isActive: true, archivedAt: null }] }],
+      categories: [], options: [],
+    } as never;
+    const baseRecipe = { id: "base-recipe", name: "Espresso", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, nestedRecipeId: null, quantity: "18", displayOrder: 0 }] };
+    const config = { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", useEstimatedCost: true, estimatedCostAmount: 2_500, extrasRecipeId: null, servedAlongside: [], takeawayPackaging: [], optionRecipes: [], optionRules: [], combinations: [], version: 2 };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+    vi.mocked(api.readInventoryRecipes).mockResolvedValue(list([baseRecipe], "recipes") as never);
+    vi.mocked(api.readProductCosting).mockResolvedValue(ok({ data: config }) as never);
+    vi.mocked(api.saveProductCosting).mockResolvedValue(ok({ data: { ...config, useEstimatedCost: false, version: 3 } }) as never);
+
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    fireEvent.click(await screen.findByLabelText("هزینه‌ی نهایی را به‌صورت تخمینی ثبت می‌کنم"));
+    const quantities = await screen.findAllByLabelText("مقدار (گرم)");
+    expect((quantities[0] as HTMLInputElement).value).toBe("18");
+    expect((quantities[1] as HTMLInputElement).value).toBe("");
+    expect((quantities[1] as HTMLInputElement).required).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({
+      mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", useEstimatedCost: false, expectedVersion: 2,
+    })));
+    expect(api.saveInventoryRecipe).not.toHaveBeenCalled();
+  });
+
+  it("saves an estimated side add-on without validating untouched inherited option drafts", async () => {
+    const costingCatalog = {
+      products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [{ optionGroupId: "group-1", minSelections: 0, options: [{ optionId: "option-1" }] }] }],
+      optionGroups: [{ id: "group-1", name: "اندازه", options: [{ id: "option-1", name: "دبل", isActive: true, archivedAt: null }] }],
+      categories: [], options: [],
+    } as never;
+    const baseRecipe = { id: "base-recipe", name: "Espresso", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, nestedRecipeId: null, quantity: "18", displayOrder: 0 }] };
+    const config = { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", useEstimatedCost: false, estimatedCostAmount: null, extrasRecipeId: null, servedAlongside: [], takeawayPackaging: [], optionRecipes: [], optionRules: [], combinations: [], version: 1 };
+    const updatedConfig = { ...config, servedAlongside: [{ sourceKind: "ESTIMATED_COST", name: "کوکی آماده", estimatedCostAmount: 500 }], version: 2 };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+    vi.mocked(api.readInventoryRecipes).mockResolvedValue(list([baseRecipe], "recipes") as never);
+    vi.mocked(api.readProductCosting).mockResolvedValue(ok({ data: config }) as never);
+    vi.mocked(api.saveProductCosting).mockResolvedValue(ok({ data: updatedConfig }) as never);
+
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    const ingredientAmounts = await screen.findAllByLabelText("مقدار (گرم)");
+    expect((ingredientAmounts[1] as HTMLInputElement).value).toBe("");
+    expect((ingredientAmounts[1] as HTMLInputElement).required).toBe(false);
+
+    fireEvent.click(await screen.findByRole("button", { name: "افزودن مورد سرو در کنار محصول" }));
+    fireEvent.click(screen.getByLabelText("هزینه‌ی تخمینی برای افزودنی 1"));
+    fireEvent.change(screen.getByLabelText("نام افزودنی 1"), { target: { value: "کوکی آماده" } });
+    fireEvent.change(screen.getByLabelText("هزینه‌ی تخمینی برای هر واحد محصول (تومان)"), { target: { value: "500" } });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({
+      mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", useEstimatedCost: false,
+      servedAlongside: [{ sourceKind: "ESTIMATED_COST", name: "کوکی آماده", estimatedCostAmount: 500, previousSource: { sourceKind: "STOCK_ITEM", stockItemId: stock.id, quantity: "1" } }],
+    })));
+    expect(api.saveInventoryRecipe).not.toHaveBeenCalled();
+  });
+
+  it("lets each served-alongside row use its own estimated cost and keeps the old recipe mapping", async () => {
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [] }], optionGroups: [], categories: [], options: [] } as never;
+    const baseRecipe = { id: "base-recipe", name: "Espresso", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, nestedRecipeId: null, quantity: "18", displayOrder: 0 }] };
+    const sideRecipe = { id: "side-recipe", name: "کوکی کنار قهوه", ingredientName: "کوکی", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "cookie", label: "کوکی", sourceKind: "STOCK_ITEM", stockItemId: stock.id, nestedRecipeId: null, quantity: "1", displayOrder: 0 }] };
+    const baseConfig = { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", useEstimatedCost: false, estimatedCostAmount: null, extrasRecipeId: null, servedAlongside: [{ sourceKind: "RECIPE", recipeId: sideRecipe.id, quantity: "1" }], optionRecipes: [], optionRules: [], combinations: [], version: 1 };
+    const estimatedSideConfig = { ...baseConfig, servedAlongside: [{ sourceKind: "ESTIMATED_COST", name: "کوکی آماده", estimatedCostAmount: 0, previousSource: { sourceKind: "RECIPE", recipeId: sideRecipe.id, quantity: "1" } }], version: 2 };
+    const restoredSideConfig = { ...baseConfig, servedAlongside: [{ sourceKind: "RECIPE", recipeId: sideRecipe.id, quantity: "1", previousEstimatedCost: { name: "کوکی آماده", estimatedCostAmount: 0 } }], version: 3 };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+    vi.mocked(api.readInventoryRecipes).mockResolvedValue(list([baseRecipe, sideRecipe], "recipes") as never);
+    vi.mocked(api.readProductCosting).mockResolvedValueOnce(ok({ data: baseConfig }) as never).mockResolvedValueOnce(ok({ data: restoredSideConfig }) as never);
+    vi.mocked(api.saveInventoryRecipe).mockResolvedValue(ok({ data: baseRecipe }) as never);
+    vi.mocked(api.saveProductCosting).mockResolvedValueOnce(ok({ data: estimatedSideConfig }) as never).mockResolvedValueOnce(ok({ data: restoredSideConfig }) as never);
+
+    const view = render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    fireEvent.click(await screen.findByLabelText("هزینه‌ی تخمینی برای افزودنی 1"));
+    fireEvent.change(screen.getByLabelText("نام افزودنی 1"), { target: { value: "کوکی آماده" } });
+    const estimatedAmount = screen.getByLabelText("هزینه‌ی تخمینی برای هر واحد محصول (تومان)") as HTMLInputElement;
+    expect(estimatedAmount.value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+    expect(api.saveProductCosting).not.toHaveBeenCalled();
+    fireEvent.change(estimatedAmount, { target: { value: "0" } });
+    expect(screen.queryByLabelText("دستور افزودنی")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({
+      servedAlongside: [{ sourceKind: "ESTIMATED_COST", name: "کوکی آماده", estimatedCostAmount: 0, previousSource: { sourceKind: "RECIPE", recipeId: sideRecipe.id, quantity: "1" } }],
+    })));
+    fireEvent.click(screen.getByLabelText("هزینه‌ی تخمینی برای افزودنی 1"));
+    expect(screen.queryByLabelText("نام افزودنی 1")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenNthCalledWith(2, "product-1", expect.objectContaining({
+      servedAlongside: [{ sourceKind: "RECIPE", recipeId: sideRecipe.id, quantity: "1", previousEstimatedCost: { name: "کوکی آماده", estimatedCostAmount: 0 } }],
+    })));
+    view.unmount();
+
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    fireEvent.click(await screen.findByLabelText("هزینه‌ی تخمینی برای افزودنی 1"));
+    expect((screen.getByLabelText("نام افزودنی 1") as HTMLInputElement).value).toBe("کوکی آماده");
+    expect((screen.getByLabelText("هزینه‌ی تخمینی برای هر واحد محصول (تومان)") as HTMLInputElement).value).toBe("0");
+  });
+
+  it("omits incomplete alternate served-alongside drafts when saving either mode", async () => {
+    const costingCatalog = { products: [{ id: "product-1", name: "اسپرسو", pricingMode: "FIXED", isActive: true, archivedAt: null, optionGroups: [] }], optionGroups: [], categories: [], options: [] } as never;
+    const baseRecipe = { id: "base-recipe", name: "Espresso", ingredientName: "اسپرسو", isActive: true, archivedAt: null, version: 1, outputUnit: "PIECE", yieldQuantity: "1", components: [{ componentKey: "coffee", label: "قهوه", sourceKind: "STOCK_ITEM", stockItemId: stock.id, nestedRecipeId: null, quantity: "18", displayOrder: 0 }] };
+    const config = { mode: "RECIPE", recipeId: baseRecipe.id, recipeQuantity: "1", useEstimatedCost: false, estimatedCostAmount: null, extrasRecipeId: null, servedAlongside: [{ sourceKind: "STOCK_ITEM", stockItemId: stock.id, quantity: "1", previousEstimatedCost: { name: "کوکی آماده", estimatedCostAmount: 500 } }], takeawayPackaging: [], optionRecipes: [], optionRules: [], combinations: [], version: 1 };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
+    vi.mocked(api.readInventoryRecipes).mockResolvedValue(list([baseRecipe], "recipes") as never);
+    vi.mocked(api.readProductCosting).mockResolvedValue(ok({ data: config }) as never);
+    vi.mocked(api.saveProductCosting).mockResolvedValue(ok({ data: { ...config, version: 2 } }) as never);
+
+    render(<InventoryWorkspace catalog={costingCatalog} />);
+    fireEvent.click(await screen.findByRole("button", { name: "دستور تهیه و هزینه" }));
+    fireEvent.click(await screen.findByLabelText("هزینه‌ی تخمینی برای افزودنی 1"));
+    fireEvent.change(screen.getByLabelText("نام افزودنی 1"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("هزینه‌ی تخمینی برای هر واحد محصول (تومان)"), { target: { value: "" } });
+    fireEvent.click(screen.getByLabelText("هزینه‌ی تخمینی برای افزودنی 1"));
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenNthCalledWith(1, "product-1", expect.objectContaining({
+      servedAlongside: [{ sourceKind: "STOCK_ITEM", stockItemId: stock.id, quantity: "1" }],
+    })));
+
+    fireEvent.change(screen.getByLabelText("مقدار برای هر واحد (گرم)"), { target: { value: "" } });
+    fireEvent.click(screen.getByLabelText("هزینه‌ی تخمینی برای افزودنی 1"));
+    fireEvent.change(screen.getByLabelText("نام افزودنی 1"), { target: { value: "کوکی آماده" } });
+    fireEvent.change(screen.getByLabelText("هزینه‌ی تخمینی برای هر واحد محصول (تومان)"), { target: { value: "100" } });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
+    await waitFor(() => expect(api.saveProductCosting).toHaveBeenNthCalledWith(2, "product-1", expect.objectContaining({
+      servedAlongside: [{ sourceKind: "ESTIMATED_COST", name: "کوکی آماده", estimatedCostAmount: 100 }],
+    })));
   });
 
   it("loads a reusable served-alongside recipe and persists its removal without changing the main recipe", async () => {
@@ -530,9 +949,7 @@ describe("InventoryWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "ذخیره‌ی دستورهای تهیه" }));
 
     await waitFor(() => expect(api.saveProductCosting).toHaveBeenCalledWith("product-1", expect.objectContaining({ servedAlongside: [] })));
-    expect(api.saveInventoryRecipe).toHaveBeenCalledWith(baseRecipe.id, expect.objectContaining({
-      components: [expect.objectContaining({ stockItemId: stock.id, quantity: "18" })],
-    }));
+    expect(api.saveInventoryRecipe).not.toHaveBeenCalled();
     expect(api.saveInventoryRecipe).not.toHaveBeenCalledWith(cookieRecipe.id, expect.anything());
   });
 
