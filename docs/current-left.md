@@ -1,3 +1,15 @@
+## Active delivery — purchase-oriented inventory item setup (24 November 2026)
+
+- [x] Redesign stock-item creation and editing into ingredient identification,
+  purchase-package configuration, and opening-stock entry.
+- [x] Persist a reference purchase conversion, package quantity, and price;
+  calculate opening quantity/value on the server and use the reference in new
+  purchase drafts without changing tracked stock or past purchase records.
+- [x] Cover package and direct entry, unit conversion, rounding, zero stock,
+  incomplete setup, existing-item edits, and purchase-factor compatibility.
+- Left: none for the local TASK_2 implementation and verification. No commit or
+  release was requested.
+
 ## Phase 1 — source publication and local release preparation (19 November 2026)
 
 - [x] Publish the current API, contracts, POS, and documentation changes on
@@ -45,6 +57,33 @@
   20,000 Toman.
 - Left: review the resulting order/settings flow in the local POS. No
   production changes were made.
+
+## Completed local delivery — estimated product and side-add-on cost mode (23 November 2026)
+
+- [x] Record the approved cost-mode extension in the inventory-costing and
+  backend planning documents before implementation.
+- [x] Add independent product and served-alongside estimate modes, preserving
+  ingredient configuration across toggles and treating zero as a configured
+  value.
+- [x] Include saved estimates in paid-order and pending-retry costing, gross
+  profit, sales analytics, pricing reports, and cost coverage without creating
+  estimated inventory movements. Keep ingredient valuation at full-payment
+  moving average and widen persisted order COGS totals to 64-bit integers.
+- [x] Add contract, API, and POS regression coverage for missing recipes,
+  recipe-based add-ons, weighted products, mode toggles, zero values, snapshot
+  history, large totals, and same-product order edits. The isolated test DB has
+  all 66 migrations applied. The full API suite, all workspace typechecks,
+  contracts tests, and POS suite pass. The migration verifier passed all 66
+  migration checks, and the local development database is current at 66
+  migrations.
+- [x] Complete the Sol 6.2 review. It found no remaining actionable issues
+  after regressions for inherited option drafts, quantity changes, duplicate
+  line references, new replacement lines, legacy snapshots, and takeaway
+  packaging reassignment.
+- Left: before production, check for legacy recipe configurations with a recipe
+  ID but no quantity, and use the forward-compatible release/recovery plan
+  because older code cannot read estimate-mode configurations or estimated
+  side-add-ons. No production migration or deployment has been done.
 
 ## Local follow-up — packaging edits on open orders (23 November 2026)
 
