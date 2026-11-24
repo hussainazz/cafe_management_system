@@ -38,6 +38,23 @@ The product remains one café, one branch, and one authoritative API/database.
   or deduct stock for historical orders. Existing untracked items may be
   initialized once from stock-item setup; an opening balance cannot reset a
   tracked item.
+- Stock-item setup may retain a reference purchase package: an active named
+  unit conversion, quantity in that unit, and integer-Toman package price.
+  Calculate the opening value server-side from that reference price and the
+  resulting base-unit quantity, rounding only the final Toman amount half-up.
+  Managers may enter opening stock as complete package count plus loose
+  base-unit quantity or as one direct base-unit total. Both methods resolve to
+  the same opening quantity and value. A zero quantity remains an explicit,
+  tracked zero balance.
+- Named conversion labels cannot equal the stock item's built-in base-unit
+  token, because the POS must distinguish that built-in unit from named pack
+  conversions. Package multiplication must be exact to the supported six
+  decimal places, including at the maximum stored quantity.
+- The reference package is a convenient starting value for later purchase
+  drafts. It does not lock future purchase quantities or prices. Editing it
+  does not create a movement, change a tracked balance, rewrite posted
+  purchase lines, or change historical order-cost snapshots. Existing stock
+  items without a reference package remain valid and may be configured later.
 - Manager and Developer count entry is physical-count only and selects tracked stock items.
   If any observed quantity differs from its recorded quantity, require one
   shared reason for the whole count. Physical counts append adjustments and
@@ -72,15 +89,35 @@ The product remains one café, one branch, and one authoritative API/database.
   label for menu integration. A recipe contains measured components, each
   referring either to a stock item or another precise recipe, allowing reusable
   preparations such as an espresso dose. Reject circular recipe references.
-- Each product has either a recipe costing configuration or a purchased-stock
-  configuration. Purchased desserts may include a configured recipe of direct
-  extras. An optional product-level served-alongside list adds stock items or
-  reusable recipes, with quantities per sold unit, to every selected product
-  option and costing channel. It is separate from the product's main ingredient
-  recipe: choosing an existing recipe for another product inherits only that
-  recipe's main components, not the source product's served-alongside list. Whole
-  cakes use their actual sold unit; automatic slice-yield conversion is
-  excluded.
+- A product may use an ingredient-recipe configuration, a purchased-stock
+  configuration, or an explicitly enabled estimated final cost. The estimate
+  is an integer Toman amount per sold unit, or per kilogram for weighted
+  products; zero is a configured value. It completes product costing without a
+  recipe or stock component and is saved in order cost snapshots. It does not
+  create ingredient requirements or stock movements. Enabling or disabling the
+  estimate retains the saved recipe, purchased-stock, option, and extra-recipe
+  configuration so a toggle does not erase ingredient data. Purchased desserts
+  may include a configured recipe of direct extras when ingredient costing is
+  active.
+- An optional product-level served-alongside list may contain a stock item, a
+  reusable ingredient recipe, or an independently estimated cost with its own
+  name and integer Toman amount per parent sold unit. Estimated entries are
+  complete cost inputs but do not create ingredient requirements; stock-item
+  and recipe entries keep their existing deduction behavior. Switching an
+  entry's mode retains its alternate configuration. The list applies to every
+  selected product option and costing channel and is separate from the
+  product's main ingredient recipe: choosing an existing recipe for another
+  product inherits only that recipe's main components, not the source product's
+  served-alongside list. Whole cakes use their actual sold unit; automatic
+  slice-yield conversion is excluded.
+- Save each estimated amount, scaled to the actual order-item quantity or
+  weighted grams, in that item's costing snapshot when the order is created or
+  edited. Tracked ingredient components continue to use the moving average
+  when the order is fully paid, preserving the existing valuation timing and
+  pending-receipt retry behavior. Persist order and item COGS totals as 64-bit
+  integers so quantity-scaled estimates and mixed recipe costs can exceed the
+  catalog's 32-bit per-unit price range. API amounts remain safe JavaScript
+  integers.
 - Option costing rules target named recipe components and may replace a
   component, change its quantity, or add ingredients. Resolve the base recipe,
   then individual option rules, then an explicitly configured exact option
@@ -96,6 +133,12 @@ The product remains one café, one branch, and one authoritative API/database.
 - Recipe previews resolve selected product options and show required stock
   quantities and current known cost. Missing recipe, stock, cost, or opening
   setup is explicitly incomplete; never substitute zero.
+- An enabled estimated final cost is an explicit complete configuration,
+  including when its value is zero. It contributes to theoretical COGS,
+  gross-profit and gross-margin reports without appearing as a missing-recipe
+  warning. Estimated costs remain separate from inventory component rows, so
+  they are not deducted from stock. Ingredient-based served-alongside inputs
+  can still be tracked and deducted alongside an estimated product cost.
 
 ## Order Snapshots And Stock Consumption
 
@@ -175,6 +218,11 @@ The product remains one café, one branch, and one authoritative API/database.
   from aggregate amounts, never from averaged product margins. Margin is
   unavailable when net sales are zero or cost completeness does not support a
   full aggregate.
+- Product and served-alongside estimates flow into theoretical COGS and the
+  gross-profit, sales-analytics, and pricing-report cost totals from the saved
+  recognition snapshot. The inventory-ledger consumption estimate continues to
+  represent ingredient stock movements only; manual estimates do not invent
+  stock movements or carrying value.
 - Calculate inventory-based period consumption from opening valuation,
   receipts, and closing valuation, with returns and count reconciliations
   explicit. Label arbitrary-period actual COGS as an estimate unless supported
