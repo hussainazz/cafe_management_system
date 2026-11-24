@@ -52,7 +52,7 @@ import { emptyInventoryItem, lowInventoryItem, inventoryAmountTotal, inventoryNu
 type View = "overview" | "profit" | "sales" | "analytics" | "pricing-experiments" | "stock" | "purchases" | "preparations" | "recipes" | "counts" | "history";
 type Unit = "GRAM" | "MILLILITER" | "PIECE";
 type StockConversion = { id?: string; label: string; baseQuantityPerPack: string; isActive: boolean };
-type PurchaseLineDraft = { stockItemId: string; conversionId: string; purchaseUnitLabel: string; purchaseQuantity: string; directCostAmount: string };
+type PurchaseLineDraft = { id?: string; stockItemId: string; conversionId: string; purchaseUnitLabel: string; purchaseQuantity: string; directCostAmount: string; snapshotConversionId?: string; snapshotPurchaseUnitLabel?: string; useCurrentConversion?: boolean | undefined };
 type DraftGuardProps = { onDirtyChange: (dirty: boolean) => void };
 
 function useInventoryDraftGuard(onDirtyChange: DraftGuardProps["onDirtyChange"], additionalDirty = false) {
@@ -74,6 +74,32 @@ const normalizeInventoryQuantity = (value: string) => {
   const [whole, fraction = ""] = value.split(".");
   return `${whole}.${fraction.padEnd(6, "0")}`;
 };
+const INVENTORY_SCALE = BigInt(1_000_000);
+const MAX_STOCK_QUANTITY_MICROS = BigInt("100000000000000") * INVENTORY_SCALE;
+function inventoryMicros(value: string): bigint | null {
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value)) return null;
+  const [whole, fraction = ""] = value.split(".");
+  if (whole!.length > 14) return null;
+  const micros = BigInt(whole!) * INVENTORY_SCALE + BigInt(fraction.padEnd(6, "0") || "0");
+  return micros < MAX_STOCK_QUANTITY_MICROS ? micros : null;
+}
+function inventoryFromMicros(value: bigint) {
+  const whole = value / INVENTORY_SCALE;
+  const fraction = (value % INVENTORY_SCALE).toString().padStart(6, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+function inventoryRatioMicros(numerator: bigint, denominator: bigint) {
+  return denominator > BigInt(0) ? (numerator + denominator / BigInt(2)) / denominator : null;
+}
+function stockQuantityFromPackage(size: string, factor: string) {
+  const sizeMicros = inventoryMicros(size);
+  const factorMicros = inventoryMicros(factor);
+  if (sizeMicros === null || factorMicros === null || factorMicros <= BigInt(0)) return null;
+  const scaled = sizeMicros * factorMicros;
+  if (scaled % INVENTORY_SCALE !== BigInt(0)) return null;
+  const quantity = scaled / INVENTORY_SCALE;
+  return quantity < MAX_STOCK_QUANTITY_MICROS ? quantity : null;
+}
 
 const managerInventoryViews = new Set<View>(["purchases", "stock", "recipes", "preparations", "counts", "history"]);
 const analysisInventoryViews = new Set<View>(["overview", "sales", "analytics", "profit", "pricing-experiments"]);
@@ -238,51 +264,131 @@ function StockPanel({ initialSelectedId, onDirtyChange, items, pending, pendingH
   const [name, setName] = useState("");
   const [baseUnit, setBaseUnit] = useState<Unit>("GRAM");
   const [conversions, setConversions] = useState<StockConversion[]>([{ label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }]);
-  const [piecePackQuantity, setPiecePackQuantity] = useState("");
-  const [openingQuantity, setOpeningQuantity] = useState("0");
-  const [openingValueAmount, setOpeningValueAmount] = useState("0");
+  const [packageUnit, setPackageUnit] = useState("کیلوگرم");
+  const [packageQuantity, setPackageQuantity] = useState("");
+  const [packagePrice, setPackagePrice] = useState("");
+  const [openingMethod, setOpeningMethod] = useState<"PACKAGE_COUNT" | "TOTAL_QUANTITY">("PACKAGE_COUNT");
+  const [openingPackages, setOpeningPackages] = useState("0");
+  const [openingLoose, setOpeningLoose] = useState("0");
+  const [openingTotal, setOpeningTotal] = useState("0");
   const [localError, setLocalError] = useState<string | null>(null);
-  const reset = () => { setDirty(false); setSelectedId(null); setThreshold(""); setIsPackagingMaterial(false); setEditing(null); setName(""); setBaseUnit("GRAM"); setConversions([{ label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }]); setPiecePackQuantity(""); setOpeningQuantity("0"); setOpeningValueAmount("0"); setLocalError(null); };
-  const startEdit = (item: InventoryStockItem) => { if (dirty && !window.confirm("تغییرات کالا ذخیره نشده است. ویرایش کالای دیگری را شروع می‌کنید؟")) return; setDirty(false); requestAnimationFrame(() => { nameInputRef.current?.focus(); nameInputRef.current?.scrollIntoView?.({ block: "center", behavior: "auto" }); }); setSelectedId(null); setThreshold(item.lowStockThreshold ?? ""); setIsPackagingMaterial(item.isPackagingMaterial); setEditing(item); setName(item.name); setBaseUnit(item.baseUnit); setConversions(item.conversions.map((conversion) => ({ id: conversion.id, label: conversion.label, baseQuantityPerPack: conversion.baseQuantityPerPack, isActive: conversion.isActive }))); setPiecePackQuantity(item.baseUnit === "PIECE" ? item.conversions.find((conversion) => conversion.isActive)?.baseQuantityPerPack ?? "" : ""); setOpeningQuantity(item.balance.quantityOnHand ?? "0"); setOpeningValueAmount(String(item.balance.carryingValueAmount ?? 0)); setLocalError(null); };
+  const reset = () => { setDirty(false); setSelectedId(null); setThreshold(""); setIsPackagingMaterial(false); setEditing(null); setName(""); setBaseUnit("GRAM"); setConversions([{ label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }]); setPackageUnit("کیلوگرم"); setPackageQuantity(""); setPackagePrice(""); setOpeningMethod("PACKAGE_COUNT"); setOpeningPackages("0"); setOpeningLoose("0"); setOpeningTotal("0"); setLocalError(null); };
+  const startEdit = (item: InventoryStockItem) => {
+    if (dirty && !window.confirm("تغییرات کالا ذخیره نشده است. ویرایش کالای دیگری را شروع می‌کنید؟")) return;
+    const itemConversions = item.conversions.map((conversion) => ({ id: conversion.id, label: conversion.label, baseQuantityPerPack: conversion.baseQuantityPerPack, isActive: conversion.isActive }));
+    setDirty(false); requestAnimationFrame(() => { nameInputRef.current?.focus(); nameInputRef.current?.scrollIntoView?.({ block: "center", behavior: "auto" }); });
+    setSelectedId(null); setThreshold(item.lowStockThreshold ?? ""); setIsPackagingMaterial(item.isPackagingMaterial); setEditing(item); setName(item.name); setBaseUnit(item.baseUnit); setConversions(itemConversions);
+    setPackageUnit(item.referencePurchase?.conversionLabel ?? (itemConversions.find((conversion) => conversion.isActive && conversion.label !== item.baseUnit)?.label ?? item.baseUnit));
+    setPackageQuantity(item.referencePurchase?.packageQuantity ?? ""); setPackagePrice(item.referencePurchase ? String(item.referencePurchase.priceAmount) : "");
+    setOpeningMethod(item.balance.trackingStartedAt ? "TOTAL_QUANTITY" : "PACKAGE_COUNT"); setOpeningTotal(item.balance.quantityOnHand ?? "0"); setOpeningPackages("0"); setOpeningLoose("0"); setLocalError(null);
+  };
+  const packageFactor = packageUnit === baseUnit ? "1" : conversions.find((conversion) => conversion.label === packageUnit)?.baseQuantityPerPack;
+  const packageBaseMicros = packageFactor ? stockQuantityFromPackage(packageQuantity, packageFactor) : null;
+  const normalizedPackagePrice = packagePrice.replace(/^0+(?=\d)/, "");
+  const packagePriceNumber = /^\d+$/.test(normalizedPackagePrice) && normalizedPackagePrice.length <= 10 && Number(normalizedPackagePrice) <= 2_147_483_647
+    ? Number(normalizedPackagePrice)
+    : null;
+  const packageOptions = [{ value: baseUnit, label: unitLabels[baseUnit] }, ...conversions.map((conversion) => ({ value: conversion.label, label: `${conversion.label}${conversion.isActive ? "" : " · غیرفعال"}` }))]
+    .filter((option, index, all) => all.findIndex((candidate) => candidate.value === option.value) === index);
+  const openingQuantityMicros = openingMethod === "PACKAGE_COUNT"
+    ? (() => { const count = /^\d+$/.test(openingPackages) ? BigInt(openingPackages) : null; const loose = inventoryMicros(openingLoose); if (count === null || count > BigInt(Number.MAX_SAFE_INTEGER) || loose === null) return null; if (packageBaseMicros === null) return count === BigInt(0) ? loose : null; const total = count * packageBaseMicros + loose; return total < MAX_STOCK_QUANTITY_MICROS ? total : null; })()
+    : inventoryMicros(openingTotal);
+  const openingValueAmount = openingQuantityMicros !== null && packageBaseMicros !== null && packageBaseMicros > BigInt(0) && packagePriceNumber !== null
+    ? (() => { const amount = (openingQuantityMicros * BigInt(packagePriceNumber) + packageBaseMicros / BigInt(2)) / packageBaseMicros; return amount <= BigInt(2_147_483_647) ? Number(amount) : null; })()
+    : null;
+  const packageUnitCostMicros = packageBaseMicros !== null && packageBaseMicros > BigInt(0) && packagePriceNumber !== null
+    ? inventoryRatioMicros(BigInt(packagePriceNumber) * INVENTORY_SCALE * INVENTORY_SCALE, packageBaseMicros)
+    : null;
+  const switchOpeningMethod = (nextMethod: "PACKAGE_COUNT" | "TOTAL_QUANTITY") => {
+    if (nextMethod === openingMethod) return;
+    if (nextMethod === "TOTAL_QUANTITY") {
+      if (openingQuantityMicros !== null) setOpeningTotal(inventoryFromMicros(openingQuantityMicros));
+    } else {
+      const total = inventoryMicros(openingTotal);
+      if (total !== null && packageBaseMicros !== null && packageBaseMicros > BigInt(0)) {
+        const packageCount = total / packageBaseMicros;
+        if (packageCount <= BigInt(Number.MAX_SAFE_INTEGER)) {
+          setOpeningPackages(packageCount.toString());
+          setOpeningLoose(inventoryFromMicros(total % packageBaseMicros));
+        } else {
+          setOpeningPackages("0");
+          setOpeningLoose(inventoryFromMicros(total));
+        }
+      } else if (total !== null) {
+        setOpeningPackages("0"); setOpeningLoose(inventoryFromMicros(total));
+      }
+    }
+    setOpeningMethod(nextMethod);
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if ((!editing || !editing.balance.trackingStartedAt) && (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(openingQuantity) || !/^\d+$/.test(openingValueAmount))) { setLocalError("مقدار آغازین و ارزش موجودی را به‌درستی وارد کنید."); return; }
-    if (baseUnit === "PIECE" && piecePackQuantity.trim() && !/^(?=.*[1-9])\d+(?:\.\d{1,6})?$/.test(piecePackQuantity)) { setLocalError("تعداد داخل بسته باید بیشتر از صفر باشد."); return; }
-    const packs = baseUnit === "PIECE"
-      ? piecePackQuantity.trim()
-        ? (() => {
-            const currentPack = editing?.conversions.find((conversion) => conversion.isActive);
-            const visiblePack = { ...(currentPack ? { id: currentPack.id } : {}), label: currentPack?.label ?? "بسته", baseQuantityPerPack: piecePackQuantity, isActive: true };
-            const hiddenConversions = editing?.conversions.filter((conversion) => conversion.id !== currentPack?.id).map((conversion) => ({ id: conversion.id, label: conversion.label, baseQuantityPerPack: conversion.baseQuantityPerPack, isActive: conversion.isActive })) ?? [];
-            return [visiblePack, ...hiddenConversions];
-          })()
-        : editing?.conversions.map((conversion) => ({ id: conversion.id, label: conversion.label, baseQuantityPerPack: conversion.baseQuantityPerPack, isActive: false })) ?? []
-      : conversions.filter((entry) => entry.label.trim() || entry.baseQuantityPerPack.trim());
+    const packs = conversions.filter((entry) => entry.label.trim() || entry.baseQuantityPerPack.trim());
     if (packs.some((entry) => !entry.label.trim() || !/^\d+(?:\.\d{1,6})?$/.test(entry.baseQuantityPerPack))) { setLocalError("نام بسته‌بندی و مقدار تبدیل را وارد کنید."); return; }
+    if (packs.some((entry) => entry.label.trim() === baseUnit
+      && !editing?.conversions.some((saved) => saved.id === entry.id && saved.label === baseUnit))) {
+      setLocalError("نام واحد تبدیل نباید با واحد مبنای کالا یکسان باشد."); return;
+    }
     if (threshold.trim() && (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(threshold) || threshold.split(".")[0]!.length > 14)) { setLocalError("حد هشدار باید عدد نامنفی با حداکثر شش رقم اعشار باشد."); return; }
-    const body = { lowStockThreshold: threshold.trim() || null, isPackagingMaterial, name: name.trim(), category: editing?.category ?? "مواد اولیه", baseUnit, ...(!editing || !editing.balance.trackingStartedAt ? { openingQuantity, openingValueAmount: Number(openingValueAmount) } : {}), conversions: packs.map((entry) => ({ ...(entry.id ? { id: entry.id } : {}), label: entry.label.trim(), baseQuantityPerPack: entry.baseQuantityPerPack, isActive: entry.isActive })) };
+    const purchasePrice = packagePriceNumber;
+    const purchaseQuantity = inventoryMicros(packageQuantity);
+    const unitIsValid = packageUnit === baseUnit || conversions.some((conversion) => conversion.label === packageUnit && conversion.isActive);
+    const shouldSaveReferencePurchase = !!packageQuantity.trim() || !!packagePrice.trim() || !!editing?.referencePurchase || !editing;
+    if (shouldSaveReferencePurchase && (!unitIsValid || purchaseQuantity === null || purchaseQuantity <= BigInt(0) || purchasePrice === null || !Number.isSafeInteger(purchasePrice) || purchasePrice > 2_147_483_647 || packageBaseMicros === null)) { setLocalError("اندازه، واحد و قیمت بسته‌ی خرید را کامل و معتبر وارد کنید."); return; }
+    if ((!editing || !editing.balance.trackingStartedAt) && openingQuantityMicros === null) { setLocalError("موجودی اولیه را با مقدار معتبر و حداکثر شش رقم اعشار وارد کنید."); return; }
+    if ((!editing || !editing.balance.trackingStartedAt) && openingQuantityMicros !== null && openingQuantityMicros > BigInt(0) && openingValueAmount === null) { setLocalError("برای ارزش‌گذاری موجودی، قیمت بسته‌ی خرید را کامل کنید."); return; }
+    if (openingMethod === "PACKAGE_COUNT" && (!/^\d+$/.test(openingPackages) || !Number.isSafeInteger(Number(openingPackages)))) { setLocalError("تعداد بسته‌های کامل باید یک عدد صحیح معتبر باشد."); return; }
+    const referencePurchase = shouldSaveReferencePurchase
+      ? { conversionLabel: packageUnit, packageQuantity, priceAmount: purchasePrice! }
+      : undefined;
+    const openingStock = openingMethod === "PACKAGE_COUNT"
+      ? { method: "PACKAGE_COUNT" as const, packageCount: Number(openingPackages), looseQuantity: openingLoose }
+      : { method: "TOTAL_QUANTITY" as const, totalQuantity: openingTotal };
+    const body = { lowStockThreshold: threshold.trim() || null, isPackagingMaterial, name: name.trim(), category: editing?.category ?? "مواد اولیه", baseUnit, ...(referencePurchase === undefined ? {} : { referencePurchase }), ...(!editing || !editing.balance.trackingStartedAt ? { openingStock } : {}), conversions: packs.map((entry) => ({ ...(entry.id ? { id: entry.id } : {}), label: entry.label.trim(), baseQuantityPerPack: entry.baseQuantityPerPack, isActive: entry.isActive })) };
     const ok = await mutate(() => saveInventoryStockItem(editing?.id ?? null, { ...body, ...(editing ? { expectedVersion: editing.version } : {}) }));
     if (ok) reset();
   };
   return <div className="manager-grid inventory-stock-layout">
-    {selected ? <InventoryStockDetail item={selected} onEdit={() => startEdit(selected)} /> : <ManagerCard title={editing ? "ویرایش کالای انبار" : "افزودن کالای انبار"} hint="واحد مبنا و موجودی آغازین را وارد کنید. برای گرم و میلی‌لیتر می‌توانید بسته‌بندی تعریف کنید.">
+    {selected ? <InventoryStockDetail item={selected} onEdit={() => startEdit(selected)} /> : <ManagerCard title={editing ? "ویرایش کالای انبار" : "افزودن کالای انبار"} hint="مشخصات کالا، بسته‌ی خرید و موجودی اولیه را به‌ترتیب وارد کنید.">
       <form className="manager-form" onChangeCapture={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
-        <div className="manager-fields inventory-stock-fields">
-          <label><span>نام کالا</span><input ref={nameInputRef} required value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <div className="inventory-stock-units">
-            <label><span>واحد مبنا</span><select value={baseUnit} onChange={(event) => { const nextUnit = event.target.value as Unit; setBaseUnit(nextUnit); setPiecePackQuantity(""); if (!editing) setConversions(nextUnit === "GRAM" ? [{ label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }] : nextUnit === "MILLILITER" ? [{ label: "لیتر", baseQuantityPerPack: "1000", isActive: true }] : []); }}>{Object.entries(unitLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-            {baseUnit === "PIECE" && <label><span>تعداد در هر بسته (عدد)</span><InventoryNumberInput value={piecePackQuantity} onValueChange={(value) => setPiecePackQuantity(value)} placeholder="مثلاً ۲۴" /></label>}
+        <fieldset><legend>مشخصات کالا</legend>
+          <div className="manager-fields inventory-stock-fields">
+            <label><span>نام کالا</span><input ref={nameInputRef} required value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً پودر هات چاکلت" /></label>
+            <label><span>واحد مبنا</span><select aria-label="واحد مبنا" value={baseUnit} onChange={(event) => { const previousUnit = baseUnit; const nextUnit = event.target.value as Unit; setBaseUnit(nextUnit); if (packageUnit === previousUnit) setPackageUnit(nextUnit); if (!editing) { const defaults = nextUnit === "GRAM" ? [{ label: "کیلوگرم", baseQuantityPerPack: "1000", isActive: true }] : nextUnit === "MILLILITER" ? [{ label: "لیتر", baseQuantityPerPack: "1000", isActive: true }] : []; setConversions(defaults); setPackageUnit(defaults[0]?.label ?? nextUnit); setPackageQuantity(""); setPackagePrice(""); } }}>{Object.entries(unitLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><small>این واحد برای دستورهای تهیه، شمارش و کسر موجودی استفاده می‌شود.</small></label>
           </div>
-        </div>
-        {(!editing || !editing.balance.trackingStartedAt) && <div className="manager-fields"><label><span>مقدار آغازین ({unitLabels[baseUnit]})</span><InventoryNumberInput required value={openingQuantity} onValueChange={(value) => setOpeningQuantity(value)} /></label><label><span>ارزش موجودی آغازین (تومان)</span><InventoryNumberInput required integer value={openingValueAmount} onValueChange={(value) => setOpeningValueAmount(value)} /></label></div>}
-        {baseUnit !== "PIECE" && <fieldset><legend>تبدیل واحد بسته‌بندی</legend>
+        </fieldset>
+        <fieldset><legend>اطلاعات بسته خرید</legend>
+          <div className="manager-fields inventory-stock-fields">
+            <label><span>مقدار هر بسته</span><InventoryNumberInput required={!editing || !!editing.referencePurchase} value={packageQuantity} onValueChange={setPackageQuantity} placeholder="مثلاً ۲" /></label>
+            <label><span>واحد بسته</span><select aria-label="واحد بسته" value={packageUnit} onChange={(event) => setPackageUnit(event.target.value)}><option value="">انتخاب کنید</option>{packageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label><span>قیمت هر بسته (تومان)</span><InventoryNumberInput required={!editing || !!editing.referencePurchase} integer value={packagePrice} onValueChange={setPackagePrice} placeholder="مثلاً ۴۰۰٬۰۰۰" /></label>
+          </div>
+          <div className="inventory-summary" aria-live="polite">
+            <div><span>اندازه‌ی بسته به {unitLabels[baseUnit]}</span><bdi>{packageBaseMicros === null ? "—" : inventoryQuantity(inventoryFromMicros(packageBaseMicros))}</bdi></div>
+            <div><span>هزینه‌ی هر {unitLabels[baseUnit]}</span><bdi>{packageUnitCostMicros === null ? "—" : inventoryQuantity(inventoryFromMicros(packageUnitCostMicros))} تومان</bdi></div>
+          </div>
+          <details className="inventory-conversion-editor"><summary>تنظیم واحدهای خرید و تبدیل</summary>
           {conversions.map((conversion, index) => <div className="inventory-entry-row" key={conversion.id ?? index}>
-            <label><span>نام بسته‌بندی</span><input value={conversion.label} onChange={(event) => setConversions((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, label: event.target.value } : row))} placeholder="مثلاً کیلوگرم" /></label>
-            <label><span>مقدار هر بسته به {unitLabels[baseUnit]}</span><InventoryNumberInput value={conversion.baseQuantityPerPack} onValueChange={(value) => setConversions((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, baseQuantityPerPack: value } : row))} placeholder="1000" /></label>
-            <button className="text-button" type="button" onClick={() => { setDirty(true); setConversions((current) => current.filter((_, rowIndex) => rowIndex !== index)); }}>حذف تبدیل</button>
+            <label><span>نام واحد خرید</span><input value={conversion.label} onChange={(event) => { const label = event.target.value; setConversions((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, label } : row)); if (packageUnit === conversion.label) setPackageUnit(label === baseUnit ? "" : label); }} placeholder="مثلاً کیلوگرم" /></label>
+            <label><span>معادل یک واحد به {unitLabels[baseUnit]}</span><InventoryNumberInput value={conversion.baseQuantityPerPack} onValueChange={(value) => setConversions((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, baseQuantityPerPack: value } : row))} placeholder="1000" /></label>
+            <label><span>وضعیت</span><select value={conversion.isActive ? "active" : "inactive"} onChange={(event) => setConversions((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, isActive: event.target.value === "active" } : row))}><option value="active">فعال</option><option value="inactive">غیرفعال</option></select></label>
+            <button className="text-button" type="button" onClick={() => { setDirty(true); if (packageUnit === conversion.label) setPackageUnit(""); setConversions((current) => current.filter((_, rowIndex) => rowIndex !== index)); }}>حذف واحد</button>
           </div>)}
-          <button className="secondary-button" type="button" onClick={() => { setDirty(true); setConversions((current) => [...current, { label: "", baseQuantityPerPack: "", isActive: true }]); }}>افزودن تبدیل</button>
-        </fieldset>}
+          <button className="secondary-button" type="button" onClick={() => { setDirty(true); setConversions((current) => [...current, { label: "", baseQuantityPerPack: "", isActive: true }]); }}>افزودن واحد خرید</button>
+          </details>
+        </fieldset>
+        <fieldset><legend>موجودی اولیه</legend>
+          {!editing || !editing.balance.trackingStartedAt ? <>
+            <label><span>روش ثبت موجودی</span><select aria-label="روش ثبت موجودی" value={openingMethod} onChange={(event) => switchOpeningMethod(event.target.value as "PACKAGE_COUNT" | "TOTAL_QUANTITY")}><option value="PACKAGE_COUNT">تعداد بسته و مقدار باز</option><option value="TOTAL_QUANTITY">مقدار کل مستقیم</option></select><small>تعویض روش، مقدار کل واردشده را حفظ می‌کند.</small></label>
+            {openingMethod === "PACKAGE_COUNT" ? <div className="manager-fields inventory-stock-fields">
+              <label><span>تعداد بسته‌های کامل</span><InventoryNumberInput required integer value={openingPackages} onValueChange={setOpeningPackages} /></label>
+              <label><span>مقدار باز ({unitLabels[baseUnit]})</span><InventoryNumberInput required value={openingLoose} onValueChange={setOpeningLoose} /></label>
+            </div> : <label><span>مقدار کل ({unitLabels[baseUnit]})</span><InventoryNumberInput required value={openingTotal} onValueChange={setOpeningTotal} /></label>}
+            <div className="inventory-summary" aria-live="polite">
+              <div><span>موجودی کل ({unitLabels[baseUnit]})</span><bdi>{openingQuantityMicros === null ? "—" : inventoryQuantity(inventoryFromMicros(openingQuantityMicros))}</bdi></div>
+              <div><span>ارزش موجودی برآوردی</span><bdi>{openingValueAmount === null ? "—" : `${inventoryNumber(formatToman(openingValueAmount))} تومان`}</bdi></div>
+            </div>
+          </> : <p className="inventory-inline-note">موجودی ثبت‌شده و گردش‌های قبلی حفظ می‌شوند. تغییر بسته‌ی مرجع روی موجودی یا خریدهای ثبت‌شده اثر ندارد.</p>}
+        </fieldset>
         <label><span><input type="checkbox" checked={isPackagingMaterial} onChange={(event) => setIsPackagingMaterial(event.target.checked)} /> این کالا بسته‌بندی است</span><small>هزینه‌ی این کالا در دستورهای تهیه، برای گزارش هزینه‌ی بسته‌بندی جداگانه ثبت می‌شود. این تغییر روی سفارش‌های گذشته اثر ندارد.</small></label>
         <label><span>حد هشدار موجودی ({unitLabels[baseUnit]}) · اختیاری</span><InventoryNumberInput aria-label={`حد هشدار موجودی (${unitLabels[baseUnit]}) · اختیاری`} aria-describedby="stock-threshold-hint" value={threshold} onValueChange={value => setThreshold(value)} placeholder="بدون هشدار" /><small id="stock-threshold-hint">خالی بگذارید تا هشدار کمبود غیرفعال باشد؛ موجودی برابر یا کمتر از این عدد هشدار می‌گیرد.</small></label>
         {localError && <p className="form-error" role="alert">{localError}</p>}
@@ -325,10 +431,15 @@ function PurchasePanel({ refreshVersion, onNavigate, onDirtyChange, items, mutat
   const [filters, setFilters] = useState({ search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" });
   const [appliedFilters, setAppliedFilters] = useState({ search: "", from: "", to: "", status: "" });
   const [filterError, setFilterError] = useState<string | null>(null);
-  const emptyLine = (): PurchaseLineDraft => {
-    const item = activeItems.length === 1 ? activeItems[0] : undefined;
-    return { stockItemId: item?.id ?? "", conversionId: "", purchaseUnitLabel: item?.baseUnit ?? "", purchaseQuantity: "1", directCostAmount: "0" };
-  };
+  const purchaseLineFor = (item?: InventoryStockItem): PurchaseLineDraft => ({
+    stockItemId: item?.id ?? "",
+    conversionId: item?.referencePurchase?.conversionId ?? "",
+    purchaseUnitLabel: item?.referencePurchase?.conversionLabel ?? item?.baseUnit ?? "",
+    purchaseQuantity: item?.referencePurchase?.packageQuantity ?? "1",
+    directCostAmount: item?.referencePurchase ? String(item.referencePurchase.priceAmount) : "0",
+    useCurrentConversion: true,
+  });
+  const emptyLine = (): PurchaseLineDraft => purchaseLineFor(activeItems.length === 1 ? activeItems[0] : undefined);
   const purchaseFormRef = useRef<HTMLFormElement>(null);
   const hasFilters = !!(appliedFilters.search || appliedFilters.from || appliedFilters.to || appliedFilters.status || cursor);
   const clearFilters = () => { setFilters({ search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" }); setAppliedFilters({ search: "", from: "", to: "", status: "" }); setFilterError(null); setCursor(null); setPreviousCursors([]); };
@@ -375,7 +486,7 @@ function PurchasePanel({ refreshVersion, onNavigate, onDirtyChange, items, mutat
     const received = new Date(receivedAt);
     if (Number.isNaN(received.getTime())) { setLocalError("زمان دریافت را وارد کنید."); return; }
     setLocalError(null);
-    const purchaseInput = { receivedAt: received.toISOString(), supplier: supplier.trim() || null, lines: lines.map((line) => ({ stockItemId: line.stockItemId, conversionId: line.conversionId || null, purchaseUnitLabel: line.purchaseUnitLabel, purchaseQuantity: line.purchaseQuantity, directCostAmount: Number(line.directCostAmount) })) };
+    const purchaseInput = { receivedAt: received.toISOString(), supplier: supplier.trim() || null, lines: lines.map((line) => ({ ...(line.id ? { id: line.id } : {}), stockItemId: line.stockItemId, conversionId: line.conversionId.startsWith("snapshot:") ? line.conversionId.slice("snapshot:".length) : line.conversionId || null, purchaseUnitLabel: line.purchaseUnitLabel, purchaseQuantity: line.purchaseQuantity, directCostAmount: Number(line.directCostAmount), ...(line.useCurrentConversion ? { useCurrentConversion: true } : {}) })) };
     const result = await mutateAndReload(() => editingPurchase ? updateInventoryPurchase(editingPurchase.id, { ...purchaseInput, expectedVersion: editingPurchase.version }) : createInventoryPurchase(purchaseInput));
     if (result) resetPurchase();
   };
@@ -384,15 +495,32 @@ function PurchasePanel({ refreshVersion, onNavigate, onDirtyChange, items, mutat
     setLocalError(null);
     requestAnimationFrame(() => purchaseFormRef.current?.querySelector("input")?.focus());
     setEditingPurchase(purchase); setReceivedAt(localDateTime(new Date(purchase.receivedAt))); setSupplier(purchase.supplier ?? "");
-    setLines(purchase.lines.map((line) => ({ stockItemId: line.stockItemId, conversionId: line.conversionId ?? "", purchaseUnitLabel: line.purchaseUnitLabel, purchaseQuantity: line.purchaseQuantity, directCostAmount: String(line.directCostAmount) })));
+    setLines(purchase.lines.map((line) => {
+      const currentConversion = activeItems.find((item) => item.id === line.stockItemId)?.conversions.find((conversion) => conversion.id === line.conversionId && conversion.isActive);
+      const staleConversion = !!line.conversionId && (!currentConversion
+        || currentConversion.label !== line.purchaseUnitLabel
+        || normalizeInventoryQuantity(currentConversion.baseQuantityPerPack) !== normalizeInventoryQuantity(line.baseQuantityPerPack));
+      return {
+        id: line.id,
+        stockItemId: line.stockItemId,
+        conversionId: staleConversion ? "snapshot:" + line.conversionId : line.conversionId ?? "",
+        purchaseUnitLabel: line.purchaseUnitLabel,
+        purchaseQuantity: line.purchaseQuantity,
+        directCostAmount: String(line.directCostAmount),
+        ...(staleConversion && line.conversionId ? { snapshotConversionId: line.conversionId, snapshotPurchaseUnitLabel: line.purchaseUnitLabel } : {}),
+      };
+    }));
   };
   const changeStock = (index: number, stockItemId: string) => {
     const item = activeItems.find((entry) => entry.id === stockItemId);
-    setLines((current) => current.map((line, rowIndex) => rowIndex === index ? { ...line, stockItemId, conversionId: "", purchaseUnitLabel: item?.baseUnit ?? "" } : line));
+    setLines((current) => current.map((line, rowIndex) => rowIndex === index ? purchaseLineFor(item) : line));
   };
   const unitsFor = (line: PurchaseLineDraft) => {
     const item = activeItems.find((entry) => entry.id === line.stockItemId);
-    return item ? [{ id: "", label: item.baseUnit, title: unitLabels[item.baseUnit as Unit] }, ...item.conversions.filter((conversion) => conversion.isActive).map((conversion) => ({ id: conversion.id, label: conversion.label, title: conversion.label }))] : [];
+    if (!item) return [];
+    const options = [{ id: "", label: item.baseUnit, title: unitLabels[item.baseUnit as Unit] }, ...item.conversions.filter((conversion) => conversion.isActive).map((conversion) => ({ id: conversion.id, label: conversion.label, title: conversion.label }))];
+    if (line.snapshotConversionId) options.push({ id: "snapshot:" + line.snapshotConversionId, label: line.snapshotPurchaseUnitLabel ?? line.purchaseUnitLabel, title: (line.snapshotPurchaseUnitLabel ?? line.purchaseUnitLabel) + " · ثبت‌شده" });
+    return options;
   };
   return <div className="manager-grid inventory-purchase-layout">
     <ManagerCard title={editingPurchase ? "ویرایش پیش‌نویس خرید" : "پیش‌نویس خرید"} hint="ابتدا خرید را به‌صورت پیش‌نویس ذخیره کنید. پس از بررسی ردیف‌ها، «ثبت رسید در موجودی» مقدار و ارزش موجودی را به‌روز می‌کند.">
@@ -401,7 +529,7 @@ function PurchasePanel({ refreshVersion, onNavigate, onDirtyChange, items, mutat
         <div className="manager-fields"><label><span>زمان دریافت</span><input type="datetime-local" value={receivedAt} onChange={(event) => setReceivedAt(event.target.value)} required /></label><label><span>تأمین‌کننده (اختیاری)</span><input value={supplier} onChange={(event) => setSupplier(event.target.value)} /></label></div>
         {lines.map((line, index) => <div className="inventory-entry-row inventory-purchase-line" key={index}>
           <InventorySearchPicker label="کالا" options={activeItems} value={line.stockItemId} onChange={(id) => { setDirty(true); changeStock(index, id); }} placeholder="جست‌وجوی کالا" required />
-          <label><span>واحد خرید</span><select value={line.conversionId} onChange={(event) => { const selected = unitsFor(line).find((unit) => unit.id === event.target.value); setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, conversionId: selected?.id ?? "", purchaseUnitLabel: selected?.label ?? "" } : row)); }}>{unitsFor(line).map((unit) => <option key={`${unit.id}-${unit.label}`} value={unit.id}>{unit.title}</option>)}</select></label>
+          <label><span>واحد خرید</span><select value={line.conversionId} onChange={(event) => { const selected = unitsFor(line).find((unit) => unit.id === event.target.value); setLines((current) => current.map((row, rowIndex) => { if (rowIndex !== index) return row; const snapshotId = row.snapshotConversionId; return { ...row, conversionId: selected?.id ?? "", purchaseUnitLabel: selected?.label ?? "", useCurrentConversion: row.id === undefined || (snapshotId !== undefined && selected?.id === snapshotId) ? true : undefined }; })); }}>{unitsFor(line).map((unit) => <option key={`${unit.id}-${unit.label}`} value={unit.id}>{unit.title}</option>)}</select></label>
           <label><span>مقدار خرید ({unitsFor(line).find((unit) => unit.id === line.conversionId)?.title ?? "واحد انتخابی"})</span><InventoryNumberInput required value={line.purchaseQuantity} onValueChange={(value) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, purchaseQuantity: value } : row))} /></label>
           <label><span>هزینه‌ی مستقیم (تومان)</span><InventoryNumberInput required integer aria-describedby="purchase-cost-help" value={line.directCostAmount} onValueChange={(value) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, directCostAmount: value } : row))} /></label>
           {lines.length > 1 && <button className="text-button" type="button" onClick={() => { setDirty(true); setLines((current) => current.filter((_, rowIndex) => rowIndex !== index)); }}>حذف ردیف</button>}
@@ -445,7 +573,11 @@ function PurchasePanel({ refreshVersion, onNavigate, onDirtyChange, items, mutat
 
 type OptionIngredientDraft = { componentKey: string; sourceKind: "STOCK_ITEM" | "RECIPE"; sourceId: string; quantity: string };
 type MenuOptionRecipeDraft = { channel?: "TABLE" | "TAKEAWAY"; optionId: string; optionName: string; groupName: string; recipeId: string; components: OptionIngredientDraft[] };
-type ServedAlongsideDraft = { key: string; sourceKind: "STOCK_ITEM" | "RECIPE"; sourceId: string; quantity: string };
+type ServedAlongsideSourceDraft = { sourceKind: "STOCK_ITEM" | "RECIPE"; sourceId: string; quantity: string };
+type ServedAlongsideEstimateDraft = { name: string; estimatedCostAmount: string };
+type ServedAlongsideDraft =
+  | ({ key: string; mode: "RECIPE"; previousEstimate?: ServedAlongsideEstimateDraft } & ServedAlongsideSourceDraft)
+  | ({ key: string; mode: "ESTIMATED_COST" } & ServedAlongsideEstimateDraft & { previousSource?: ServedAlongsideSourceDraft });
 
 function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, recipes, mutate, initialProductId, canViewCosts = true }: { onOpenStock: () => void; catalog: ManagerCatalog; items: InventoryStockItem[]; recipes: InventoryRecipe[]; mutate: (action: () => Promise<ApiResult<unknown>>) => Promise<boolean>; initialProductId?: string; canViewCosts?: boolean } & DraftGuardProps) {
   const activeProducts = catalog.products.filter((product) => product.isActive && !product.archivedAt);
@@ -461,6 +593,9 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
   const [entries, setEntries] = useState<MenuOptionRecipeDraft[]>([]);
   const [packaging, setPackaging] = useState<NonNullable<NonNullable<ProductCostingConfiguration>["takeawayPackaging"]>>([]);
   const [servedAlongside, setServedAlongside] = useState<ServedAlongsideDraft[]>([]);
+  const [useEstimatedCost, setUseEstimatedCost] = useState(false);
+  const [estimatedCostAmount, setEstimatedCostAmount] = useState("");
+  const [recipeDraftChanged, setRecipeDraftChanged] = useState(false);
   const [takeawayEntries, setTakeawayEntries] = useState<MenuOptionRecipeDraft[]>([]);
   const savedRecipes = useRef(new Map<string, InventoryRecipe>());
   const [previewChannel, setPreviewChannel] = useState<"TABLE" | "TAKEAWAY">("TABLE");
@@ -488,6 +623,9 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
     setEntries([]);
     setPackaging([]);
     setServedAlongside([]);
+    setUseEstimatedCost(false);
+    setEstimatedCostAmount("");
+    setRecipeDraftChanged(false);
     setTakeawayEntries([]);
     savedRecipes.current.clear();
     setPreviews({});
@@ -498,7 +636,16 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
       const value = result.data.data;
       setConfiguration(value);
       setPackaging(value?.takeawayPackaging ?? []);
-      setServedAlongside((value?.servedAlongside ?? []).map((entry) => ({ key: crypto.randomUUID(), sourceKind: entry.sourceKind, sourceId: entry.sourceKind === "STOCK_ITEM" ? entry.stockItemId : entry.recipeId, quantity: entry.quantity })));
+      setUseEstimatedCost(value?.useEstimatedCost ?? false);
+      setEstimatedCostAmount(value?.estimatedCostAmount == null ? "" : String(value.estimatedCostAmount));
+      setServedAlongside((value?.servedAlongside ?? []).map((entry) => {
+        if (entry.sourceKind === "ESTIMATED_COST") return {
+          key: crypto.randomUUID(), mode: "ESTIMATED_COST" as const,
+          name: entry.name, estimatedCostAmount: String(entry.estimatedCostAmount),
+          ...(entry.previousSource ? { previousSource: { sourceKind: entry.previousSource.sourceKind, sourceId: entry.previousSource.sourceKind === "STOCK_ITEM" ? entry.previousSource.stockItemId : entry.previousSource.recipeId, quantity: entry.previousSource.quantity } } : {}),
+        };
+        return { key: crypto.randomUUID(), mode: "RECIPE" as const, sourceKind: entry.sourceKind, sourceId: entry.sourceKind === "STOCK_ITEM" ? entry.stockItemId : entry.recipeId, quantity: entry.quantity, ...(entry.previousEstimatedCost ? { previousEstimate: { ...entry.previousEstimatedCost, estimatedCostAmount: String(entry.previousEstimatedCost.estimatedCostAmount) } } : {}) };
+      }));
       const optionRecipes = value?.optionRecipes ?? [];
       const activeOptionGroupIds = new Set(catalog.optionGroups.map((group) => group.id));
       const productOptionGroups = (catalog.products.find((item) => item.id === productId)?.optionGroups ?? []).filter((group) => activeOptionGroupIds.has(group.optionGroupId));
@@ -532,9 +679,9 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
     return () => { current = false; previewVersion.current += 1; };
   }, [productId, configRetryVersion]);
 
-  const changeEntry = (optionId: string, patch: Partial<MenuOptionRecipeDraft>, channel = "TABLE") => { setDirty(true); setSaved(false); invalidatePreview(); (channel === "TAKEAWAY" ? setTakeawayEntries : setEntries)((current) => current.map((entry) => entry.optionId === optionId ? { ...entry, ...patch } : entry)); };
-  const changeIngredient = (optionId: string, index: number, patch: Partial<OptionIngredientDraft>, channel = "TABLE") => { setDirty(true); setSaved(false); invalidatePreview(); (channel === "TAKEAWAY" ? setTakeawayEntries : setEntries)((current) => current.map((entry) => entry.optionId === optionId ? { ...entry, components: entry.components.map((component, i) => i === index ? { ...component, ...patch } : component) } : entry)); };
-  const changeServedAlongside = (index: number, patch: Partial<ServedAlongsideDraft>) => { setDirty(true); setSaved(false); invalidatePreview(); setServedAlongside((current) => current.map((entry, i) => i === index ? { ...entry, ...patch } : entry)); };
+  const changeEntry = (optionId: string, patch: Partial<MenuOptionRecipeDraft>, channel = "TABLE") => { setDirty(true); setRecipeDraftChanged(true); setSaved(false); invalidatePreview(); (channel === "TAKEAWAY" ? setTakeawayEntries : setEntries)((current) => current.map((entry) => entry.optionId === optionId ? { ...entry, ...patch } : entry)); };
+  const changeIngredient = (optionId: string, index: number, patch: Partial<OptionIngredientDraft>, channel = "TABLE") => { setDirty(true); setRecipeDraftChanged(true); setSaved(false); invalidatePreview(); (channel === "TAKEAWAY" ? setTakeawayEntries : setEntries)((current) => current.map((entry) => entry.optionId === optionId ? { ...entry, components: entry.components.map((component, i) => i === index ? { ...component, ...patch } : component) } : entry)); };
+  const changeServedAlongside = (index: number, patch: Partial<ServedAlongsideDraft>) => { setDirty(true); setSaved(false); invalidatePreview(); setServedAlongside((current) => current.map((entry, i) => i === index ? { ...entry, ...patch } as ServedAlongsideDraft : entry)); };
   const validPreviewNumber = (value: string) => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0;
   const runOptionPreview = async (entry: MenuOptionRecipeDraft) => {
     if (!product || previewInFlight.current || dirty) return;
@@ -557,15 +704,97 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
       if (version === previewVersion.current) { previewInFlight.current = false; setPreviewing(false); }
     }
   };
+  const isValidEstimatedAmount = (value: string) => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) <= 2_147_483_647;
+  const isValidServedAlongsideQuantity = (value: string) => /^\d+(?:\.\d{1,6})?$/.test(value) && Number(value) > 0;
+  const canReuseStoredRecipe = !useEstimatedCost && !recipeDraftChanged
+    && configuration?.mode === "RECIPE"
+    && Boolean(configuration.recipeId && configuration.recipeQuantity);
+  const shouldValidateRecipeDraft = !useEstimatedCost && !canReuseStoredRecipe;
+  const serializedServedAlongside = () => servedAlongside.map((entry) => entry.mode === "ESTIMATED_COST"
+    ? {
+      sourceKind: "ESTIMATED_COST" as const,
+      name: entry.name.trim(),
+      estimatedCostAmount: Number(entry.estimatedCostAmount),
+      ...(entry.previousSource?.sourceId && isValidServedAlongsideQuantity(entry.previousSource.quantity) ? {
+        previousSource: {
+          sourceKind: entry.previousSource.sourceKind,
+          ...(entry.previousSource.sourceKind === "STOCK_ITEM" ? { stockItemId: entry.previousSource.sourceId } : { recipeId: entry.previousSource.sourceId }),
+          quantity: entry.previousSource.quantity,
+        },
+      } : {}),
+    }
+    : {
+      sourceKind: entry.sourceKind,
+      ...(entry.sourceKind === "STOCK_ITEM" ? { stockItemId: entry.sourceId } : { recipeId: entry.sourceId }),
+      quantity: entry.quantity,
+      ...(entry.previousEstimate?.name.trim() && isValidEstimatedAmount(entry.previousEstimate.estimatedCostAmount) ? {
+        previousEstimatedCost: { name: entry.previousEstimate.name.trim(), estimatedCostAmount: Number(entry.previousEstimate.estimatedCostAmount) },
+      } : {}),
+    });
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!product || !entries.length) { setError("این محصول منویی گزینه‌ای برای تنظیم ندارد."); return; }
-    if ([...entries, ...takeawayEntries].some((entry) => !entry.components.length || entry.components.some((component) => !component.sourceId || !/^\d+(?:\.\d{1,6})?$/.test(component.quantity)))) { setError("برای هر گزینه، قلم یا دستور تهیه و مقدار آن را کامل کنید."); return; }
-    if (servedAlongside.some((entry) => !entry.sourceId || !/^\d+(?:\.\d{1,6})?$/.test(entry.quantity) || Number(entry.quantity) <= 0)) { setError("قلم یا دستور و مقدار افزودنی کنار محصول را کامل کنید."); return; }
+    if (!product) { setError("محصول منو را انتخاب کنید."); return; }
+    if (useEstimatedCost && recipeDraftChanged) { setError("تغییرهای دستور تهیه را ذخیره کنید، سپس حالت هزینه‌ی تخمینی را فعال کنید."); return; }
+    if (useEstimatedCost && !isValidEstimatedAmount(estimatedCostAmount)) { setError("هزینه‌ی تخمینی را به‌صورت عدد صحیح تومان، از صفر تا ۲٬۱۴۷٬۴۸۳٬۶۴۷ وارد کنید."); return; }
+    if (shouldValidateRecipeDraft && configuration?.mode !== "PURCHASED_ITEM" && !entries.length) { setError("این محصول منویی گزینه‌ای برای تنظیم دستور تهیه ندارد."); return; }
+    if (shouldValidateRecipeDraft && configuration?.mode !== "PURCHASED_ITEM" && [...entries, ...takeawayEntries].some((entry) => !entry.components.length || entry.components.some((component) => !component.sourceId || !/^\d+(?:\.\d{1,6})?$/.test(component.quantity)))) { setError("برای هر گزینه، قلم یا دستور تهیه و مقدار آن را کامل کنید."); return; }
+    if (!useEstimatedCost && configuration?.mode === "PURCHASED_ITEM" && !configuration.purchasedStockItemId) { setError("تنظیم کالای خریداری‌شده برای این محصول کامل نیست."); return; }
+    if (servedAlongside.some((entry) => entry.mode === "RECIPE" ? !entry.sourceId || !/^\d+(?:\.\d{1,6})?$/.test(entry.quantity) || Number(entry.quantity) <= 0 : !entry.name.trim() || !isValidEstimatedAmount(entry.estimatedCostAmount))) { setError("نام و هزینه‌ی تخمینی یا قلم و مقدار افزودنی کنار محصول را کامل کنید."); return; }
     if (packaging.some((entry) => !entry.stockItemId || !/^\d+(?:\.\d{1,6})?$/.test(entry.quantity) || Number(entry.quantity) <= 0) || new Set(packaging.map((entry) => entry.stockItemId)).size !== packaging.length) { setError("قلم و مقدار بسته‌بندی را کامل کنید؛ هر قلم را فقط یک بار وارد کنید."); return; }
     if (packaging.some((entry) => (entry.mode === "PER_GROUP" && (!Number.isInteger(entry.groupSize) || entry.groupSize! < 2 || entry.groupSize! > 10000)) || (entry.minQuantity !== undefined && (!Number.isInteger(entry.minQuantity) || entry.minQuantity < 1)) || (entry.maxQuantity !== undefined && (!Number.isInteger(entry.maxQuantity) || entry.maxQuantity < (entry.minQuantity ?? 1))))) { setError("شرط تعداد بسته‌بندی را بررسی کنید؛ تعداد گروه و بازه باید معتبر باشند."); return; }
     setError(null);
     await mutate(async () => {
+      const common = { servedAlongside: serializedServedAlongside(), takeawayPackaging: packaging };
+      if (useEstimatedCost) {
+        const result = await saveProductCosting(product.id, {
+          mode: configuration?.mode ?? "RECIPE",
+          useEstimatedCost: true,
+          estimatedCostAmount: Number(estimatedCostAmount),
+          ...common,
+          optionRules: configuration?.optionRules ?? [],
+          combinations: configuration?.combinations.map(({ name, optionIds, rules }) => ({ name, optionIds, rules })) ?? [],
+          expectedVersion: configuration?.version ?? 1,
+        });
+        if (result.ok) { setConfiguration(result.data.data); setDirty(false); setSaved(true); setPreviews({}); }
+        return result;
+      }
+      if (configuration?.mode === "PURCHASED_ITEM") {
+        const result = await saveProductCosting(product.id, {
+          mode: "PURCHASED_ITEM",
+          purchasedStockItemId: configuration.purchasedStockItemId!,
+          ...(configuration.purchasedQuantity === null ? {} : { purchasedQuantity: configuration.purchasedQuantity }),
+          useEstimatedCost: false,
+          ...(configuration.estimatedCostAmount === null ? {} : { estimatedCostAmount: configuration.estimatedCostAmount }),
+          extrasRecipeId: configuration.extrasRecipeId,
+          ...common,
+          takeawayRecipeId: configuration.takeawayRecipeId,
+          takeawayOptionRecipes: configuration.takeawayOptionRecipes,
+          optionRules: configuration.optionRules,
+          combinations: configuration.combinations.map(({ name, optionIds, rules }) => ({ name, optionIds, rules })),
+          expectedVersion: configuration.version,
+        });
+        if (result.ok) { setConfiguration(result.data.data); setRecipeDraftChanged(false); setDirty(false); setSaved(true); setPreviews({}); }
+        return result;
+      }
+      if (configuration?.mode === "RECIPE" && !recipeDraftChanged && configuration.recipeId && configuration.recipeQuantity) {
+        const result = await saveProductCosting(product.id, {
+          mode: "RECIPE",
+          recipeId: configuration.recipeId,
+          recipeQuantity: configuration.recipeQuantity,
+          useEstimatedCost: false,
+          ...(configuration.estimatedCostAmount === null ? {} : { estimatedCostAmount: configuration.estimatedCostAmount }),
+          extrasRecipeId: configuration.extrasRecipeId,
+          ...common,
+          takeawayRecipeId: configuration.takeawayRecipeId,
+          takeawayOptionRecipes: configuration.takeawayOptionRecipes,
+          optionRules: configuration.optionRules,
+          optionRecipes: configuration.optionRecipes ?? [],
+          combinations: configuration.combinations.map(({ name, optionIds, rules }) => ({ name, optionIds, rules })),
+          expectedVersion: configuration.version,
+        });
+        if (result.ok) { setConfiguration(result.data.data); setRecipeDraftChanged(false); setDirty(false); setSaved(true); setPreviews({}); }
+        return result;
+      }
       const optionRecipes: Array<{ optionId: string; recipeId: string; recipeQuantity: string }> = [];
       const takeawayOptionRecipes: typeof optionRecipes = [];
       let takeawayRecipeId: string | null = null;
@@ -593,8 +822,8 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
       const firstRecipe = optionRecipes[0];
       const resolvedBaseRecipeId = baseRecipeId ?? firstRecipe?.recipeId ?? (configuration?.mode === "RECIPE" ? configuration.recipeId : undefined);
       if (!resolvedBaseRecipeId) { setError("برای محاسبه‌ی هزینه، یک دستور تهیه به محصول منو وصل کنید."); return { ok: false as const, error: { kind: "response" as const, status: 422, code: "BUSINESS_RULE_VIOLATION", message: "یک گزینه برای این محصول تنظیم نشده است." } }; }
-      const result = await saveProductCosting(product.id, { mode: "RECIPE", recipeId: resolvedBaseRecipeId, recipeQuantity: product.pricingMode === "WEIGHTED_PER_KG" ? "1000" : "1", extrasRecipeId: configuration?.extrasRecipeId ?? null, servedAlongside: servedAlongside.map((entry) => ({ sourceKind: entry.sourceKind, ...(entry.sourceKind === "STOCK_ITEM" ? { stockItemId: entry.sourceId } : { recipeId: entry.sourceId }), quantity: entry.quantity })), takeawayPackaging: packaging, takeawayRecipeId, takeawayOptionRecipes, optionRules: configuration?.optionRules ?? [], optionRecipes, combinations: configuration?.combinations.map(({ name, optionIds, rules }) => ({ name, optionIds, rules })) ?? [], expectedVersion: configuration?.version ?? 1 });
-      if (result.ok) { setConfiguration(result.data.data); setDirty(false); setSaved(true); setPreviews({}); }
+      const result = await saveProductCosting(product.id, { mode: "RECIPE", recipeId: resolvedBaseRecipeId, recipeQuantity: product.pricingMode === "WEIGHTED_PER_KG" ? "1000" : "1", useEstimatedCost: false, ...(configuration?.estimatedCostAmount === null || configuration?.estimatedCostAmount === undefined ? {} : { estimatedCostAmount: configuration.estimatedCostAmount }), extrasRecipeId: configuration?.extrasRecipeId ?? null, servedAlongside: common.servedAlongside, takeawayPackaging: packaging, takeawayRecipeId, takeawayOptionRecipes, optionRules: configuration?.optionRules ?? [], optionRecipes, combinations: configuration?.combinations.map(({ name, optionIds, rules }) => ({ name, optionIds, rules })) ?? [], expectedVersion: configuration?.version ?? 1 });
+      if (result.ok) { setConfiguration(result.data.data); setRecipeDraftChanged(false); setDirty(false); setSaved(true); setPreviews({}); }
       return result;
     });
   };
@@ -602,54 +831,85 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
   return <div className="inventory-recipe-layout"><aside className="manager-card inventory-product-picker" aria-label="انتخاب محصول برای دستور تهیه"><header><h2>محصولات منو</h2><p>محصول را انتخاب کنید و مواد هر گزینه را تنظیم کنید.</p></header><label><span>جست‌وجوی محصول منو</span><input type="search" value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="نام محصول" /></label><div className="inventory-product-list">{matchingProducts.map((item) => <button className="secondary-button" type="button" key={item.id} aria-pressed={item.id === productId} onClick={() => selectProduct(item.id)}>{item.name}<small>{item.pricingMode === "WEIGHTED_PER_KG" ? "وزنی" : "واحدی"}</small></button>)}{activeProducts.length > 0 && matchingProducts.length === 0 && <p className="inventory-empty">محصولی با این نام پیدا نشد.</p>}</div></aside><ManagerCard title="دستور تهیه و هزینه" hint="محصول منو را انتخاب کنید و مواد لازم برای هر گزینه‌ی منو را ثبت کنید.">
     {activeProducts.length > 0 && <div className="inventory-compact-product-picker"><InventorySearchPicker label="محصول منو" options={activeProducts} value={productId} onChange={selectProduct} placeholder="جست‌وجوی محصول منو" /></div>}
     {activeProducts.length === 0 ? <InventoryEmptyState title="محصول فعالی برای دستور تهیه وجود ندارد" detail="برای شروع، ابتدا یک محصول فعال در بخش مدیریت منو بسازید. سپس به این صفحه برگردید و مواد مصرفی آن را مشخص کنید." /> : !product && initialProductId ? <p className="inventory-note" role="status">محصول تاریخی انتخاب‌شده دیگر فعال نیست؛ برای دیدن هزینه‌ی فعلی، محصول فعالی را از فهرست انتخاب کنید.</p> : <>
-      {!items.some((item) => item.isActive && !item.archivedAt) && <InventoryEmptyState title="کالای فعالی در انبار نیست" detail="برای افزودن ماده‌ی اولیه، آن را در اقلام موجودی تعریف کنید. دستورهای مشترک ذخیره‌شده نیز از فهرست نوع ماده قابل انتخاب‌اند." action="تعریف مواد اولیه در انبار" onAction={onOpenStock} />}
+      {!useEstimatedCost && !items.some((item) => item.isActive && !item.archivedAt) && <InventoryEmptyState title="کالای فعالی در انبار نیست" detail="برای افزودن ماده‌ی اولیه، آن را در اقلام موجودی تعریف کنید. دستورهای مشترک ذخیره‌شده نیز از فهرست نوع ماده قابل انتخاب‌اند." action="تعریف مواد اولیه در انبار" onAction={onOpenStock} />}
       {dirty && <p className="inventory-note" role="status">تغییرات ذخیره نشده است. پس از تکمیل مواد، دستور تهیه را ذخیره کنید.</p>}{saved && <p className="inventory-success" role="status">دستور تهیه ذخیره شد.</p>}
       {loadingConfig ? <p className="manager-empty">در حال بارگذاری گزینه‌های منو…</p> : <>
       {error && <p className="form-error" role="alert">{error} {loadFailed && <button type="button" disabled={loadingConfig} onClick={() => setConfigRetryVersion((current) => current + 1)}>بارگذاری تنظیم هزینه</button>}</p>}
       <div className="inventory-selected-product"><div><strong>مواد لازم برای {product?.name}</strong><small className="inventory-cell-note">قیمت پایه‌ی منو: {product ? formatToman(product.priceAmount) : ""} تومان{product?.pricingMode === "WEIGHTED_PER_KG" ? " در هر کیلوگرم" : ""} · قیمت گزینه‌ها جداگانه محاسبه می‌شود.</small></div></div>
-      {entries.length === 0 ? <p className="inventory-note">برای این محصول، گزینه‌ای در منو تعریف نشده است.</p> : <form className="manager-form" onSubmit={(event) => void submit(event)}>
-        <label><input type="checkbox" checked={takeawayEntries.length > 0} onChange={(event) => { setDirty(true); setSaved(false); invalidatePreview(); setTakeawayEntries(event.target.checked ? entries.map((entry) => ({ ...entry, channel: "TAKEAWAY", recipeId: "", components: entry.components.map((row) => ({ ...row })) })) : []); }} /> دستور مواد بیرون‌بر جداگانه</label>
-        <p className="inventory-note">برای استفاده از کوکی بسته‌بندی‌شده، دستور «کوکی بیرون‌بر» را در دستورهای مشترک بسازید و در مواد بیرون‌بر انتخاب کنید. بدون دستور جداگانه، مواد داخل کافه استفاده می‌شود.</p>
-        {[...entries, ...takeawayEntries].map((entry) => <fieldset className="inventory-option-recipe" key={`${entry.channel ?? "TABLE"}:${entry.optionId}`}>
-          <legend>{entry.optionName}<small> · {entry.groupName}{entry.channel === "TAKEAWAY" ? " · بیرون‌بر" : " · داخل کافه"}</small></legend>
-          {entry.components.map((component, index) => {
-            const sourceItems = component.sourceKind === "STOCK_ITEM" ? items.filter((item) => item.isActive && !item.archivedAt) : recipes.filter((recipe) => recipe.isActive && !recipe.archivedAt && recipe.id !== entry.recipeId);
-            const sourceUnit = component.sourceKind === "STOCK_ITEM" ? items.find((item) => item.id === component.sourceId)?.baseUnit : recipes.find((recipe) => recipe.id === component.sourceId)?.outputUnit;
-            return <div className="inventory-entry-row" key={component.componentKey}>
-              <label><span>نوع ماده</span><select value={component.sourceKind} onChange={(event) => { const sourceKind = event.target.value as OptionIngredientDraft["sourceKind"]; const sourceId = sourceKind === "STOCK_ITEM" ? items.find((item) => item.isActive && !item.archivedAt)?.id ?? "" : recipes.find((recipe) => recipe.isActive && !recipe.archivedAt && recipe.id !== entry.recipeId)?.id ?? ""; changeIngredient(entry.optionId, index, { sourceKind, sourceId }, entry.channel); }}><option value="STOCK_ITEM">قلم موجودی</option><option value="RECIPE">دستور تهیه‌ی موجود</option></select></label>
-              <InventorySearchPicker label={component.sourceKind === "STOCK_ITEM" ? "قلم موجودی" : "دستور تهیه"} options={sourceItems.map((source) => ({ id: source.id, name: source.name }))} value={component.sourceId} onChange={(sourceId) => changeIngredient(entry.optionId, index, { sourceId }, entry.channel)} placeholder={component.sourceKind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور تهیه"} required />
-              <label><span>مقدار{sourceUnit ? ` (${unitLabels[sourceUnit as Unit]})` : ""}</span><InventoryNumberInput required value={component.quantity} placeholder={sourceUnit ? `مقدار به ${unitLabels[sourceUnit as Unit]}` : "مقدار"} onValueChange={(value) => changeIngredient(entry.optionId, index, { quantity: value }, entry.channel)} /></label>
-              {entry.components.length > 1 && <button className="text-button" type="button" onClick={() => changeEntry(entry.optionId, { components: entry.components.filter((_, i) => i !== index) }, entry.channel)}>حذف ماده</button>}
-            </div>;
-          })}
-          <button className="secondary-button" type="button" onClick={() => changeEntry(entry.optionId, { components: [...entry.components, { componentKey: crypto.randomUUID(), sourceKind: "STOCK_ITEM", sourceId: items.find((item) => item.isActive && !item.archivedAt)?.id ?? "", quantity: "" }] }, entry.channel)}>افزودن ماده به {entry.optionName}</button>
-        </fieldset>)}
+      <form className="manager-form" onSubmit={(event) => void submit(event)}>
+        <label><input type="checkbox" checked={useEstimatedCost} onChange={(event) => { setUseEstimatedCost(event.target.checked); setDirty(true); setSaved(false); setError(null); invalidatePreview(); }} /> هزینه‌ی نهایی را به‌صورت تخمینی ثبت می‌کنم</label>
+        {useEstimatedCost && <div className="manager-fields">
+          <label><span>هزینه‌ی تخمینی {product?.pricingMode === "WEIGHTED_PER_KG" ? "هر کیلوگرم" : "هر واحد"} (تومان)</span><InventoryNumberInput integer min={0} max={2_147_483_647} required value={estimatedCostAmount} onValueChange={(value) => { setEstimatedCostAmount(value); setDirty(true); setSaved(false); setError(null); invalidatePreview(); }} /></label>
+          <p className="inventory-note">این هزینه، بهای نهایی محصول را برای همه‌ی گزینه‌های منو پوشش می‌دهد. برای محصول وزنی مبلغ را برای یک کیلوگرم وارد کنید؛ صفر هم یک هزینه‌ی تنظیم‌شده محسوب می‌شود.</p>
+        </div>}
+        {!useEstimatedCost && entries.length === 0 && configuration?.mode !== "PURCHASED_ITEM" && <p className="inventory-note">برای تنظیم هزینه‌ی مواد، ابتدا برای محصول یک گزینه‌ی منو تعریف کنید؛ یا حالت هزینه‌ی تخمینی را روشن کنید.</p>}
+        {!useEstimatedCost && configuration?.mode === "PURCHASED_ITEM" && <p className="inventory-note">هزینه‌ی این محصول از کالای خریداری‌شده‌ی ذخیره‌شده خوانده می‌شود. تغییر این حالت، تنظیم فعلی را حفظ می‌کند.</p>}
+        {!useEstimatedCost && configuration?.mode !== "PURCHASED_ITEM" && <>
+          <label><input type="checkbox" checked={takeawayEntries.length > 0} onChange={(event) => { setDirty(true); setRecipeDraftChanged(true); setSaved(false); invalidatePreview(); setTakeawayEntries(event.target.checked ? entries.map((entry) => ({ ...entry, channel: "TAKEAWAY", recipeId: "", components: entry.components.map((row) => ({ ...row })) })) : []); }} /> دستور مواد بیرون‌بر جداگانه</label>
+          <p className="inventory-note">برای استفاده از کوکی بسته‌بندی‌شده، دستور «کوکی بیرون‌بر» را در دستورهای مشترک بسازید و در مواد بیرون‌بر انتخاب کنید. بدون دستور جداگانه، مواد داخل کافه استفاده می‌شود.</p>
+          {[...entries, ...takeawayEntries].map((entry) => <fieldset className="inventory-option-recipe" key={`${entry.channel ?? "TABLE"}:${entry.optionId}`}>
+            <legend>{entry.optionName}<small> · {entry.groupName}{entry.channel === "TAKEAWAY" ? " · بیرون‌بر" : " · داخل کافه"}</small></legend>
+            {entry.components.map((component, index) => {
+              const sourceItems = component.sourceKind === "STOCK_ITEM" ? items.filter((item) => item.isActive && !item.archivedAt) : recipes.filter((recipe) => recipe.isActive && !recipe.archivedAt && recipe.id !== entry.recipeId);
+              const sourceUnit = component.sourceKind === "STOCK_ITEM" ? items.find((item) => item.id === component.sourceId)?.baseUnit : recipes.find((recipe) => recipe.id === component.sourceId)?.outputUnit;
+              return <div className="inventory-entry-row" key={component.componentKey}>
+                <label><span>نوع ماده</span><select value={component.sourceKind} onChange={(event) => { const sourceKind = event.target.value as OptionIngredientDraft["sourceKind"]; const sourceId = sourceKind === "STOCK_ITEM" ? items.find((item) => item.isActive && !item.archivedAt)?.id ?? "" : recipes.find((recipe) => recipe.isActive && !recipe.archivedAt && recipe.id !== entry.recipeId)?.id ?? ""; changeIngredient(entry.optionId, index, { sourceKind, sourceId }, entry.channel); }}><option value="STOCK_ITEM">قلم موجودی</option><option value="RECIPE">دستور تهیه‌ی موجود</option></select></label>
+                <InventorySearchPicker label={component.sourceKind === "STOCK_ITEM" ? "قلم موجودی" : "دستور تهیه"} options={sourceItems.map((source) => ({ id: source.id, name: source.name }))} value={component.sourceId} onChange={(sourceId) => changeIngredient(entry.optionId, index, { sourceId }, entry.channel)} placeholder={component.sourceKind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور تهیه"} required={shouldValidateRecipeDraft} />
+                <label><span>مقدار{sourceUnit ? ` (${unitLabels[sourceUnit as Unit]})` : ""}</span><InventoryNumberInput required={shouldValidateRecipeDraft} value={component.quantity} placeholder={sourceUnit ? `مقدار به ${unitLabels[sourceUnit as Unit]}` : "مقدار"} onValueChange={(value) => changeIngredient(entry.optionId, index, { quantity: value }, entry.channel)} /></label>
+                {entry.components.length > 1 && <button className="text-button" type="button" onClick={() => changeEntry(entry.optionId, { components: entry.components.filter((_, i) => i !== index) }, entry.channel)}>حذف ماده</button>}
+              </div>;
+            })}
+            <button className="secondary-button" type="button" onClick={() => changeEntry(entry.optionId, { components: [...entry.components, { componentKey: crypto.randomUUID(), sourceKind: "STOCK_ITEM", sourceId: items.find((item) => item.isActive && !item.archivedAt)?.id ?? "", quantity: "" }] }, entry.channel)}>افزودن ماده به {entry.optionName}</button>
+          </fieldset>)}
+        </>}
         <fieldset className="inventory-option-recipe">
           <legend>افزودنی کنار محصول <small>· اختیاری</small></legend>
-          <p className="inventory-note">چیزهایی را که همراه هر واحد محصول سرو می‌شوند اضافه کنید؛ مثلاً یک کوکی کنار اسپرسو. این افزودنی برای همه‌ی گزینه‌ها و سفارش‌های داخل کافه و بیرون‌بر محاسبه می‌شود و در دستور مشترک محصول دیگری کپی نمی‌شود.</p>
+          <p className="inventory-note">چیزهایی را که همراه هر واحد محصول سرو می‌شوند اضافه کنید؛ مثلاً یک کوکی کنار اسپرسو. هر مورد می‌تواند هزینه‌ی مواد یا هزینه‌ی تخمینی مستقل داشته باشد. این افزودنی برای همه‌ی گزینه‌ها و سفارش‌های داخل کافه و بیرون‌بر محاسبه می‌شود و در دستور مشترک محصول دیگری کپی نمی‌شود.</p>
           {servedAlongside.map((entry, index) => {
-            const sources = entry.sourceKind === "STOCK_ITEM"
-              ? items.filter((item) => item.isActive && !item.archivedAt)
-              : recipes.filter((recipe) => recipe.isActive && !recipe.archivedAt);
-            const sourceUnit = entry.sourceKind === "STOCK_ITEM"
-              ? items.find((item) => item.id === entry.sourceId)?.baseUnit
-              : recipes.find((recipe) => recipe.id === entry.sourceId)?.outputUnit;
+            const estimated = entry.mode === "ESTIMATED_COST";
+            const sourceKind = estimated ? entry.previousSource?.sourceKind ?? "STOCK_ITEM" : entry.sourceKind;
+            const sourceId = estimated ? entry.previousSource?.sourceId ?? "" : entry.sourceId;
+            const sourceUnit = sourceKind === "STOCK_ITEM"
+              ? items.find((item) => item.id === sourceId)?.baseUnit
+              : recipes.find((recipe) => recipe.id === sourceId)?.outputUnit;
+            const sourceName = sourceKind === "STOCK_ITEM"
+              ? items.find((item) => item.id === sourceId)?.name
+              : recipes.find((recipe) => recipe.id === sourceId)?.name;
+            const sourceOptions = sourceKind === "STOCK_ITEM"
+              ? items.filter((item) => (item.isActive && !item.archivedAt) || item.id === sourceId).map((item) => ({ id: item.id, name: item.isActive && !item.archivedAt ? item.name : `${item.name} (بایگانی‌شده)` }))
+              : recipes.filter((recipe) => (recipe.isActive && !recipe.archivedAt) || recipe.id === sourceId).map((recipe) => ({ id: recipe.id, name: recipe.isActive && !recipe.archivedAt ? recipe.name : `${recipe.name} (بایگانی‌شده)` }));
             return <div className="inventory-entry-row" key={entry.key}>
-              <label><span>نوع افزودنی {index + 1}</span><select value={entry.sourceKind} onChange={(event) => {
-                const sourceKind = event.target.value as ServedAlongsideDraft["sourceKind"];
-                const sourceId = sourceKind === "STOCK_ITEM"
-                  ? items.find((item) => item.isActive && !item.archivedAt)?.id ?? ""
-                  : recipes.find((recipe) => recipe.isActive && !recipe.archivedAt)?.id ?? "";
-                changeServedAlongside(index, { sourceKind, sourceId });
-              }}><option value="STOCK_ITEM">قلم موجودی</option><option value="RECIPE">دستور تهیه‌ی موجود</option></select></label>
-              <InventorySearchPicker label={entry.sourceKind === "STOCK_ITEM" ? "قلم افزودنی" : "دستور افزودنی"} options={sources.map((source) => ({ id: source.id, name: source.name }))} value={entry.sourceId} onChange={(sourceId) => changeServedAlongside(index, { sourceId })} placeholder={entry.sourceKind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور تهیه"} required />
-              <label><span>مقدار برای هر واحد{sourceUnit ? ` (${unitLabels[sourceUnit as Unit]})` : ""}</span><InventoryNumberInput required value={entry.quantity} placeholder={sourceUnit ? `مقدار به ${unitLabels[sourceUnit as Unit]}` : "مقدار"} onValueChange={(value) => changeServedAlongside(index, { quantity: value })} /></label>
+              <label><input type="checkbox" checked={estimated} onChange={(event) => {
+                if (event.target.checked && entry.mode === "RECIPE") {
+                  changeServedAlongside(index, { mode: "ESTIMATED_COST", name: entry.previousEstimate?.name ?? sourceName ?? "", estimatedCostAmount: entry.previousEstimate?.estimatedCostAmount ?? "", previousSource: { sourceKind: entry.sourceKind, sourceId: entry.sourceId, quantity: entry.quantity } });
+                } else if (!event.target.checked && entry.mode === "ESTIMATED_COST") {
+                  const previous = entry.previousSource;
+                  changeServedAlongside(index, previous
+                    ? { mode: "RECIPE", ...previous, previousEstimate: { name: entry.name, estimatedCostAmount: entry.estimatedCostAmount } }
+                    : { mode: "RECIPE", sourceKind: "STOCK_ITEM", sourceId: items.find((item) => item.isActive && !item.archivedAt)?.id ?? "", quantity: "1", previousEstimate: { name: entry.name, estimatedCostAmount: entry.estimatedCostAmount } });
+                }
+              }} /> هزینه‌ی تخمینی برای افزودنی {index + 1}</label>
+              {!estimated && <>
+                <label><span>نوع افزودنی {index + 1}</span><select value={entry.sourceKind} onChange={(event) => {
+                  const nextKind = event.target.value as ServedAlongsideSourceDraft["sourceKind"];
+                  const nextId = nextKind === "STOCK_ITEM"
+                    ? items.find((item) => item.isActive && !item.archivedAt)?.id ?? ""
+                    : recipes.find((recipe) => recipe.isActive && !recipe.archivedAt)?.id ?? "";
+                  changeServedAlongside(index, { sourceKind: nextKind, sourceId: nextId });
+                }}><option value="STOCK_ITEM">قلم موجودی</option><option value="RECIPE">دستور تهیه‌ی موجود</option></select></label>
+                <InventorySearchPicker label={entry.sourceKind === "STOCK_ITEM" ? "قلم افزودنی" : "دستور افزودنی"} options={sourceOptions} value={entry.sourceId} onChange={(nextId) => changeServedAlongside(index, { sourceId: nextId })} placeholder={entry.sourceKind === "STOCK_ITEM" ? "جست‌وجوی قلم موجودی" : "جست‌وجوی دستور تهیه"} required />
+                <label><span>مقدار برای هر واحد{sourceUnit ? ` (${unitLabels[sourceUnit as Unit]})` : ""}</span><InventoryNumberInput required value={entry.quantity} placeholder={sourceUnit ? `مقدار به ${unitLabels[sourceUnit as Unit]}` : "مقدار"} onValueChange={(value) => changeServedAlongside(index, { quantity: value })} /></label>
+              </>}
+              {estimated && <>
+                <label><span>نام افزودنی {index + 1}</span><input required maxLength={160} value={entry.name} onChange={(event) => changeServedAlongside(index, { name: event.target.value })} /></label>
+                <label><span>هزینه‌ی تخمینی برای هر واحد محصول (تومان)</span><InventoryNumberInput integer required min={0} max={2_147_483_647} value={entry.estimatedCostAmount} onValueChange={(value) => changeServedAlongside(index, { estimatedCostAmount: value })} /></label>
+              </>}
               <button className="text-button" type="button" onClick={() => { setServedAlongside((current) => current.filter((_, i) => i !== index)); setDirty(true); setSaved(false); invalidatePreview(); }}>حذف افزودنی {index + 1}</button>
             </div>;
           })}
           <button className="secondary-button" type="button" onClick={() => {
             const sourceId = items.find((item) => item.isActive && !item.archivedAt)?.id ?? "";
-            setServedAlongside((current) => [...current, { key: crypto.randomUUID(), sourceKind: "STOCK_ITEM", sourceId, quantity: "1" }]);
+            setServedAlongside((current) => [...current, { key: crypto.randomUUID(), mode: "RECIPE", sourceKind: "STOCK_ITEM", sourceId, quantity: "1" }]);
             setDirty(true); setSaved(false); invalidatePreview();
           }}>افزودن مورد سرو در کنار محصول</button>
         </fieldset>
@@ -672,7 +932,7 @@ function ProductOptionRecipePanel({ onOpenStock, onDirtyChange, catalog, items, 
           <button type="button" className="secondary-button" onClick={() => changePackaging([...packaging, { stockItemId: "", quantity: "1" }])}>افزودن بسته‌بندی بیرون‌بر</button>
         </fieldset>
         <button type="submit" disabled={loadingConfig || loadFailed}>ذخیره‌ی دستورهای تهیه</button>
-      </form>}
+      </form>
       {configuration && canViewCosts && <section className="inventory-option-previews">
         <label><span>نوع سفارش برای محاسبه‌ی هزینه</span><select value={previewChannel} disabled={previewing} onChange={(event) => { invalidatePreview(); setPreviewChannel(event.target.value as "TABLE" | "TAKEAWAY"); }}><option value="TABLE">داخل کافه</option><option value="TAKEAWAY">بیرون‌بر</option></select></label>
         <h3>هزینه‌ی دستور ذخیره‌شده</h3><p className="inventory-cell-note">این محاسبه از دستور ذخیره‌شده انجام می‌شود؛ تغییرات فرم را ابتدا ذخیره کنید.</p>
