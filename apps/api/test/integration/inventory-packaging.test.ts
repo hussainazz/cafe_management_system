@@ -163,7 +163,7 @@ describe("takeaway packaging", () => {
     const paid = await pay(f, partial);
     expect(paid.packagingAssignments).toEqual(created.packagingAssignments);
     expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.id } })).toMatchObject({
-      status: "POSTED", theoreticalCogsAmount: 600, isCostComplete: true,
+      status: "POSTED", theoreticalCogsAmount: 600n, isCostComplete: true,
     });
     expect(await balance(f.cup.id)).toBe("8");
     expect(await balance(f.holder.id)).toBe("9");
@@ -265,7 +265,7 @@ describe("takeaway packaging", () => {
     await request(f.manager, "POST", `/admin/inventory/purchases/${purchase.id}/post`, { expectedVersion: 1 }, 200, randomUUID());
     expect(await balance(f.cup.id)).toBe("9");
     expect(await app.prisma.orderConsumption.findUnique({ where: { id: consumption.id } })).toMatchObject({
-      status: "POSTED", theoreticalCogsAmount: 3_300, isCostComplete: true,
+      status: "POSTED", theoreticalCogsAmount: 3_300n, isCostComplete: true,
     });
   });
 
@@ -425,7 +425,7 @@ describe("takeaway packaging", () => {
     await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...f.input, expectedVersion: 1, takeawayPackaging: [{ stockItemId: randomUUID(), quantity: "1" }] }, 422);
     await app.prisma.stockItem.update({ where: { id: f.cup.id }, data: { isActive: false } });
     await request(f.manager, "PUT", `/admin/products/${f.product.id}/costing`, { ...f.input, expectedVersion: 1 }, 422);
-    expect(await preview(f, "TAKEAWAY")).toMatchObject({ isComplete: false, missingReasons: [`missing-stock:${f.cup.id}`] });
+    expect(await preview(f, "TAKEAWAY")).toMatchObject({ isComplete: false, missingReasons: [`missing-takeaway-packaging:${f.cup.id}`] });
     expect(await preview(f, "TABLE")).toMatchObject({ isComplete: true });
     await app.prisma.stockItem.update({ where: { id: f.cup.id }, data: { isActive: true } });
     const { takeawayPackaging, ...legacyInput } = f.input;
@@ -492,13 +492,13 @@ describe("takeaway packaging", () => {
     expect(await balance(f.beans.id)).toBe("890");
     expect(await balance(f.cup.id)).toBe("9");
     expect(await balance(f.holder.id)).toBe("4.5");
-    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.id } })).toMatchObject({ status: "POSTED", theoreticalCogsAmount: 3300 });
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.id } })).toMatchObject({ status: "POSTED", theoreticalCogsAmount: 3300n });
   });
 
   it("keeps packaging shortages untracked before turnover and does not backfill after activation", async () => {
     const f = await fixture();
     await pay(f, await order(f, "TAKEAWAY", 11));
-    expect(await app.prisma.orderConsumption.findFirst()).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 3300 });
+    expect(await app.prisma.orderConsumption.findFirst()).toMatchObject({ status: "UNTRACKED", theoreticalCogsAmount: 3300n });
     expect(await balance(f.beans.id)).toBe("1000");
     expect(await balance(f.cup.id)).toBe("10");
     await request(f.manager, "POST", "/admin/settings/inventory/activate", {});
@@ -623,7 +623,7 @@ describe("conditional packaging and nested takeaway preparations", () => {
     const f = await latteFixture(true);
     const created = await order(f, "TAKEAWAY", 22);
     const paid = await pay(f, created);
-    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.id } })).toMatchObject({ status: "PENDING", theoreticalCogsAmount: 8360 });
+    expect(await app.prisma.orderConsumption.findFirst({ where: { orderId: created.id } })).toMatchObject({ status: "PENDING", theoreticalCogsAmount: 8360n });
     expect(await balance(f.cookie.id)).toBe("100");
     expect(await balance(f.wrapper.id)).toBe("100");
     const purchase = await request(f.manager, "POST", "/admin/inventory/purchases", { receivedAt: new Date().toISOString(), lines: [
