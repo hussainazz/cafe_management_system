@@ -37,13 +37,13 @@ export async function paidFinanceOrder(prisma: PrismaClient, input: {
   await prisma.orderConsumption.create({ data: {
     orderId: order.id, cycleNumber: 1, paymentSettlementId: settlement.id, status: "UNTRACKED",
     recognizedById: input.actorId, recognizedAt: at, resolvedAt: at,
-    theoreticalCogsAmount: complete ? known : null, knownCogsAmount: known, isCostComplete: complete,
+    theoreticalCogsAmount: complete ? BigInt(known) : null, knownCogsAmount: BigInt(known), isCostComplete: complete,
     costSnapshot: {}, items: { create: order.items.map((item, index) => {
       const line = input.lines[index]!;
       const packingCost = line.packagingCost ?? 0;
       return {
         orderItemId: item.id, productNameSnapshot: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams,
-        theoreticalCogsAmount: line.cost, knownCogsAmount: line.cost ?? line.knownCost ?? 0, isCostComplete: line.cost !== null,
+        theoreticalCogsAmount: line.cost === null ? null : BigInt(line.cost), knownCogsAmount: BigInt(line.cost ?? line.knownCost ?? 0), isCostComplete: line.cost !== null,
         costSnapshot: { orderChannel: channel, components: [{
           quantity: "1", packagingQuantity: packingCost ? "1" : "0", packagingKnownCostAmount: packingCost,
           nonPackagingKnownCostAmount: line.cost === null ? null : line.cost - packingCost,
