@@ -5086,6 +5086,61 @@ svg {
 .inventory-stock-fields {
   grid-template-columns: minmax(0, 1fr);
 }
+.inventory-stock-layout .manager-form > fieldset {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-1);
+}
+.inventory-stock-layout .manager-form > fieldset > legend {
+  padding-inline: 6px;
+  color: var(--text-primary);
+  font-weight: 650;
+}
+.inventory-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 8px;
+}
+.inventory-summary > div {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+.inventory-summary span,
+.inventory-inline-note {
+  color: var(--muted);
+}
+.inventory-summary bdi {
+  color: var(--text-primary);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.inventory-conversion-editor {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.inventory-conversion-editor > summary {
+  width: fit-content;
+  color: var(--muted);
+  cursor: pointer;
+}
+.inventory-conversion-editor[open] > summary {
+  margin-block-end: 4px;
+}
+.inventory-inline-note {
+  margin: 0;
+  line-height: 1.7;
+}
 .inventory-stock-units {
   display: grid;
   grid-column: 1 / -1;
