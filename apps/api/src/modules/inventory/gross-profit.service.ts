@@ -25,20 +25,27 @@ function revenuePercentage(revenue: bigint, total: bigint) {
 }
 
 function amountNumber(amount: bigint) {
-  if (amount < 0n || amount > 2_147_483_647n) {
-    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reported revenue amount exceeds the supported Toman range.");
+  if (amount < 0n || amount > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reported revenue total exceeds the safe integer range.");
   }
   return Number(amount);
 }
 
 function signedAmountNumber(amount: bigint) {
-  if (amount < -2_147_483_647n || amount > 2_147_483_647n) {
-    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reported amount exceeds the supported Toman range.");
+  if (amount < -BigInt(Number.MAX_SAFE_INTEGER) || amount > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reported total exceeds the safe integer range.");
   }
   return Number(amount);
 }
 
-export function hasCompleteCostSnapshot<T extends { isCostComplete: boolean; theoreticalCogsAmount: number | null }>(item: T): item is T & { theoreticalCogsAmount: number } {
+function safeAggregateNumber(amount: number) {
+  if (!Number.isSafeInteger(amount) || amount < -Number.MAX_SAFE_INTEGER || amount > Number.MAX_SAFE_INTEGER) {
+    throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A reported total exceeds the safe integer range.");
+  }
+  return amount;
+}
+
+export function hasCompleteCostSnapshot<T extends { isCostComplete: boolean; theoreticalCogsAmount: number | bigint | null }>(item: T): item is T & { theoreticalCogsAmount: number | bigint } {
   return item.isCostComplete && item.theoreticalCogsAmount !== null;
 }
 
@@ -133,11 +140,13 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
   }]));
   let pendingConsumptionCount = 0;
   let untrackedConsumptionCount = 0;
+  let estimatedCostAmount = 0;
   for (const consumption of consumptions) {
     if (consumption.status === "PENDING") pendingConsumptionCount += 1;
     if (consumption.status === "UNTRACKED") untrackedConsumptionCount += 1;
     const day = daily.get(todayInTehran.format(consumption.recognizedAt))!;
     for (const item of consumption.items) {
+      estimatedCostAmount += Number((item.costSnapshot as { estimatedCostAmount?: number })?.estimatedCostAmount ?? 0);
       const productId = item.orderItem.productId;
       const channel = (item.costSnapshot as { orderChannel?: "TABLE" | "TAKEAWAY" })?.orderChannel ?? consumption.order.inventorySaleChannel ?? consumption.order.channel;
       const key = `${productId}:${channel}`;
@@ -164,13 +173,13 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
       product.netSalesAmount += itemRevenue;
       day.netSalesAmount += itemRevenue;
       channelTotals.netSalesAmount += itemRevenue;
-      day.knownCogsAmount += item.theoreticalCogsAmount ?? 0;
-      product.knownCogsAmount += item.knownCogsAmount;
+      day.knownCogsAmount += item.theoreticalCogsAmount === null ? 0 : Number(item.theoreticalCogsAmount);
+      product.knownCogsAmount += Number(item.knownCogsAmount);
       if (hasCompleteCostSnapshot(item)) {
         product.completeCostRevenueAmount += itemRevenue;
         channelTotals.completeCostRevenueAmount += itemRevenue;
         channelTotals.completeOrderItemCount += 1;
-        product.theoreticalCogsAmount += item.theoreticalCogsAmount;
+        product.theoreticalCogsAmount += Number(item.theoreticalCogsAmount);
         product.completeOrderItemCount += 1;
       } else {
         product.incompleteCostRevenueAmount += itemRevenue;
@@ -188,13 +197,13 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
   const completeCostRevenueAmount = products.reduce((sum, product) => sum + product.completeCostRevenueAmount, 0n);
   const incompleteCostRevenueAmount = products.reduce((sum, product) => sum + product.incompleteCostRevenueAmount, 0n);
   const netSalesAmount = amountNumber(netSalesRevenue);
-  const knownCogsAmount = products.reduce((sum, product) => sum + product.knownCogsAmount, 0);
+  const knownCogsAmount = safeAggregateNumber(products.reduce((sum, product) => sum + product.knownCogsAmount, 0));
   const incompleteOrderItemCount = products.reduce((sum, product) => sum + product.incompleteOrderItemCount, 0);
   const completeOrderItemCount = products.reduce((sum, product) => sum + product.completeOrderItemCount, 0);
   const theoreticalCogsAmount = incompleteOrderItemCount === 0
-    ? products.reduce((sum, product) => sum + product.theoreticalCogsAmount, 0)
+    ? safeAggregateNumber(products.reduce((sum, product) => sum + product.theoreticalCogsAmount, 0))
     : null;
-  const grossProfitAmount = theoreticalCogsAmount === null ? null : Number(recognizedContribution(netSalesRevenue, theoreticalCogsAmount));
+  const grossProfitAmount = theoreticalCogsAmount === null ? null : signedAmountNumber(recognizedContribution(netSalesRevenue, theoreticalCogsAmount));
   const stockItems = await prisma.stockItem.findMany({
     select: { id: true, createdAt: true, balance: { select: { carryingValueAmount: true, trackingStartedAt: true } } },
   });
@@ -256,9 +265,9 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
         grossMarginPercent: percentage(grossProfitAmount, netSalesAmount),
       },
       daily: [...daily.values()].map((day) => {
-        const cogs = day.incompleteOrderItemCount ? null : day.knownCogsAmount;
+        const cogs = day.incompleteOrderItemCount ? null : safeAggregateNumber(day.knownCogsAmount);
         const dayNetSalesAmount = amountNumber(day.netSalesAmount);
-        const gross = cogs === null ? null : Number(recognizedContribution(BigInt(dayNetSalesAmount), cogs));
+        const gross = cogs === null ? null : signedAmountNumber(recognizedContribution(day.netSalesAmount, cogs));
         return { date: day.date, netSalesAmount: dayNetSalesAmount, theoreticalCogsAmount: cogs,
           grossProfitAmount: gross, grossMarginPercent: percentage(gross, dayNetSalesAmount),
           incompleteOrderItemCount: day.incompleteOrderItemCount };
@@ -267,7 +276,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
         const complete = product.incompleteOrderItemCount === 0;
         const theoretical = complete ? product.theoreticalCogsAmount : null;
         const productNetSalesAmount = amountNumber(product.netSalesAmount);
-        const gross = theoretical === null ? null : Number(recognizedContribution(product.netSalesAmount, theoretical));
+        const gross = theoretical === null ? null : signedAmountNumber(recognizedContribution(product.netSalesAmount, theoretical));
         return {
           channel: product.channel,
           productId: product.productId,
@@ -281,7 +290,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
           incompleteCostRevenueOfTotalSalesPercent: revenuePercentage(product.incompleteCostRevenueAmount, netSalesRevenue),
           incompleteCostRevenueSharePercent: revenuePercentage(product.incompleteCostRevenueAmount, incompleteCostRevenueAmount),
           theoreticalCogsAmount: theoretical,
-          knownCogsAmount: product.knownCogsAmount,
+          knownCogsAmount: safeAggregateNumber(product.knownCogsAmount),
           grossProfitAmount: gross,
           grossMarginPercent: percentage(gross, productNetSalesAmount),
           completeOrderItemCount: product.completeOrderItemCount,
@@ -309,7 +318,7 @@ export async function grossProfitReport(prisma: PrismaClient, query: GrossProfit
         amount: inventoryConsumption,
         isEstimate: true,
         varianceAmount: inventoryConsumption !== null && missingValuationCount === 0 && theoreticalCogsAmount !== null && pendingConsumptionCount === 0
-          ? theoreticalCogsAmount - inventoryConsumption
+          ? theoreticalCogsAmount - estimatedCostAmount - inventoryConsumption
           : null,
         missingValuationCount,
       },
