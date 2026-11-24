@@ -90,6 +90,12 @@ stage is implemented.
   analytics are implemented and locally verified; see `docs/current-left.md`.
 - **P12 / Stage 19 — Complete.** Developer-only pricing experiments and strategy
   evaluation are implemented and locally verified under [ADR 0013](../adr/0013-pricing-experiments-and-strategy-evaluation.md); see `docs/current-left.md`.
+- **P14 / Stage 21 — Active.** Explicit estimated final costs for menu products
+  and per-product served-alongside entries. Preserve recipe configurations,
+  distinguish configured estimates from missing costing, snapshot estimated
+  COGS, and keep estimates out of ingredient deduction while retaining
+  ingredient-based add-on deductions. Current acceptance and remaining checks
+  are in `../current-left.md`.
 
 Last recorded integrated local verification (15 November 2026, after the
 Phase 2/3 correctness review): the full isolated API suite passes 30 files /
@@ -944,6 +950,29 @@ option selection and sale channel in cost previews and order costing snapshots,
 with active-reference and positive-quantity validation. Keep the list separate
 from reusable recipe components so selecting an existing recipe for another
 product inherits only the main ingredients.
+
+### Estimated product and served-alongside costs — approved 23 November 2026
+
+Allow a product to use an explicit integer-Toman estimated final cost instead
+of requiring an ingredient recipe or purchased-stock source. Zero is valid and
+means a configured zero cost. For weighted products, the amount is per
+kilogram. The estimate contributes to complete theoretical COGS, gross profit,
+gross margin, and saved order-cost snapshots without inventing ingredient
+components, stock deductions, or missing-recipe warnings. Retain prior recipe,
+purchased-stock, option, and extra-recipe settings while the estimate is
+enabled; turning it off restores those settings.
+
+Allow each served-alongside entry to use either its existing stock/recipe source
+or its own explicitly estimated integer-Toman cost and name. Estimated entries
+apply once per parent sold unit, remain independent, and do not deduct stock.
+Stock/recipe entries continue to contribute their ingredient requirements.
+Preserve the alternate configuration when switching an entry between modes.
+
+Acceptance includes zero and nonzero estimates, weighted scaling, estimate-only
+orders with no pending inventory work, mixed estimates and ingredient-based
+add-ons, missing-recipe reporting, pending whole-order retries, snapshots and
+historical stability, gross-profit/margin/cost coverage, option and takeaway
+behavior, toggle preservation, and invalid or fractional Toman rejection.
 
 ### POS packaging assignments and shared price — revised 23 November 2026
 
