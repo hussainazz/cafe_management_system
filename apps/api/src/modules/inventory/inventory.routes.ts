@@ -96,6 +96,40 @@ function pathId(params: unknown) { return Object.values(params as Record<string,
 
 export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   const headers = zodToJsonSchema(AuthRequestHeadersSchema);
+  const generatedCostingUpdateSchema = zodToJsonSchema(UpdateProductCostingRequestSchema);
+  const costingUpdateVariants = generatedCostingUpdateSchema.oneOf as Array<Record<string, any>>;
+  const productCostingUpdateBody = {
+    type: "object",
+    properties: {
+      ...costingUpdateVariants[0]!.properties,
+      ...costingUpdateVariants[1]!.properties,
+      mode: { type: "string", enum: ["RECIPE", "PURCHASED_ITEM"] },
+    },
+    required: ["mode", "optionRules", "combinations", "expectedVersion"],
+    additionalProperties: false,
+    allOf: [
+      {
+        if: { properties: { mode: { const: "RECIPE" } }, required: ["mode"] },
+        then: {
+          not: { anyOf: [{ required: ["purchasedStockItemId"] }, { required: ["purchasedQuantity"] }] },
+          if: { properties: { useEstimatedCost: { const: true } }, required: ["useEstimatedCost"] },
+          then: { required: ["estimatedCostAmount"] },
+          else: { required: ["recipeId", "recipeQuantity"] },
+        },
+      },
+      {
+        if: { properties: { mode: { const: "PURCHASED_ITEM" } }, required: ["mode"] },
+        then: {
+          not: { anyOf: [{ required: ["recipeId"] }, { required: ["recipeQuantity"] }, { required: ["optionRecipes"] }] },
+          if: { properties: { useEstimatedCost: { const: true } }, required: ["useEstimatedCost"] },
+          then: { required: ["estimatedCostAmount"] },
+          else: { required: ["purchasedStockItemId"] },
+        },
+      },
+    ],
+  };
+  // A merged object schema keeps AJV from deleting one variant's fields while
+  // testing another variant. The handler still applies the strict Zod union.
   const idempotencyHeaders = zodToJsonSchema(IdempotencyRequestHeadersSchema);
   const errors = Object.fromEntries([400, 401, 403, 404, 409, 422, 429, 500, 503].map((status) => [status, zodToJsonSchema(ErrorResponseSchema)]));
   const manager = { preHandler: async (request: FastifyRequest) => {
@@ -105,8 +139,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/admin/inventory/status", { ...manager, schema: { tags: ["Manager inventory"], headers, response: { 200: zodToJsonSchema(InventoryStatusResponseSchema), ...errors } } }, async (request) => ({ data: { turnoverEnabled: (await inventoryActivation(app.prisma)) !== null }, meta: meta(request) }));
   app.get("/admin/inventory/stock-items", { ...manager, schema: { tags: ["Manager inventory"], headers, response: { 200: zodToJsonSchema(StockItemsResponseSchema), ...errors } } }, async (request) => ({ data: { stockItems: await listStockItems(app.prisma) }, meta: meta(request) }));
-  app.post("/admin/inventory/stock-items", { ...manager, schema: { tags: ["Manager inventory"], headers, body: zodToJsonSchema(CreateStockItemRequestSchema), response: { 201: zodToJsonSchema(StockItemResponseSchema), ...errors } } }, async (request: any, reply) => { const data = await createStockItem(app.prisma, request.authenticatedUser!, parsed(CreateStockItemRequestSchema, request.body), request.id); reply.code(201); return { data, meta: meta(request) }; });
-  app.patch("/admin/inventory/stock-items/:stockItemId", { ...manager, schema: { tags: ["Manager inventory"], headers, params: zodToJsonSchema(StockItemPathSchema), body: zodToJsonSchema(UpdateStockItemRequestSchema), response: { 200: zodToJsonSchema(StockItemResponseSchema), ...errors } } }, async (request: any) => ({ data: await updateStockItem(app.prisma, request.authenticatedUser!, pathId(request.params), parsed(UpdateStockItemRequestSchema, request.body), request.id), meta: meta(request) }));
+  app.post("/admin/inventory/stock-items", { ...manager, preValidation: async (request: any) => { request.parsedStockItemInput = parsed(CreateStockItemRequestSchema, request.body); }, schema: { tags: ["Manager inventory"], headers, body: zodToJsonSchema(CreateStockItemRequestSchema), response: { 201: zodToJsonSchema(StockItemResponseSchema), ...errors } } }, async (request: any, reply) => { const data = await createStockItem(app.prisma, request.authenticatedUser!, request.parsedStockItemInput as z.infer<typeof CreateStockItemRequestSchema>, request.id); reply.code(201); return { data, meta: meta(request) }; });
+  app.patch("/admin/inventory/stock-items/:stockItemId", { ...manager, preValidation: async (request: any) => { request.parsedStockItemInput = parsed(UpdateStockItemRequestSchema, request.body); }, schema: { tags: ["Manager inventory"], headers, params: zodToJsonSchema(StockItemPathSchema), body: zodToJsonSchema(UpdateStockItemRequestSchema), response: { 200: zodToJsonSchema(StockItemResponseSchema), ...errors } } }, async (request: any) => ({ data: await updateStockItem(app.prisma, request.authenticatedUser!, pathId(request.params), request.parsedStockItemInput as z.infer<typeof UpdateStockItemRequestSchema>, request.id), meta: meta(request) }));
   app.post("/admin/inventory/stock-items/:stockItemId/archive", { ...manager, schema: { tags: ["Manager inventory"], headers, params: zodToJsonSchema(StockItemPathSchema), body: zodToJsonSchema(ArchiveInventoryEntityRequestSchema), response: { 200: zodToJsonSchema(StockItemResponseSchema), ...errors } } }, async (request: any) => { const body = parsed(ArchiveInventoryEntityRequestSchema, request.body); return { data: await archiveStockItem(app.prisma, request.authenticatedUser!, pathId(request.params), body.expectedVersion, request.id), meta: meta(request) }; });
 
   app.get("/admin/inventory/purchases", { ...manager, schema: { tags: ["Manager inventory"], headers, querystring: zodToJsonSchema(PurchaseListQuerySchema), response: { 200: zodToJsonSchema(PurchasesResponseSchema), ...errors } } }, async (request: any) => { const query = parsed(PurchaseListQuerySchema, request.query); const result = await listPurchases(app.prisma, query); return { data: result, meta: meta(request) }; });
@@ -121,7 +155,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   app.post("/admin/inventory/recipes/:recipeId/archive", { ...manager, schema: { tags: ["Manager inventory"], headers, params: zodToJsonSchema(RecipePathSchema), body: zodToJsonSchema(ArchiveInventoryEntityRequestSchema), response: { 200: zodToJsonSchema(RecipeResponseSchema), ...errors } } }, async (request: any) => { const body = parsed(ArchiveInventoryEntityRequestSchema, request.body); return { data: await archiveRecipe(app.prisma, request.authenticatedUser!, pathId(request.params), body.expectedVersion, request.id), meta: meta(request) }; });
 
   app.get("/admin/products/:productId/costing", { ...manager, schema: { tags: ["Manager inventory"], headers, params: zodToJsonSchema(ProductCostingPathSchema), response: { 200: zodToJsonSchema(ProductCostingConfigurationResponseSchema), ...errors } } }, async (request: any) => ({ data: await getProductCosting(app.prisma, pathId(request.params)), meta: meta(request) }));
-  app.put("/admin/products/:productId/costing", { ...manager, schema: { tags: ["Manager inventory"], headers, params: zodToJsonSchema(ProductCostingPathSchema), body: zodToJsonSchema(UpdateProductCostingRequestSchema), response: { 200: zodToJsonSchema(ProductCostingConfigurationResponseSchema), ...errors } } }, async (request: any) => { const input = parsed(UpdateProductCostingRequestSchema, request.body); const { expectedVersion, ...data } = input; return { data: await setProductCosting(app.prisma, request.authenticatedUser!, pathId(request.params), { ...data, expectedVersion } as any, request.id), meta: meta(request) }; });
+  app.put("/admin/products/:productId/costing", { ...manager, preValidation: async (request: any) => { request.parsedProductCostingInput = parsed(UpdateProductCostingRequestSchema, request.body); }, schema: { tags: ["Manager inventory"], headers, params: zodToJsonSchema(ProductCostingPathSchema), body: productCostingUpdateBody, response: { 200: zodToJsonSchema(ProductCostingConfigurationResponseSchema), ...errors } } }, async (request: any) => { const input = request.parsedProductCostingInput as z.infer<typeof UpdateProductCostingRequestSchema>; const { expectedVersion, ...data } = input; return { data: await setProductCosting(app.prisma, request.authenticatedUser!, pathId(request.params), { ...data, expectedVersion } as any, request.id), meta: meta(request) }; });
   app.post("/admin/products/:productId/costing/preview", { ...manager, preHandler: async (request: FastifyRequest) => { await requireInventoryRoute(request); if (request.authenticatedUser?.role === "CASHIER") { const { ApplicationError, ErrorCodes } = await import("../../errors/application-error.js"); throw new ApplicationError(403, ErrorCodes.FORBIDDEN, "Cashier accounts cannot inspect ingredient cost previews."); } }, schema: { tags: ["Manager inventory"], headers, params: zodToJsonSchema(ProductCostingPathSchema), body: zodToJsonSchema(ProductCostingPreviewRequestSchema), response: { 200: zodToJsonSchema(ProductCostingPreviewResponseSchema), ...errors } } }, async (request: any) => { const input = parsed(ProductCostingPreviewRequestSchema, request.body); return { data: await previewProductCosting(app.prisma, pathId(request.params), input.optionIds, input.quantity, input.weightGrams ?? null, input.channel), meta: meta(request) }; });
 
   app.get("/admin/inventory/counts", { ...manager, schema: { tags: ["Manager inventory"], headers, querystring: zodToJsonSchema(InventoryCountListQuerySchema), response: { 200: zodToJsonSchema(InventoryCountsResponseSchema), ...errors } } }, async (request: any) => { const query = parsed(InventoryCountListQuerySchema, request.query); const result = await listCounts(app.prisma, query); return { data: result, meta: meta(request) }; });
