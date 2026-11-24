@@ -46,6 +46,7 @@ type MovementQuery = z.infer<typeof InventoryMovementQuerySchema>;
 type PendingQuery = z.infer<typeof PendingConsumptionQuerySchema>;
 
 const ROUND_HALF_UP = Prisma.Decimal.ROUND_HALF_UP;
+const MAX_COGS_AMOUNT = Number.MAX_SAFE_INTEGER;
 const POST_PURCHASE = "POST_INVENTORY_PURCHASE";
 const POST_COUNT = "POST_INVENTORY_COUNT";
 const IDEMPOTENCY_TTL = 24 * 60 * 60 * 1000;
@@ -53,6 +54,12 @@ const IDEMPOTENCY_TTL = 24 * 60 * 60 * 1000;
 function decimal(value: string | number | Prisma.Decimal) { return new Prisma.Decimal(value); }
 function dstr(value: Prisma.Decimal | null | undefined) { return value?.toFixed(6).replace(/\.?0+$/, "") || "0"; }
 function intMoney(value: Prisma.Decimal) { return value.toDecimalPlaces(0, ROUND_HALF_UP).toNumber(); }
+function checkedCogsAmount(value: number) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_COGS_AMOUNT) {
+    fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The order's total cost exceeds the safely representable Toman range.");
+  }
+  return value;
+}
 function sha(value: unknown) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function fail(status: number, code: ErrorCode, message: string): never { throw new ApplicationError(status, code, message); }
 function stale(message: string, version: number): never { throw new ApplicationError(409, ErrorCodes.STALE_VERSION, message, [{ path: "expectedVersion", code: "current_version", message: `Current version is ${version}.` }]); }
@@ -67,9 +74,13 @@ function dtoStock(row: any) {
   const unitCost = balance?.trackingStartedAt && balance.quantityOnHand.gt(0)
     ? decimal(balance.carryingValueAmount).div(balance.quantityOnHand)
     : balance?.trackingStartedAt ? decimal(0) : null;
+  const referencePurchase = row.referencePurchaseUnitLabel != null && row.referencePurchaseQuantity != null && row.referencePurchasePriceAmount != null
+    ? { conversionId: row.referencePurchaseConversionId ?? null, conversionLabel: row.referencePurchaseUnitLabel, packageQuantity: dstr(row.referencePurchaseQuantity), baseQuantityPerPack: dstr(row.referencePurchaseConversion?.baseQuantityPerPack ?? decimal(1)), priceAmount: row.referencePurchasePriceAmount }
+    : null;
   return {
     id: row.id, name: row.archivedName ?? row.name, category: row.category, baseUnit: row.baseUnit,
     isPackagingMaterial: row.isPackagingMaterial, isActive: row.isActive, archivedAt: row.archivedAt?.toISOString() ?? null, version: row.version,
+    referencePurchase,
     conversions: row.conversions.map((conversion: any) => ({ id: conversion.id, label: conversion.label, baseQuantityPerPack: dstr(conversion.baseQuantityPerPack), isActive: conversion.isActive })),
     lowStockThreshold: row.lowStockThreshold == null ? null : row.lowStockThreshold.toFixed(6),
     balance: { quantityOnHand: balance?.trackingStartedAt ? dstr(balance.quantityOnHand) : null, carryingValueAmount: balance?.trackingStartedAt ? balance.carryingValueAmount : null, movingAverageCostPerBaseUnit: unitCost?.toFixed(6) ?? null, trackingStartedAt: balance?.trackingStartedAt?.toISOString() ?? null },
@@ -78,49 +89,152 @@ function dtoStock(row: any) {
 }
 
 export async function listStockItems(prisma: PrismaClient) {
-  return (await prisma.stockItem.findMany({ orderBy: [{ category: "asc" }, { name: "asc" }], include: { conversions: { orderBy: [{ isActive: "desc" }, { label: "asc" }] }, balance: true } })).map(dtoStock);
+  return (await prisma.stockItem.findMany({ orderBy: [{ category: "asc" }, { name: "asc" }], include: { conversions: { orderBy: [{ isActive: "desc" }, { label: "asc" }] }, referencePurchaseConversion: true, balance: true } })).map(dtoStock);
 }
+
+const MAX_STOCK_QUANTITY = decimal("100000000000000");
+const STOCK_SCALE = BigInt(1_000_000);
+
+function assertStockQuantity(quantity: Prisma.Decimal) {
+  if (quantity.isNegative() || quantity.gte(MAX_STOCK_QUANTITY) || quantity.decimalPlaces() > 6) {
+    fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The opening quantity exceeds the supported inventory range or precision.");
+  }
+}
+
+function decimalMicros(value: Prisma.Decimal) {
+  const [whole, fraction = ""] = value.toFixed(6).split(".");
+  return BigInt(whole!) * STOCK_SCALE + BigInt(fraction);
+}
+
+function decimalFromMicros(micros: bigint) {
+  const whole = micros / STOCK_SCALE;
+  const fraction = (micros % STOCK_SCALE).toString().padStart(6, "0").replace(/0+$/, "");
+  return decimal(fraction ? `${whole}.${fraction}` : whole.toString());
+}
+
+function stockProductOrNull(left: Prisma.Decimal, right: Prisma.Decimal) {
+  const numerator = decimalMicros(left) * decimalMicros(right);
+  if (numerator % STOCK_SCALE !== BigInt(0)) return null;
+  const product = decimalFromMicros(numerator / STOCK_SCALE);
+  if (product.gte(MAX_STOCK_QUANTITY)) return null;
+  return product;
+}
+
+function exactStockProduct(left: Prisma.Decimal, right: Prisma.Decimal) {
+  const product = stockProductOrNull(left, right);
+  if (!product) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The converted package quantity must fit the six-decimal stock precision.");
+  return product;
+}
+
+function exactOpeningValue(quantity: Prisma.Decimal, priceAmount: number, packageBaseQuantity: Prisma.Decimal) {
+  const denominator = decimalMicros(packageBaseQuantity);
+  if (denominator <= BigInt(0)) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The reference package must contain a positive base-unit quantity.");
+  const numerator = decimalMicros(quantity) * BigInt(priceAmount);
+  const amount = (numerator + denominator / BigInt(2)) / denominator;
+  if (amount > BigInt(2_147_483_647)) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The calculated opening value exceeds the supported Toman range.");
+  return Number(amount);
+}
+
+function assertConversionLabels(baseUnit: string, conversions: StockInput["conversions"], existing: Array<{ id: string; label: string }> = []) {
+  if (conversions.some((conversion) => conversion.label === baseUnit
+    && !existing.some((saved) => saved.id === conversion.id && saved.label === baseUnit))) {
+    fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A named conversion cannot use the stock item's base-unit label.");
+  }
+}
+
+function referencePurchaseFromInputs(baseUnit: string, reference: StockInput["referencePurchase"], conversions: StockInput["conversions"]) {
+  if (!reference) return null;
+  if (reference.conversionLabel === baseUnit) {
+    const resolved = { conversionId: null, conversionLabel: baseUnit, packageQuantity: decimal(reference.packageQuantity), baseQuantityPerPack: decimal(1), priceAmount: reference.priceAmount };
+    exactStockProduct(resolved.packageQuantity, resolved.baseQuantityPerPack);
+    return resolved;
+  }
+  const conversion = conversions.find((candidate) => candidate.label.toLocaleLowerCase() === reference.conversionLabel.toLocaleLowerCase() && candidate.isActive);
+  if (!conversion) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The purchase package unit must be an active base unit or stock-item conversion.");
+  const resolved = { conversionId: conversion.id ?? null, conversionLabel: conversion.label, packageQuantity: decimal(reference.packageQuantity), baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), priceAmount: reference.priceAmount };
+  exactStockProduct(resolved.packageQuantity, resolved.baseQuantityPerPack);
+  return resolved;
+}
+
+async function resolveReferencePurchase(tx: Tx, stockItemId: string, baseUnit: string, reference: StockInput["referencePurchase"]) {
+  if (!reference) return null;
+  if (reference.conversionLabel === baseUnit) {
+    const resolved = { conversionId: null, conversionLabel: baseUnit, packageQuantity: decimal(reference.packageQuantity), baseQuantityPerPack: decimal(1), priceAmount: reference.priceAmount };
+    exactStockProduct(resolved.packageQuantity, resolved.baseQuantityPerPack);
+    return resolved;
+  }
+  const conversion = await tx.stockUnitConversion.findFirst({ where: { stockItemId, label: reference.conversionLabel, isActive: true } });
+  if (!conversion) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The purchase package unit must be an active conversion belonging to this stock item.");
+  const resolved = { conversionId: conversion.id, conversionLabel: conversion.label, packageQuantity: decimal(reference.packageQuantity), baseQuantityPerPack: conversion.baseQuantityPerPack, priceAmount: reference.priceAmount };
+  exactStockProduct(resolved.packageQuantity, resolved.baseQuantityPerPack);
+  return resolved;
+}
+
+function openingStockValue(openingStock: StockInput["openingStock"], reference: ReturnType<typeof referencePurchaseFromInputs>, legacyQuantity: Prisma.Decimal, legacyValue: number) {
+  if (!openingStock) {
+    assertStockQuantity(legacyQuantity);
+    return { quantity: legacyQuantity, valueAmount: legacyValue };
+  }
+  let quantity: Prisma.Decimal;
+  if (openingStock.method === "TOTAL_QUANTITY") quantity = decimal(openingStock.totalQuantity);
+  else {
+    if (!reference && openingStock.packageCount > 0) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Configure a purchase package before entering a package count.");
+    const packageBaseQuantity = reference ? exactStockProduct(reference.packageQuantity, reference.baseQuantityPerPack) : decimal(0);
+    const totalMicros = decimalMicros(packageBaseQuantity) * BigInt(openingStock.packageCount) + decimalMicros(decimal(openingStock.looseQuantity));
+    quantity = decimalFromMicros(totalMicros);
+  }
+  assertStockQuantity(quantity);
+  if (!reference) {
+    if (!quantity.isZero()) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Configure a purchase package and price before valuing a positive opening balance.");
+    return { quantity, valueAmount: 0 };
+  }
+  const packageBaseQuantity = exactStockProduct(reference.packageQuantity, reference.baseQuantityPerPack);
+  if (packageBaseQuantity.isZero()) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The converted package quantity must fit the six-decimal stock precision.");
+  return { quantity, valueAmount: exactOpeningValue(quantity, reference.priceAmount, packageBaseQuantity) };
+}
+
 export async function createStockItem(prisma: PrismaClient, actor: AuthenticatedUser, input: StockInput, requestId: string) {
+  assertConversionLabels(input.baseUnit, input.conversions);
   const ids = input.conversions.map(({ label }) => label.toLocaleLowerCase());
   if (new Set(ids).size !== ids.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Conversion labels must be unique for a stock item.");
   return prisma.$transaction(async (tx) => {
     const duplicate = await tx.stockItem.findFirst({ where: { name: input.name, isActive: true, archivedAt: null }, select: { id: true } });
     if (duplicate) fail(409, ErrorCodes.CONFLICT, "An active stock item with this name already exists.");
     const occurredAt = new Date();
-    const openingQuantity = decimal(input.openingQuantity);
-    const row = await tx.stockItem.create({ data: { name: input.name, category: input.category, baseUnit: input.baseUnit, isPackagingMaterial: input.isPackagingMaterial, lowStockThreshold: input.lowStockThreshold == null ? null : decimal(input.lowStockThreshold), createdById: actor.id, conversions: { create: input.conversions.map((conversion) => ({ label: conversion.label, baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), isActive: conversion.isActive })) }, balance: { create: { quantityOnHand: openingQuantity, carryingValueAmount: input.openingValueAmount, trackingStartedAt: occurredAt } } }, include: { conversions: true, balance: true } });
-    const openingCount = await tx.inventoryCount.create({ data: { kind: InventoryCountKind.OPENING, status: InventoryCountStatus.POSTED, createdById: actor.id, createdAt: occurredAt, postedAt: occurredAt, lines: { create: { stockItemId: row.id, observedQuantity: openingQuantity, observedValueAmount: input.openingValueAmount } } }, include: { lines: true } });
+    const referenceInput = referencePurchaseFromInputs(input.baseUnit, input.referencePurchase, input.conversions);
+    const opening = openingStockValue(input.openingStock, referenceInput, decimal(input.openingQuantity ?? "0"), input.openingValueAmount ?? 0);
+    const openingQuantity = opening.quantity;
+    const row = await tx.stockItem.create({ data: { name: input.name, category: input.category, baseUnit: input.baseUnit, isPackagingMaterial: input.isPackagingMaterial, lowStockThreshold: input.lowStockThreshold == null ? null : decimal(input.lowStockThreshold), createdById: actor.id, conversions: { create: input.conversions.map((conversion) => ({ label: conversion.label, baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), isActive: conversion.isActive })) }, balance: { create: { quantityOnHand: openingQuantity, carryingValueAmount: opening.valueAmount, trackingStartedAt: occurredAt } } }, include: { conversions: true, balance: true } });
+    if (input.referencePurchase) {
+      const conversion = referenceInput?.conversionLabel === input.baseUnit ? null : row.conversions.find((candidate) => candidate.label === referenceInput?.conversionLabel);
+      if (referenceInput?.conversionId !== null && !conversion) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The reference purchase conversion could not be saved.");
+      await tx.stockItem.update({ where: { id: row.id }, data: { referencePurchaseQuantity: referenceInput!.packageQuantity, referencePurchasePriceAmount: referenceInput!.priceAmount, referencePurchaseUnitLabel: referenceInput!.conversionLabel, referencePurchaseConversionId: conversion?.id ?? null } });
+    }
+    const openingCount = await tx.inventoryCount.create({ data: { kind: InventoryCountKind.OPENING, status: InventoryCountStatus.POSTED, createdById: actor.id, createdAt: occurredAt, postedAt: occurredAt, lines: { create: { stockItemId: row.id, observedQuantity: openingQuantity, observedValueAmount: opening.valueAmount } } }, include: { lines: true } });
     const openingLine = openingCount.lines[0]!;
-    if (!openingQuantity.isZero() || input.openingValueAmount !== 0) await tx.inventoryMovement.create({ data: { stockItemId: row.id, kind: InventoryMovementKind.OPENING_COUNT, quantityDelta: openingQuantity, valueDeltaAmount: input.openingValueAmount, inventoryCountLineId: openingLine.id, createdById: actor.id, occurredAt } });
-    await audit(tx, actor.id, requestId, "CREATE_STOCK_ITEM", "STOCK_ITEM", row.id, undefined, { name: row.name, baseUnit: row.baseUnit, isPackagingMaterial: row.isPackagingMaterial, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, openingQuantity: dstr(openingQuantity), openingValueAmount: input.openingValueAmount, openingCountId: openingCount.id });
-    return dtoStock(row);
+    if (!openingQuantity.isZero() || opening.valueAmount !== 0) await tx.inventoryMovement.create({ data: { stockItemId: row.id, kind: InventoryMovementKind.OPENING_COUNT, quantityDelta: openingQuantity, valueDeltaAmount: opening.valueAmount, inventoryCountLineId: openingLine.id, createdById: actor.id, occurredAt } });
+    await audit(tx, actor.id, requestId, "CREATE_STOCK_ITEM", "STOCK_ITEM", row.id, undefined, { name: row.name, baseUnit: row.baseUnit, isPackagingMaterial: row.isPackagingMaterial, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, referencePurchase: input.referencePurchase ?? null, openingQuantity: dstr(openingQuantity), openingValueAmount: opening.valueAmount, openingCountId: openingCount.id });
+    const completeRow = await tx.stockItem.findUniqueOrThrow({ where: { id: row.id }, include: { conversions: true, referencePurchaseConversion: true, balance: true } });
+    return dtoStock(completeRow);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 export async function updateStockItem(prisma: PrismaClient, actor: AuthenticatedUser, id: string, input: StockUpdate, requestId: string) {
   return prisma.$transaction(async (tx) => {
-    if (input.openingQuantity !== undefined) await lock(tx, [`inventory:${id}`]);
-    const current = await tx.stockItem.findUnique({ where: { id }, include: { conversions: true, balance: true } });
+    const hasOpening = input.openingStock !== undefined || input.openingQuantity !== undefined;
+    if (hasOpening) await lock(tx, [`inventory:${id}`]);
+    const current = await tx.stockItem.findUnique({ where: { id }, include: { conversions: true, referencePurchaseConversion: true, balance: true } });
     if (!current) fail(404, ErrorCodes.NOT_FOUND, "The stock item was not found.");
     if (current.archivedAt) fail(409, ErrorCodes.INVALID_STATE, "An archived stock item cannot be edited.");
     if (current.version !== input.expectedVersion) stale("The stock item has changed.", current.version);
-    if (input.openingQuantity !== undefined) {
-      if (current.balance?.trackingStartedAt) fail(409, ErrorCodes.INVALID_STATE, "An opening balance can only be set once, before inventory tracking starts.");
-      const priorMovements = await tx.inventoryMovement.count({ where: { stockItemId: id } });
-      if (priorMovements > 0) fail(409, ErrorCodes.INVALID_STATE, "An item with inventory history cannot receive another opening balance.");
-      const occurredAt = new Date();
-      const quantity = decimal(input.openingQuantity);
-      await tx.inventoryBalance.upsert({ where: { stockItemId: id }, create: { stockItemId: id, quantityOnHand: quantity, carryingValueAmount: input.openingValueAmount!, trackingStartedAt: occurredAt }, update: { quantityOnHand: quantity, carryingValueAmount: input.openingValueAmount!, trackingStartedAt: occurredAt } });
-      const openingCount = await tx.inventoryCount.create({ data: { kind: InventoryCountKind.OPENING, status: InventoryCountStatus.POSTED, createdById: actor.id, createdAt: occurredAt, postedAt: occurredAt, lines: { create: { stockItemId: id, observedQuantity: quantity, observedValueAmount: input.openingValueAmount! } } }, include: { lines: true } });
-      if (!quantity.isZero() || input.openingValueAmount !== 0) await tx.inventoryMovement.create({ data: { stockItemId: id, kind: InventoryMovementKind.OPENING_COUNT, quantityDelta: quantity, valueDeltaAmount: input.openingValueAmount!, inventoryCountLineId: openingCount.lines[0]!.id, createdById: actor.id, occurredAt } });
-    }
     if (input.baseUnit && input.baseUnit !== current.baseUnit) {
-      const referenced = current.balance?.trackingStartedAt || current.conversions.length > 0
+      const referenced = current.balance?.trackingStartedAt || current.conversions.length > 0 || current.referencePurchaseUnitLabel !== null
         || await tx.inventoryMovement.count({ where: { stockItemId: id } }) > 0
         || await tx.recipeComponent.count({ where: { stockItemId: id } }) > 0
         || await tx.purchaseLine.count({ where: { stockItemId: id } }) > 0;
       if (referenced) fail(409, ErrorCodes.INVALID_STATE, "A stock item's base unit cannot change after it has conversions or is referenced by costing or inventory history.");
     }
     const conversions = input.conversions;
+    if (conversions) assertConversionLabels(input.baseUnit ?? current.baseUnit, conversions, current.conversions);
     if (conversions && new Set(conversions.map((conversion) => conversion.label.toLocaleLowerCase())).size !== conversions.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Conversion labels must be unique for a stock item.");
     const updated = await tx.stockItem.updateMany({ where: { id, version: input.expectedVersion }, data: { ...(input.lowStockThreshold === undefined ? {} : { lowStockThreshold: input.lowStockThreshold === null ? null : decimal(input.lowStockThreshold) }), ...(input.isPackagingMaterial === undefined ? {} : { isPackagingMaterial: input.isPackagingMaterial }), ...(input.name === undefined ? {} : { name: input.name }), ...(input.category === undefined ? {} : { category: input.category }), ...(input.baseUnit === undefined ? {} : { baseUnit: input.baseUnit }), version: { increment: 1 } } });
     if (updated.count !== 1) fail(409, ErrorCodes.STALE_VERSION, "The stock item has changed.");
@@ -135,8 +249,37 @@ export async function updateStockItem(prisma: PrismaClient, actor: Authenticated
         } else await tx.stockUnitConversion.create({ data: { stockItemId: id, label: conversion.label, baseQuantityPerPack: decimal(conversion.baseQuantityPerPack), isActive: conversion.isActive } });
       }
     }
-    const row = await tx.stockItem.findUniqueOrThrow({ where: { id }, include: { conversions: true, balance: true } });
-    await audit(tx, actor.id, requestId, "UPDATE_STOCK_ITEM", "STOCK_ITEM", id, { version: current.version, lowStockThreshold: current.lowStockThreshold?.toFixed(6) ?? null, isPackagingMaterial: current.isPackagingMaterial }, { version: row.version, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, isPackagingMaterial: row.isPackagingMaterial, ...(input.openingQuantity === undefined ? {} : { openingQuantity: input.openingQuantity, openingValueAmount: input.openingValueAmount }) });
+    let row = await tx.stockItem.findUniqueOrThrow({ where: { id }, include: { conversions: true, referencePurchaseConversion: true, balance: true } });
+    let reference = row.referencePurchaseUnitLabel != null && row.referencePurchaseQuantity != null && row.referencePurchasePriceAmount != null
+      ? { conversionId: row.referencePurchaseConversionId, conversionLabel: row.referencePurchaseUnitLabel, packageQuantity: row.referencePurchaseQuantity, baseQuantityPerPack: row.referencePurchaseConversion?.baseQuantityPerPack ?? decimal(1), priceAmount: row.referencePurchasePriceAmount }
+      : null;
+    if (input.referencePurchase === null) {
+      await tx.stockItem.update({ where: { id }, data: { referencePurchaseQuantity: null, referencePurchasePriceAmount: null, referencePurchaseUnitLabel: null, referencePurchaseConversionId: null } });
+      reference = null;
+    } else if (input.referencePurchase !== undefined) {
+      reference = await resolveReferencePurchase(tx, id, input.baseUnit ?? current.baseUnit, input.referencePurchase);
+      await tx.stockItem.update({ where: { id }, data: { referencePurchaseQuantity: reference!.packageQuantity, referencePurchasePriceAmount: reference!.priceAmount, referencePurchaseUnitLabel: reference!.conversionLabel, referencePurchaseConversionId: reference!.conversionId } });
+    } else if (input.conversions !== undefined && row.referencePurchaseConversionId) {
+      const conversion = row.referencePurchaseConversion;
+      if (!conversion?.isActive) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Keep the configured purchase package unit active or choose a replacement unit.");
+      exactStockProduct(reference!.packageQuantity, conversion.baseQuantityPerPack);
+      if (conversion.label !== row.referencePurchaseUnitLabel) {
+        await tx.stockItem.update({ where: { id }, data: { referencePurchaseUnitLabel: conversion.label } });
+        reference = { ...reference!, conversionLabel: conversion.label, baseQuantityPerPack: conversion.baseQuantityPerPack };
+      } else reference = { ...reference!, baseQuantityPerPack: conversion.baseQuantityPerPack };
+    }
+    if (hasOpening) {
+      if (row.balance?.trackingStartedAt) fail(409, ErrorCodes.INVALID_STATE, "An opening balance can only be set once, before inventory tracking starts.");
+      const priorMovements = await tx.inventoryMovement.count({ where: { stockItemId: id } });
+      if (priorMovements > 0) fail(409, ErrorCodes.INVALID_STATE, "An item with inventory history cannot receive another opening balance.");
+      const occurredAt = new Date();
+      const opening = openingStockValue(input.openingStock, reference, decimal(input.openingQuantity ?? "0"), input.openingValueAmount ?? 0);
+      await tx.inventoryBalance.upsert({ where: { stockItemId: id }, create: { stockItemId: id, quantityOnHand: opening.quantity, carryingValueAmount: opening.valueAmount, trackingStartedAt: occurredAt }, update: { quantityOnHand: opening.quantity, carryingValueAmount: opening.valueAmount, trackingStartedAt: occurredAt } });
+      const openingCount = await tx.inventoryCount.create({ data: { kind: InventoryCountKind.OPENING, status: InventoryCountStatus.POSTED, createdById: actor.id, createdAt: occurredAt, postedAt: occurredAt, lines: { create: { stockItemId: id, observedQuantity: opening.quantity, observedValueAmount: opening.valueAmount } } }, include: { lines: true } });
+      if (!opening.quantity.isZero() || opening.valueAmount !== 0) await tx.inventoryMovement.create({ data: { stockItemId: id, kind: InventoryMovementKind.OPENING_COUNT, quantityDelta: opening.quantity, valueDeltaAmount: opening.valueAmount, inventoryCountLineId: openingCount.lines[0]!.id, createdById: actor.id, occurredAt } });
+    }
+    row = await tx.stockItem.findUniqueOrThrow({ where: { id }, include: { conversions: true, referencePurchaseConversion: true, balance: true } });
+    await audit(tx, actor.id, requestId, "UPDATE_STOCK_ITEM", "STOCK_ITEM", id, { version: current.version, lowStockThreshold: current.lowStockThreshold?.toFixed(6) ?? null, isPackagingMaterial: current.isPackagingMaterial, referencePurchase: dtoStock(current).referencePurchase }, { version: row.version, lowStockThreshold: row.lowStockThreshold?.toFixed(6) ?? null, isPackagingMaterial: row.isPackagingMaterial, referencePurchase: dtoStock(row).referencePurchase, ...(hasOpening ? { openingQuantity: dtoStock(row).balance.quantityOnHand, openingValueAmount: dtoStock(row).balance.carryingValueAmount } : {}) });
     return dtoStock(row);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
@@ -152,7 +295,7 @@ export async function archiveStockItem(prisma: PrismaClient, actor: Authenticate
       if (!exists) fail(404, ErrorCodes.NOT_FOUND, "The stock item was not found.");
       fail(409, ErrorCodes.STALE_VERSION, "The stock item has changed.");
     }
-    const row = await tx.stockItem.findUniqueOrThrow({ where: { id }, include: { conversions: true, balance: true } });
+    const row = await tx.stockItem.findUniqueOrThrow({ where: { id }, include: { conversions: true, referencePurchaseConversion: true, balance: true } });
     await audit(tx, actor.id, requestId, "ARCHIVE_STOCK_ITEM", "STOCK_ITEM", id, undefined, { version: row.version });
     return dtoStock(row);
   });
@@ -162,9 +305,66 @@ function purchaseDto(row: any) {
   return { id: row.id, status: row.status, receivedAt: row.receivedAt.toISOString(), supplier: row.supplier, version: row.version, postedAt: row.postedAt?.toISOString() ?? null,
     lines: row.lines.map((line: any) => ({ id: line.id, stockItemId: line.stockItemId, conversionId: line.conversionId, purchaseUnitLabel: line.purchaseUnitLabel, purchaseQuantity: dstr(line.purchaseQuantity), directCostAmount: line.directCostAmount, baseQuantityPerPack: dstr(line.baseQuantityPerPack), baseQuantityReceived: dstr(line.baseQuantityReceived) })) };
 }
-async function preparePurchaseLines(tx: Tx, lines: PurchaseInput["lines"]) {
+async function preparePurchaseLines(tx: Tx, lines: PurchaseInput["lines"], savedLines: Array<{
+  id: string;
+  stockItemId: string;
+  conversionId: string | null;
+  purchaseUnitLabel: string;
+  purchaseQuantity: Prisma.Decimal;
+  baseQuantityPerPack: Prisma.Decimal;
+  baseQuantityReceived: Prisma.Decimal;
+}> = []) {
   const prepared: any[] = [];
+  const reusedSnapshots = new Set<number>();
+  const allowLegacySnapshotInference = lines.every((line) => !line.id && line.useCurrentConversion === undefined);
   for (const line of lines) {
+    let snapshotIndex = -1;
+    if (line.id) {
+      snapshotIndex = savedLines.findIndex((saved) => saved.id === line.id);
+      if (snapshotIndex < 0 || reusedSnapshots.has(snapshotIndex)) {
+        throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A purchase line does not belong to this draft or is repeated.", [{ path: "lines." + prepared.length + ".id", code: "invalid_purchase_line", message: "Use a unique line ID from this draft." }]);
+      }
+      reusedSnapshots.add(snapshotIndex);
+    } else if (allowLegacySnapshotInference) {
+      const candidates = savedLines.flatMap((saved, index) => !reusedSnapshots.has(index)
+        && saved.stockItemId === line.stockItemId
+        && saved.conversionId === line.conversionId
+        && saved.purchaseUnitLabel === line.purchaseUnitLabel
+        && saved.purchaseQuantity.eq(line.purchaseQuantity) ? [index] : []);
+      const candidatesShareFactor = candidates.length > 1
+        && candidates.every((index) => savedLines[index]!.baseQuantityPerPack.eq(savedLines[candidates[0]!]!.baseQuantityPerPack));
+      if (candidates.length > 1 && !candidatesShareFactor) {
+        throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A purchase draft with repeated equivalent lines must identify each line when it is edited.", [{ path: "lines." + prepared.length + ".id", code: "ambiguous_purchase_line", message: "Include each saved purchase line ID." }]);
+      }
+      if (candidates.length >= 1) {
+        snapshotIndex = candidates[0]!;
+        reusedSnapshots.add(snapshotIndex);
+      }
+    }
+    if (snapshotIndex >= 0) {
+      const saved = savedLines[snapshotIndex]!;
+      const sameUnit = saved.stockItemId === line.stockItemId && saved.conversionId === line.conversionId && saved.purchaseUnitLabel === line.purchaseUnitLabel;
+      const baseQuantityReceived = !line.useCurrentConversion && sameUnit
+        ? stockProductOrNull(decimal(line.purchaseQuantity), saved.baseQuantityPerPack)
+        : null;
+      if (line.useCurrentConversion || !sameUnit) {
+        snapshotIndex = -1;
+      } else if (!baseQuantityReceived) {
+        throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The converted purchase quantity must fit the supported range and be exact to six decimal places.", [{ path: "lines." + prepared.length + ".purchaseQuantity", code: "quantity_precision", message: "Use a quantity whose package conversion is exact to six decimal places." }]);
+      }
+      if (snapshotIndex >= 0) {
+        prepared.push({
+          stockItemId: line.stockItemId,
+          conversionId: line.conversionId,
+          purchaseUnitLabel: line.purchaseUnitLabel,
+          purchaseQuantity: decimal(line.purchaseQuantity),
+          baseQuantityPerPack: saved.baseQuantityPerPack,
+          baseQuantityReceived: baseQuantityReceived!,
+          directCostAmount: line.directCostAmount,
+        });
+        continue;
+      }
+    }
     const lineFail: (field: string, message: string) => never = (field, message) => { throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, message, [{ path: `lines.${prepared.length}.${field}`, code: "unavailable_reference", message }]); };
     const stock = await tx.stockItem.findFirst({ where: { id: line.stockItemId, isActive: true, archivedAt: null }, include: { conversions: { where: { isActive: true } } } });
     if (!stock) lineFail("stockItemId", "Every purchase line must reference an active stock item.");
@@ -178,7 +378,8 @@ async function preparePurchaseLines(tx: Tx, lines: PurchaseInput["lines"]) {
       if (line.purchaseUnitLabel !== conversion.label) lineFail("purchaseUnitLabel", "The purchase unit label must match the selected conversion.");
       pack = conversion.baseQuantityPerPack;
     }
-    const baseQuantityReceived = decimal(line.purchaseQuantity).mul(pack);
+    const baseQuantityReceived = stockProductOrNull(decimal(line.purchaseQuantity), pack);
+    if (!baseQuantityReceived) throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The converted purchase quantity must fit the supported range and be exact to six decimal places.", [{ path: "lines." + prepared.length + ".purchaseQuantity", code: "quantity_precision", message: "Use a quantity whose package conversion is exact to six decimal places." }]);
     if (baseQuantityReceived.decimalPlaces() > 6 || baseQuantityReceived.gte("100000000000000")) {
       throw new ApplicationError(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "The converted purchase quantity must fit the supported range and be exact to six decimal places.", [{ path: `lines.${prepared.length}.purchaseQuantity`, code: "quantity_precision", message: "Use a quantity whose package conversion is exact to six decimal places." }]);
     }
@@ -212,7 +413,7 @@ export async function updatePurchase(prisma: PrismaClient, actor: AuthenticatedU
     if (!current) fail(404, ErrorCodes.NOT_FOUND, "The purchase was not found.");
     if (current.status !== PurchaseStatus.DRAFT) fail(409, ErrorCodes.INVALID_STATE, "Only draft purchases can be edited.");
     if (current.version !== input.expectedVersion) stale("The purchase has changed.", current.version);
-    const lines = input.lines ? await preparePurchaseLines(tx, input.lines) : undefined;
+    const lines = input.lines ? await preparePurchaseLines(tx, input.lines, current.lines) : undefined;
     const result = await tx.purchase.updateMany({ where: { id, version: input.expectedVersion, status: PurchaseStatus.DRAFT }, data: { ...(input.receivedAt === undefined ? {} : { receivedAt: new Date(input.receivedAt) }), ...(input.supplier === undefined ? {} : { supplier: input.supplier }), version: { increment: 1 } } });
     if (result.count !== 1) fail(409, ErrorCodes.STALE_VERSION, "The purchase has changed.");
     if (lines) { await tx.purchaseLine.deleteMany({ where: { purchaseId: id } }); await tx.purchaseLine.createMany({ data: lines.map((line) => ({ ...line, purchaseId: id })) }); }
@@ -222,8 +423,9 @@ export async function updatePurchase(prisma: PrismaClient, actor: AuthenticatedU
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
-type FlatComponent = { stockItemId: string; stockItemName: string; baseUnit: string; quantity: Prisma.Decimal; isPackagingMaterial: boolean; sourceKey: string };
-type CostSnapshot = { components: Array<{ stockItemId: string; stockItemName: string; baseUnit: string; quantity: string; packagingQuantity: string; isPackagingMaterial: boolean; knownCostAmount: number | null; packagingKnownCostAmount: number | null; nonPackagingKnownCostAmount: number | null }>; isComplete: boolean; missingReasons: string[]; configurationVersion: number | null };
+type FlatComponent = { stockItemId: string; stockItemName: string; baseUnit: string; quantity: Prisma.Decimal; isPackagingMaterial: boolean; sourceKey: string; takeawayPackagingQuantity?: Prisma.Decimal };
+type EstimatedCostSnapshotEntry = { name: string; amount: number };
+type CostSnapshot = { snapshotFormatVersion?: 2; components: Array<{ stockItemId: string; stockItemName: string; baseUnit: string; quantity: string; packagingQuantity: string; takeawayPackagingQuantity?: string; isPackagingMaterial: boolean; knownCostAmount: number | null; packagingKnownCostAmount: number | null; nonPackagingKnownCostAmount: number | null }>; estimatedCostAmount: number; estimatedCosts: EstimatedCostSnapshotEntry[]; isComplete: boolean; missingReasons: string[]; configurationVersion: number | null };
 
 export function hasOnlyMissingPackagingConfiguration(systemKey: string | null, snapshot: unknown) {
   if (systemKey !== "PACKING" || !snapshot || typeof snapshot !== "object") return false;
@@ -266,23 +468,24 @@ function applyCostingRule(components: Array<{ componentKey: string; label: strin
 }
 async function resolveCosting(tx: Tx, productId: string, optionIds: string[], quantity: number, weightGrams: number | null, includeCosts: boolean, channel: "TABLE" | "TAKEAWAY" = "TABLE", orderQuantity = quantity, previousQuantity = 0): Promise<CostSnapshot> {
   const product = await tx.product.findUnique({ where: { id: productId }, select: { id: true, name: true, pricingMode: true, systemKey: true } });
-  if (!product) return { components: [], isComplete: false, missingReasons: ["product-not-found"], configurationVersion: null };
+  if (!product) return { components: [], estimatedCostAmount: 0, estimatedCosts: [], isComplete: false, missingReasons: ["product-not-found"], configurationVersion: null };
   const config: any = await tx.productCostingConfiguration.findUnique({ where: { productId }, include: { product: { select: { optionRecipeCostings: { include: { recipe: { include: { components: { orderBy: [{ displayOrder: "asc" }, { id: "asc" }] } } } } }, optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true } }, costingCombinations: { where: { isActive: true }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true } } } } } } } });
   if (!config) {
     // Packaging charges need no separate recipe. The menu item mappings
     // account for physical packaging, including when no charge is added.
     const missingReasons = product.systemKey === "PACKING" ? [] : [`missing-costing:${product.name}`];
-    return { components: [], isComplete: missingReasons.length === 0, missingReasons, configurationVersion: null };
+    return { components: [], estimatedCostAmount: 0, estimatedCosts: [], isComplete: missingReasons.length === 0, missingReasons, configurationVersion: null };
   }
+  const usesEstimatedCost = config.useEstimatedCost === true;
   const overrides = channel === "TAKEAWAY" ? config.takeawayOptionRecipes ?? [] : [];
   const overriddenIds = new Set(overrides.map((entry: any) => entry.optionId));
   const optionCostings = [...config.product.optionRecipeCostings.filter((entry: any) => !overriddenIds.has(entry.optionId))];
   for (const entry of overrides) optionCostings.push({ ...entry, recipe: await tx.recipe.findUnique({ where: { id: entry.recipeId }, include: { components: true } }) });
   const baseRecipeId = channel === "TAKEAWAY" && config.takeawayRecipeId ? config.takeawayRecipeId : config.recipeId;
   const sortedOptionIds = [...new Set(optionIds)].sort();
-  const selectedOptionRecipes = optionCostings.filter((entry: any) => sortedOptionIds.includes(entry.optionId));
+  const selectedOptionRecipes = usesEstimatedCost ? [] : optionCostings.filter((entry: any) => sortedOptionIds.includes(entry.optionId));
   if (selectedOptionRecipes.length > 1) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Select at most one menu option with a complete recipe.");
-  const applicable = selectedOptionRecipes.length ? [] : config.product.costingCombinations.filter((combo: any) => {
+  const applicable = usesEstimatedCost || selectedOptionRecipes.length ? [] : config.product.costingCombinations.filter((combo: any) => {
     const ids = combo.options.map((entry: any) => entry.optionId).sort();
     return ids.length === sortedOptionIds.length && ids.every((id: string, i: number) => id === sortedOptionIds[i]);
   });
@@ -291,8 +494,12 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
     ? decimal((weightGrams ?? 0) * quantity).div(1000)
     : decimal(quantity);
   const missingReasons: string[] = [];
+  const estimatedCosts: EstimatedCostSnapshotEntry[] = [];
   const root: Array<{ componentKey: string; label: string; sourceKind: "STOCK_ITEM" | "RECIPE"; sourceId: string; quantity: Prisma.Decimal }> = [];
-  if (selectedOptionRecipes.length) {
+  if (usesEstimatedCost) {
+    if (config.estimatedCostAmount === null || config.estimatedCostAmount === undefined) missingReasons.push(`missing-estimated-cost:${product.name}`);
+    else estimatedCosts.push({ name: product.name, amount: intMoney(decimal(config.estimatedCostAmount).mul(unitMultiplier)) });
+  } else if (selectedOptionRecipes.length) {
     const selected = selectedOptionRecipes[0];
     const recipe = selected.recipe;
     if (recipe && recipe.isActive && !recipe.archivedAt) for (const component of recipe.components) root.push({ componentKey: component.componentKey, label: component.label, sourceKind: component.sourceKind, sourceId: component.stockItemId ?? component.nestedRecipeId!, quantity: component.quantity.mul(decimal(selected.recipeQuantity).mul(unitMultiplier)).div(recipe.yieldQuantity) });
@@ -307,7 +514,7 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
     if (stock) root.push({ componentKey: "$purchased", label: stock.name, sourceKind: "STOCK_ITEM", sourceId: config.purchasedStockItemId, quantity: units });
     else missingReasons.push(`missing-stock:${config.purchasedStockItemId}`);
   }
-  const optionRuleRows = selectedOptionRecipes.length ? [] : config.product.optionCostingRules.filter((rule: any) => sortedOptionIds.includes(rule.optionId));
+  const optionRuleRows = usesEstimatedCost || selectedOptionRecipes.length ? [] : config.product.optionCostingRules.filter((rule: any) => sortedOptionIds.includes(rule.optionId));
   const selectedByKey = new Map<string, any>();
   for (const row of optionRuleRows) {
     if (selectedByKey.has(row.componentKey)) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Selected options have conflicting rules for the same component.");
@@ -337,8 +544,16 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
       flattened.push({ stockItemId: stock.id, stockItemName: stock.name, baseUnit: stock.baseUnit, quantity: component.quantity, isPackagingMaterial: stock.isPackagingMaterial, sourceKey: component.componentKey });
     } else flattened.push(...await flattenRecipe(tx, component.sourceId, component.quantity, component.componentKey, new Set(), missingReasons));
   }
-  if (config.extrasRecipeId && selectedOptionRecipes.length === 0) flattened.push(...await flattenRecipe(tx, config.extrasRecipeId, unitMultiplier, "", new Set(), missingReasons));
+  if (!usesEstimatedCost && config.extrasRecipeId && selectedOptionRecipes.length === 0) flattened.push(...await flattenRecipe(tx, config.extrasRecipeId, unitMultiplier, "", new Set(), missingReasons));
   for (const [index, entry] of ((config.servedAlongside ?? []) as NonNullable<CostingInput["servedAlongside"]>).entries()) {
+    if (entry.sourceKind === "ESTIMATED_COST") {
+      if (!entry.name.trim() || !Number.isSafeInteger(entry.estimatedCostAmount) || entry.estimatedCostAmount < 0) {
+        missingReasons.push(`missing-estimated-cost:${index + 1}`);
+        continue;
+      }
+      estimatedCosts.push({ name: entry.name, amount: intMoney(decimal(entry.estimatedCostAmount).mul(quantity)) });
+      continue;
+    }
     const amount = decimal(entry.quantity).mul(quantity);
     if (entry.sourceKind === "STOCK_ITEM") {
       const stock = await tx.stockItem.findFirst({ where: { id: entry.stockItemId, isActive: true, archivedAt: null } });
@@ -355,18 +570,19 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
       : packing.mode === "PER_ORDER" ? (previousQuantity === 0 ? 1 : 0) : quantity;
     if (!multiplier) continue;
     const stock = await tx.stockItem.findFirst({ where: { id: packing.stockItemId, isActive: true, archivedAt: null } });
-    if (!stock) { missingReasons.push(`missing-stock:${packing.stockItemId}`); continue; }
+    if (!stock) { missingReasons.push(`missing-takeaway-packaging:${packing.stockItemId}`); continue; }
     flattened.push({ stockItemId: stock.id, stockItemName: stock.name, baseUnit: stock.baseUnit,
-      quantity: decimal(packing.quantity).mul(multiplier), isPackagingMaterial: true, sourceKey: `$packaging:${stock.id}` });
+      quantity: decimal(packing.quantity).mul(multiplier), isPackagingMaterial: true, sourceKey: `$packaging:${stock.id}`, takeawayPackagingQuantity: decimal(packing.quantity).mul(multiplier) });
   }
-  const merged = new Map<string, { stockItemId: string; stockItemName: string; baseUnit: string; quantity: Prisma.Decimal; packagingQuantity: Prisma.Decimal }>();
+  const merged = new Map<string, { stockItemId: string; stockItemName: string; baseUnit: string; quantity: Prisma.Decimal; packagingQuantity: Prisma.Decimal; takeawayPackagingQuantity: Prisma.Decimal }>();
   for (const component of flattened) {
     const key = `${component.stockItemId}:${component.baseUnit}`;
     const old = merged.get(key);
     if (old) {
       old.quantity = old.quantity.plus(component.quantity);
       if (component.isPackagingMaterial) old.packagingQuantity = old.packagingQuantity.plus(component.quantity);
-    } else merged.set(key, { stockItemId: component.stockItemId, stockItemName: component.stockItemName, baseUnit: component.baseUnit, quantity: component.quantity, packagingQuantity: component.isPackagingMaterial ? component.quantity : decimal(0) });
+      if (component.takeawayPackagingQuantity?.gt(0)) old.takeawayPackagingQuantity = old.takeawayPackagingQuantity.plus(component.takeawayPackagingQuantity);
+    } else merged.set(key, { stockItemId: component.stockItemId, stockItemName: component.stockItemName, baseUnit: component.baseUnit, quantity: component.quantity, packagingQuantity: component.isPackagingMaterial ? component.quantity : decimal(0), takeawayPackagingQuantity: component.takeawayPackagingQuantity ?? decimal(0) });
   }
   const resolved = [];
   for (const component of merged.values()) {
@@ -375,9 +591,10 @@ async function resolveCosting(tx: Tx, productId: string, optionIds: string[], qu
     const knownCostAmount = tracked ? intMoney(component.quantity.mul(balance!.quantityOnHand.gt(0) ? decimal(balance!.carryingValueAmount).div(balance!.quantityOnHand) : decimal(0))) : null;
     const packagingKnownCostAmount = tracked ? intMoney(component.packagingQuantity.mul(balance!.quantityOnHand.gt(0) ? decimal(balance!.carryingValueAmount).div(balance!.quantityOnHand) : decimal(0))) : null;
     if (!tracked && includeCosts) missingReasons.push(`missing-valuation:${component.stockItemId}`);
-    resolved.push({ stockItemId: component.stockItemId, stockItemName: component.stockItemName, baseUnit: component.baseUnit, quantity: dstr(component.quantity), packagingQuantity: dstr(component.packagingQuantity), isPackagingMaterial: component.quantity.gt(0) && component.packagingQuantity.eq(component.quantity), knownCostAmount, packagingKnownCostAmount, nonPackagingKnownCostAmount: knownCostAmount === null || packagingKnownCostAmount === null ? null : knownCostAmount - packagingKnownCostAmount });
+    resolved.push({ stockItemId: component.stockItemId, stockItemName: component.stockItemName, baseUnit: component.baseUnit, quantity: dstr(component.quantity), packagingQuantity: dstr(component.packagingQuantity), takeawayPackagingQuantity: dstr(component.takeawayPackagingQuantity), isPackagingMaterial: component.quantity.gt(0) && component.packagingQuantity.eq(component.quantity), knownCostAmount, packagingKnownCostAmount, nonPackagingKnownCostAmount: knownCostAmount === null || packagingKnownCostAmount === null ? null : knownCostAmount - packagingKnownCostAmount });
   }
-  return { components: resolved, isComplete: missingReasons.length === 0 && resolved.every((component) => component.knownCostAmount !== null), missingReasons: [...new Set(missingReasons)], configurationVersion: config.version };
+  const estimatedCostAmount = checkedCogsAmount(estimatedCosts.reduce((sum, entry) => sum + entry.amount, 0));
+  return { components: resolved, estimatedCostAmount, estimatedCosts, isComplete: missingReasons.length === 0 && resolved.every((component) => component.knownCostAmount !== null), missingReasons: [...new Set(missingReasons)], configurationVersion: config.version };
 }
 
 function serializeRules(rules: any[]) { return rules.map(ruleDto); }
@@ -386,7 +603,14 @@ function ruleFields(rule: any) {
   return { action: rule.action, componentKey: rule.componentKey, label: rule.label ?? null, quantity: rule.quantity ? decimal(rule.quantity) : null, replacementStockItemId: component?.sourceKind === "STOCK_ITEM" ? component.stockItemId : null, replacementRecipeId: component?.sourceKind === "RECIPE" ? component.recipeId : null };
 }
 async function validateCostingInput(tx: Tx, productId: string, input: CostingInput) {
+  const retainedConfiguration = input.servedAlongside === undefined
+    ? await tx.productCostingConfiguration.findUnique({ where: { productId }, select: { servedAlongside: true } })
+    : null;
+  const effectiveServedAlongside = input.servedAlongside ?? (retainedConfiguration?.servedAlongside as unknown as CostingInput["servedAlongside"] | undefined) ?? [];
+  const sideEstimatedCostAmount = effectiveServedAlongside.reduce((sum, entry) => sum + (entry.sourceKind === "ESTIMATED_COST" ? entry.estimatedCostAmount : 0), 0);
+  checkedCogsAmount(sideEstimatedCostAmount + (input.useEstimatedCost ? input.estimatedCostAmount ?? 0 : 0));
   for (const entry of input.servedAlongside ?? []) {
+    if (entry.sourceKind === "ESTIMATED_COST") continue;
     if (entry.sourceKind === "STOCK_ITEM" && !await tx.stockItem.findFirst({ where: { id: entry.stockItemId, isActive: true, archivedAt: null } })) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A served-alongside item must reference an active stock item.");
     if (entry.sourceKind === "RECIPE" && !await tx.recipe.findFirst({ where: { id: entry.recipeId, isActive: true, archivedAt: null } })) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A served-alongside item must reference an active recipe.");
   }
@@ -396,7 +620,7 @@ async function validateCostingInput(tx: Tx, productId: string, input: CostingInp
   const product = await tx.product.findUnique({ where: { id: productId }, select: { id: true, pricingMode: true, productOptionGroups: { select: { allowedOptions: { select: { optionId: true } } } } } });
   if (!product) fail(404, ErrorCodes.NOT_FOUND, "The product was not found.");
   const allowed = new Set(product.productOptionGroups.flatMap((group: any) => group.allowedOptions.map((option: any) => option.optionId)));
-  const allOptions = [
+  const allOptions = input.useEstimatedCost ? [] : [
     ...(input.takeawayOptionRecipes ?? []).map((entry) => entry.optionId),
     ...input.optionRules.map((entry) => entry.optionId),
     ...(input.mode === "RECIPE" ? (input.optionRecipes ?? []).map((entry) => entry.optionId) : []),
@@ -410,8 +634,10 @@ async function validateCostingInput(tx: Tx, productId: string, input: CostingInp
   if (new Set(combinationKeys).size !== combinationKeys.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Only one costing override can use a particular option combination.");
   for (const combination of input.combinations) if (new Set(combination.rules.map((rule) => rule.componentKey)).size !== combination.rules.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A costing combination cannot define multiple rules for the same component.");
   if (allOptions.some((id) => !allowed.has(id))) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Every costing option must belong to this product.");
-  if (input.mode === "RECIPE") {
-    const recipe = await tx.recipe.findFirst({ where: { id: input.recipeId, isActive: true, archivedAt: null } });
+  if (!input.useEstimatedCost && input.mode === "RECIPE") {
+    const recipeId = input.recipeId;
+    if (!recipeId || input.recipeQuantity === undefined) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active recipe and quantity are required.");
+    const recipe = await tx.recipe.findFirst({ where: { id: recipeId, isActive: true, archivedAt: null } });
     if (!recipe) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active recipe is required.");
     if (product.pricingMode === "WEIGHTED_PER_KG" && recipe.outputUnit !== "GRAM") fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Weighted products require a recipe measured in grams.");
     for (const entry of input.optionRecipes ?? []) {
@@ -419,56 +645,81 @@ async function validateCostingInput(tx: Tx, productId: string, input: CostingInp
       if (!optionRecipe) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active recipe is required for each configured option.");
       if (product.pricingMode === "WEIGHTED_PER_KG" && optionRecipe.outputUnit !== "GRAM") fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Weighted products require option recipes measured in grams.");
     }
-  } else {
-    const stock = await tx.stockItem.findFirst({ where: { id: input.purchasedStockItemId, isActive: true, archivedAt: null } });
+  } else if (!input.useEstimatedCost && input.mode === "PURCHASED_ITEM") {
+    const stockItemId = input.purchasedStockItemId;
+    if (!stockItemId) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active purchased stock item is required.");
+    const stock = await tx.stockItem.findFirst({ where: { id: stockItemId, isActive: true, archivedAt: null } });
     if (!stock) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active purchased stock item is required.");
     if (product.pricingMode === "WEIGHTED_PER_KG" && stock.baseUnit !== "GRAM") fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Weighted products require purchased stock measured in grams.");
   }
   if (new Set((input.takeawayOptionRecipes ?? []).map((entry) => entry.optionId)).size !== (input.takeawayOptionRecipes ?? []).length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Each takeaway option can have only one recipe.");
-  for (const recipeId of [input.takeawayRecipeId, ...(input.takeawayOptionRecipes ?? []).map((entry) => entry.recipeId)].filter((id): id is string => !!id)) {
+  for (const recipeId of (input.useEstimatedCost ? [] : [input.takeawayRecipeId, ...(input.takeawayOptionRecipes ?? []).map((entry) => entry.recipeId)]).filter((id): id is string => !!id)) {
     const recipe = await tx.recipe.findFirst({ where: { id: recipeId, isActive: true, archivedAt: null } });
     if (!recipe) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active takeaway recipe is required.");
     if (recipe.outputUnit !== (product.pricingMode === "WEIGHTED_PER_KG" ? "GRAM" : "PIECE")) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Takeaway recipe units must match the product's selling unit.");
   }
-  const ruleInputs = [...input.optionRules.flatMap((entry) => entry.rules), ...input.combinations.flatMap((entry) => entry.rules)];
+  const ruleInputs = input.useEstimatedCost ? [] : [...input.optionRules.flatMap((entry) => entry.rules), ...input.combinations.flatMap((entry) => entry.rules)];
   for (const rule of ruleInputs) {
     if (rule.action !== "ADD_COMPONENT" && input.mode === "RECIPE") {
-      const recipe = await tx.recipe.findUnique({ where: { id: input.recipeId }, include: { components: { select: { componentKey: true } } } });
+      const recipe = await tx.recipe.findUnique({ where: { id: input.recipeId! }, include: { components: { select: { componentKey: true } } } });
       if (!recipe?.components.some((component) => component.componentKey === rule.componentKey)) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A costing rule references an unknown base recipe component.");
     }
     const component = rule.action === "ADD_COMPONENT" ? rule.component : rule.action === "REPLACE_COMPONENT" ? rule.replacement : null;
     if (component?.sourceKind === "STOCK_ITEM" && !await tx.stockItem.findFirst({ where: { id: component.stockItemId, isActive: true, archivedAt: null } })) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A costing rule references an unavailable stock item.");
     if (component?.sourceKind === "RECIPE" && !await tx.recipe.findFirst({ where: { id: component.recipeId, isActive: true, archivedAt: null } })) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A costing rule references an unavailable recipe.");
   }
-  if (input.extrasRecipeId && !await tx.recipe.findFirst({ where: { id: input.extrasRecipeId, isActive: true, archivedAt: null } })) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active extras recipe is required.");
+  if (!input.useEstimatedCost && input.extrasRecipeId && !await tx.recipe.findFirst({ where: { id: input.extrasRecipeId, isActive: true, archivedAt: null } })) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "An active extras recipe is required.");
   for (const combination of input.combinations) if (new Set(combination.optionIds).size !== combination.optionIds.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Combination option IDs must be unique.");
 }
 function configurationDto(row: any) {
   if (!row) return null;
-  const common = { takeawayRecipeId: row.takeawayRecipeId ?? null, takeawayOptionRecipes: row.takeawayOptionRecipes ?? [], takeawayPackaging: row.takeawayPackaging ?? [], servedAlongside: row.servedAlongside ?? [], productId: row.productId, extrasRecipeId: row.extrasRecipeId, optionRecipes: row.product.optionRecipeCostings.map((entry: any) => ({ optionId: entry.optionId, recipeId: entry.recipeId, recipeQuantity: dstr(entry.recipeQuantity) })), optionRules: row.product.optionCostingRules.reduce((result: any[], rule: any) => { let item = result.find((entry) => entry.optionId === rule.optionId); if (!item) { item = { optionId: rule.optionId, rules: [] }; result.push(item); } item.rules.push(ruleDto(rule)); return result; }, []), combinations: row.product.costingCombinations.map((combo: any) => ({ id: combo.id, name: combo.name, optionIds: combo.options.map((option: any) => option.optionId), rules: serializeRules(combo.rules), version: combo.version, isActive: combo.isActive })), version: row.version, updatedAt: row.updatedAt.toISOString() };
-  return row.mode === "RECIPE" ? { ...common, mode: row.mode, recipeId: row.recipeId, recipeQuantity: dstr(row.recipeQuantity) } : { ...common, mode: row.mode, purchasedStockItemId: row.purchasedStockItemId, purchasedQuantity: row.purchasedQuantity ? dstr(row.purchasedQuantity) : null };
+  const common = { takeawayRecipeId: row.takeawayRecipeId ?? null, takeawayOptionRecipes: row.takeawayOptionRecipes ?? [], takeawayPackaging: row.takeawayPackaging ?? [], servedAlongside: row.servedAlongside ?? [], productId: row.productId, useEstimatedCost: row.useEstimatedCost ?? false, estimatedCostAmount: row.estimatedCostAmount ?? null, extrasRecipeId: row.extrasRecipeId, optionRecipes: row.product.optionRecipeCostings.map((entry: any) => ({ optionId: entry.optionId, recipeId: entry.recipeId, recipeQuantity: dstr(entry.recipeQuantity) })), optionRules: row.product.optionCostingRules.reduce((result: any[], rule: any) => { let item = result.find((entry) => entry.optionId === rule.optionId); if (!item) { item = { optionId: rule.optionId, rules: [] }; result.push(item); } item.rules.push(ruleDto(rule)); return result; }, []), combinations: row.product.costingCombinations.map((combo: any) => ({ id: combo.id, name: combo.name, optionIds: combo.options.map((option: any) => option.optionId), rules: serializeRules(combo.rules), version: combo.version, isActive: combo.isActive })), version: row.version, updatedAt: row.updatedAt.toISOString() };
+  return row.mode === "RECIPE" ? { ...common, mode: row.mode, recipeId: row.recipeId ?? null, recipeQuantity: row.recipeQuantity == null ? null : dstr(row.recipeQuantity) } : { ...common, mode: row.mode, purchasedStockItemId: row.purchasedStockItemId ?? null, purchasedQuantity: row.purchasedQuantity == null ? null : dstr(row.purchasedQuantity) };
 }
 const configInclude = { product: { select: { optionRecipeCostings: { orderBy: { optionId: "asc" as const } }, optionCostingRules: { include: { replacementStockItem: true, replacementRecipe: true }, orderBy: { componentKey: "asc" as const } }, costingCombinations: { orderBy: { name: "asc" as const }, include: { options: true, rules: { include: { replacementStockItem: true, replacementRecipe: true }, orderBy: { componentKey: "asc" as const } } } } } } };
 async function replaceConfiguration(tx: Tx, actor: AuthenticatedUser, productId: string, input: CostingInput, requestId: string, existingVersion: number | null) {
   await validateCostingInput(tx, productId, input);
+  const useEstimatedCost = input.useEstimatedCost === true;
   if (existingVersion === null) {
-    await tx.productCostingConfiguration.create({ data: { productId, mode: input.mode, recipeId: input.mode === "RECIPE" ? input.recipeId : null, recipeQuantity: input.mode === "RECIPE" ? decimal(input.recipeQuantity) : null, purchasedStockItemId: input.mode === "PURCHASED_ITEM" ? input.purchasedStockItemId : null, purchasedQuantity: input.mode === "PURCHASED_ITEM" ? decimal(input.purchasedQuantity ?? "1") : null, extrasRecipeId: input.extrasRecipeId ?? null, ...(input.servedAlongside !== undefined ? { servedAlongside: input.servedAlongside } : {}), ...(input.takeawayRecipeId !== undefined ? { takeawayRecipeId: input.takeawayRecipeId } : {}), ...(input.takeawayOptionRecipes !== undefined ? { takeawayOptionRecipes: input.takeawayOptionRecipes } : {}), ...(input.takeawayPackaging !== undefined ? { takeawayPackaging: input.takeawayPackaging } : {}), updatedById: actor.id } });
+    await tx.productCostingConfiguration.create({ data: { productId, mode: input.mode, useEstimatedCost, estimatedCostAmount: input.estimatedCostAmount ?? null, recipeId: input.mode === "RECIPE" ? input.recipeId ?? null : null, recipeQuantity: input.mode === "RECIPE" && input.recipeQuantity !== undefined ? decimal(input.recipeQuantity) : null, purchasedStockItemId: input.mode === "PURCHASED_ITEM" ? input.purchasedStockItemId ?? null : null, purchasedQuantity: input.mode === "PURCHASED_ITEM" && input.purchasedQuantity !== undefined ? decimal(input.purchasedQuantity) : null, extrasRecipeId: input.extrasRecipeId ?? null, ...(input.servedAlongside !== undefined ? { servedAlongside: input.servedAlongside } : {}), ...(input.takeawayRecipeId !== undefined ? { takeawayRecipeId: input.takeawayRecipeId } : {}), ...(input.takeawayOptionRecipes !== undefined ? { takeawayOptionRecipes: input.takeawayOptionRecipes } : {}), ...(input.takeawayPackaging !== undefined ? { takeawayPackaging: input.takeawayPackaging } : {}), updatedById: actor.id } });
   } else {
-    const changed = await tx.productCostingConfiguration.updateMany({ where: { productId, version: existingVersion }, data: { mode: input.mode, recipeId: input.mode === "RECIPE" ? input.recipeId : null, recipeQuantity: input.mode === "RECIPE" ? decimal(input.recipeQuantity) : null, purchasedStockItemId: input.mode === "PURCHASED_ITEM" ? input.purchasedStockItemId : null, purchasedQuantity: input.mode === "PURCHASED_ITEM" ? decimal(input.purchasedQuantity ?? "1") : null, extrasRecipeId: input.extrasRecipeId ?? null, ...(input.servedAlongside !== undefined ? { servedAlongside: input.servedAlongside } : {}), ...(input.takeawayRecipeId !== undefined ? { takeawayRecipeId: input.takeawayRecipeId } : {}), ...(input.takeawayOptionRecipes !== undefined ? { takeawayOptionRecipes: input.takeawayOptionRecipes } : {}), ...(input.takeawayPackaging !== undefined ? { takeawayPackaging: input.takeawayPackaging } : {}), updatedById: actor.id, version: { increment: 1 } } });
+    const updateData: Prisma.ProductCostingConfigurationUncheckedUpdateManyInput = {
+      useEstimatedCost,
+      ...(input.estimatedCostAmount === undefined ? {} : { estimatedCostAmount: input.estimatedCostAmount }),
+      ...(input.servedAlongside === undefined ? {} : { servedAlongside: input.servedAlongside }),
+      ...(input.takeawayPackaging === undefined ? {} : { takeawayPackaging: input.takeawayPackaging }),
+      updatedById: actor.id,
+      version: { increment: 1 },
+    };
+    if (!useEstimatedCost) Object.assign(updateData, {
+      mode: input.mode,
+      recipeId: input.mode === "RECIPE" ? input.recipeId ?? null : null,
+      recipeQuantity: input.mode === "RECIPE" && input.recipeQuantity !== undefined ? decimal(input.recipeQuantity) : null,
+      purchasedStockItemId: input.mode === "PURCHASED_ITEM" ? input.purchasedStockItemId ?? null : null,
+      purchasedQuantity: input.mode === "PURCHASED_ITEM" && input.purchasedQuantity !== undefined ? decimal(input.purchasedQuantity) : null,
+      extrasRecipeId: input.extrasRecipeId ?? null,
+      ...(input.takeawayRecipeId === undefined ? {} : { takeawayRecipeId: input.takeawayRecipeId }),
+      ...(input.takeawayOptionRecipes === undefined ? {} : { takeawayOptionRecipes: input.takeawayOptionRecipes }),
+    });
+    const changed = await tx.productCostingConfiguration.updateMany({ where: { productId, version: existingVersion }, data: updateData });
     if (changed.count !== 1) fail(409, ErrorCodes.STALE_VERSION, "The costing configuration has changed.");
-    await tx.productOptionCostingRule.deleteMany({ where: { productId } });
-    await tx.productOptionRecipeCosting.deleteMany({ where: { productId } });
+    if (!useEstimatedCost) {
+      await tx.productOptionCostingRule.deleteMany({ where: { productId } });
+      await tx.productOptionRecipeCosting.deleteMany({ where: { productId } });
+    }
   }
-  const oldCombos = await tx.productCostingCombination.findMany({ where: { productId }, select: { id: true } });
-  await tx.productCombinationCostingRule.deleteMany({ where: { combinationId: { in: oldCombos.map((combo) => combo.id) } } });
-  await tx.costingCombinationOption.deleteMany({ where: { combinationId: { in: oldCombos.map((combo) => combo.id) } } });
-  await tx.productCostingCombination.deleteMany({ where: { productId } });
-  for (const combo of input.combinations) await tx.productCostingCombination.create({ data: { productId, name: combo.name, options: { create: combo.optionIds.map((optionId) => ({ optionId })) }, rules: { create: combo.rules.map(ruleFields) } } });
-  await tx.productOptionCostingRule.createMany({ data: input.optionRules.flatMap((entry) => entry.rules.map((rule) => ({ productId, optionId: entry.optionId, ...ruleFields(rule) }))) });
-  if (input.mode === "RECIPE" && input.optionRecipes?.length) await tx.productOptionRecipeCosting.createMany({ data: input.optionRecipes.map((entry) => ({ productId, optionId: entry.optionId, recipeId: entry.recipeId, recipeQuantity: decimal(entry.recipeQuantity) })) });
+  if (!useEstimatedCost) {
+    const oldCombos = await tx.productCostingCombination.findMany({ where: { productId }, select: { id: true } });
+    await tx.productCombinationCostingRule.deleteMany({ where: { combinationId: { in: oldCombos.map((combo) => combo.id) } } });
+    await tx.costingCombinationOption.deleteMany({ where: { combinationId: { in: oldCombos.map((combo) => combo.id) } } });
+    await tx.productCostingCombination.deleteMany({ where: { productId } });
+    for (const combo of input.combinations) await tx.productCostingCombination.create({ data: { productId, name: combo.name, options: { create: combo.optionIds.map((optionId) => ({ optionId })) }, rules: { create: combo.rules.map(ruleFields) } } });
+    await tx.productOptionCostingRule.createMany({ data: input.optionRules.flatMap((entry) => entry.rules.map((rule) => ({ productId, optionId: entry.optionId, ...ruleFields(rule) }))) });
+    if (input.mode === "RECIPE" && input.optionRecipes?.length) await tx.productOptionRecipeCosting.createMany({ data: input.optionRecipes.map((entry) => ({ productId, optionId: entry.optionId, recipeId: entry.recipeId, recipeQuantity: decimal(entry.recipeQuantity) })) });
+  }
   const completeRow = await tx.productCostingConfiguration.findUniqueOrThrow({ where: { productId }, include: configInclude });
   const resolvedPending = await resolvePendingCostingForProduct(tx, productId, actor.id, new Date());
-  await audit(tx, actor.id, requestId, existingVersion === null ? "CREATE_PRODUCT_COSTING" : "UPDATE_PRODUCT_COSTING", "PRODUCT_COSTING", productId, { version: existingVersion }, { version: completeRow.version, servedAlongside: completeRow.servedAlongside, takeawayPackaging: completeRow.takeawayPackaging, takeawayRecipeId: completeRow.takeawayRecipeId, takeawayOptionRecipes: completeRow.takeawayOptionRecipes, pendingOrderItemsResolved: resolvedPending.orderItemsResolved, pendingOrdersPosted: resolvedPending.ordersPosted });
+  await audit(tx, actor.id, requestId, existingVersion === null ? "CREATE_PRODUCT_COSTING" : "UPDATE_PRODUCT_COSTING", "PRODUCT_COSTING", productId, { version: existingVersion }, { version: completeRow.version, mode: completeRow.mode, useEstimatedCost: completeRow.useEstimatedCost, estimatedCostAmount: completeRow.estimatedCostAmount, servedAlongside: completeRow.servedAlongside, takeawayPackaging: completeRow.takeawayPackaging, takeawayRecipeId: completeRow.takeawayRecipeId, takeawayOptionRecipes: completeRow.takeawayOptionRecipes, pendingOrderItemsResolved: resolvedPending.orderItemsResolved, pendingOrdersPosted: resolvedPending.ordersPosted });
   return completeRow;
 }
 export async function getProductCosting(prisma: PrismaClient, productId: string) { return configurationDto(await prisma.productCostingConfiguration.findUnique({ where: { productId }, include: configInclude })); }
@@ -490,6 +741,7 @@ export async function previewProductCosting(prisma: PrismaClient, productId: str
   const product = await prisma.product.findUnique({
     where: { id: productId },
     select: {
+      pricingMode: true,
       productOptionGroups: {
         include: {
           optionGroup: { select: { id: true, isActive: true, archivedAt: true } },
@@ -499,6 +751,7 @@ export async function previewProductCosting(prisma: PrismaClient, productId: str
     },
   });
   if (!product) fail(404, ErrorCodes.NOT_FOUND, "The product was not found.");
+  if (product.pricingMode === "WEIGHTED_PER_KG" && weightGrams === null) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "A weight is required to preview a weighted product's cost.");
   if (new Set(optionIds).size !== optionIds.length) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Selected option IDs must be unique.");
   const allowed = new Map<string, string>();
   for (const group of product.productOptionGroups) if (group.optionGroup.isActive && !group.optionGroup.archivedAt) for (const link of group.allowedOptions) if (link.option.isActive && link.option.isAvailable && !link.option.archivedAt) allowed.set(link.option.id, group.optionGroup.id);
@@ -509,7 +762,7 @@ export async function previewProductCosting(prisma: PrismaClient, productId: str
     if (selected < group.minSelections || selected > group.maxSelections) fail(422, ErrorCodes.BUSINESS_RULE_VIOLATION, "Selected options do not satisfy the product option groups.");
   }
   const snapshot = await resolveCosting(prisma as unknown as Tx, productId, optionIds, quantity, weightGrams, true, channel);
-  return { isComplete: snapshot.isComplete, knownCostAmount: snapshot.components.reduce((sum, component) => sum + (component.knownCostAmount ?? 0), 0), components: snapshot.components, missingReasons: snapshot.missingReasons };
+  return { isComplete: snapshot.isComplete, knownCostAmount: checkedCogsAmount(snapshot.estimatedCostAmount + snapshot.components.reduce((sum, component) => sum + (component.knownCostAmount ?? 0), 0)), components: snapshot.components, missingReasons: snapshot.missingReasons };
 }
 
 async function assertRecipeGraphAcyclic(tx: Tx, recipeId: string | null, components: RecipeInput["components"]) {
@@ -644,7 +897,65 @@ export async function updateCount(prisma: PrismaClient, actor: AuthenticatedUser
   });
 }
 
-async function trackOrderItemSnapshots(tx: Tx, orderId: string, onlyMissing = false, refreshIncompleteProductId?: string) {
+function mergeTakeawayPackagingComponents(previous: CostSnapshot["components"], current: CostSnapshot["components"]) {
+  const keyOf = (component: CostSnapshot["components"][number]) => `${component.stockItemId}:${component.baseUnit}`;
+  const previousByKey = new Map(previous.map((component) => [keyOf(component), component]));
+  const currentByKey = new Map(current.map((component) => [keyOf(component), component]));
+  const allKeys = new Set([...previousByKey.keys(), ...currentByKey.keys()]);
+  const merged = [];
+  for (const key of allKeys) {
+    const saved = previousByKey.get(key);
+    const resolved = currentByKey.get(key);
+    const base = saved ?? resolved!;
+    const oldQuantity = saved ? decimal(saved.quantity) : decimal(0);
+    const oldPackagingQuantity = saved
+      ? decimal(saved.packagingQuantity ?? (saved.isPackagingMaterial ? saved.quantity : "0"))
+      : decimal(0);
+    const currentTakeawayQuantity = decimal(resolved?.takeawayPackagingQuantity ?? "0");
+    const oldTakeawayQuantity = saved?.takeawayPackagingQuantity === undefined
+      ? decimal(0)
+      : decimal(saved.takeawayPackagingQuantity);
+    const nonTakeawayQuantity = oldQuantity.minus(oldTakeawayQuantity);
+    const otherPackagingQuantity = oldPackagingQuantity.minus(oldTakeawayQuantity);
+    const takeawayPackagingQuantity = currentTakeawayQuantity;
+    const quantity = nonTakeawayQuantity.plus(takeawayPackagingQuantity);
+    if (!quantity.gt(0)) continue;
+    const packagingQuantity = otherPackagingQuantity.plus(takeawayPackagingQuantity);
+    merged.push({
+      ...base,
+      quantity: dstr(quantity),
+      packagingQuantity: dstr(packagingQuantity),
+      takeawayPackagingQuantity: dstr(takeawayPackagingQuantity),
+      isPackagingMaterial: packagingQuantity.gt(0) && packagingQuantity.eq(quantity),
+    });
+  }
+  return merged;
+}
+
+async function resolveTakeawayPackaging(tx: Tx, productId: string, quantity: number, orderQuantity: number, previousQuantity: number, orderChannel: "TABLE" | "TAKEAWAY") {
+  const components: CostSnapshot["components"] = [];
+  const missingReasons: string[] = [];
+  if (orderChannel !== "TAKEAWAY") return { components, missingReasons };
+  const config = await tx.productCostingConfiguration.findUnique({ where: { productId }, select: { takeawayPackaging: true } });
+  for (const packing of (config?.takeawayPackaging ?? []) as NonNullable<CostingInput["takeawayPackaging"]>) {
+    if (orderQuantity < (packing.minQuantity ?? 1) || orderQuantity > (packing.maxQuantity ?? Infinity)) continue;
+    const multiplier = packing.mode === "PER_GROUP"
+      ? Math.floor((previousQuantity + quantity) / packing.groupSize!) - Math.floor(previousQuantity / packing.groupSize!)
+      : packing.mode === "PER_ORDER" ? (previousQuantity === 0 ? 1 : 0) : quantity;
+    if (!multiplier) continue;
+    const stock = await tx.stockItem.findFirst({ where: { id: packing.stockItemId, isActive: true, archivedAt: null } });
+    if (!stock) {
+      missingReasons.push(`missing-takeaway-packaging:${packing.stockItemId}`);
+      continue;
+    }
+    const amount = decimal(packing.quantity).mul(multiplier);
+    const serialized = dstr(amount);
+    components.push({ stockItemId: stock.id, stockItemName: stock.name, baseUnit: stock.baseUnit, quantity: serialized, packagingQuantity: serialized, takeawayPackagingQuantity: serialized, isPackagingMaterial: true, knownCostAmount: null, packagingKnownCostAmount: null, nonPackagingKnownCostAmount: null });
+  }
+  return { components, missingReasons };
+}
+
+async function trackOrderItemSnapshots(tx: Tx, orderId: string, onlyMissing = false, refreshIncompleteProductId?: string, preserveExistingItemIds?: Set<string>, recalculatePackagingProductIds?: Set<string>) {
   const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { channel: true, inventorySaleChannel: true } });
   const items = await tx.orderItem.findMany({ where: { orderId }, orderBy: [{ displayOrder: "asc" }, { id: "asc" }], include: { options: true, costingSnapshot: true } });
   const quantities = new Map<string, number>();
@@ -653,23 +964,58 @@ async function trackOrderItemSnapshots(tx: Tx, orderId: string, onlyMissing = fa
   for (const item of items) {
     const previousQuantity = previousQuantities.get(item.productId) ?? 0;
     previousQuantities.set(item.productId, previousQuantity + item.quantity);
+    const orderChannel = order.inventorySaleChannel ?? order.channel;
+    const preserveExisting = preserveExistingItemIds?.has(item.id) && !!item.costingSnapshot;
+    const refreshPackaging = preserveExisting && orderChannel === "TAKEAWAY" && recalculatePackagingProductIds?.has(item.productId);
+    if (preserveExisting && !refreshPackaging) continue;
     if (refreshIncompleteProductId) {
       if (item.productId !== refreshIncompleteProductId || item.costingSnapshot?.isComplete) continue;
     } else if (onlyMissing && item.costingSnapshot) continue;
-    const orderChannel = order.inventorySaleChannel ?? order.channel;
-    const costing = await resolveCosting(tx, item.productId, item.options.map((option) => option.optionId), item.quantity, item.weightGrams, false, orderChannel, quantities.get(item.productId)!, previousQuantity);
-    const snapshot = { ...costing, orderChannel };
+    const saved = item.costingSnapshot?.snapshot as unknown as (CostSnapshot & { orderChannel?: "TABLE" | "TAKEAWAY" }) | undefined;
+    let snapshot: CostSnapshot & { orderChannel: "TABLE" | "TAKEAWAY" };
+    if (refreshPackaging && saved?.snapshotFormatVersion === 2) {
+      const packaging = await resolveTakeawayPackaging(tx, item.productId, item.quantity, quantities.get(item.productId)!, previousQuantity, orderChannel);
+      const retainedMissingReasons = (saved.missingReasons ?? []).filter((reason) => !reason.startsWith("missing-takeaway-packaging:"));
+      snapshot = {
+        ...saved,
+        components: mergeTakeawayPackagingComponents(saved.components ?? [], packaging.components),
+        missingReasons: [...new Set([...retainedMissingReasons, ...packaging.missingReasons])],
+        orderChannel: saved.orderChannel ?? orderChannel,
+      };
+    } else {
+      const costing = await resolveCosting(tx, item.productId, item.options.map((option) => option.optionId), item.quantity, item.weightGrams, false, orderChannel, quantities.get(item.productId)!, previousQuantity);
+      snapshot = { ...costing, snapshotFormatVersion: 2, orderChannel };
+    }
     const data = { configurationVersion: snapshot.configurationVersion, snapshot: snapshot as unknown as Prisma.InputJsonValue, isComplete: snapshot.missingReasons.length === 0, missingReasons: snapshot.missingReasons as unknown as Prisma.InputJsonValue };
     if (onlyMissing) await tx.orderItemCostingSnapshot.create({ data: { orderItemId: item.id, ...data } });
     else await tx.orderItemCostingSnapshot.upsert({ where: { orderItemId: item.id }, create: { orderItemId: item.id, ...data }, update: data });
   }
+  // Payment recognition and whole-order pending backfill calculate the
+  // persisted consumption totals in their own valuation context. This bound
+  // preflight is for new or edited order snapshots only.
+  if (onlyMissing || refreshIncompleteProductId) return;
+  const snapshots = await tx.orderItemCostingSnapshot.findMany({ where: { orderItem: { orderId } }, select: { snapshot: true } });
+  const costingSnapshots = snapshots.map((row) => row.snapshot as { estimatedCostAmount?: unknown; components?: Array<{ stockItemId: string; quantity: string }> });
+  const stockItemIds = [...new Set(costingSnapshots.flatMap((snapshot) => (snapshot.components ?? []).map((component) => component.stockItemId)))];
+  const balances = await readStockBalances(tx, stockItemIds);
+  const totalKnownCogsAmount = costingSnapshots.reduce((sum, snapshot) => {
+    const estimatedAmount = typeof snapshot.estimatedCostAmount === "number" ? snapshot.estimatedCostAmount : 0;
+    const knownRecipeAmount = (snapshot.components ?? []).reduce((componentSum, component) => {
+      const balance = balances.get(component.stockItemId);
+      if (!balance?.trackingStartedAt) return componentSum;
+      const unitCost = balance.quantityOnHand.gt(0) ? decimal(balance.carryingValueAmount).div(balance.quantityOnHand) : decimal(0);
+      return componentSum + intMoney(decimal(component.quantity).mul(unitCost));
+    }, 0);
+    return sum + estimatedAmount + knownRecipeAmount;
+  }, 0);
+  checkedCogsAmount(totalKnownCogsAmount);
 }
-async function readOrderItemSnapshots(tx: Tx, orderId: string): Promise<Array<{ itemId: string; productId: string; productName: string; quantity: number; weightGrams: number | null; orderChannel: "TABLE" | "TAKEAWAY" | undefined; components: CostSnapshot["components"]; missingReasons: string[] }>> {
+async function readOrderItemSnapshots(tx: Tx, orderId: string): Promise<Array<{ itemId: string; productId: string; productName: string; quantity: number; weightGrams: number | null; orderChannel: "TABLE" | "TAKEAWAY" | undefined; components: CostSnapshot["components"]; estimatedCostAmount: number; estimatedCosts: EstimatedCostSnapshotEntry[]; missingReasons: string[] }>> {
   const items = await tx.orderItem.findMany({ where: { orderId }, include: { costingSnapshot: true, product: { select: { systemKey: true } } } });
   return items.map((item) => {
     const saved = (item.costingSnapshot?.snapshot ?? {}) as unknown as CostSnapshot & { orderChannel?: "TABLE" | "TAKEAWAY" };
     const missingReasons = hasOnlyMissingPackagingConfiguration(item.product.systemKey, saved) ? [] : saved.missingReasons ?? ["missing-costing-snapshot"];
-    return { orderChannel: saved.orderChannel, itemId: item.id, productId: item.productId, productName: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams, components: saved.components ?? [], missingReasons };
+    return { orderChannel: saved.orderChannel, itemId: item.id, productId: item.productId, productName: item.productNameSnapshot, quantity: item.quantity, weightGrams: item.weightGrams, components: saved.components ?? [], estimatedCostAmount: saved.estimatedCostAmount ?? 0, estimatedCosts: saved.estimatedCosts ?? [], missingReasons };
   });
 }
 type OrderItemCostingSnapshot = Awaited<ReturnType<typeof readOrderItemSnapshots>>[number];
@@ -697,7 +1043,7 @@ function hasStockForOrder(needs: StockNeed[], balances: StockBalances) {
 
 function valueOrderItemSnapshot(snapshot: OrderItemCostingSnapshot, balances: StockBalances) {
   const components: Array<any> = [];
-  let known = 0;
+  let known = snapshot.estimatedCostAmount;
   let complete = snapshot.missingReasons.length === 0;
   for (const component of snapshot.components) {
     const balance = balances.get(component.stockItemId);
@@ -711,7 +1057,7 @@ function valueOrderItemSnapshot(snapshot: OrderItemCostingSnapshot, balances: St
     const packagingCost = unitValue === null ? null : intMoney(decimal(packagingQuantity).mul(unitValue));
     components.push({ ...component, packagingQuantity, knownCostAmount: cost, packagingKnownCostAmount: packagingCost, nonPackagingKnownCostAmount: cost === null || packagingCost === null ? null : cost - packagingCost });
   }
-  return { amount: complete ? known : 0, known, complete, components };
+  return { amount: complete ? checkedCogsAmount(known) : 0, known: checkedCogsAmount(known), complete, components };
 }
 async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: string | null, actorId: string, at: Date) {
   const existing = settlementId ? await tx.orderConsumption.findUnique({ where: { orderId_paymentSettlementId: { orderId: order.id, paymentSettlementId: settlementId } } }) : await tx.orderConsumption.findFirst({ where: { orderId: order.id, paymentSettlementId: null } });
@@ -726,13 +1072,13 @@ async function recordFullPaymentConsumption(tx: Tx, order: any, settlementId: st
   const movementRows = [...allNeeds].map(([stockItemId, quantity]) => ({ stockItemId, quantity }));
   const balances = await readLockedStockBalances(tx, movementRows);
   const itemAmounts = snapshots.map((snapshot) => ({ snapshot, ...valueOrderItemSnapshot(snapshot, balances) }));
-  const canFulfill = turnoverEligible && movementRows.length > 0
+  const canFulfill = turnoverEligible
     && snapshots.every((snapshot) => snapshot.missingReasons.length === 0)
     && hasStockForOrder(movementRows, balances);
-  const knownCogsAmount = itemAmounts.reduce((sum, item) => sum + item.known, 0);
+  const knownCogsAmount = checkedCogsAmount(itemAmounts.reduce((sum, item) => sum + item.known, 0));
   const isCostComplete = itemAmounts.every((item) => item.complete) && snapshots.length > 0;
   const theoreticalCogsAmount = isCostComplete ? knownCogsAmount : null;
-  const consumption = await tx.orderConsumption.create({ data: { orderId: order.id, cycleNumber: cycleNumber + 1, paymentSettlementId: settlementId, status: !turnoverEligible ? OrderConsumptionStatus.UNTRACKED : canFulfill ? OrderConsumptionStatus.POSTED : OrderConsumptionStatus.PENDING, recognizedById: actorId, recognizedAt: at, resolvedAt: !turnoverEligible || canFulfill ? at : null, theoreticalCogsAmount, knownCogsAmount, isCostComplete, costSnapshot: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productId: item.snapshot.productId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, components: item.components })) as unknown as Prisma.InputJsonValue, items: { create: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, costSnapshot: { orderChannel: item.snapshot.orderChannel ?? order.channel, components: item.components, missingReasons: item.snapshot.missingReasons } })) } } });
+  const consumption = await tx.orderConsumption.create({ data: { orderId: order.id, cycleNumber: cycleNumber + 1, paymentSettlementId: settlementId, status: !turnoverEligible ? OrderConsumptionStatus.UNTRACKED : canFulfill ? OrderConsumptionStatus.POSTED : OrderConsumptionStatus.PENDING, recognizedById: actorId, recognizedAt: at, resolvedAt: !turnoverEligible || canFulfill ? at : null, theoreticalCogsAmount: theoreticalCogsAmount === null ? null : BigInt(theoreticalCogsAmount), knownCogsAmount: BigInt(knownCogsAmount), isCostComplete, costSnapshot: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productId: item.snapshot.productId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? item.amount : null, knownCogsAmount: item.known, isCostComplete: item.complete, estimatedCostAmount: item.snapshot.estimatedCostAmount, estimatedCosts: item.snapshot.estimatedCosts, components: item.components })) as unknown as Prisma.InputJsonValue, items: { create: itemAmounts.map((item) => ({ orderItemId: item.snapshot.itemId, productNameSnapshot: item.snapshot.productName, quantity: item.snapshot.quantity, weightGrams: item.snapshot.weightGrams, theoreticalCogsAmount: item.complete ? BigInt(item.amount) : null, knownCogsAmount: BigInt(item.known), isCostComplete: item.complete, costSnapshot: { orderChannel: item.snapshot.orderChannel ?? order.channel, estimatedCostAmount: item.snapshot.estimatedCostAmount, estimatedCosts: item.snapshot.estimatedCosts, components: item.components, missingReasons: item.snapshot.missingReasons } })) } } });
   if (canFulfill) await deductStockForOrder(tx, consumption.id, movementRows, balances, actorId, at);
   return consumption;
 }
@@ -764,11 +1110,13 @@ async function refreshPendingConsumptionSnapshots(tx: Tx, consumptionId: string,
     await tx.orderConsumptionItem.update({
       where: { orderConsumptionId_orderItemId: { orderConsumptionId: consumptionId, orderItemId: snapshot.itemId } },
       data: {
-        theoreticalCogsAmount: valued.complete ? valued.known : null,
-        knownCogsAmount: valued.known,
+        theoreticalCogsAmount: valued.complete ? BigInt(valued.known) : null,
+        knownCogsAmount: BigInt(valued.known),
         isCostComplete: valued.complete,
         costSnapshot: {
           orderChannel: snapshot.orderChannel ?? order.inventorySaleChannel ?? order.channel,
+          estimatedCostAmount: snapshot.estimatedCostAmount,
+          estimatedCosts: snapshot.estimatedCosts,
           components: valued.components,
           missingReasons: snapshot.missingReasons,
         } as unknown as Prisma.InputJsonValue,
@@ -781,7 +1129,7 @@ async function refreshPendingConsumptionSnapshots(tx: Tx, consumptionId: string,
 
 async function updateConsumptionCostTotals(tx: Tx, consumptionId: string) {
   const items = await tx.orderConsumptionItem.findMany({ where: { orderConsumptionId: consumptionId }, include: { orderItem: { select: { productId: true } } } });
-  const knownCogsAmount = items.reduce((sum, item) => sum + item.knownCogsAmount, 0);
+  const knownCogsAmount = checkedCogsAmount(items.reduce((sum, item) => sum + Number(item.knownCogsAmount), 0));
   const isCostComplete = items.length > 0 && items.every((item) => item.isCostComplete);
   const costSnapshot = items.map((item) => {
     const saved = item.costSnapshot as any;
@@ -791,15 +1139,17 @@ async function updateConsumptionCostTotals(tx: Tx, consumptionId: string) {
       productNameSnapshot: item.productNameSnapshot,
       quantity: item.quantity,
       weightGrams: item.weightGrams,
-      theoreticalCogsAmount: item.theoreticalCogsAmount,
-      knownCogsAmount: item.knownCogsAmount,
+      theoreticalCogsAmount: item.theoreticalCogsAmount === null ? null : Number(item.theoreticalCogsAmount),
+      knownCogsAmount: Number(item.knownCogsAmount),
       isCostComplete: item.isCostComplete,
+      estimatedCostAmount: saved.estimatedCostAmount ?? 0,
+      estimatedCosts: saved.estimatedCosts ?? [],
       components: saved.components ?? [],
     };
   });
   await tx.orderConsumption.update({
     where: { id: consumptionId },
-    data: { knownCogsAmount, isCostComplete, theoreticalCogsAmount: isCostComplete ? knownCogsAmount : null, costSnapshot: costSnapshot as unknown as Prisma.InputJsonValue },
+    data: { knownCogsAmount: BigInt(knownCogsAmount), isCostComplete, theoreticalCogsAmount: isCostComplete ? BigInt(knownCogsAmount) : null, costSnapshot: costSnapshot as unknown as Prisma.InputJsonValue },
   });
 }
 async function tryPostPendingConsumption(tx: Tx, consumptionId: string, actorId: string, at: Date) {
@@ -819,7 +1169,6 @@ async function tryPostPendingConsumption(tx: Tx, consumptionId: string, actorId:
   })) return false;
 
   const needs = await needsFromConsumption(tx, consumptionId);
-  if (needs.length === 0) return false;
   const balances = await readLockedStockBalances(tx, needs);
   if (!hasStockForOrder(needs, balances)) return false;
   const claimed = await tx.orderConsumption.updateMany({
@@ -944,8 +1293,14 @@ export async function listPendingConsumptions(prisma: PrismaClient, query: Pendi
     const needs = await needsFromConsumption(prisma as unknown as Tx, row.id);
     const balances = needs.length ? await prisma.inventoryBalance.findMany({ where: { stockItemId: { in: needs.map((need) => need.stockItemId) } } }) : [];
     const byId = new Map(balances.map((balance) => [balance.stockItemId, balance]));
-    const missingStockItemIds = needs.filter((need) => { const balance = byId.get(need.stockItemId); return !balance?.trackingStartedAt || balance.quantityOnHand.lt(need.quantity); }).map((need) => need.stockItemId);
-    consumptions.push({ id: row.id, orderId: row.order.id, orderNumber: row.order.orderNumber, recognizedAt: row.recognizedAt.toISOString(), knownCogsAmount: row.knownCogsAmount, isCostComplete: row.isCostComplete, missingStockItemIds });
+    const missingStockItemIds = new Set(needs.filter((need) => { const balance = byId.get(need.stockItemId); return !balance?.trackingStartedAt || balance.quantityOnHand.lt(need.quantity); }).map((need) => need.stockItemId));
+    for (const item of row.items) {
+      const saved = item.costSnapshot as { missingReasons?: unknown };
+      for (const reason of Array.isArray(saved.missingReasons) ? saved.missingReasons : []) {
+        if (typeof reason === "string" && reason.startsWith("missing-takeaway-packaging:")) missingStockItemIds.add(reason.slice("missing-takeaway-packaging:".length));
+      }
+    }
+    consumptions.push({ id: row.id, orderId: row.order.id, orderNumber: row.order.orderNumber, recognizedAt: row.recognizedAt.toISOString(), knownCogsAmount: checkedCogsAmount(Number(row.knownCogsAmount)), isCostComplete: row.isCostComplete, missingStockItemIds: [...missingStockItemIds] });
   }
   return { consumptions, page: { limit: query.limit, nextCursor: hasMore ? encodePageCursor({ id: page[page.length - 1]!.id, recordedAt: page[page.length - 1]!.recognizedAt }) : null, hasMore } };
 }
@@ -1045,8 +1400,8 @@ export async function postInventoryCount(prisma: PrismaClient, actor: Authentica
   }
 }
 
-export async function updateOrderCostingSnapshots(tx: Tx, orderId: string) {
-  await trackOrderItemSnapshots(tx, orderId);
+export async function updateOrderCostingSnapshots(tx: Tx, orderId: string, preserveExistingItemIds?: string[], recalculatePackagingProductIds?: string[]) {
+  await trackOrderItemSnapshots(tx, orderId, false, undefined, preserveExistingItemIds ? new Set(preserveExistingItemIds) : undefined, recalculatePackagingProductIds ? new Set(recalculatePackagingProductIds) : undefined);
 }
 export async function recognizeOrderFullPayment(tx: Tx, orderId: string, settlementId: string, actorId: string, at = new Date()) {
   const order = await tx.order.findUnique({ where: { id: orderId }, include: { paymentSettlements: { where: { reversal: null }, select: { totalAmount: true } } } });
