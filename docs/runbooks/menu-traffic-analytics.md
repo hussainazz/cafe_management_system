@@ -66,9 +66,10 @@ Daily and monthly reports include:
   rotating IPs split them, and bots and reloads remain in request data.
 - Response-body bytes for the menu page, public-menu data, other menu APIs,
   menu images, other static files, and all other Nginx-routed services. Image
-  recognition includes `/_next/image` when used, `/api/product-images/`,
-  bundled menu image paths, and image response types; it does not depend on the
-  request path being `/menu`.
+  recognition includes the canonical `/media/products/*` namespace,
+  `/_next/image` when used, compatibility `/api/product-images/`, legacy
+  `/items_pictures/*` and `/items/*`, and image response types; it does not
+  depend on the request path being `/menu`.
 - These bytes exclude headers, TLS, and transport overhead. Browser-cache hits
   can send no body, so this is a server payload estimate rather than a precise
   ISP bill.
@@ -89,11 +90,20 @@ fetched from the origin to the report. Preserve the provider's definitions; if
 it reports request-hit and byte-hit ratios separately, show both. Do not fill
 these fields from Nginx estimates.
 
-Keep public caching on an explicit image allowlist: validated
-`/api/product-images/<storage-key>` responses, bundled `/items_pictures/` and
-`/items/` images, root menu image assets, and `/_next/image` only if the app
-uses it with approved image sources. Respect versioned immutable image headers.
-Other `/api/` routes, including menu data and customer actions, and all `/pos/`
+When requests arrive through ArvanCloud, the analytics `client_ip` field uses
+the real-IP module only for the current official ArvanCloud source ranges and
+the documented `ar-real-ip` header. Nginx replaces upstream `X-Real-IP` and
+`X-Forwarded-For` with that trusted `$remote_addr`; never append arbitrary
+client-supplied forwarding values. See
+[`arvan-cdn-origin-readiness.md`](arvan-cdn-origin-readiness.md).
+
+Keep public caching on an explicit image allowlist. The canonical namespace is
+`/media/products/*`; only versioned successful image responses are cacheable.
+Compatibility `/api/product-images/<storage-key>`, bundled `/items_pictures/`
+and `/items/` paths, root menu image assets, and `/_next/image` only if the app
+uses it with approved image sources may retain their existing behavior during
+migration. Respect immutable version headers and do not cache errors. Other
+`/api/` routes, including menu data and customer actions, and all `/pos/`
 content must bypass shared public caching. Do not configure a wildcard cache
 for `/api/*`.
 
