@@ -1,3 +1,5 @@
+import { bundledProductImageUrl, uploadedProductImageUrl } from "@cafe/contracts";
+
 type CatalogProduct = { name: string; image?: { storageKey: string } | null };
 
 function normalizeSearch(value: string) {
@@ -28,12 +30,12 @@ const pictures: Record<string, string> = {
 
 export function catalogProductImageUrl(product: CatalogProduct, categoryName?: string | null): string | null {
   if (product.image?.storageKey) {
-    return `/pos/api/v1/product-images/${encodeURIComponent(product.image.storageKey)}`;
+    return uploadedProductImageUrl(product.image.storageKey);
   }
   const name = normalizeSearch(product.name);
   const category = normalizeSearch(categoryName ?? "");
-  if (name === "نسکافه") return category === "بار گرم قهوه" ? "/items_pictures/nescafe.webp" : null;
-  if (name === "شکلات") return category === "شیک" ? "/items_pictures/chocolate-shakes.webp" : null;
+  if (name === "نسکافه") return category === "بار گرم قهوه" ? bundledProductImageUrl("items_pictures/nescafe.webp") : null;
+  if (name === "شکلات") return category === "شیک" ? bundledProductImageUrl("items_pictures/chocolate-shakes.webp") : null;
   const file = pictures[name];
-  return file ? `/items_pictures/${encodeURIComponent(file)}` : null;
+  return file ? bundledProductImageUrl(`items_pictures/${file}`) : null;
 }
