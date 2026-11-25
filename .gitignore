@@ -7,6 +7,7 @@ coverage/
 apps/api/generated/
 .next/
 *.tsbuildinfo
+apps/web/public/media/products/bundled/
 
 # Environment variables
 .env
