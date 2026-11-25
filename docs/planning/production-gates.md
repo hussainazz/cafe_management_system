@@ -790,3 +790,110 @@ HTTP port 80. If `www` is permanently removed from DNS, the current SAN set
 cannot complete HTTP-01 renewal; an approved apex-only certificate replacement
 must precede removing `www`. No database, QR token, payment, or print data was
 changed.
+
+## Coordinated API, contracts, web, POS, and origin-media release — 25 November 2026
+
+Released `cafe-20261125-0737cb8` on the configured production VPS. The
+application/operations source commit for this release is
+`b73c211ea8c066d65ff294045d766e21be211616`. API,
+contracts, web, and POS production builds use runtime source commit
+`0737cb849e7892d19f5bcc87d6680de2cde35647`; the separately committed Nginx
+regex quoting correction is included from `b73c211`. The POS `.next/BUILD_ID`,
+direct `/pos/release`, public-origin `/pos/release`, active manifest, and
+artifact all match the immutable release ID.
+
+The verified release artifact is
+`/opt/cafe-menu-release-staging/cafe-20261125-0737cb8/cafe-20261125-0737cb8.tar.gz`,
+SHA-256
+`1becdce8f97c93bfe153e274ac7147d7e3e9e3a1190884f6b0c0b1381e0d8273`
+(57,374,401 bytes; 629 manifested runtime files). It includes the complete 67
+Prisma migrations, schema/config, Debian OpenSSL 3 engine, API/contracts/web/POS
+builds, 56 generated bundled menu images, product-media generator, analytics
+runtime, dependency manifests, and Nginx templates. The release manifest is
+installed at `/opt/cafe-menu/release-manifest.json`; all 629 deployed file
+hashes match it. Environment files, secrets, `node_modules`, developer-local
+product-image uploads, Next.js standalone/dev/cache/types/diagnostics output,
+source maps, declarations, and test output are excluded.
+Contracts, API, web, and POS production builds passed before packaging; no
+additional automated test suite was run during activation.
+
+Before changing production, PostgreSQL 17.11 was backed up to
+`/opt/cafe-menu-release-backups/cafe-db-before-cafe-20261125-0737cb8.dump`.
+PostgreSQL 17 `pg_restore --list` validated 449 entries; the archive SHA-256 is
+`79e79991bec2a5050e5578e62d200e08cc3e76ab5319119b5c37edf1aec28da7`
+(87,841,995 bytes). The code-only coordinated rollback archive is
+`/opt/cafe-menu-release-backups/rollback-before-cafe-20261125-0737cb8.tar.gz`
+(SHA-256
+`1b9eea087498af2eb40ff16433290eb842e42f3808c340a873215a36e282929c`;
+582 entries). The fresh `/etc/nginx` backup is
+`/opt/cafe-menu-release-backups/nginx-config-before-cafe-20261125-0737cb8.tar.gz`
+(SHA-256
+`38e45156fd23ec1ea3ef6b3ea5b126cf01f3cf99ffef215d8659ef8321337f31`;
+26 entries), with active-file checksums in
+`/opt/cafe-menu-release-backups/nginx-config-checksums-before-cafe-20261125-0737cb8.sha256`
+(five entries; SHA-256
+`0cce2d6e4036d60909161817a5195c56e3c889d52aca8ab9c6bb1aa4c9979471`).
+The previous release's database and code rollback pair was removed only after
+the new pair and activation were verified. The separate packaging-assignment
+recovery input remains retained.
+
+Production Prisma reported exactly these five pending migrations in the
+staged artifact:
+
+- `20261123120000_shared_packaging_price`
+- `20261123130000_estimated_product_costing`
+- `20261123140000_estimated_recipe_source_constraint`
+- `20261123150000_widen_order_cogs_amounts`
+- `20261124100000_stock_reference_purchase`
+
+The five reviewed migrations were applied with the staged Prisma configuration
+using `prisma migrate deploy`, before activating code that reads their schema.
+The production migration status now reports all 67 migrations current. No
+database reset or seed ran. The pre-migration aggregate had 5,074 orders, 5,055
+payment settlements, 85 packaging assignments, and one café settings row. The
+post-activation aggregate had 5,075 orders, 5,055 settlements, 85 assignments,
+and one settings row; the order total rose by one while the café continued
+operating. All 16 internal PACKING products are active, available, nonpublic,
+and unarchived. The production recipe-cost constraint preflight found zero
+violations.
+
+The first staged Nginx check caught the bundled-media regex brace as an
+unquoted configuration token. The corrected template was committed and pushed
+before reload; the final `nginx -t` passed and Nginx was gracefully reloaded.
+The active cache snippet SHA-256 is
+`5891034f2b78885e25be766f096327891ba25cf16675817ff010ec6133b48328`; the new
+HTTP-context product-media map is
+`0a92718bb274396e17024e5d2f9e2724d11986f136215ff7e4af680385e9b69a`. Existing
+analytics and Arvan real-IP configurations remain unchanged at hashes
+`2af19a110db4ce3d04756f79773e6675008a4343190b420d50f6cff01e2d998f` and
+`48056336c34670c812bbaa2b91b7782a6621b14b3b1901e296284aaf3db1cbe9`.
+
+API, POS, web, and Nginx are active with zero automatic restarts. Direct API
+readiness, web menu, and POS probes return HTTP 200; direct and public release
+endpoints report `cafe-20261125-0737cb8`. Direct and public menu API responses
+each contain 16 categories and 140 products. The origin HTTPS matrix returned
+200 for public menu, POS, `/pos/release`, public-menu API, POS readiness,
+successful canonical uploaded and bundled images (GET and HEAD), the legacy
+image route, and a fingerprinted static asset. Missing or malformed image
+paths return 404. Each successful canonical image response has one
+`public, max-age=2592000, immutable` header; the legacy image route retains its
+one-year immutable header. Dynamic pages/APIs and errors have one
+private/no-store policy. Unauthenticated POS `/api/v1/auth/me` returns 401
+through the POS proxy; the invalid QR probe redirects with correlation cookies;
+a missing HTTP-01 token returns 404/no-store.
+
+The production image directory remains 32 files / 5,759,237 bytes with
+unchanged tree SHA-256
+`63b3456041b0d9447b6035b5082522c6513e400625baf0f75a7d908be247d0e3`. No image
+or environment data was transferred or mutated. No payment, checkout, or
+print was performed. Production browser, touch, cashier workflow, and receipt
+printer acceptance remains open. ArvanCloud proxy, DNS, and edge TLS were not
+activated.
+
+The changed web workspace manifest added `@cafe/contracts`, while the existing
+production installation lacked that workspace link. A noninteractive
+`pnpm exec` status attempt began pnpm's automatic workspace reconciliation and
+aborted before modifying `node_modules`; the installed Prisma CLI then
+confirmed all migrations current, and the web workspace symlink was added to
+the already-deployed contracts package. No dependency installation, database
+reset, or seed ran during this release.
