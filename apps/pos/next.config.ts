@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const apiBaseUrl = process.env.API_BASE_URL ?? "http://127.0.0.1:3001";
+const webBaseUrl = (process.env.WEB_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const releaseId = process.env.POS_RELEASE_ID?.trim() || "development";
 
 const nextConfig: NextConfig = {
@@ -15,6 +16,16 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost", "192.168.*", "10.*", "172.16.*"],
   async rewrites() {
     return [
+      {
+        source: "/media/products/bundled/:path*",
+        basePath: false,
+        destination: `${webBaseUrl}/media/products/bundled/:path*`,
+      },
+      {
+        source: "/media/products/uploads/:storageKey",
+        basePath: false,
+        destination: `${apiBaseUrl}/api/v1/media/products/uploads/:storageKey`,
+      },
       {
         source: "/api/:path*",
         destination: `${apiBaseUrl}/api/:path*`,
