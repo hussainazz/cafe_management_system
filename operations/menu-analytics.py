@@ -249,6 +249,8 @@ def classify_payload(path: str, content_type: str) -> str | None:
         return "menu_page"
     if path == "/api/public-menu":
         return "menu_data"
+    if path.startswith("/media/products/"):
+        return "images"
     if path.startswith("/api/product-images/"):
         return "images"
     if path.startswith("/api/"):
@@ -282,7 +284,7 @@ def is_menu_service_path(path: str) -> bool:
     if path == "/pos" or path.startswith("/pos/"):
         return False
     if path in {"/", "/menu"} or path.startswith(
-        ("/t/", "/api/", "/_next/", "/items_pictures/", "/items/", "/fonts/")
+        ("/t/", "/api/", "/media/products/", "/_next/", "/items_pictures/", "/items/", "/fonts/")
     ):
         return True
     return path.startswith("/") and path.rsplit("/", 1)[-1].find(".") > 0
