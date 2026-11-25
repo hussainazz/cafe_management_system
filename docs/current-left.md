@@ -10,6 +10,33 @@
 - Left: none for the local TASK_2 implementation and verification. No commit or
   release was requested.
 
+## Production operations — ArvanCloud CDN origin preparation (24 November 2026)
+
+- [x] Back up the production `/etc/nginx` tree before changes and verify the
+  archive. Inspect the active vhost, live routing, response headers, Certbot
+  renewal config, certificate SANs, and timer.
+- [x] Make POS HTML, POS APIs, root APIs, customer context/actions, QR exchange,
+  redirects, and other dynamic responses private/no-store at Nginx. Hide
+  upstream `Cache-Control` on those paths so each response has one policy.
+- [x] Preserve cache headers for validated public product images and
+  fingerprinted Next.js assets. Keep the QR correlation cookie, auth cookies,
+  existing upstream paths, analytics, and service processes intact.
+- [x] Trust only the current official ArvanCloud IPv4 proxy ranges and its
+  `ar-real-ip` header. Normalize forwarded IP headers sent to upstreams so
+  arbitrary client-supplied `X-Forwarded-For` values are not retained.
+- [x] Add a no-store HTTP-01 webroot location and reconfigure Certbot to use it.
+  The Certbot staging reconfiguration succeeded for both current certificate
+  names. The live certificate serial, SANs, and expiry remain unchanged.
+- [x] Run `nginx -t`, gracefully reload Nginx, and probe origin menu, POS,
+  release, authentication, customer, QR, image, static-asset, and ACME paths.
+  Nginx remains active with zero restarts; application services were not
+  restarted.
+- Left: after Arvan proxy activation, verify edge TLS,
+  forwarded-client-IP behavior, image cache rules, WebSocket/long-poll
+  behavior, and CDN-mediated ACME pass-through. Proxy and DNS activation were
+  not part of this task. Removing `www` from the certificate requires separate
+  approval.
+
 ## Phase 1 — source publication and local release preparation (19 November 2026)
 
 - [x] Publish the current API, contracts, POS, and documentation changes on
@@ -2761,6 +2788,34 @@ or full Stage 10 exit gate.
   `/opt/cafe-menu-release-backups/menu-before-menu-20261031-eager-images-c901fdf.tar.gz`
   (SHA-256 `fb3243c45066d22d24ccc1a196b0ada1e6153c9cbb6f3bd13d3102da4bcf5cc0`).
   No API, database, Nginx, or uploaded-image changes were made.
+
+## Active delivery — canonical public product media (24 November 2026)
+
+- [x] Read the origin-readiness runbook and inspect the phase-one Nginx
+  templates before changing routes. Preserve its trusted client-IP forwarding,
+  QR correlation, cache protection, and ACME configuration.
+- [x] Audit `/items_pictures/*`, legacy `/items/*`, the web and API image
+  routes, the POS image route, image URL environment configuration, and the
+  tracked menu/POS source. `apps/menu-svelte` currently has generated/ignored
+  build output but no tracked source or `PLAN.md` to update.
+- [x] Finish the shared `/media/products/*` URL generation, content-hashed
+  bundled assets, public upload validation, analytics classification,
+  compatibility coverage, and Nginx static/API routing.
+- [x] Run focused API, web, POS, contracts, and analytics tests and build the
+  API, web, and POS applications. Local HTTP checks served the same bundled
+  image from both web and POS origins. The sample uploaded key in the local
+  catalog has no local file and correctly returned 404/no-store; isolated API
+  tests cover valid uploads and replacement.
+- [ ] Verify actual browser rendering of public menu and authenticated POS
+  images, including fallback. The browser access host is unavailable in this
+  session; static transport and automated checks passed.
+- [ ] Deploy the phase-two artifacts and Nginx locations, then repeat the
+  direct-origin header matrix. The current checkout is 52 commits beyond the
+  live application release and contains unrelated application changes plus an
+  unapplied local migration, so it is not a safe release source.
+- Left: local implementation and automated verification are complete. Browser
+  visual verification and production deployment/matrix remain. ArvanCloud
+  proxying, DNS, and certificate state remain unchanged.
 - Lazy loading follow-up is implemented locally: product images again use
   browser lazy loading for both Manager uploads and bundled menu assets. Removed
   the all-images opening gate so offscreen images do not block menu access;
