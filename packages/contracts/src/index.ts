@@ -1,5 +1,6 @@
 import { z } from "zod";
 export * from "./terminal-payments.js";
+export * from "./product-media.js";
 
 
 export const DEFAULT_TABLE_SEATING_LIMIT_MINUTES = 45;
