@@ -1,4 +1,30 @@
-## Active delivery — purchase-oriented inventory item setup (24 November 2026)
+## Production activation — coordinated application release (25 November 2026)
+
+- [x] Publish the tracked application and operations changes on `main` in
+  separate per-file commits. Release source commit:
+  `b73c211ea8c066d65ff294045d766e21be211616`.
+- [x] Build and activate release `cafe-20261125-0737cb8`. The matched API,
+  contracts, web, and POS runtime artifact contains 629 manifested files and
+  has SHA-256
+  `1becdce8f97c93bfe153e274ac7147d7e3e9e3a1190884f6b0c0b1381e0d8273`.
+- [x] Validate PostgreSQL 17 backup, code rollback, and Nginx backups before
+  deployment. Apply the five reviewed forward migrations with
+  `prisma migrate deploy`; the database is current at 67 migrations. No reset
+  or seed ran. Orders were 5,074 before migration and 5,075 after activation
+  while the café continued operating; settlement, packaging-assignment, and
+  settings counts stayed at 5,055, 85, and 1.
+- [x] Activate API, POS, web, and Nginx. The direct and public POS release
+  endpoints report the matching ID; API readiness, menu, POS, public-menu API,
+  auth, QR, canonical/legacy image, cache, static-asset, and ACME origin probes
+  pass. All 629 active runtime files match the release manifest.
+- [x] Preserve production uploads: 32 files / 5,759,237 bytes, with unchanged
+  tree SHA-256
+  `63b3456041b0d9447b6035b5082522c6513e400625baf0f75a7d908be247d0e3`.
+- Left: authenticated POS-browser and café-device acceptance for packaging,
+  costing, inventory, and purchase workflows; touch behavior and receipt
+  printing. ArvanCloud proxy/DNS activation and edge checks remain separate.
+
+## Production delivery — purchase-oriented inventory item setup (24 November 2026)
 
 - [x] Redesign stock-item creation and editing into ingredient identification,
   purchase-package configuration, and opening-stock entry.
@@ -7,8 +33,10 @@
   purchase drafts without changing tracked stock or past purchase records.
 - [x] Cover package and direct entry, unit conversion, rounding, zero stock,
   incomplete setup, existing-item edits, and purchase-factor compatibility.
-- Left: none for the local TASK_2 implementation and verification. No commit or
-  release was requested.
+- [x] Deploy the purchase-reference migration
+  `20261124100000_stock_reference_purchase` with the coordinated release.
+- Left: verify package-based and direct purchase workflows in the authenticated
+  POS browser and on the café device.
 
 ## Production operations — ArvanCloud CDN origin preparation (24 November 2026)
 
@@ -82,8 +110,12 @@
   pass API, contracts, and POS typechecks. The assignment table was recreated
   locally by the earlier lifecycle migrations. The shared-price default is
   20,000 Toman.
-- Left: review the resulting order/settings flow in the local POS. No
-  production changes were made.
+- [x] Deploy the shared price with
+  `20261123120000_shared_packaging_price`. Production retained 85 packaging
+  assignments and one settings row; all 16 internal PACKING products are
+  active, available, nonpublic, and unarchived.
+- Left: review the resulting order/settings flow in the authenticated POS
+  browser and on the café device.
 
 ## Completed local delivery — estimated product and side-add-on cost mode (23 November 2026)
 
@@ -107,10 +139,12 @@
   after regressions for inherited option drafts, quantity changes, duplicate
   line references, new replacement lines, legacy snapshots, and takeaway
   packaging reassignment.
-- Left: before production, check for legacy recipe configurations with a recipe
-  ID but no quantity, and use the forward-compatible release/recovery plan
-  because older code cannot read estimate-mode configurations or estimated
-  side-add-ons. No production migration or deployment has been done.
+- [x] Preflight production recipe configurations before deployment; found no
+  legacy recipe entries with a recipe ID but missing quantity. Deploy the
+  estimate-mode code and its forward migrations in release
+  `cafe-20261125-0737cb8`; production now reports 67 migrations current.
+- Left: verify Manager/Developer costing views and estimate-mode order flows
+  in the authenticated POS browser and on the café device.
 
 ## Local follow-up — packaging edits on open orders (23 November 2026)
 
@@ -2789,7 +2823,7 @@ or full Stage 10 exit gate.
   (SHA-256 `fb3243c45066d22d24ccc1a196b0ada1e6153c9cbb6f3bd13d3102da4bcf5cc0`).
   No API, database, Nginx, or uploaded-image changes were made.
 
-## Active delivery — canonical public product media (24 November 2026)
+## Production rollout — canonical public product media (25 November 2026)
 
 - [x] Read the origin-readiness runbook and inspect the phase-one Nginx
   templates before changing routes. Preserve its trusted client-IP forwarding,
@@ -2807,15 +2841,18 @@ or full Stage 10 exit gate.
   catalog has no local file and correctly returned 404/no-store; isolated API
   tests cover valid uploads and replacement.
 - [ ] Verify actual browser rendering of public menu and authenticated POS
-  images, including fallback. The browser access host is unavailable in this
-  session; static transport and automated checks passed.
-- [ ] Deploy the phase-two artifacts and Nginx locations, then repeat the
-  direct-origin header matrix. The current checkout is 52 commits beyond the
-  live application release and contains unrelated application changes plus an
-  unapplied local migration, so it is not a safe release source.
-- Left: local implementation and automated verification are complete. Browser
-  visual verification and production deployment/matrix remain. ArvanCloud
-  proxying, DNS, and certificate state remain unchanged.
+  images, including fallback. Production-origin GET/HEAD transport and cache
+  checks pass; visual verification remains open.
+- [x] Deploy the phase-two artifacts and Nginx locations in release
+  `cafe-20261125-0737cb8`, then repeat the direct-origin header matrix. Bundled
+  and uploaded images pass GET/HEAD with one 30-day immutable cache header;
+  missing/malformed images return 404/no-store; the legacy image URL and
+  fingerprinted static assets remain cacheable. Menu, POS, auth, QR, and ACME
+  paths retain their expected no-store behavior.
+- [ ] Verify actual browser rendering of public menu and authenticated POS
+  images, including fallback. Browser visual verification remains open.
+- Left: production origin activation and matrix are complete. ArvanCloud
+  proxying, DNS, and edge certificate state remain unchanged.
 - Lazy loading follow-up is implemented locally: product images again use
   browser lazy loading for both Manager uploads and bundled menu assets. Removed
   the all-images opening gate so offscreen images do not block menu access;
