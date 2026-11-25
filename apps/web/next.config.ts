@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   agentRules: false,
+  transpilePackages: ["@cafe/contracts"],
   headers: () => Promise.resolve([
       {
         source: "/items_pictures/:path*",
