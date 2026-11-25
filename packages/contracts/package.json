@@ -10,6 +10,7 @@
     }
   },
   "scripts": {
+    "prebuild": "node ../../operations/generate-product-media.mjs",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
