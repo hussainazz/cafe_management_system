@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { bundledProductImageUrl } from "@cafe/contracts";
 import type { PublicMenu } from "./menu-types";
 import {
   categoryTone,
@@ -86,62 +87,62 @@ describe("menu utilities", () => {
 
   it("maps supplied local pictures only to their matching menu products", () => {
     expect(localProductPictureUrl({ name: "آمریکانو سینگل" })).toBe(
-      "/items_pictures/americano-single.webp",
+      bundledProductImageUrl("items_pictures/americano-single.webp"),
     );
     expect(localProductPictureUrl({ name: "آیس آمریکانو دبل" })).toBe(
-      "/items_pictures/ice americano.webp",
+      bundledProductImageUrl("items_pictures/ice americano.webp"),
     );
-    expect(localProductPictureUrl({ name: "لاته" })).toBe("/items_pictures/لته_.webp");
+    expect(localProductPictureUrl({ name: "لاته" })).toBe(bundledProductImageUrl("items_pictures/لته_.webp"));
     expect(localProductPictureUrl({ name: "آیس لاته" })).toBe(
-      "/items_pictures/ice latte.webp",
+      bundledProductImageUrl("items_pictures/ice latte.webp"),
     );
     expect(localProductPictureUrl({ name: "آیس کارامل ماکیاتو" })).toBe(
-      "/items_pictures/ice-caramel.webp",
+      bundledProductImageUrl("items_pictures/ice-caramel.webp"),
     );
     expect(localProductPictureUrl({ name: "کارامل ماکیاتو" })).toBe(
-      "/items_pictures/white-espresso.webp",
+      bundledProductImageUrl("items_pictures/white-espresso.webp"),
     );
     expect(localProductPictureUrl({ name: "آیس اورنج" })).toBe(
-      "/items_pictures/ice-orange.webp",
+      bundledProductImageUrl("items_pictures/ice-orange.webp"),
     );
     expect(localProductPictureUrl({ name: "تونیک اسپرسو" })).toBe(
-      "/items_pictures/tonic-espresso.webp",
+      bundledProductImageUrl("items_pictures/tonic-espresso.webp"),
     );
     expect(localProductPictureUrl({ name: "چای هل و زغفران" })).toBe(
-      "/items_pictures/چای.webp",
+      bundledProductImageUrl("items_pictures/چای.webp"),
     );
     expect(localProductPictureUrl({ name: "چای ماسالا" })).toBe(
-      "/items_pictures/masala.webp",
+      bundledProductImageUrl("items_pictures/masala.webp"),
     );
     expect(localProductPictureUrl({ name: "ایس تی هلو" })).toBe(
-      "/items_pictures/ice-tea-peach.webp",
+      bundledProductImageUrl("items_pictures/ice-tea-peach.webp"),
     );
     expect(localProductPictureUrl({ name: "گل گاو زبان" })).toBe(
-      "/items_pictures/gol-gav-zaban.webp",
+      bundledProductImageUrl("items_pictures/gol-gav-zaban.webp"),
     );
     expect(localProductPictureUrl({ name: "ماچا لته" })).toBeNull();
     expect(localProductPictureUrl({ name: "کروسان ویژه" })).toBeNull();
     expect(localProductPictureUrl({ name: "دمنوش بابونه" })).toBe(
-      "/items_pictures/دمنوش_بابونه.webp",
+      bundledProductImageUrl("items_pictures/دمنوش_بابونه.webp"),
     );
     expect(localProductPictureUrl({ name: "Aeropress" })).toBe(
-      "/items_pictures/aeropress.webp",
+      bundledProductImageUrl("items_pictures/aeropress.webp"),
     );
     expect(localProductPictureUrl({ name: "تست ژامبون" })).toBe(
-      "/items_pictures/ham-toast.webp",
+      bundledProductImageUrl("items_pictures/ham-toast.webp"),
     );
     expect(localProductPictureUrl({ name: "موز وانیل" })).toBe(
-      "/items_pictures/banana-vanilla-shake.webp",
+      bundledProductImageUrl("items_pictures/banana-vanilla-shake.webp"),
     );
     expect(localProductPictureUrl({ name: "پروتئین" })).toBe(
-      "/items_pictures/protein-shake.webp",
+      bundledProductImageUrl("items_pictures/protein-shake.webp"),
     );
     expect(localProductPictureUrl({ name: "شکلات" }, { name: "تست بار" })).toBeNull();
     expect(localProductPictureUrl({ name: "شکلات" }, { name: "شیک" })).toBe(
-      "/items_pictures/chocolate-shakes.webp",
+      bundledProductImageUrl("items_pictures/chocolate-shakes.webp"),
     );
     expect(localProductPictureUrl({ name: "نسکافه" }, { name: "بار گرم قهوه" })).toBe(
-      "/items_pictures/nescafe.webp",
+      bundledProductImageUrl("items_pictures/nescafe.webp"),
     );
     expect(localProductPictureUrl({ name: "نسکافه" }, { name: "شیک" })).toBeNull();
   });
@@ -154,8 +155,8 @@ describe("menu utilities", () => {
     };
 
     expect(productImageSources(product, { name: "بار گرم قهوه" })).toEqual([
-      "/api/product-images/00000000-0000-4000-8000-000000000001.webp",
-      "/items_pictures/turkish.webp",
+      "/media/products/uploads/00000000-0000-4000-8000-000000000001.webp",
+      bundledProductImageUrl("items_pictures/turkish.webp"),
     ]);
   });
 });
