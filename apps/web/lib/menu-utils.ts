@@ -1,4 +1,5 @@
 import type { MenuCategory, MenuProduct, PublicMenu } from "./menu-types";
+import { bundledProductImageUrl, uploadedProductImageUrl } from "@cafe/contracts";
 
 export type Language = "fa" | "en";
 
@@ -66,14 +67,7 @@ export function roundDiscountedAmount(amount: number) {
 }
 
 export function productImageUrl(storageKey: string) {
-  const configuredBase = process.env.NEXT_PUBLIC_PRODUCT_IMAGE_BASE_URL?.replace(/\/$/, "");
-  const safePath = storageKey
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-
-  return `${configuredBase ?? "/api/product-images"}/${safePath}`;
+  return uploadedProductImageUrl(storageKey);
 }
 
 export function productImageSources(
@@ -152,15 +146,15 @@ export function localProductPictureUrl(
 
   // Nescafe exists in both the hot-coffee bar and shake bar; this photo is the hot drink.
   if (name === "نسکافه") {
-    return categoryName === "بار گرم قهوه" ? "/items_pictures/nescafe.webp" : null;
+    return categoryName === "بار گرم قهوه" ? bundledProductImageUrl("items_pictures/nescafe.webp") : null;
   }
 
   // The chocolate photograph belongs to the shake, not the same-named toast.
   if (name === "شکلات") {
-    return categoryName === "شیک" ? "/items_pictures/chocolate-shakes.webp" : null;
+    return categoryName === "شیک" ? bundledProductImageUrl("items_pictures/chocolate-shakes.webp") : null;
   }
 
-  return pictures[name] ?? null;
+  return pictures[name] ? bundledProductImageUrl(pictures[name]!.slice(1)) : null;
 }
 
 export function categoryTone(category: MenuCategory) {
