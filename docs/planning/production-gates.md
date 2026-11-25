@@ -404,8 +404,9 @@ completion record.
 - Report exact HTTP status-code counts separately for menu-service responses
   and other Nginx-routed services. Include the highest daily body-byte total,
   menu-image bytes, and other-service bytes. Detect public menu images from
-  `/_next/image` when used, `/api/product-images/`, bundled image paths, and
-  image response types; do not assume images are requested from `/menu`.
+  `/_next/image` when used, `/media/products/`, the compatibility
+  `/api/product-images/` path, legacy bundled image paths, and image response
+  types; do not assume images are requested from `/menu`.
 - Treat Nginx request counts as HTTP requests, not confirmed people or page
   renders. Treat `$body_bytes_sent` totals as returned response-body payload;
   they exclude headers and transport overhead, and cached responses may send
@@ -414,9 +415,10 @@ completion record.
   cache hits no longer reach the VPS. Add provider-sourced Cache Hit Ratio,
   bytes delivered to clients, and origin bytes alongside the Nginx report;
   do not estimate CDN delivery from origin logs. Cache only an explicit public
-  image allowlist, including validated product-image delivery and `/_next/image`
-  if enabled. Bypass public caching for other `/api/` endpoints and all `/pos/`
-  content; never apply a generic `/api/*` cache rule.
+  image allowlist: canonical `/media/products/*` responses and any separately
+  approved compatibility or `/_next/image` paths. Bypass public caching for
+  other `/api/` endpoints and all `/pos/` content; never apply a generic
+  `/api/*` cache rule.
 
 Deploy one self-hosted authoritative stack on an Iranian VPS:
 
@@ -437,7 +439,13 @@ Operating rules:
 - Do not make production operation depend on Vercel, a foreign CDN, Google Fonts, foreign object storage, external authentication, or foreign runtime APIs.
 - Bundle/self-host application assets, fonts, committed static menu images, Docker images needed for rollback, dependency lockfiles, migrations, and deployment scripts.
 - POS-uploaded product images are runtime café data stored under the API `PRODUCT_IMAGE_STORAGE_DIR`. Never include developer-local uploads from `apps/api/data/product-images/` in a release archive or transfer them to the VPS during deployment. Preserve the existing VPS image directory during release and rollback. Transfer image data only for a separately authorized data migration.
-- Leave `NEXT_PUBLIC_PRODUCT_IMAGE_BASE_URL` unset to use the menu's same-origin `/api/product-images` proxy, which forwards opaque storage keys to the API image route without exposing the API host. Keep committed static menu images, such as `apps/web/public/items_pictures/`, in the application release when required.
+- Use the shared `@cafe/contracts` product-media URL helpers for both menu and
+  POS images. Browser-facing product image URLs use `/media/products/*`;
+  content-hashed bundled assets are generated under
+  `apps/web/public/media/products/bundled/`, and unique uploaded storage keys
+  use the public read-only API route. `NEXT_PUBLIC_PRODUCT_IMAGE_BASE_URL` is
+  deprecated and ignored. Preserve legacy image endpoints and files during
+  migration, and package the generated content-hash files with the web release.
 - A CDN is not required for one café. Optimize images, serve them with cache headers, and check whether an Iranian CDN is needed only after the VPS deployment is running and real measurements show a need.
 - Stage 10's local route timings and live public-path measurements are recorded in [the response-time benchmark report](../performance/stage-10-response-times.md). Use wider customer-device and network samples before deciding whether to add a CDN.
 - Docker Compose runs web, API, PostgreSQL, and required image storage. Caddy or Nginx handles HTTPS and WebSockets.
@@ -728,3 +736,57 @@ production POS-browser and café-device acceptance remains open in
 | Deployment            | One Iranian VPS, self-hosted stack, one writable PostgreSQL database. The public menu and table QR links remain at the root domain; the shared POS is served at `/pos`. API release artifacts must include the Prisma `debian-openssl-3.0.x` engine for the current Debian-family VPS OS. |
 | Receipt integration   | Hidden same-origin iframe printing from the Windows POS browser using the shared Persian RTL thermal documents. The browser print workflow must be configured on the café POS computer; no QZ Tray, VPS-side browser, `lp`, direct USB, or raw ESC/POS integration. |
 | Table cleanup         | `DELETED` is logical deletion with an audit record; no deletion reason is required, including for paid orders. It never physically removes records. |
+
+## ArvanCloud CDN origin preparation — 24 November 2026
+
+Production Nginx was backed up before the origin changes. The validated archive
+is `/opt/cafe-menu-release-backups/nginx-config-before-arvan-cdn-20261124T101414Z.tar.gz`
+(SHA-256
+`fba80b0a38b8df54fc336e9ec9bc00eda2f3c3b9c816d81b0b3ecf1182002725`). The
+active routing and cache boundary are recorded in
+[`arvan-cdn-origin-readiness.md`](../runbooks/arvan-cdn-origin-readiness.md)
+and represented by the `operations/nginx/cafe-menu-*` templates.
+
+Nginx now returns one `private, no-store` cache header for POS HTML and APIs,
+root APIs other than the public product-image proxy, menu/customer endpoints,
+QR exchange redirects, other dynamic responses, and HTTP redirects. It hides
+upstream `Cache-Control` only on these dynamic locations. Successful public
+product-image responses and fingerprinted web/POS assets retain their existing
+cache headers. QR correlation cookies, auth cookies, and the existing
+upstream routes are preserved. Upstream `X-Real-IP` and `X-Forwarded-For` are
+set from Nginx's `$remote_addr`; the real-IP module trusts only the official
+ArvanCloud ranges from `https://www.arvancloud.ir/en/ips.txt` and the
+documented `ar-real-ip` header. No firewall allowlist was added.
+
+Nginx syntax passed before and after a graceful reload. Nginx, API, POS, and web
+are active with zero service restarts. Direct-origin checks passed for `/menu`,
+`/pos`, `/pos/release`, `/api/public-menu`, `/api/table-context`, unauthenticated
+POS auth/order APIs, QR redirect behavior, public images, and fingerprinted
+assets. Every checked dynamic response had exactly one private/no-store header;
+public image/static responses retained exactly one existing public cache
+header. A loopback request carrying forged `ar-real-ip`, `X-Real-IP`, and
+`X-Forwarded-For` values remained logged as `127.0.0.1`.
+
+The HTTP-01 webroot is `/var/lib/letsencrypt`; a temporary origin preflight file
+returned HTTP 200/no-store at the public domain, and a missing token returns
+404/no-store. Certbot's renewal method is `webroot` with the Nginx installer.
+`certbot reconfigure` completed a staging validation for both current SANs. The
+separate renewal file backup is
+`/opt/cafe-menu-release-backups/certbot-renewal-before-arvan-cdn-20261124T103257Z.conf`
+(SHA-256
+`dd75f67c6146199e9fc55e7bf75e8ad78af14abc81581266bf93bf36da766cab`). The
+production certificate serial and its `runncafe.ir` plus `www.runncafe.ir`
+SANs remain unchanged; expiry is 24 January 2027. `certbot.timer` is active.
+A separate `certbot renew --dry-run` invocation was stopped during Certbot's
+randomized delay before challenge validation; no production certificate was
+written. The successful `reconfigure` staging check is the ACME validation for
+this preparation.
+
+The CDN proxy and DNS were not activated or changed. Therefore, edge TLS,
+Arvan's forwarded-client header at the origin, and CDN-mediated ACME pass-
+through still require verification after activation. Until then, keep
+`/.well-known/acme-challenge/*` uncached and allowed to reach the origin on
+HTTP port 80. If `www` is permanently removed from DNS, the current SAN set
+cannot complete HTTP-01 renewal; an approved apex-only certificate replacement
+must precede removing `www`. No database, QR token, payment, or print data was
+changed.
