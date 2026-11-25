@@ -35,7 +35,7 @@ import {
   type ManagerCatalog,
 } from "../lib/api-client";
 import { formatToman } from "../lib/pos-utils";
-import { roundDiscountedAmount } from "@cafe/contracts";
+import { roundDiscountedAmount, uploadedProductImageUrl } from "@cafe/contracts";
 import { catalogProductImageUrl } from "../lib/catalog-image";
 import { EditIcon, TrashIcon, CloseIcon, OrdersIcon, SettingsIcon } from "./icons";
 
@@ -781,6 +781,7 @@ function ProductDrawer({
 }: any) {
   const [activeTab, setActiveTab] = useState("details");
   const [summaryImageFailed, setSummaryImageFailed] = useState(false);
+  const summaryImageUrl = initial?.image ? uploadedProductImageUrl(initial.image.storageKey) : null;
   const [productName, setProductName] = useState(initial?.name ?? "");
   const [selectedCategory, setSelectedCategory] = useState(initial?.categoryId ?? categoryId);
   const tabs = [{ id: "details", label: "مشخصات" }, { id: "options", label: "گزینه‌ها" }, { id: "discount", label: "تخفیف" }, { id: "image", label: "تصویر" }];
@@ -1093,7 +1094,7 @@ function ProductDrawer({
         <div className="catalog-product-drawer__content">
         <div className="product-editor__summary">
           <div className="product-editor__identity">
-            {initial?.image && !summaryImageFailed ? <img onError={() => setSummaryImageFailed(true)} src={`/pos/api/v1/product-images/${encodeURIComponent(initial.image.storageKey)}`} alt="" /> : <span className="product-editor__placeholder"><OrdersIcon /></span>}
+            {summaryImageUrl && !summaryImageFailed ? <img onError={() => setSummaryImageFailed(true)} src={summaryImageUrl} alt="" /> : <span className="product-editor__placeholder"><OrdersIcon /></span>}
             <div><strong>{productName || "محصول جدید"}</strong><small>{catalog.categories.find((item: any) => item.id === selectedCategory)?.name}</small></div>
           </div>
           <div><small>قیمت پایه</small><strong>{formatToman(priceAmount)} <span>تومان</span></strong></div>
@@ -1307,7 +1308,7 @@ function ImageEditor({ product, productBusy, onBusyChange, mutate, reload, reque
   const visibleImage =
     uploadedPreview ??
     (product.image
-      ? `/pos/api/v1/product-images/${encodeURIComponent(product.image.storageKey)}`
+      ? uploadedProductImageUrl(product.image.storageKey)
       : null);
   return (
     <form
@@ -1338,7 +1339,7 @@ function ImageEditor({ product, productBusy, onBusyChange, mutate, reload, reque
             let menuImage: Blob;
             try {
               menuImageResponse = await fetch(
-                `/pos/api/v1/product-images/${encodeURIComponent(result.data.data.storageKey)}`,
+                uploadedProductImageUrl(result.data.data.storageKey)!,
                 { cache: "no-store" },
               );
               menuImage = await menuImageResponse.blob();
