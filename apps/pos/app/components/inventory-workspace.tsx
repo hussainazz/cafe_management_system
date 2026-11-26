@@ -151,13 +151,16 @@ export function InventoryWorkspace({ catalog, turnoverEnabled = false, role = "M
   const clearIdempotencyKey = (name: string) => keys.current.delete(name);
 
   const loadedOnce = useRef(false);
+  const latestReload = useRef(0);
   const reload = useCallback(async () => {
+    const requestId = ++latestReload.current;
     if (!loadedOnce.current) setLoading(true);
     const results = await Promise.all([
       readInventoryStockItems(),
       readInventoryRecipes(),
       readPendingInventoryConsumption(),
     ]);
+    if (requestId !== latestReload.current) return;
     if (results[0]!.ok) setStockItems(results[0]!.data.data.stockItems);
     if (results[1]!.ok) setRecipes(results[1]!.data.data.recipes);
     if (results[2]!.ok) { setPending(results[2]!.data.data.consumptions); setPendingHasMore(results[2]!.data.meta?.page?.hasMore ?? false); }
@@ -528,7 +531,7 @@ function PurchasePanel({ refreshVersion, onNavigate, onDirtyChange, items, mutat
         {localError && <p className="form-error" role="alert">{localError}</p>}
         <div className="manager-fields"><label><span>زمان دریافت</span><input type="datetime-local" value={receivedAt} onChange={(event) => setReceivedAt(event.target.value)} required /></label><label><span>تأمین‌کننده (اختیاری)</span><input value={supplier} onChange={(event) => setSupplier(event.target.value)} /></label></div>
         {lines.map((line, index) => <div className="inventory-entry-row inventory-purchase-line" key={index}>
-          <InventorySearchPicker label="کالا" options={activeItems} value={line.stockItemId} onChange={(id) => { setDirty(true); changeStock(index, id); }} placeholder="جست‌وجوی کالا" required />
+          <InventorySearchPicker label="کالا" options={activeItems} value={line.stockItemId} onChange={(id) => { setDirty(true); changeStock(index, id); }} placeholder="جست‌وجوی کالا" required acceptExactMatchOnBlur />
           <label><span>واحد خرید</span><select value={line.conversionId} onChange={(event) => { const selected = unitsFor(line).find((unit) => unit.id === event.target.value); setLines((current) => current.map((row, rowIndex) => { if (rowIndex !== index) return row; const snapshotId = row.snapshotConversionId; return { ...row, conversionId: selected?.id ?? "", purchaseUnitLabel: selected?.label ?? "", useCurrentConversion: row.id === undefined || (snapshotId !== undefined && selected?.id === snapshotId) ? true : undefined }; })); }}>{unitsFor(line).map((unit) => <option key={`${unit.id}-${unit.label}`} value={unit.id}>{unit.title}</option>)}</select></label>
           <label><span>مقدار خرید ({unitsFor(line).find((unit) => unit.id === line.conversionId)?.title ?? "واحد انتخابی"})</span><InventoryNumberInput required value={line.purchaseQuantity} onValueChange={(value) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, purchaseQuantity: value } : row))} /></label>
           <label><span>هزینه‌ی مستقیم (تومان)</span><InventoryNumberInput required integer aria-describedby="purchase-cost-help" value={line.directCostAmount} onValueChange={(value) => setLines((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, directCostAmount: value } : row))} /></label>
@@ -974,15 +977,15 @@ function CountPanel({ refreshVersion, onOpenStock, onDirtyChange, items, pending
   const [appliedFilters, setAppliedFilters] = useState({ search: "", from: "", to: "", status: "" });
   const [filterError, setFilterError] = useState<string | null>(null);
   const [editingCount, setEditingCount] = useState<InventoryCount | null>(null);
-  const [lines, setLines] = useState<Array<{ stockItemId: string; expectedQuantity: string; observedQuantity: string; observedValueAmount: string }>>([]);
+  const [draftLines, setDraftLines] = useState<Array<{ stockItemId: string; expectedQuantity: string; observedQuantity: string; observedValueAmount: string }> | null>(null);
   const countFormRef = useRef<HTMLFormElement>(null);
   const [itemSearch, setItemSearch] = useState("");
   const hasFilters = !!(appliedFilters.search || appliedFilters.from || appliedFilters.to || appliedFilters.status || cursor);
   const clearFilters = () => { setFilters({ search: "", fromYear: currentPersianDate.year, fromValue: "", toYear: currentPersianDate.year, toValue: "", status: "" }); setAppliedFilters({ search: "", from: "", to: "", status: "" }); setFilterError(null); setCursor(null); setPreviousCursors([]); };
   const [reason, setReason] = useState("");
   const [reconcile, setReconcile] = useState<string[]>([]);
-  const eligibleLines = () => activeItems.filter((item) => !!item.balance.trackingStartedAt).map((item) => ({ stockItemId: item.id, expectedQuantity: item.balance.quantityOnHand ?? "0", observedQuantity: item.balance.quantityOnHand ?? "0", observedValueAmount: String(item.balance.carryingValueAmount ?? 0) }));
-  const countOptions = eligibleLines();
+  const countOptions = activeItems.filter((item) => !!item.balance.trackingStartedAt).map((item) => ({ stockItemId: item.id, expectedQuantity: item.balance.quantityOnHand ?? "0", observedQuantity: item.balance.quantityOnHand ?? "0", observedValueAmount: String(item.balance.carryingValueAmount ?? 0) }));
+  const lines = draftLines ?? countOptions;
   const activeItemsById = new Map(activeItems.map((item) => [item.id, item]));
   const matchingCountOptions = countOptions.filter((line) =>
     inventorySearchMatches(activeItemsById.get(line.stockItemId)?.name ?? "", itemSearch));
@@ -991,9 +994,8 @@ function CountPanel({ refreshVersion, onOpenStock, onDirtyChange, items, pending
     ? [...lines.filter((line) => matchingCountIds.has(line.stockItemId)), ...lines.filter((line) => !matchingCountIds.has(line.stockItemId))]
     : lines;
   const hasQuantityDifference = lines.some((line) => {
-    const observed = normalizeInventoryQuantity(line.observedQuantity);
-    const currentQuantity = items.find((item) => item.id === line.stockItemId)?.balance.quantityOnHand;
-    return observed !== normalizeInventoryQuantity(line.expectedQuantity) || (currentQuantity !== null && currentQuantity !== undefined && observed !== normalizeInventoryQuantity(currentQuantity));
+    const currentQuantity = activeItemsById.get(line.stockItemId)?.balance.quantityOnHand ?? line.expectedQuantity;
+    return normalizeInventoryQuantity(line.observedQuantity) !== normalizeInventoryQuantity(currentQuantity);
   });
   useEffect(() => {
     let current = true;
@@ -1023,13 +1025,12 @@ function CountPanel({ refreshVersion, onOpenStock, onDirtyChange, items, pending
     setPreviousCursors([]);
     setAppliedFilters({ search: filters.search.trim(), from: from ? tehranDayBoundary(from) : "", to: to ? tehranDayBoundary(to, true) : "", status: filters.status });
   };
-  useEffect(() => { if (lines.length === 0) setLines(eligibleLines()); }, [activeItems.length]);
-  const startEdit = (count: InventoryCount) => { if (dirty && !window.confirm("تغییرات شمارش ذخیره نشده است. شمارش دیگری را باز می‌کنید؟")) return; setDirty(false); setItemSearch(""); requestAnimationFrame(() => countFormRef.current?.querySelector<HTMLInputElement>("[data-inventory-number]")?.focus()); setEditingCount(count); setReason(count.reason ?? ""); setLines(count.lines.map((line) => ({ stockItemId: line.stockItemId, expectedQuantity: line.expectedQuantity ?? "0", observedQuantity: line.observedQuantity, observedValueAmount: String(line.observedValueAmount) }))); };
-  const resetCountDraft = () => { setDirty(false); setEditingCount(null); setItemSearch(""); setReason(""); setLines(eligibleLines()); };
+  const startEdit = (count: InventoryCount) => { if (dirty && !window.confirm("تغییرات شمارش ذخیره نشده است. شمارش دیگری را باز می‌کنید؟")) return; setDirty(false); setItemSearch(""); requestAnimationFrame(() => countFormRef.current?.querySelector<HTMLInputElement>("[data-inventory-number]")?.focus()); setEditingCount(count); setReason(count.reason ?? ""); setDraftLines(count.lines.map((line) => ({ stockItemId: line.stockItemId, expectedQuantity: line.expectedQuantity ?? "0", observedQuantity: line.observedQuantity, observedValueAmount: String(line.observedValueAmount) }))); };
+  const resetCountDraft = () => { setDirty(false); setEditingCount(null); setItemSearch(""); setReason(""); setDraftLines(null); };
   const submit = async (event: FormEvent) => { event.preventDefault(); const countLines = lines.map((line) => ({ stockItemId: line.stockItemId, observedQuantity: line.observedQuantity, observedValueAmount: Number(line.observedValueAmount) })); const countInput = { lines: countLines, ...(reason.trim() ? { reason: reason.trim() } : {}) }; const result = await mutateAndReload(() => editingCount ? updateInventoryCount(editingCount.id, { ...countInput, expectedVersion: editingCount.version }) : createInventoryCount({ ...countInput, kind: "PHYSICAL" })); if (result) resetCountDraft(); };
   return <div className="manager-grid">
     <ManagerCard title="شمارش فیزیکی موجودی" hint="مقدار و ارزش ثبت‌شده را با شمارش واقعی جایگزین کنید. اگر سفارشی هنوز از موجودی کم نشده، پیش از ثبت شمارش آن را انتخاب کنید.">
-      <p className="inventory-note">مقدارها با موجودی ثبت‌شده پر شده‌اند. مقدار واقعی هر قلم و ارزش کل آن را بررسی کنید؛ ذخیره‌ی پیش‌نویس، موجودی را تغییر نمی‌دهد.</p>
+      <p className="inventory-note">مقدار واقعی و ارزش کل هر قلم را وارد کنید. برای به‌روزرسانی موجودی، پیش‌نویس را ذخیره کنید و سپس در فهرست پیش‌نویس‌ها «ثبت شمارش» را بزنید.</p>
       <form ref={countFormRef} className="manager-form inventory-count-form" onChange={() => setDirty(true)} onSubmit={(event) => void submit(event)}>
         {countOptions.length > 0 && <fieldset className="inventory-option-choices inventory-count-options">
           <legend>اقلام این شمارش</legend>
@@ -1043,7 +1044,10 @@ function CountPanel({ refreshVersion, onOpenStock, onDirtyChange, items, pending
           <div className="inventory-count-options__list">
             {matchingCountOptions.map((eligible) => <label key={eligible.stockItemId}>
               <input type="checkbox" checked={lines.some((line) => line.stockItemId === eligible.stockItemId)}
-                onChange={(event) => setLines((current) => event.target.checked ? [...current, eligible] : current.filter((line) => line.stockItemId !== eligible.stockItemId))} />
+                onChange={(event) => {
+                  const checked = event.currentTarget.checked;
+                  setDraftLines((current) => checked ? [...(current ?? countOptions), eligible] : (current ?? countOptions).filter((line) => line.stockItemId !== eligible.stockItemId));
+                }} />
               شمارش {activeItemsById.get(eligible.stockItemId)?.name}
             </label>)}
           </div>
@@ -1053,14 +1057,14 @@ function CountPanel({ refreshVersion, onOpenStock, onDirtyChange, items, pending
           const item = activeItemsById.get(line.stockItemId);
           const unitLabel = item ? unitLabels[item.baseUnit as Unit] : "";
           const changeLine = (patch: Partial<Pick<typeof line, "observedQuantity" | "observedValueAmount">>) =>
-            setLines((current) => current.map((row) => row.stockItemId === line.stockItemId ? { ...row, ...patch } : row));
+            setDraftLines((current) => (current ?? countOptions).map((row) => row.stockItemId === line.stockItemId ? { ...row, ...patch } : row));
           return <div className="inventory-count-line" role="group" aria-label={item?.name ?? "کالا"} key={line.stockItemId}>
-            <div><strong>{item?.name ?? "کالا"}</strong><small className="inventory-cell-note">مقدار ثبت‌شده <bdi>{inventoryQuantity(line.expectedQuantity)}</bdi> {unitLabel}</small></div>
+            <div><strong>{item?.name ?? "کالا"}</strong><small className="inventory-cell-note">مقدار ثبت‌شده <bdi>{inventoryQuantity(item?.balance.quantityOnHand ?? line.expectedQuantity)}</bdi> {unitLabel}</small></div>
             <label><span>مقدار {unitLabel}</span><InventoryNumberInput required value={line.observedQuantity} onValueChange={(observedQuantity) => changeLine({ observedQuantity })} /></label>
             <label><span>ارزش موجودی (تومان)</span><InventoryNumberInput required integer value={line.observedValueAmount} onValueChange={(observedValueAmount) => changeLine({ observedValueAmount })} /></label>
           </div>;
         })}
-        {lines.length === 0 && (eligibleLines().length === 0 ? <InventoryEmptyState title="هنوز کالایی آماده‌ی شمارش نیست" detail="ابتدا مقدار و ارزش آغازین یک کالای فعال را در اقلام موجودی ثبت کنید؛ سپس آن را اینجا بشمارید." action="تکمیل موجودی آغازین" onAction={onOpenStock} /> : <p className="inventory-note">برای ثبت شمارش، حداقل یک قلم را از فهرست «اقلام این شمارش» انتخاب کنید.</p>)}
+        {lines.length === 0 && (countOptions.length === 0 ? <InventoryEmptyState title="هنوز کالایی آماده‌ی شمارش نیست" detail="ابتدا مقدار و ارزش آغازین یک کالای فعال را در اقلام موجودی ثبت کنید؛ سپس آن را اینجا بشمارید." action="تکمیل موجودی آغازین" onAction={onOpenStock} /> : <p className="inventory-note">برای ثبت شمارش، حداقل یک قلم را از فهرست «اقلام این شمارش» انتخاب کنید.</p>)}
         {hasQuantityDifference && <label><span>دلیل اختلاف موجودی (برای کل شمارش)</span><textarea required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="علت تفاوت مقدار شمارش‌شده با موجودی ثبت‌شده را بنویسید" /></label>}
         <div className="inventory-actions"><button type="submit" disabled={!lines.length || (hasQuantityDifference && !reason.trim())}>{editingCount ? "ذخیره پیش‌نویس شمارش" : "ایجاد پیش‌نویس شمارش"}</button>{editingCount && <button className="secondary-button" type="button" onClick={resetCountDraft}>انصراف از ویرایش</button>}</div>
       </form>
