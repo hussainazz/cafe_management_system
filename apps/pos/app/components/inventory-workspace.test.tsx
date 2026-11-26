@@ -107,6 +107,31 @@ it("uses the reference package size and price as defaults for a new purchase", a
   })));
 });
 
+it("keeps a fully typed purchase item when leaving the picker", async () => {
+  const anotherStock = { ...stock, id: "stock-2", name: "قهوه ترک" };
+  vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock, anotherStock], "stockItems") as never);
+  vi.mocked(api.createInventoryPurchase).mockResolvedValue(ok({ data: {} }) as never);
+  const user = userEvent.setup();
+  render(<InventoryWorkspace catalog={catalog} />);
+  const picker = await screen.findByRole("combobox", { name: "کالا" });
+  await user.click(picker);
+  fireEvent.change(picker, { target: { value: "قهو" } });
+  await user.tab();
+  expect(picker).toHaveProperty("value", "");
+
+  await user.click(picker);
+  fireEvent.change(picker, { target: { value: stock.name } });
+  expect(screen.getAllByRole("option")).toContain(screen.getByRole("option", { name: anotherStock.name }));
+  await user.tab();
+  expect(picker).toHaveProperty("value", stock.name);
+  expect(screen.getByLabelText("واحد خرید")).toHaveProperty("value", "");
+  expect(screen.getByLabelText("مقدار خرید (گرم)")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "ایجاد پیش‌نویس خرید" }));
+  await waitFor(() => expect(api.createInventoryPurchase).toHaveBeenCalledWith(expect.objectContaining({
+    lines: [expect.objectContaining({ stockItemId: stock.id })],
+  })));
+});
+
 it("keeps a draft receipt's saved unit snapshot selected after its stock conversion changes", async () => {
   const updatedStock = {
     ...stock,
@@ -641,7 +666,7 @@ describe("InventoryWorkspace", () => {
     await waitFor(() => expect(api.postInventoryPurchase).toHaveBeenCalledWith("purchase-1", 1, expect.any(String)));
   });
 
-  it("shows the count adjustments and absorbed order before posting", async () => {
+  it("reviews the count and absorbed order, then refreshes quantities after posting", async () => {
     const draft = { id: "count-1", kind: "PHYSICAL", status: "DRAFT", version: 2, lines: [{ stockItemId: stock.id, observedQuantity: "99.5", observedValueAmount: 19_900, differenceQuantity: "-0.5" }] };
     const waiting = { id: "pending-1", orderNumber: "42", knownCogsAmount: 405, recognizedAt: "2026-10-13T08:00:00.000Z", isCostComplete: true, missingStockItemIds: [] };
     vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([stock], "stockItems") as never);
@@ -657,8 +682,19 @@ describe("InventoryWorkspace", () => {
     expect(dialog.textContent).toContain("اختلاف -0.5");
     expect(dialog.textContent).toContain("42");
     expect(api.postInventoryCount).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("مقدار گرم")).toHaveProperty("value", "100");
+    const updatedStock = { ...stock, balance: { ...stock.balance, quantityOnHand: "99.5", carryingValueAmount: 19_900 } };
+    vi.mocked(api.readInventoryStockItems).mockResolvedValue(list([updatedStock], "stockItems") as never);
+    vi.mocked(api.readInventoryCounts).mockResolvedValue(list([{ ...draft, status: "POSTED" }], "counts") as never);
     fireEvent.click(within(dialog).getByRole("button", { name: "ثبت شمارش در موجودی" }));
     await waitFor(() => expect(api.postInventoryCount).toHaveBeenCalledWith("count-1", { expectedVersion: 2, absorbedOrderConsumptionIds: ["pending-1"] }, expect.any(String)));
+    await screen.findByText("شمارش فیزیکی · ثبت‌شده");
+    const countRow = within(screen.getByRole("group", { name: stock.name }));
+    expect(countRow.getByText("۹۹٫۵")).toBeTruthy();
+    expect(countRow.getByLabelText("مقدار گرم")).toHaveProperty("value", "99.5");
+    expect(countRow.getByLabelText("ارزش موجودی (تومان)")).toHaveProperty("value", "19,900");
+    fireEvent.click(screen.getByRole("button", { name: "اقلام موجودی" }));
+    expect(within(screen.getByRole("row", { name: /قهوه/ })).getByText("۹۹٫۵")).toBeTruthy();
   });
 
   it("saves a reusable option recipe and links it to product costing", async () => {
