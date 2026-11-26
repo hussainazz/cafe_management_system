@@ -1,3 +1,17 @@
+## Local delivery — stock-count quantities and purchase item selection (26 November 2026)
+
+- [x] Refresh the displayed stock quantity and untouched count inputs after a
+  physical count is posted. Preserve observations already entered in the form
+  and explain where to post a saved draft.
+- [x] Keep a fully typed purchase item selected when its name uniquely matches
+  an active stock item and the user moves to the next field.
+- [x] Pass all 293 POS tests, POS typecheck, and 69 isolated inventory API tests.
+  In authenticated local POS at `http://localhost:3002/pos` (658 × 584), verify
+  that posting the test count changes the displayed quantity from 100 to 80.5 g
+  in both the count form and stock list. Verify that the purchase item and its
+  units stay selected after tabbing out. Archive the dedicated local test item.
+- Left: production rollout and café-device verification.
+
 ## Production activation — coordinated application release (25 November 2026)
 
 - [x] Publish the tracked application and operations changes on `main` in
