@@ -100,6 +100,7 @@ export function InventorySearchPicker({
   placeholder,
   required,
   disabled,
+  acceptExactMatchOnBlur,
 }: {
   label: string;
   options: PickerOption[];
@@ -108,6 +109,7 @@ export function InventorySearchPicker({
   placeholder: string;
   required?: boolean;
   disabled?: boolean;
+  acceptExactMatchOnBlur?: boolean;
 }) {
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -120,6 +122,13 @@ export function InventorySearchPicker({
     query === null
       ? options
       : options.filter((option) => inventorySearchMatches(option.name, query));
+  const exactMatch = () => {
+    if (query === null) return undefined;
+    const name = normalizeInventorySearch(query);
+    if (!name) return undefined;
+    const exactMatches = matches.filter((option) => normalizeInventorySearch(option.name) === name);
+    return exactMatches.length === 1 ? exactMatches[0] : undefined;
+  };
   const close = () => {
     inputRef.current?.setCustomValidity("");
     setOpen(false);
@@ -146,7 +155,7 @@ export function InventorySearchPicker({
       );
     } else if (event.key === "Enter" && open) {
       event.preventDefault();
-      const option = matches[activeIndex] ?? (matches.length === 1 ? matches[0] : undefined);
+      const option = matches[activeIndex] ?? exactMatch() ?? (matches.length === 1 ? matches[0] : undefined);
       if (option) choose(option);
     } else if (event.key === "Escape" && open) {
       event.preventDefault();
@@ -178,7 +187,11 @@ export function InventorySearchPicker({
             if (!open) event.currentTarget.select();
             setOpen(true);
           }}
-          onBlur={close}
+          onBlur={() => {
+            const option = acceptExactMatchOnBlur ? exactMatch() : undefined;
+            if (option) choose(option);
+            else close();
+          }}
           onChange={(event) => {
             event.stopPropagation();
             if (required && !selectedName)
