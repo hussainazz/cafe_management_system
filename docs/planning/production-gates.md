@@ -897,3 +897,31 @@ aborted before modifying `node_modules`; the installed Prisma CLI then
 confirmed all migrations current, and the web workspace symlink was added to
 the already-deployed contracts package. No dependency installation, database
 reset, or seed ran during this release.
+
+## POS inventory display and purchase selection release — 27 November 2026
+
+Activated POS-only release `pos-20261126-aeb663f` on the configured production
+VPS. The source changes were pushed to `main` in separate per-file commits:
+`0dad82e`, `aeb663f`, `a65f480`, and `39d8740`. Runtime source commit is
+`aeb663f59f9e350b0a725ddeeb45cbfc8e79e7bd`.
+
+The artifact contains only the 150 manifested files under `apps/pos/.next`;
+SHA-256 is
+`f418fb6c288bf8955ed7de64b47e9110ddaf8fca6bcb67a9c38108b2a1375fe3`
+(945,722 bytes). The active manifest and POS `.next/BUILD_ID` both report
+`pos-20261126-aeb663f`. Schema changes are false and no migrations were applied;
+the production migration count remains 67. The verified POS rollback archive is
+`/opt/cafe-menu-release-backups/pos-before-pos-20261126-aeb663f.tar.gz`, SHA-256
+`4b82c02f77f8c7e9b929404cef5c0d92699184482bede692c98dfb3158f57d43`.
+
+Direct and public POS pages returned HTTP 200. Direct API readiness, direct and
+proxied POS API readiness returned HTTP 200. Direct and public `/pos/release`
+returned the new release ID with `no-store` caching. API, POS, web, and Nginx
+were active in the activation report; POS and web `NRestarts` were 0, while API
+`NRestarts` was 1. The report is
+`/opt/cafe-menu-release-staging/pos-20261126-aeb663f/activation-report.json`.
+The first activation attempt restored the previous POS runtime when the
+`Type=simple` service was still transitioning; after updating the helper to wait
+for service and endpoint readiness, the retry activated successfully in 6.2
+seconds. No API, web, database, payment, checkout, print, or product-image data
+was changed by this POS-only activation.
