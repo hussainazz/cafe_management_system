@@ -10,7 +10,7 @@
   that posting the test count changes the displayed quantity from 100 to 80.5 g
   in both the count form and stock list. Verify that the purchase item and its
   units stay selected after tabbing out. Archive the dedicated local test item.
-- Left: production rollout and café-device verification.
+- Left: café-device verification.
 
 ## Production activation — coordinated application release (25 November 2026)
 
